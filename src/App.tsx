@@ -35,8 +35,13 @@ import {
   type DshGoalProjection,
   type DshHistoryEntry,
   type DshJob,
+  type DshCommandDescriptor,
+  type DshCommandExecution,
+  type DshMessageFeedbackItem,
   type DshPluginInventoryEntry,
   type DshPluginInventorySnapshot,
+  type DshPermissionSelect,
+  type DshPlanProjection,
   type DshPreset,
   type DshPresetRoster,
   type DshQuestion,
@@ -116,6 +121,10 @@ const demoStatus: DshStatus = {
   message: "浏览器预览模式",
 };
 
+type FeedbackOperationResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: { code: string; current?: DshMessageFeedbackItem | null } };
+
 function App() {
   const desktop = isTauri();
   const [status, setStatus] = useState<DshStatus>(() => desktop
@@ -142,6 +151,10 @@ function App() {
   const [search, setSearch] = useState("");
   const [remoteSearchResults, setRemoteSearchResults] = useState<SessionSearchResult[] | null>(null);
   const [models, setModels] = useState<DshSessionModels | null>(null);
+  const [commands, setCommands] = useState<DshCommandDescriptor[]>([]);
+  const [feedback, setFeedback] = useState<Record<string, DshMessageFeedbackItem>>({});
+  const [permissionSelect, setPermissionSelect] = useState<DshPermissionSelect | null>(null);
+  const [plan, setPlan] = useState<DshPlanProjection | null>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelMenuPane, setModelMenuPane] = useState<ModelMenuPane>("root");
   const [sessionStats, setSessionStats] = useState<SessionStats>({ inputTokens: 0, outputTokens: 0, totalTokens: 0, contextTokens: 0, contextLimit: 0, cacheHitRate: 0, firstTokenMs: 0, messages: 0 });
@@ -259,6 +272,10 @@ function App() {
   const activeJobs = activeSessionId ? sessionJobs[activeSessionId] ?? [] : [];
   const approval = activeSessionId ? pendingApprovals[activeSessionId] ?? null : null;
   const question = activeSessionId ? pendingQuestions[activeSessionId] ?? null : null;
+  const pendingSessionIds = useMemo(
+    () => new Set([...Object.keys(pendingApprovals), ...Object.keys(pendingQuestions)]),
+    [pendingApprovals, pendingQuestions],
+  );
   const questionAnswers = activeSessionId ? questionAnswersBySession[activeSessionId] ?? {} : {};
   const questionCustomAnswers = activeSessionId ? questionCustomAnswersBySession[activeSessionId] ?? {} : {};
 
@@ -432,16 +449,27 @@ function App() {
   const composerCandidates = useMemo<ComposerCandidate[]>(() => {
     if (!composerTrigger) return [];
     if (composerTrigger.kind === "skill") {
-      return skills
+      const commandCandidates = commands
+        .filter((command) => `${command.name} ${command.description}`.toLocaleLowerCase().includes(composerTrigger.query))
+        .slice(0, 8)
+        .map((command) => ({
+          kind: "command" as const,
+          id: command.name,
+          label: `/${command.name}`,
+          detail: command.description,
+          insertText: `/${command.name}`,
+        }));
+      const skillCandidates = skills
         .filter((skill) => `${skill.name} ${skill.description}`.toLocaleLowerCase().includes(composerTrigger.query))
         .slice(0, 8)
         .map((skill) => ({
-          kind: "skill",
+          kind: "skill" as const,
           id: skill.name,
           label: `/${skill.name}`,
           detail: skill.description,
           insertText: `/${skill.name}`,
         }));
+      return [...commandCandidates, ...skillCandidates].slice(0, 8);
     }
     return childSubagents
       .filter((entry) => `${entry.label ?? ""} ${entry.id}`.toLocaleLowerCase().includes(composerTrigger.query))
@@ -456,7 +484,7 @@ function App() {
           insertText: `@${label}`,
         };
       });
-  }, [childSubagents, composerTrigger, skills]);
+  }, [childSubagents, commands, composerTrigger, skills]);
   const activeComposerCandidateIndex = composerCandidates.length === 0
     ? 0
     : Math.min(composerCandidateIndex, composerCandidates.length - 1);
@@ -584,14 +612,54 @@ function App() {
     }
   }
 
+  async function loadCommands(sessionId = activeSessionRef.current) {
+    if (!desktop || !sessionId) {
+      setCommands([]);
+      return;
+    }
+    try {
+      const result = await desktopClientRuntime.remote.invoke<DshCommandDescriptor[]>("commands", "list", { agentId: sessionId });
+      if (activeSessionRef.current !== sessionId) return;
+      setCommands(Array.isArray(result) ? [...result] : []);
+    } catch {
+      if (activeSessionRef.current !== sessionId) return;
+      setCommands([]);
+    }
+  }
+
+  async function loadFeedback(sessionId = activeSessionRef.current) {
+    if (!desktop || !sessionId) {
+      setFeedback({});
+      return;
+    }
+    try {
+      const result = await desktopClientRuntime.remote.invoke<{
+        ok: true;
+        value: { items: DshMessageFeedbackItem[] };
+      } | { ok: false; error: { code: string } }>("messageFeedback", "list", { sessionId });
+      if (activeSessionRef.current !== sessionId) return;
+      if (!result.ok) throw new Error(result.error.code);
+      setFeedback(Object.fromEntries(result.value.items.map((item) => [item.messageId, item])));
+    } catch {
+      if (activeSessionRef.current !== sessionId) return;
+      setFeedback({});
+    }
+  }
+
   useEffect(() => {
     setSubagentSession(null);
     setSelectedSubagentId(null);
     setSubagentLoadError(null);
     setSubagentPanelOpen(false);
     setSkills([]);
+    setCommands([]);
+    setFeedback({});
+    setPermissionSelect(null);
+    setPlan(null);
     void loadSubagents();
     if (activeSessionId) {
+      void loadCommands(activeSessionId);
+      void loadFeedback(activeSessionId);
       void bridgeRequest<{ skills: DshSkill[] }>("skill.list", { sessionId: activeSessionId })
         .then((result) => setSkills(result.skills))
         .catch(() => undefined);
@@ -614,6 +682,9 @@ function App() {
       }
       if (tab === "subagents" && activeSessionId) {
         setSubagents(await bridgeRequest<DshSubagentCatalog>("subagent.list", { parentSessionId: activeSessionId }));
+      }
+      if (tab === "runtime" && activeSessionId) {
+        await Promise.all([loadCommands(activeSessionId), loadFeedback(activeSessionId)]);
       }
       if (tab === "goal" && activeSessionId) {
         const historyResult = await bridgeRequest<{ events: DshHistoryEntry[]; projections?: { values: Record<string, unknown> } }>("session.history", { sessionId: activeSessionId, maxMessages: 100 });
@@ -854,8 +925,10 @@ function App() {
       setHistoryHasMore(historyResult.hasMore);
       const loadedStats = readSessionStats(historyResult.events, historyResult.projections);
       setSessionStats({ ...loadedStats, contextLimit: modelsResult.contextWindow ?? loadedStats.contextLimit });
-      setGoal((historyResult.projections?.values.goal as DshGoalProjection | null | undefined) ?? null);
       const projectionValues = historyResult.projections?.values;
+      setGoal((projectionValues?.goal as DshGoalProjection | null | undefined) ?? null);
+      setPermissionSelect((projectionValues?.permissions as DshPermissionSelect | null | undefined) ?? null);
+      setPlan((projectionValues?.plan as DshPlanProjection | null | undefined) ?? null);
       const projectedTodos = projectionValues && Object.prototype.hasOwnProperty.call(projectionValues, "todos")
         ? todoProjection(projectionValues.todos)
         : undefined;
@@ -933,6 +1006,8 @@ function App() {
     setSubagentSession,
     setQueue,
     setSessionJobs,
+    setPermissionSelect,
+    setPlan,
     setPendingApprovals,
     setPendingQuestions,
     setQuestionAnswersBySession,
@@ -964,6 +1039,7 @@ function App() {
       setNotice(message);
       setStatus((current) => current.runtimeAvailable ? current : { ...current, message });
     }).then((unlisten) => { cleanups.push(unlisten); });
+    void desktopClientRuntime.remote.on("commands/change", () => { void loadCommands(); }).then((unlisten) => { cleanups.push(unlisten); });
     void desktopClientRuntime.start(routedBridgeEvent).then((unlisten) => { cleanups.push(unlisten); });
     void boot();
     return () => { cleanups.forEach((cleanup) => cleanup?.()); };
@@ -1098,6 +1174,10 @@ function App() {
     setAttachments([]);
     setModels(null);
     setSessionStats({ inputTokens: 0, outputTokens: 0, totalTokens: 0, contextTokens: 0, contextLimit: 0, cacheHitRate: 0, firstTokenMs: 0, messages: 0 });
+    setCommands([]);
+    setFeedback({});
+    setPermissionSelect(null);
+    setPlan(null);
     setQueue([]);
     setQueueEditingId(null);
     setQueueEditingText("");
@@ -1147,6 +1227,16 @@ function App() {
     }
   }
 
+  async function executeCommandLine(sessionId: string, line: string) {
+    const execution = await desktopClientRuntime.remote.invoke<DshCommandExecution | undefined>("commands", "execute", { agentId: sessionId, line });
+    if (!execution) {
+      setNotice(`未知命令：${line}`);
+      return undefined;
+    }
+    if (execution.result.kind === "error") setNotice(execution.result.text);
+    return execution;
+  }
+
   async function sendPrompt() {
     const text = composer.trim();
     if ((!text && attachments.length === 0) || loading || !status.runtimeAvailable) return;
@@ -1154,6 +1244,18 @@ function App() {
     setNotice(promptMode === "steer" ? "正在插入当前回合" : "正在发送");
     try {
       const sessionId = await ensureSession();
+      const commandName = /^\/([a-z0-9][a-z0-9_-]*)(?:\s|$)/i.exec(text)?.[1].toLocaleLowerCase();
+      if (!attachments.length && commandName && commands.some((command) => command.name === commandName)) {
+        const execution = await executeCommandLine(sessionId, text);
+        if (!execution || execution.result.kind === "error") return;
+        setComposer("");
+        if (commandName === "export") {
+          await exportSessionZip(sessionId);
+        } else {
+          setNotice(execution.result.text || `/${commandName} 已执行`);
+        }
+        return;
+      }
       await bridgeRequest("session.prompt", {
         sessionId,
         mode: promptMode,
@@ -1303,6 +1405,111 @@ function App() {
     }
   }
 
+  async function putFeedback(messageId: string, rating: "positive" | "negative", note?: string) {
+    const sessionId = activeSessionRef.current;
+    if (!sessionId) return;
+    const current = feedback[messageId];
+    const result = await desktopClientRuntime.remote.invoke<FeedbackOperationResult<DshMessageFeedbackItem>>("messageFeedback", "put", {
+      sessionId,
+      messageId,
+      rating,
+      ...(note === undefined ? {} : { note }),
+      ifVersion: current?.version ?? null,
+    });
+    if (!result.ok) {
+      if (result.error.code === "version-conflict") {
+        setFeedback((items) => {
+          const next = { ...items };
+          if (result.error.current) next[messageId] = result.error.current;
+          else delete next[messageId];
+          return next;
+        });
+      }
+      throw new Error(`反馈未保存：${result.error.code}`);
+    }
+    setFeedback((items) => ({ ...items, [messageId]: result.value }));
+  }
+
+  async function deleteFeedback(messageId: string) {
+    const sessionId = activeSessionRef.current;
+    const current = feedback[messageId];
+    if (!sessionId || !current) return;
+    const result = await desktopClientRuntime.remote.invoke<FeedbackOperationResult<{ absent: true }>>("messageFeedback", "delete", {
+      sessionId,
+      messageId,
+      ifVersion: current.version,
+    });
+    if (!result.ok) {
+      if (result.error.code === "version-conflict") {
+        setFeedback((items) => {
+          const next = { ...items };
+          if (result.error.current) next[messageId] = result.error.current;
+          else delete next[messageId];
+          return next;
+        });
+      }
+      throw new Error(`反馈未删除：${result.error.code}`);
+    }
+    setFeedback((items) => {
+      const next = { ...items };
+      delete next[messageId];
+      return next;
+    });
+  }
+
+  async function rateMessage(messageId: string, rating: "positive" | "negative") {
+    try {
+      if (feedback[messageId]?.rating === rating) await deleteFeedback(messageId);
+      else await putFeedback(messageId, rating, feedback[messageId]?.note);
+      setNotice("反馈已更新");
+    } catch (error) {
+      setNotice(errorText(error));
+    }
+  }
+
+  async function editMessageFeedback(messageId: string) {
+    const current = feedback[messageId];
+    if (!current) {
+      setNotice("请先选择赞或踩");
+      return;
+    }
+    const draft = window.prompt("反馈备注", current.note ?? "");
+    if (draft === null) return;
+    try {
+      await putFeedback(messageId, current.rating, draft.trim() || undefined);
+      setNotice(draft.trim() ? "反馈备注已更新" : "反馈备注已清除");
+    } catch (error) {
+      setNotice(errorText(error));
+    }
+  }
+
+  async function runCommand(line: string) {
+    const sessionId = activeSessionRef.current;
+    if (!sessionId) return;
+    try {
+      const execution = await executeCommandLine(sessionId, line);
+      if (execution?.result.kind === "success" && execution.result.text) setNotice(execution.result.text);
+    } catch (error) {
+      setNotice(errorText(error));
+    }
+  }
+
+  function insertCommand(line: string) {
+    setComposer(line);
+    setShowInspector(false);
+    setNotice("命令已放入输入框");
+  }
+
+  async function setPermissionPreset(value: string) {
+    if (value === "custom") return;
+    if (value === "danger-full-access" && !window.confirm("危险权限会允许 DSH 在当前工作区执行不受限制的操作，确定切换吗？")) return;
+    await runCommand(`/permission ${value}`);
+  }
+
+  async function togglePlan() {
+    await runCommand(plan?.active ? "/plan off" : "/plan");
+  }
+
   async function exportSession() {
     const sessionId = activeSessionRef.current;
     if (!sessionId) return;
@@ -1334,6 +1541,31 @@ function App() {
       setNotice(`已导出 ${exported.length} 条事件`);
     } catch (error) {
       setNotice(`导出失败：${errorText(error)}`);
+    }
+  }
+
+  async function exportSessionZip(sessionId = activeSessionRef.current) {
+    if (!sessionId) return;
+    setNotice("正在生成会话 ZIP");
+    try {
+      const result = await bridgeRequest<{ base64: string; contentType: string; filename: string; size: number }>("session.exportZip", {
+        sessionId,
+        includeDescendants: true,
+      });
+      const binary = atob(result.base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+      const url = URL.createObjectURL(new Blob([bytes], { type: result.contentType }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = result.filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setNotice(`已导出 ZIP（${result.size} 字节）`);
+    } catch (error) {
+      setNotice(`ZIP 导出失败：${errorText(error)}`);
     }
   }
 
@@ -1628,6 +1860,7 @@ function App() {
           onChooseWorkspace={chooseWorkspace}
           activeSessionId={activeSessionId}
           sessionIndicators={sessionIndicators}
+          pendingSessionIds={pendingSessionIds}
           searchResultById={searchResultById}
           workspaceBySessionId={workspaceBySessionId}
           dragOverSessionId={dragOverSessionId}
@@ -1670,6 +1903,7 @@ function App() {
             onToggleJobs={() => { setJobsOpen((open) => !open); setJobNow(Date.now()); }}
             onToggleTrajectory={() => setTrajectoryOpen((open) => !open)}
             onExport={exportSession}
+            onExportZip={() => exportSessionZip()}
             onFork={forkSession}
           />
 
@@ -1690,6 +1924,7 @@ function App() {
             runtimeDirectory={status.runtimeDirectory}
             modelName={models?.current.model ?? "默认模型"}
             presets={presets}
+            feedback={feedback}
             nextPreset={nextPreset}
             presetMenuOpen={presetMenuOpen}
             onLoadOlder={loadOlderHistory}
@@ -1698,6 +1933,8 @@ function App() {
             onTogglePresetMenu={() => setPresetMenuOpen((open) => !open)}
             onStagePreset={stagePresetForNextSession}
             onCopyMessage={copyMessage}
+            onFeedback={rateMessage}
+            onEditFeedback={editMessageFeedback}
             onForkSession={forkSession}
             onOpenSessionPath={openSessionPath}
           />
@@ -1823,7 +2060,14 @@ function App() {
               runtimeDetails={runtimeDetails}
               sessionStats={sessionStats}
               workspaceCount={workspaces.length}
+              commands={commands}
+              permissions={permissionSelect}
+              plan={plan}
               onAddWorkspace={addWorkspace}
+              onRunCommand={runCommand}
+              onInsertCommand={insertCommand}
+              onSetPermission={setPermissionPreset}
+              onTogglePlan={togglePlan}
             />}
 
             {surfaceTab === "presets" && <PresetSurfacePanel

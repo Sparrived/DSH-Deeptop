@@ -993,6 +993,26 @@ textarea:focus-visible {
   box-shadow: 0 0 0 2px rgba(212, 109, 103, 0.16);
 }
 
+.session-indicator.pending {
+  background: #e4b85f;
+  box-shadow: 0 0 0 2px rgba(228, 184, 95, 0.18);
+  animation: session-pending-pulse 1.35s ease-in-out infinite;
+}
+
+@keyframes session-pending-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 2px rgba(228, 184, 95, 0.18);
+    opacity: 0.9;
+    transform: scale(1);
+  }
+
+  50% {
+    box-shadow: 0 0 0 4px rgba(228, 184, 95, 0.04);
+    opacity: 1;
+    transform: scale(1.45);
+  }
+}
+
 .session-row-copy {
   min-width: 0;
   display: grid;
@@ -2793,6 +2813,12 @@ textarea:focus-visible {
 .message-actions button:hover {
   border-color: var(--line-strong);
   color: var(--accent-deep);
+}
+
+.message-actions button.selected {
+  border-color: var(--accent);
+  color: var(--accent-deep);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .reasoning-entry {
@@ -4901,6 +4927,51 @@ textarea:focus-visible {
   border-top: 1px solid var(--line-strong);
 }
 
+.surface-select {
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 7px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: 10px;
+}
+
+.surface-inline-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.command-directory {
+  display: grid;
+  gap: 6px;
+}
+
+.command-directory-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.command-directory-row:last-child {
+  border-bottom: 0;
+}
+
+.command-directory-row strong {
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.command-directory-row p {
+  margin: 3px 0 0;
+}
+
 .settings-preset-groups {
   display: grid;
   gap: 18px;
@@ -6138,6 +6209,7 @@ textarea:focus-visible {
 
 .app-shell {
   background: var(--paper);
+  overflow: hidden;
 }
 
 .window-bar {

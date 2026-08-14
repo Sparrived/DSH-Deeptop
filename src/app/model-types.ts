@@ -52,6 +52,7 @@ export type TranscriptItem = {
   label: string;
   text: string;
   seq?: number;
+  messageId?: string;
   time?: number;
   toolName?: string;
   toolCallId?: string;
@@ -132,7 +133,7 @@ export type CustomProviderDraft = {
 };
 
 export type ComposerCandidate = {
-  kind: "skill" | "subagent";
+  kind: "skill" | "command" | "subagent";
   id: string;
   label: string;
   detail?: string;
@@ -166,6 +167,12 @@ export type SessionStats = {
   cacheHitRate: number;
   firstTokenMs: number;
   messages: number;
+  turns?: number;
+  steps?: number;
+  llmMs?: number;
+  toolMs?: number;
+  ttftMs?: number;
+  decodeMs?: number;
 };
 
 export type DiffHunk = {

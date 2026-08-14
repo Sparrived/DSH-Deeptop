@@ -66,11 +66,13 @@ export function transcriptFromHistory(entries: DshHistoryEntry[]): TranscriptIte
     }
     if (event.type === "assistant/message") {
       const stream = streams.get(streamKey(event));
+      const message = recordValue(event.data.message);
+      const messageId = typeof message?.id === "string" ? message.id : undefined;
       const segments = contentSegments(assistantContent(event));
       const reasoning = segments.reasoning || stream?.reasoning || "";
       const text = segments.text || stream?.text || "";
       if (reasoning) items.push({ key: `reasoning-${event.seq}`, kind: "reasoning", label: "Think", text: reasoning, seq: stream?.seq ?? event.seq, time: event.time });
-      if (text || segments.images.length > 0) items.push({ key: `event-${event.seq}`, kind: "assistant", label: "DSH", text, images: segments.images, seq: event.seq, time: event.time });
+      if (text || segments.images.length > 0) items.push({ key: `event-${event.seq}`, kind: "assistant", label: "DSH", text, images: segments.images, seq: event.seq, messageId, time: event.time });
       streams.delete(streamKey(event));
       continue;
     }

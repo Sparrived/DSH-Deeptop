@@ -1,5 +1,5 @@
 import type { RefObject, UIEvent } from "react";
-import type { DshHistoryEntry, DshPreset, DshSessionSummary } from "../lib/desktop";
+import type { DshHistoryEntry, DshMessageFeedbackItem, DshPreset, DshSessionSummary } from "../lib/desktop";
 import { MarkdownContent } from "../lib/markdown";
 import { TrajectoryView } from "./TrajectoryView";
 import {
@@ -30,6 +30,7 @@ type ConversationTranscriptProps = {
   runtimeDirectory: string;
   modelName: string;
   presets: DshPreset[];
+  feedback: Record<string, DshMessageFeedbackItem>;
   nextPreset: string | null;
   presetMenuOpen: boolean;
   onLoadOlder: () => void | Promise<void>;
@@ -38,6 +39,8 @@ type ConversationTranscriptProps = {
   onTogglePresetMenu: () => void;
   onStagePreset: (id: string) => void;
   onCopyMessage: (text: string) => void | Promise<void>;
+  onFeedback: (messageId: string, rating: "positive" | "negative") => void | Promise<void>;
+  onEditFeedback: (messageId: string) => void | Promise<void>;
   onForkSession: (sessionId: string, seq?: number) => void | Promise<void>;
   onOpenSessionPath: (path: string) => void | Promise<void>;
 };
@@ -102,6 +105,7 @@ export function ConversationTranscript({
   runtimeDirectory,
   modelName,
   presets,
+  feedback,
   nextPreset,
   presetMenuOpen,
   onLoadOlder,
@@ -110,6 +114,8 @@ export function ConversationTranscript({
   onTogglePresetMenu,
   onStagePreset,
   onCopyMessage,
+  onFeedback,
+  onEditFeedback,
   onForkSession,
   onOpenSessionPath,
 }: ConversationTranscriptProps) {
@@ -206,6 +212,11 @@ export function ConversationTranscript({
                 {(item.kind === "user" || item.kind === "assistant") && (
                   <div className="message-actions">
                     <button type="button" onClick={() => void onCopyMessage(item.text)} title="复制消息">复制</button>
+                    {item.kind === "assistant" && item.messageId && <>
+                      <button className={feedback[item.messageId]?.rating === "positive" ? "selected" : ""} type="button" onClick={() => void onFeedback(item.messageId!, "positive")} title="标记为有帮助">赞</button>
+                      <button className={feedback[item.messageId]?.rating === "negative" ? "selected" : ""} type="button" onClick={() => void onFeedback(item.messageId!, "negative")} title="标记为需要改进">踩</button>
+                      <button type="button" onClick={() => void onEditFeedback(item.messageId!)} title="编辑反馈备注">{feedback[item.messageId]?.note ? "备注" : "加备注"}</button>
+                    </>}
                     {item.kind === "assistant" && item.seq !== undefined && activeSessionId && (
                       <button type="button" onClick={() => void onForkSession(activeSessionId, item.seq)} title="从此消息分叉">分叉</button>
                     )}

@@ -46,6 +46,7 @@ type SessionSidebarProps = {
   onChooseWorkspace: (path: string) => void;
   activeSessionId: string | null;
   sessionIndicators: Record<string, "idle" | "running" | "completed" | "error">;
+  pendingSessionIds: ReadonlySet<string>;
   searchResultById: Map<string, string>;
   workspaceBySessionId: Map<string, DshWorkspace>;
   dragOverSessionId: string | null;
@@ -82,6 +83,7 @@ export function SessionSidebar({
   onChooseWorkspace,
   activeSessionId,
   sessionIndicators,
+  pendingSessionIds,
   searchResultById,
   workspaceBySessionId,
   dragOverSessionId,
@@ -95,6 +97,7 @@ export function SessionSidebar({
     session={session}
     active={session.sessionId === activeSessionId}
     indicator={sessionIndicators[session.sessionId] ?? "idle"}
+    pending={pendingSessionIds.has(session.sessionId)}
     snippet={searchResultById.get(session.sessionId)}
     canDrag={Boolean(workspaceBySessionId.get(session.sessionId))}
     dragOver={dragOverSessionId === session.sessionId}

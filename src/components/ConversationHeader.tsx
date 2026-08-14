@@ -18,6 +18,7 @@ type ConversationHeaderProps = {
   onToggleJobs: () => void;
   onToggleTrajectory: () => void;
   onExport: () => void | Promise<void>;
+  onExportZip: () => void | Promise<void>;
   onFork: () => void | Promise<void>;
 };
 
@@ -38,6 +39,7 @@ export function ConversationHeader({
   onToggleJobs,
   onToggleTrajectory,
   onExport,
+  onExportZip,
   onFork,
 }: ConversationHeaderProps) {
   return (
@@ -72,6 +74,7 @@ export function ConversationHeader({
         </div>}
         {activeSession && <button className={`header-action trajectory-toggle${trajectoryOpen ? " selected" : ""}`} onClick={onToggleTrajectory} title="查看当前会话轨迹" aria-pressed={trajectoryOpen}>轨迹</button>}
         {activeSession && <button className="header-action" onClick={() => void onExport()} title="导出当前会话 JSON">导出</button>}
+        {activeSession && <button className="header-action" onClick={() => void onExportZip()} title="导出当前会话 ZIP">ZIP</button>}
         {activeSession && <button className="header-action" onClick={() => void onFork()} title="从当前会话分叉">分叉</button>}
       </div>
     </header>

@@ -82,6 +82,7 @@ export function numberValue(value: unknown): number | undefined {
 
 export function readSessionStats(entries: DshHistoryEntry[], projections?: { values: Record<string, unknown> }): SessionStats {
   const values = projections?.values ?? {};
+  const official = recordValue(values.sessionStats);
   const usage = recordValue(values.usage ?? values.tokenUsage ?? values.tokens);
   const pressure = recordValue(values.contextPressure);
   const uncachedInput = numberValue(usage?.uncachedInputTokens);
@@ -114,7 +115,24 @@ export function readSessionStats(entries: DshHistoryEntry[], projections?: { val
       if (eventOutput !== undefined) outputTokens = Math.max(outputTokens, eventOutput);
     }
   }
-  return { inputTokens, outputTokens, totalTokens: totalTokens || inputTokens + outputTokens, contextTokens, contextLimit, cacheHitRate: cacheRead + cacheWrite > 0 ? Math.min(100, (cacheRead / (cacheRead + cacheWrite + (uncachedInput ?? 0))) * 100) : 0, firstTokenMs, messages: entries.filter(({ event }) => event.type === "user/message" || event.type === "assistant/message").length };
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens: totalTokens || inputTokens + outputTokens,
+    contextTokens,
+    contextLimit,
+    cacheHitRate: cacheRead + cacheWrite > 0 ? Math.min(100, (cacheRead / (cacheRead + cacheWrite + (uncachedInput ?? 0))) * 100) : 0,
+    firstTokenMs,
+    messages: entries.filter(({ event }) => event.type === "user/message" || event.type === "assistant/message").length,
+    ...(official ? {
+      turns: numberValue(official.turns),
+      steps: numberValue(official.steps),
+      llmMs: numberValue(official.llmMs),
+      toolMs: numberValue(official.toolMs),
+      ttftMs: numberValue(official.ttftMs),
+      decodeMs: numberValue(official.decodeMs),
+    } : {}),
+  };
 }
 
 export function formatTokens(value: number) {

@@ -13,7 +13,7 @@ export function ComposerCandidates({ candidates, triggerKind, dismissed, activeI
 
   return (
     <div className="composer-candidates" id="composer-candidates" role="listbox" aria-label="输入候选">
-      <div className="composer-candidates-heading">{triggerKind === "skill" ? "Skill" : "Subagent"}</div>
+      <div className="composer-candidates-heading">{triggerKind === "skill" ? "Command / Skill" : "Subagent"}</div>
       {candidates.map((candidate, index) => (
         <button
           className={`composer-candidate${index === activeIndex ? " selected" : ""}`}

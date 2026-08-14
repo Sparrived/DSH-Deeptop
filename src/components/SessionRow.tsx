@@ -6,6 +6,7 @@ interface SessionRowProps {
   session: DshSessionSummary;
   active: boolean;
   indicator: "idle" | "running" | "completed" | "error" | "";
+  pending: boolean;
   snippet?: string;
   canDrag: boolean;
   dragOver: boolean;
@@ -20,6 +21,7 @@ export function SessionRow({
   session,
   active,
   indicator,
+  pending,
   snippet,
   canDrag,
   dragOver,
@@ -64,7 +66,7 @@ export function SessionRow({
     }}
   >
     <button className="session-row-main" onClick={() => void onOpen(session)}>
-      <span className={"session-indicator " + (indicator || (session.running ? "running" : ""))} />
+      <span className={"session-indicator " + (pending ? "pending" : (indicator || (session.running ? "running" : "")))} />
       <span className="session-row-copy"><strong>{displayTitle(session)}</strong><small className={snippet ? "session-search-snippet" : undefined}>{snippet || (formatDate(session.updatedAt) + (session.cwd ? " · " + projectName(session.cwd) : ""))}</small></span>
     </button>
     <button className="session-row-trigger" onClick={(event) => {

@@ -5,8 +5,11 @@ import {
   type DshGoalProjection,
   type DshHistoryEntry,
   type DshJob,
+  type DshPermissionSelect,
+  type DshPlanProjection,
   type DshQuestion,
   type DshQueueItem,
+  type DshSessionStatsProjection,
   type DshSessionEvent,
   type DshSessionSummary,
   type DshSubagentCatalog,
@@ -33,6 +36,8 @@ type BridgeEventHandlerContext = {
   setSubagentSession: Dispatch<SetStateAction<SubagentSession | null>>;
   setQueue: Dispatch<SetStateAction<DshQueueItem[]>>;
   setSessionJobs: Dispatch<SetStateAction<Record<string, DshJob[]>>>;
+  setPermissionSelect: Dispatch<SetStateAction<DshPermissionSelect | null>>;
+  setPlan: Dispatch<SetStateAction<DshPlanProjection | null>>;
   setPendingApprovals: Dispatch<SetStateAction<Record<string, PendingApproval>>>;
   setPendingQuestions: Dispatch<SetStateAction<Record<string, PendingQuestion>>>;
   setQuestionAnswersBySession: Dispatch<SetStateAction<Record<string, Record<string, string[]>>>>;
@@ -70,6 +75,8 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
     setSubagentSession,
     setQueue,
     setSessionJobs,
+    setPermissionSelect,
+    setPlan,
     setPendingApprovals,
     setPendingQuestions,
     setQuestionAnswersBySession,
@@ -96,7 +103,11 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
         if (next.length !== current.length) {
           setSessionStats((currentStats) => {
             const nextStats = readSessionStats(next);
-            return nextStats.contextLimit > 0 ? nextStats : { ...nextStats, contextLimit: currentStats.contextLimit };
+            return {
+              ...currentStats,
+              ...nextStats,
+              contextLimit: nextStats.contextLimit > 0 ? nextStats.contextLimit : currentStats.contextLimit,
+            };
           });
         }
         return next;
@@ -140,6 +151,29 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
           totalTokens: uncachedInput + cacheRead + cacheWrite + (numberValue(projection.outputTokens) ?? current.outputTokens),
         }));
       }
+      return;
+    }
+    if (key === "sessionStats" && sessionId === activeSessionRef.current) {
+      const projection = recordValue(payload.value) as unknown as DshSessionStatsProjection | null;
+      if (projection) {
+        setSessionStats((current) => ({
+          ...current,
+          turns: numberValue(projection.turns),
+          steps: numberValue(projection.steps),
+          llmMs: numberValue(projection.llmMs),
+          toolMs: numberValue(projection.toolMs),
+          ttftMs: numberValue(projection.ttftMs),
+          decodeMs: numberValue(projection.decodeMs),
+        }));
+      }
+      return;
+    }
+    if (key === "permissions" && sessionId === activeSessionRef.current) {
+      setPermissionSelect((payload.value as DshPermissionSelect | null | undefined) ?? null);
+      return;
+    }
+    if (key === "plan" && sessionId === activeSessionRef.current) {
+      setPlan((payload.value as DshPlanProjection | null | undefined) ?? null);
       return;
     }
     if (key === "todos" && sessionId === activeSessionRef.current) {
