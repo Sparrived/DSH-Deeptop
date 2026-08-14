@@ -17,9 +17,14 @@ The desktop workbench currently provides the core WebUI conversation surface:
 - queue/steer prompt modes, stop current turn, tool-call/result rows and the turn-aware trajectory ledger;
 - native approval and question response paths;
 - native DSH workbench with a Profile roster, Skill catalog, Subagent history/follow-up/interruption, Goal lifecycle, Host settings, and Provider/model catalogs;
+- approval-gated GitHub Skill installation with download and sparse-git fallback;
 - runtime inspector for DSH host, Cordis profile, workspaces and active routes.
 
 The bridge forwards the same DSH `ApiProxy` domains used by the WebUI: sessions, subagents, skills, goals, settings, credentials, provider discovery, directory browsing, workspaces and preset authoring. The native UI consumes those domains directly; it does not duplicate plugin logic in the desktop process. If an optional domain is absent from a profile, its panel stays unavailable while the Agent conversation remains usable.
+
+## Official plugin compatibility
+
+Deeptop is a pure desktop runtime framework. WebUI-only ModuleLoader, client runner, slot injection and client lifecycle are outside the compatibility target. Other official Host/Cordis services, Remote contracts, Session Projections, events and data semantics should be reused and adapted through the native Tauri bridge and React UI. See [PLUGIN_COMPATIBILITY.md](PLUGIN_COMPATIBILITY.md) for the compatibility matrix and remaining work.
 
 ## Runtime model
 

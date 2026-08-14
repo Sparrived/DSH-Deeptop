@@ -17,9 +17,16 @@ Deeptop 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 
 - 排队/插入提示模式、停止当前轮次、工具调用/结果行，以及按轮次组织的轨迹账本；
 - 原生审批和问题响应流程；
 - 原生 DSH 运行台：Profile 清单、Skill 目录、Subagent 历史/追问/中断、Goal 生命周期、Host 设置，以及 Provider 和模型目录；
+- 受审批保护的 GitHub Skill 安装，支持直接下载和 sparse checkout fallback；
 - DSH Host、Cordis Profile、工作区和活动路由的运行时检查器。
 
 Bridge 会转发 WebUI 使用的相同 DSH `ApiProxy` 域：会话、Subagent、Skill、Goal、设置、凭据、Provider 发现、目录浏览、工作区和 Preset 编写。原生界面直接使用这些域，不会在桌面进程中重复实现插件逻辑。如果某个可选域未包含在 Profile 中，其面板会保持不可用，但 Agent 对话仍然可以使用。
+
+## 官方插件兼容定位
+
+Deeptop 是纯桌面端运行框架。项目不兼容纯 WebUI 的 ModuleLoader、Client Runner、slot 注入和客户端生命周期；这些是明确排除的 WebUI 实现细节。除这些内容外，官方插件的 Host/Cordis 服务、Remote 契约、Session Projection、事件和数据语义都应优先复用，并在 Tauri Bridge 和原生 React 界面中完成适配。
+
+详细的插件分层、当前覆盖范围和待修改项见 [官方插件兼容策略](PLUGIN_COMPATIBILITY.md)。
 
 ## 运行架构
 

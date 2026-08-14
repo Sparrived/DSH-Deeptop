@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { routeDesktopRequest } from './routes.mjs'
+import { parseGitHubSource, validateRelativeRepoPath } from './skill-installer.mjs'
 
 const signal = new AbortController().signal
 
@@ -88,6 +89,29 @@ test('rejects methods outside the bridge allowlist', async () => {
     routeDesktopRequest({ apiProxy: {} }, 'internal.secret', {}, signal),
     /does not expose/,
   )
+})
+
+test('validates GitHub skill install sources before any network request', async () => {
+  await assert.rejects(
+    routeDesktopRequest({}, 'skill.install', { source: 'https://example.com/acme/skill' }, signal),
+    /只支持 HTTPS GitHub 地址/,
+  )
+})
+
+test('parses Codex-compatible GitHub repository and tree sources', () => {
+  assert.deepEqual(parseGitHubSource({ source: 'https://github.com/anthropics/skills/tree/main/skills/frontend-design' }), {
+    owner: 'anthropics',
+    repo: 'skills',
+    ref: 'main',
+    path: 'skills/frontend-design',
+  })
+  assert.deepEqual(parseGitHubSource({ source: 'https://github.com/Leonxlnx/taste-skill' }), {
+    owner: 'Leonxlnx',
+    repo: 'taste-skill',
+    ref: 'main',
+    path: undefined,
+  })
+  assert.throws(() => validateRelativeRepoPath('../outside'), /仓库内的相对路径/)
 })
 
 test('buffers the official session ZIP endpoint for the native download surface', async () => {

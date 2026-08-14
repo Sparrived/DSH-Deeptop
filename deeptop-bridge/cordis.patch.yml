@@ -70,9 +70,13 @@
     - id: desktop-bridge
       name: 'deeptop-bridge'
 
+    - id: skill-installer
+      name: 'deeptop-bridge/skill-install-plugin'
+
 # The desktop surface uses the same per-session agent-preset arrangement as
 # the web surface. Host services remain shared; each session gets its own
-# model-facing tools and prompt composition.
+# model-facing tools and prompt composition. Skill installation is a separate
+# host plugin so it can be disabled without stopping the desktop bridge.
 - id: tool-bash
   disabled: true
 

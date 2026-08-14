@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { installSkillFromSource } from './skill-installer.mjs'
 
 function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -119,6 +120,7 @@ export async function routeDesktopRequest(ctx, method, payload, signal) {
     case 'workspace.insertSessionBefore': return api.workspace.insertSessionBefore(request)
     case 'workspace.archiveSession': return api.workspace.archiveSession(request)
     case 'skill.list': return api.skills.list(request)
+    case 'skill.install': return installSkillFromSource(payload, { signal })
     case 'agentPreset.list': return api.agentPresets.list(request)
     case 'agentPreset.select': return api.agentPresets.select(request)
     case 'agentPreset.read': return api.agentPresets.read(request)

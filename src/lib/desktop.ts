@@ -115,6 +115,18 @@ export interface DshSkill {
   modelInvocable: boolean;
 }
 
+export interface DshSkillInstallResult {
+  skillName: string;
+  source: string;
+  ref: string;
+  path: string;
+  installPath: string;
+  method: "download" | "git";
+  registered: boolean;
+  visibleInCurrentSession?: boolean;
+  warnings: string[];
+}
+
 export type DshSubagentEntry =
   | {
     kind: "child";

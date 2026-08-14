@@ -1,8 +1,19 @@
 # Deeptop Architecture
 
-Deeptop is a native shell around a DSH runtime. The desktop UI owns presentation
-state and user interaction; DSH owns sessions, agents, tools, settings and
-persistence. The bridge is the only protocol boundary between them.
+Deeptop is a pure desktop runtime framework around DSH. The desktop UI owns
+presentation state and user interaction; DSH owns sessions, agents, tools,
+settings, plugin services and persistence. The bridge is the only protocol
+boundary between them.
+
+The compatibility target is official DSH Host/Cordis behavior, Remote
+contracts, projections, events and data semantics. WebUI-only client machinery
+is deliberately outside the target: `window.__ModuleLoader__`, the Cordis
+client runner, client plugin lifecycle, slot injection and browser-specific UI
+composition are not required by the desktop architecture. Official domain
+capabilities should be reused through the DSH profile and adapted at the
+native Bridge/React boundary when a desktop entry is needed. See
+[PLUGIN_COMPATIBILITY.md](PLUGIN_COMPATIBILITY.md) for the plugin matrix and
+remaining work.
 
 ## Layers
 
@@ -61,14 +72,19 @@ interaction parsers in `ui-model.ts`, and trajectory parsing in
 
 The entry module does not contain protocol details. `bridge.mjs` owns stdin,
 stdout, JSONL validation, event streams and cancellation. `routes.mjs` owns the
-allowlisted desktop method map, including `remote.invoke`. Adding an exposed API should therefore touch
-the route map and the TypeScript contract together, instead of growing the
-plugin lifecycle code.
+allowlisted desktop method map, including `remote.invoke` and `skill.install`.
+The separate `skill-installer` Cordis plugin registers the approval-gated model
+tool `skill-install`. Both surfaces call the shared GitHub installer and leave
+catalog refresh to the official skill filesystem watcher. Adding an exposed API
+should therefore touch the route map and the TypeScript contract together,
+instead of growing the plugin lifecycle code.
 
 This is a loopback adapter, not a second WebUI module loader. Official `dsh.client`
 bundles still require `window.__ModuleLoader__`, Cordis client contexts and the
-WebUI slot assembly; they must be explicitly adapted or loaded through a future
-desktop client shell.
+WebUI slot assembly. They are intentionally not loaded by the desktop shell;
+their Host/Remote contracts may still be reused through a native adapter. A
+future full WebUI compatibility mode, if ever required, must be designed as a
+separate runtime rather than mixed into this desktop boundary.
 
 The disposer aborts event streams and closes stdin. This follows the Harness
 plugin lifecycle: resources registered by a plugin must stop when the plugin is

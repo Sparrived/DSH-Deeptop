@@ -5,7 +5,10 @@
 - 对比对象：官方 `deepseek-ai/deepseek-harness` WebUI。
 - 对比版本：`47f943859bef60e4160492346772ded9b24f765a`（2026-08-13）。
 - 运行时版本：`@deepseek-ai/dsh@latest`，当前验证为 `0.1.0-rc.6`。
-- 原则：复用现有 DSH ApiProxy 和桌面 Bridge；没有必要时不在桌面端复制 DSH 插件逻辑。
+- 定位：Deeptop 是纯桌面端运行框架；WebUI 仅作为领域能力和契约参考，不把纯 WebUI Client runtime、界面和生命周期列为桌面兼容目标。
+- 原则：复用现有 DSH ApiProxy、Host/Cordis 插件、Remote、Projection 和事件契约；只有桌面传输和原生 UI 边界做必要适配。
+
+详细兼容边界和待改造清单见 [PLUGIN_COMPATIBILITY.md](PLUGIN_COMPATIBILITY.md)。
 
 ## 当前已具备
 
@@ -22,7 +25,7 @@
 
 ## 缺口清单
 
-状态：`[ ]` 未实现，`[~]` 部分实现，`[x]` 已完成。
+状态：`[ ]` 未实现，`[~]` 部分实现，`[x]` 已完成，`[-]` 明确排除在纯桌面兼容目标之外。
 
 ### P0：核心会话体验
 
@@ -63,7 +66,7 @@
 
 - [x] Host/Cordis 插件：桌面 Profile 与 DSH Host 共用同一套 Service、Provider、Session 和 ApiProxy；新增插件可以继续通过 Profile 注入。
 - [~] Client/Remote 插件：Remote 方法和官方转发事件已具备 loopback transport；插件需要通过 `src/lib/desktop-client-runtime.ts` 适配，不能直接把 WebUI 的 `dsh.client` bundle 当作 Vite 模块加载。
-- [ ] WebUI client bundle：仍缺少 WebUI 的 `window.__ModuleLoader__`、Cordis client runner、slot registry 和动态插件生命周期，因此尚未达到 WebUI 的即插即用程度。
+- [-] WebUI client bundle：`window.__ModuleLoader__`、Cordis client runner、slot registry、动态客户端插件生命周期和纯 WebUI 界面不属于纯桌面端兼容目标。
 
 ## 本轮实施
 
@@ -76,8 +79,10 @@
 
 ## 后续顺序
 
-1. 完成 Bridge 能力覆盖后再接入 Plan、通用命令目录、Permission preset、消息反馈和 ZIP 下载。
-2. 若需要完整视觉同构，再实现可拖拽 Inspector 三栏、schema 驱动设置表单和中英文资源。
+1. 优先补齐非 WebUI 专属官方能力的 Remote、Projection、错误、取消和持久化恢复语义。
+2. 完善已有官方能力的原生入口：Plan、Permission、完整 Session Stats 和 ZIP 原生流传输。
+3. 深化 Provider/插件设置、Preset、Subagent、Goal、Workflow、Tool/Trajectory 等领域功能的原生适配。
+4. 仅在明确需要 WebUI 兼容模式时，另行设计 Client runtime；不把 ModuleLoader、slot 和 WebUI 生命周期混入当前桌面架构。
 
 ## 验证要求
 
@@ -100,4 +105,4 @@
 
 ## 对齐结论
 
-当前桌面端已经覆盖 WebUI 的核心会话、工作区、输入、运行状态、Provider、媒体工作流，以及本轮选定的官方命令、反馈、权限、Plan、统计和 ZIP Host 能力。仍未达到 WebUI 的即插即用程度：缺少 `window.__ModuleLoader__`、Cordis client runner、slot registry、动态客户端插件生命周期、Plan chip/Review、schema 设置表单、完整本地化和流式下载；因此当前策略是复用官方 Host/Remote contract，在原生界面做薄适配，而不是加载整套 WebUI client bundle。
+当前桌面端已经覆盖 WebUI 的核心会话、工作区、输入、运行状态、Provider、媒体工作流，以及本轮选定的官方命令、反馈、权限、Plan、统计和 ZIP Host 能力。Plan chip/Review、Schema 设置、完整本地化、更多领域卡片和 ZIP 原生流传输仍需原生实现或优化；WebUI ModuleLoader、Client runner、slot registry 和客户端生命周期则是明确排除项。整体策略是复用官方 Host/Remote contract，在原生界面完成功能兼容，而不是加载整套 WebUI client bundle。
