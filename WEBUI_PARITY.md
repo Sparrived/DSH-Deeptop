@@ -13,6 +13,12 @@
 - 基础会话搜索、模型/思考程度选择、发送、排队、Steer、停止和删除队列项。
 - 原生工作区选择与注册、通用工具审批、通用问题回答。
 - 基础轨迹、Skill 目录、Subagent 历史/追问/中断、Goal 生命周期、Preset 和运行时设置面板。
+- 工作区分组/平铺、折叠、工作区排序、会话拖拽排序、全文搜索摘要和侧栏宽度持久化。
+- assistant/chunk 文本与 reasoning 流式拼装、历史向前分页、尾部跟随暂停、消息复制/分叉、图片附件和图片渲染。
+- 队列编辑、后台 Job 状态菜单、Workflow 成员卡、生成文件卡片、JSON 会话导出。
+- Provider 凭据安全写入/清除、自定义 Provider 创建/移除、Base URL/协议/模型列表编辑和模型发现。
+- Light/Dark/System 本地主题切换。
+- Typert Remote 兼容桥：Host 侧使用官方 Gateway 校验 `namespace/method/args`，桌面端通过 `desktopClientRuntime.remote` 调用并订阅 `host/remote-event`。
 
 ## 缺口清单
 
@@ -20,51 +26,58 @@
 
 ### P0：核心会话体验
 
-- [ ] Workspace/Session 树：工作区分组、折叠、平铺模式、排序、拖拽重排。
-- [~] 工作区管理：已有选择、创建和归档；缺少工作区重命名、删除、会话移动和目录浏览器。
-- [~] 会话搜索：已有回车触发的 ID 过滤；缺少防抖全文搜索、摘要片段、排序和结果上限管理。
-- [ ] 可调整布局：三栏布局、侧栏/面板拖拽和宽度持久化。
-- [~] 对话流：已有完整消息事件；缺少 `assistant/chunk` 流式拼装、Think/reasoning 尾部和实时折叠行。
-- [ ] 历史分页：`load older`、长会话虚拟化、完整历史统计和尾部跟随暂停。
-- [~] 消息操作：已支持消息复制和按 `atSeq` 分叉；仍缺少重试和完整完成消息尾部操作栏。
-- [~] 工具视图：已有通用 call/result 行；缺少嵌套调用树及终端、文件、Diff、搜索、Web、Todo、Skill、Workflow 专用卡片。
-- [~] Markdown/媒体：已有 GFM；缺少数学公式、图片展示、附件画廊、Lightbox 和拖放上传。
+- [x] Workspace/Session 树：工作区分组、折叠、平铺模式、排序、拖拽重排。
+- [x] 工作区管理：选择、创建、重命名、删除、归档、会话移动和目录浏览器。
+- [x] 会话搜索：防抖全文搜索、摘要片段、Host 排序和 Host 限定的结果上限。
+- [~] 可调整布局：侧栏拖拽和宽度持久化已完成；Inspector 仍是弹出面板，未实现 WebUI 的可拖拽三栏布局。
+- [x] 对话流：`assistant/chunk` 文本/reasoning 流式拼装、Think 折叠行和实时尾部更新。
+- [~] 历史分页：`load older`、尾部跟随暂停和完整导出已完成；未做长会话虚拟化。
+- [~] 消息操作：复制和按 `atSeq` 分叉已完成；重试、Like/Dislike 仍缺少 Bridge/API 暴露。
+- [~] 工具视图：通用 call/result、Workflow 和 Produced Files 已完成；终端、文件、Diff、搜索、Web、Todo、Skill 专用卡片仍未全部复刻。
+- [~] Markdown/媒体：GFM、图片展示、粘贴/拖放上传已完成；缺少数学公式、附件画廊和 Lightbox（图片可新窗口打开）。
 
 ### P1：输入和运行交互
 
-- [ ] `/` 命令菜单、Skill 快捷候选、`@` Subagent 候选和键盘导航。
-- [~] 队列：已有排队、Steer、删除；缺少队列内容编辑、折叠展开和更完整的生命周期视图。
+- [~] `/` 命令菜单、Skill 快捷候选、`@` Subagent 候选和键盘导航：Skill/Subagent 已完成，通用命令目录未由当前 Bridge 暴露。
+- [x] 队列：排队、Steer、编辑、删除和队列 dock 已完成。
 - [ ] Plan 模式、Plan chip、`/plan` 和结构化 Plan Review。
-- [~] 用户问题：已有单选/多选；缺少自定义文本、逐题导航、推荐标记、Markdown detail 和 Plan Review intent。
-- [ ] Permission preset、当前会话权限弹窗和命令级权限操作。
+- [x] 用户问题：单选/多选、自定义文本、推荐标记和 Markdown detail 已完成；逐题导航和 Plan Review intent 未由当前问题 RPC 提供。
+- [~] Permission preset、当前会话权限弹窗和命令级权限操作：通用允许一次/拒绝已完成，Preset/命令级入口未由当前 Bridge 暴露。
 - [~] Subagent：已有直接子 Agent；缺少递归树、任意深度导航、懒加载和 `@` 引用。
 - [~] Goal：已有运行台生命周期操作；缺少 WebUI 输入区 GoalBar 集成。
-- [ ] Background Jobs 列表和运行状态控制。
-- [ ] Workflow Run 成员/进度卡片。
-- [ ] Produced Files 文件卡片和“在文件夹中显示”。
+- [x] Background Jobs 列表和运行状态菜单。
+- [~] Workflow Run 成员/进度卡片：状态、阶段和成员已展示，尚未支持从成员卡直接打开子会话。
+- [x] Produced Files 文件卡片和“在文件夹中显示”。
 
 ### P1：设置和模型管理
 
-- [~] Provider/模型设置：已有状态和只读目录；缺少 Provider 新增/删除、API Key 写入/清除、自定义 Base URL/协议、模型发现和模型编辑。
-- [ ] Light/Dark/System 主题及持久化。
+- [~] Provider/模型设置：已有新增/移除、API Key 写入/清除、Base URL/协议、模型发现和模型增删；未完成官方的 schema 驱动表单和全部适配器专用字段。
+- [~] Light/Dark/System 主题及持久化：桌面端本地主题已完成，尚未与 Host `ui-theme` 设置双向同步。
 - [ ] 中英文语言切换和本地化资源。
 - [~] 插件设置：已有原始 JSON 编辑和只读清单；缺少 schema 驱动表单及插件管理卡片。
 - [~] Agent Preset：已有选择、默认值、复制、查看和打开文件；缺少完整管理入口、新会话 chip 和删除。
 - [ ] 消息 Like/Dislike 及反馈备注。
-- [ ] 会话日志导出、ZIP 下载和完整会话统计。
+- [~] 会话日志导出、ZIP 下载和完整会话统计：完整历史 JSON 导出和当前会话 token/缓存统计已完成；Host-only ZIP 下载和全量统计仍缺 Bridge 能力。
+
+### 插件兼容边界
+
+- [x] Host/Cordis 插件：桌面 Profile 与 DSH Host 共用同一套 Service、Provider、Session 和 ApiProxy；新增插件可以继续通过 Profile 注入。
+- [~] Client/Remote 插件：Remote 方法和官方转发事件已具备 loopback transport；插件需要通过 `src/lib/desktop-client-runtime.ts` 适配，不能直接把 WebUI 的 `dsh.client` bundle 当作 Vite 模块加载。
+- [ ] WebUI client bundle：仍缺少 WebUI 的 `window.__ModuleLoader__`、Cordis client runner、slot registry 和动态插件生命周期，因此尚未达到 WebUI 的即插即用程度。
 
 ## 本轮实施
 
 - [x] 建立本工程清单。
 - [x] 消息级复制与按 `atSeq` 分叉。
 - [x] 输入框 `/Skill` 和 `@Subagent` 快捷候选。
+- [x] Workspace/Session 树、全文搜索、历史分页、流式 reasoning 和尾部跟随。
+- [x] 队列编辑、用户问题自定义回答、后台 Jobs、Workflow、Produced Files、图片附件。
+- [x] Provider 凭据、连接参数、模型发现/编辑、自定义 Provider 和本地主题。
 
 ## 后续顺序
 
-1. Workspace/Session 树和搜索体验。
-2. 对话流、历史分页和专用工具视图。
-3. Provider/凭据/模型设置。
-4. Plan、Permission、Question、Jobs、Workflow、附件和导出。
+1. 完成 Bridge 能力覆盖后再接入 Plan、通用命令目录、Permission preset、消息反馈和 ZIP 下载。
+2. 若需要完整视觉同构，再实现可拖拽 Inspector 三栏、schema 驱动设置表单和中英文资源。
 
 ## 验证要求
 
@@ -77,5 +90,12 @@
 - `src/App.tsx` 为转录项保留事件 `seq`，消息级分叉调用 `session.fork({ sessionId, atSeq })`。
 - `src/App.tsx` 在活动会话切换时加载 Skill，并基于当前输入 token 提供 `/`、`@` 候选。
 - `src/styles.css` 增加消息操作栏和 composer 候选层；候选层不抢 textarea 焦点。
+- `src/App.tsx` 接入 workspace/session 排序、历史分页、assistant/chunk 拼装、reasoning、Jobs、Workflow、Produced Files、图片附件和 JSON 导出。
+- `src/App.tsx` 接入 `credentials.*`、`llm.discoverModels`、字段级 `settings.mutate`，Provider 支持自定义连接和模型写回。
+- `src/styles.css` 增加侧栏拖拽宽度、Job/Workflow/Produced Files/Provider 编辑/深色主题样式。
 - 验证：`npm run build` 通过（TypeScript 与 Vite）。
 - 不覆盖已有未提交改动。
+
+## 对齐结论
+
+当前桌面端已经覆盖 WebUI 的核心会话、工作区、输入、运行状态、Provider 和媒体工作流。剩余项目不是已遗漏的基础交互，而是当前桌面 Bridge 尚未暴露的 Host/Agent 平面能力（Plan、通用命令目录、Permission preset、消息反馈、ZIP 下载），以及需要单独投入的 schema 表单、三栏布局和完整本地化；这些项目已单独标为 `[~]`/`[ ]`，不会用桌面端猜测实现破坏安全边界。

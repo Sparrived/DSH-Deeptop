@@ -57,3 +57,29 @@ npm run dev
 ```
 
 The runtime intentionally follows the current `@deepseek-ai/dsh@latest` package. User DSH configuration and profile bundles remain under the configured `DSH_HOME`.
+
+## Extending the Cordis profile
+
+The desktop profile preserves user changes to `$DSH_HOME/profiles/desktop/cordis.patch.yml`. Add new DSH capabilities as Cordis plugins instead of modifying the Tauri process or React UI. A minimal local plugin is:
+
+```ts
+import type { Context } from "@deepseek-ai/cordis";
+
+export const name = "my-plugin";
+
+export function apply(ctx: Context) {
+  ctx.on("session/event", (event) => {
+    console.log("session event", event);
+  });
+}
+```
+
+Add it to the profile with an absolute path:
+
+```yaml
+- insert:
+    - id: my-plugin
+      name: "C:/absolute/path/to/my-plugin/src/index.ts"
+```
+
+Use the Service Definition / Provider / Consumer split only when the provider and consumer need to evolve independently. A small extension should remain one plugin.

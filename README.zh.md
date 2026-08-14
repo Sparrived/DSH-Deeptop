@@ -57,3 +57,29 @@ npm run dev
 ```
 
 运行时会有意跟随当前的 `@deepseek-ai/dsh@latest` 包。用户的 DSH 配置和 Profile Bundle 会保留在已配置的 `DSH_HOME` 下。
+
+## 扩展 Cordis Profile
+
+桌面 Profile 会保留 `$DSH_HOME/profiles/desktop/cordis.patch.yml` 的用户修改。需要新增 DSH 能力时，优先以 Cordis 插件接入 Profile，而不是修改桌面 UI 或 Tauri 进程。最小本地插件可以写成：
+
+```ts
+import type { Context } from "@deepseek-ai/cordis";
+
+export const name = "my-plugin";
+
+export function apply(ctx: Context) {
+  ctx.on("session/event", (event) => {
+    console.log("session event", event);
+  });
+}
+```
+
+然后在 `$DSH_HOME/profiles/desktop/cordis.patch.yml` 添加本地插件，路径使用绝对路径：
+
+```yaml
+- insert:
+    - id: my-plugin
+      name: "C:/absolute/path/to/my-plugin/src/index.ts"
+```
+
+需要提供可替换运行时能力时，再按 Service Definition、Provider、Consumer 三层拆分；单一的小型扩展保持为一个插件即可。
