@@ -89,3 +89,23 @@ test('rejects methods outside the bridge allowlist', async () => {
     /does not expose/,
   )
 })
+
+test('buffers the official session ZIP endpoint for the native download surface', async () => {
+  const result = await routeDesktopRequest({
+    apiProxy: {
+      downloads: {
+        sessionLog: async request => {
+          assert.deepEqual(request, { sessionId: 'session-123', includeDescendants: true })
+          return new Response(Uint8Array.from([80, 75, 3, 4]), {
+            headers: { 'content-type': 'application/zip' },
+          })
+        },
+      },
+    },
+  }, 'session.exportZip', { sessionId: 'session-123', includeDescendants: true }, signal)
+
+  assert.equal(result.filename, 'dsh-session-session-123.zip')
+  assert.equal(result.contentType, 'application/zip')
+  assert.equal(result.size, 4)
+  assert.equal(Buffer.from(result.base64, 'base64').toString('hex'), '504b0304')
+})

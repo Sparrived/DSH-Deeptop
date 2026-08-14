@@ -28,6 +28,17 @@
       config:
         backend: json
 
+    - id: message-feedback
+      name: '@deepseek-ai/dsh-message-feedback'
+      config:
+        maxNoteBytes: 8192
+
+    - id: session-log-download
+      name: '@deepseek-ai/dsh-session-log-export'
+
+    - id: session-stats
+      name: '@deepseek-ai/dsh-session-stats'
+
     - id: workspace
       name: '@deepseek-ai/dsh-workspace'
 

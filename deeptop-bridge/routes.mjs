@@ -27,6 +27,31 @@ async function invokeRemote(ctx, payload, signal) {
   }
 }
 
+async function exportSessionZip(ctx, payload, signal) {
+  if (!isRecord(payload)
+    || typeof payload.sessionId !== 'string'
+    || payload.sessionId.trim() === ''
+    || (payload.includeDescendants !== undefined && typeof payload.includeDescendants !== 'boolean')) {
+    throw new Error('session.exportZip requires sessionId and an optional boolean includeDescendants')
+  }
+  const response = await ctx.apiProxy.downloads.sessionLog({
+    sessionId: payload.sessionId,
+    ...(payload.includeDescendants === true ? { includeDescendants: true } : {}),
+  }, signal)
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    throw new Error(detail || `session export failed with HTTP ${response.status}`)
+  }
+  const bytes = Buffer.from(await response.arrayBuffer())
+  const safeSessionId = payload.sessionId.replace(/[^A-Za-z0-9_-]/g, '_')
+  return {
+    base64: bytes.toString('base64'),
+    contentType: response.headers.get('content-type') || 'application/zip',
+    filename: `dsh-session-${safeSessionId}.zip`,
+    size: bytes.byteLength,
+  }
+}
+
 async function sessionModels(ctx, request) {
   const response = await ctx.apiProxy.sessions.models(request)
   const result = response?.result
@@ -75,6 +100,7 @@ export async function routeDesktopRequest(ctx, method, payload, signal) {
     case 'session.fork': return api.sessions.fork(request)
     case 'session.prompt': return api.sessions.prompt(request)
     case 'session.attachment': return api.sessions.attachment(request)
+    case 'session.exportZip': return exportSessionZip(ctx, payload, signal)
     case 'session.updateQueue': return api.sessions.updateQueue(request)
     case 'session.cancel': return api.sessions.cancel(request)
     case 'subagent.list': return api.subagents.list(request, signal)

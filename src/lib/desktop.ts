@@ -233,6 +233,47 @@ export interface DshQueueItem {
   };
 }
 
+export interface DshSessionStatsProjection {
+  turns: number;
+  steps: number;
+  llmMs: number;
+  toolMs: number;
+  ttftMs: number;
+  ttftSteps: number;
+  decodeMs: number;
+  decodeTokens: number;
+}
+
+export interface DshCommandDescriptor {
+  name: string;
+  description: string;
+  input?: { hint: string };
+}
+
+export interface DshCommandExecution {
+  commandId: string;
+  result: { kind: "success"; text?: string; sourceEventSeq?: number } | { kind: "error"; text: string };
+}
+
+export interface DshPermissionSelect {
+  options: Array<{ value: string; name: string; description?: string }>;
+  currentValue: string;
+}
+
+export interface DshPlanProjection {
+  active: boolean;
+  pending: boolean;
+}
+
+export interface DshMessageFeedbackItem {
+  messageId: string;
+  rating: "positive" | "negative";
+  note?: string;
+  version: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface DshRemoteEvent {
   type: "host/remote-event";
   event: string;
