@@ -219,8 +219,10 @@ export interface DshQuestion {
   question: string;
   header?: string;
   detail?: string;
-  options?: Array<{ label: string; description?: string }>;
+  intent?: string;
+  options?: Array<{ label: string; description?: string; recommended?: boolean }>;
   multiSelect?: boolean;
+  custom?: boolean;
 }
 
 export interface DshQueueItem {
@@ -231,8 +233,43 @@ export interface DshQueueItem {
   };
 }
 
+export interface DshRemoteEvent {
+  type: "host/remote-event";
+  event: string;
+  args: unknown[];
+}
+
+export function isDshRemoteEvent(
+  event: DshBridgeEvent,
+): event is DshBridgeEvent & { frame: { payload: DshRemoteEvent } } {
+  const payload = event.frame.payload;
+  return event.channel === "host"
+    && payload.type === "host/remote-event"
+    && typeof payload.event === "string"
+    && Array.isArray(payload.args);
+}
+
+export interface DshJob {
+  id: string;
+  kind: string;
+  label: string;
+  status: "running" | "stopping" | "completed" | "killed" | "failed";
+  detail?: string;
+  startedAt: number;
+  finishedAt?: number;
+}
+
 export const isTauri = (): boolean =>
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+export async function sendSystemNotification(title: string, body: string) {
+  if (!isTauri()) return;
+  try {
+    await invoke("send_system_notification", { title, body });
+  } catch {
+    // System notifications must not interrupt the approval/question flow.
+  }
+}
 
 export class DshApiError extends Error {
   readonly code: string;
