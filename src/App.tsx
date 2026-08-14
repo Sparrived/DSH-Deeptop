@@ -47,7 +47,7 @@ const demoStatus: DshStatus = {
 type PromptMode = "queue" | "steer";
 type ModelMenuPane = "root" | "model" | "effort";
 type WindowMenu = "project" | "edit";
-type SessionAction = "rename" | "fork" | "delete";
+type SessionAction = "rename" | "fork" | "archive";
 type SessionContextMenu = { session: DshSessionSummary; x: number; y: number };
 
 type PendingApproval = {
@@ -69,6 +69,7 @@ type TranscriptItem = {
   kind: "user" | "assistant" | "tool" | "system";
   label: string;
   text: string;
+  seq?: number;
   time?: number;
   toolName?: string;
   toolCallId?: string;
@@ -82,6 +83,9 @@ type TranscriptItem = {
   contextSummary?: string;
   injected?: boolean;
 };
+
+type TodoStatus = "pending" | "in_progress" | "completed";
+type TodoItem = { content: string; status: TodoStatus };
 
 type SurfaceTab = "runtime" | "presets" | "skills" | "subagents" | "goal" | "settings";
 type SettingsSection = "general" | "models" | "plugins";
@@ -97,6 +101,20 @@ type SettingsDraft = {
 type GoalRef = { id: string; revision: number };
 
 type DshHostModelCatalog = Pick<DshSessionModels, "groups" | "failures">;
+
+type ComposerCandidate = {
+  kind: "skill" | "subagent";
+  id: string;
+  label: string;
+  detail?: string;
+  insertText: string;
+};
+
+type ComposerTrigger = {
+  kind: ComposerCandidate["kind"];
+  query: string;
+  start: number;
+};
 
 type SessionStats = {
   inputTokens: number;
@@ -130,6 +148,16 @@ function subagentModeLabel(mode: ChildSubagentEntry["mode"]) {
 
 function shortSubagentId(id: string) {
   return id.length > 24 ? `${id.slice(0, 10)}...${id.slice(-8)}` : id;
+}
+
+function detectComposerTrigger(value: string): ComposerTrigger | null {
+  const match = /(^|\s)([\/@])([^\s]*)$/.exec(value);
+  if (!match) return null;
+  return {
+    kind: match[2] === "/" ? "skill" : "subagent",
+    query: match[3].toLocaleLowerCase(),
+    start: (match.index ?? 0) + match[1].length,
+  };
 }
 
 function formatClock(time?: number) {
@@ -187,19 +215,31 @@ function numberValue(value: unknown): number | undefined {
 
 function readSessionStats(entries: DshHistoryEntry[], projections?: { values: Record<string, unknown> }): SessionStats {
   const values = projections?.values ?? {};
-  const usage = (values.usage ?? values.tokenUsage ?? values.tokens) as Record<string, unknown> | undefined;
-  let inputTokens = numberValue(usage?.inputTokens ?? usage?.input_tokens ?? values.inputTokens ?? values.input_tokens) ?? 0;
+  const usage = recordValue(values.usage ?? values.tokenUsage ?? values.tokens);
+  const pressure = recordValue(values.contextPressure);
+  const uncachedInput = numberValue(usage?.uncachedInputTokens);
+  const cacheRead = numberValue(usage?.cacheReadTokens ?? usage?.cacheRead ?? usage?.cache_read ?? usage?.cachedInputTokens) ?? 0;
+  const cacheWrite = numberValue(usage?.cacheWriteTokens ?? usage?.cacheWrite ?? usage?.cache_write) ?? 0;
+  const projectedInput = numberValue(usage?.inputTokens ?? usage?.input_tokens);
+  const billedInput = projectedInput ?? (uncachedInput === undefined ? undefined : uncachedInput + cacheRead + cacheWrite);
+  let inputTokens = billedInput ?? numberValue(values.inputTokens ?? values.input_tokens) ?? 0;
   let outputTokens = numberValue(usage?.outputTokens ?? usage?.output_tokens ?? values.outputTokens ?? values.output_tokens) ?? 0;
   const totalTokens = numberValue(usage?.totalTokens ?? usage?.total_tokens ?? values.totalTokens ?? values.total_tokens) ?? inputTokens + outputTokens;
-  const contextTokens = numberValue(usage?.contextTokens ?? usage?.context_tokens ?? values.contextTokens ?? values.context_tokens) ?? totalTokens;
-  const contextLimit = numberValue(usage?.contextLimit ?? usage?.context_limit ?? values.contextLimit ?? values.context_limit) ?? 0;
-  const cacheRead = numberValue(usage?.cacheRead ?? usage?.cache_read ?? usage?.cachedInputTokens ?? values.cacheRead ?? values.cache_read) ?? 0;
-  const cacheTotal = numberValue(usage?.cacheTotal ?? usage?.cache_total ?? values.cacheTotal ?? values.cache_total) ?? inputTokens;
+  let contextTokens = numberValue(pressure?.projectedTokens ?? pressure?.pressureTokens) ?? numberValue(values.contextTokens ?? values.context_tokens) ?? totalTokens;
+  let contextLimit = numberValue(pressure?.contextWindow) ?? numberValue(values.contextLimit ?? values.context_limit) ?? 0;
   let firstTokenMs = numberValue(usage?.firstTokenMs ?? usage?.first_token_ms ?? usage?.ttft ?? values.firstTokenMs ?? values.first_token_ms ?? values.ttft) ?? 0;
   for (const { event } of entries) {
-    const eventUsage = (event.data.usage ?? event.data.tokenUsage) as Record<string, unknown> | undefined;
+    if (event.type === "request/context") {
+      const eventContextWindow = numberValue(event.data.contextWindow);
+      if (eventContextWindow !== undefined) contextLimit = eventContextWindow;
+    }
+    const chunk = recordValue(event.data.chunk);
+    const eventUsage = recordValue(event.data.usage ?? event.data.tokenUsage ?? chunk?.usage);
     if (eventUsage) {
-      const eventInput = numberValue(eventUsage.inputTokens ?? eventUsage.input_tokens);
+      const eventUncachedInput = numberValue(eventUsage.uncachedInputTokens);
+      const eventCacheRead = numberValue(eventUsage.cacheReadTokens ?? eventUsage.cacheRead ?? eventUsage.cache_read) ?? 0;
+      const eventCacheWrite = numberValue(eventUsage.cacheWriteTokens ?? eventUsage.cacheWrite ?? eventUsage.cache_write) ?? 0;
+      const eventInput = numberValue(eventUsage.inputTokens ?? eventUsage.input_tokens) ?? (eventUncachedInput === undefined ? undefined : eventUncachedInput + eventCacheRead + eventCacheWrite);
       const eventOutput = numberValue(eventUsage.outputTokens ?? eventUsage.output_tokens);
       const eventFirstToken = numberValue(eventUsage.firstTokenMs ?? eventUsage.first_token_ms ?? eventUsage.ttft);
       if (eventFirstToken !== undefined) firstTokenMs = eventFirstToken;
@@ -207,7 +247,7 @@ function readSessionStats(entries: DshHistoryEntry[], projections?: { values: Re
       if (eventOutput !== undefined) outputTokens = Math.max(outputTokens, eventOutput);
     }
   }
-  return { inputTokens, outputTokens, totalTokens: totalTokens || inputTokens + outputTokens, contextTokens, contextLimit, cacheHitRate: cacheTotal > 0 ? Math.min(100, (cacheRead / cacheTotal) * 100) : 0, firstTokenMs, messages: entries.filter(({ event }) => event.type === "user/message" || event.type === "assistant/message").length };
+  return { inputTokens, outputTokens, totalTokens: totalTokens || inputTokens + outputTokens, contextTokens, contextLimit, cacheHitRate: cacheRead + cacheWrite > 0 ? Math.min(100, (cacheRead / (cacheRead + cacheWrite + (uncachedInput ?? 0))) * 100) : 0, firstTokenMs, messages: entries.filter(({ event }) => event.type === "user/message" || event.type === "assistant/message").length };
 }
 
 function formatTokens(value: number) {
@@ -322,6 +362,40 @@ function eventToolResultError(event: DshSessionEvent) {
   });
 }
 
+function todoItems(value: unknown): TodoItem[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items = value.map((item) => {
+    const record = recordValue(item);
+    const content = record?.content;
+    const status = record?.status;
+    if (typeof content !== "string" || !content.trim() || !["pending", "in_progress", "completed"].includes(String(status))) return undefined;
+    return { content, status: status as TodoStatus };
+  });
+  return items.every((item): item is TodoItem => item !== undefined) ? items : undefined;
+}
+
+function todoProjection(value: unknown): TodoItem[] | null | undefined {
+  return value === null ? null : todoItems(value);
+}
+
+function todosFromHistory(entries: DshHistoryEntry[]): TodoItem[] | null | undefined {
+  let current: TodoItem[] | null | undefined;
+  for (const { event } of [...entries].sort((left, right) => left.event.seq - right.event.seq)) {
+    if (event.type === "turn/start") current = null;
+    if (event.type === "todo/write") {
+      const next = todoItems(event.data.todos);
+      if (next !== undefined) current = next;
+    }
+  }
+  return current;
+}
+
+function todoStatusLabel(status: TodoStatus) {
+  if (status === "completed") return "已完成";
+  if (status === "in_progress") return "进行中";
+  return "待处理";
+}
+
 function transcriptFromHistory(entries: DshHistoryEntry[]): TranscriptItem[] {
   const items: TranscriptItem[] = [];
   for (const entry of entries) {
@@ -340,6 +414,7 @@ function transcriptFromHistory(entries: DshHistoryEntry[]): TranscriptItem[] {
           kind: injected ? "system" : "user",
           label: injected ? (provenance?.role === "recall" ? "跨会话召回" : "上下文注入") : "你",
           text,
+          seq: event.seq,
           time: event.time,
           source: provenance?.label,
           contextRole: provenance?.role,
@@ -352,7 +427,7 @@ function transcriptFromHistory(entries: DshHistoryEntry[]): TranscriptItem[] {
     }
     if (event.type === "assistant/message") {
       const text = eventContent(event);
-      if (text) items.push({ key: `event-${event.seq}`, kind: "assistant", label: "DSH", text, time: event.time });
+      if (text) items.push({ key: `event-${event.seq}`, kind: "assistant", label: "DSH", text, seq: event.seq, time: event.time });
       continue;
     }
     if (event.type === "tool/call" || event.type === "tool/result") {
@@ -361,6 +436,7 @@ function transcriptFromHistory(entries: DshHistoryEntry[]): TranscriptItem[] {
         kind: "tool",
         label: eventToolName(event),
         text: eventToolText(event),
+        seq: event.seq,
         time: event.time,
         toolName: eventToolName(event),
         toolCallId: eventToolCallId(event),
@@ -514,12 +590,16 @@ function App() {
   const desktop = isTauri();
   const [status, setStatus] = useState<DshStatus>(demoStatus);
   const [sessions, setSessions] = useState<DshSessionSummary[]>([]);
+  const [archivedSessionIds, setArchivedSessionIds] = useState<Set<string>>(new Set());
   const [sessionIndicators, setSessionIndicators] = useState<Record<string, "idle" | "running" | "completed" | "error">>({});
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [history, setHistory] = useState<DshHistoryEntry[]>([]);
+  const [todos, setTodos] = useState<TodoItem[] | null>(null);
   const [trajectoryOpen, setTrajectoryOpen] = useState(false);
   const [workspace, setWorkspace] = useState("");
   const [composer, setComposer] = useState("");
+  const [composerCandidateIndex, setComposerCandidateIndex] = useState(0);
+  const [composerMenuDismissed, setComposerMenuDismissed] = useState(false);
   const [promptMode, setPromptMode] = useState<PromptMode>("queue");
   const [notice, setNotice] = useState("准备连接 DSH");
   const [loading, setLoading] = useState(false);
@@ -677,13 +757,20 @@ function App() {
 
   const transcript = useMemo(() => transcriptFromHistory(history), [history]);
   const subagentTranscript = useMemo(() => subagentSession ? transcriptFromHistory(subagentSession.history) : [], [subagentSession]);
+  const todoCounts = useMemo(() => ({
+    completed: todos?.filter((item) => item.status === "completed").length ?? 0,
+    inProgress: todos?.filter((item) => item.status === "in_progress").length ?? 0,
+    pending: todos?.filter((item) => item.status === "pending").length ?? 0,
+  }), [todos]);
+  const todoVisible = todos !== null && todos.length > 0;
   const visibleSessions = useMemo(() => {
     const remoteIds = remoteSearchIds ? new Set(remoteSearchIds) : undefined;
     return sessions.filter((session) => {
+      if (archivedSessionIds.has(session.sessionId)) return false;
       if (!sessionIsVisible(session, workspace, remoteSearchIds ? "" : search)) return false;
       return remoteIds ? remoteIds.has(session.sessionId) : true;
     });
-  }, [remoteSearchIds, search, sessions, workspace]);
+  }, [archivedSessionIds, remoteSearchIds, search, sessions, workspace]);
   const modelOptions = useMemo(() => {
     if (!models) return [];
     return models.groups.flatMap((group) => group.models.map((model) => ({
@@ -715,6 +802,38 @@ function App() {
   const activeGoal = goal && typeof goal === "object" ? goal.goal : null;
   const subagentEntries = subagents?.entries ?? [];
   const childSubagents = subagentEntries.filter((entry): entry is ChildSubagentEntry => entry.kind === "child");
+  const composerTrigger = useMemo(() => detectComposerTrigger(composer), [composer]);
+  const composerCandidates = useMemo<ComposerCandidate[]>(() => {
+    if (!composerTrigger) return [];
+    if (composerTrigger.kind === "skill") {
+      return skills
+        .filter((skill) => `${skill.name} ${skill.description}`.toLocaleLowerCase().includes(composerTrigger.query))
+        .slice(0, 8)
+        .map((skill) => ({
+          kind: "skill",
+          id: skill.name,
+          label: `/${skill.name}`,
+          detail: skill.description,
+          insertText: `/${skill.name}`,
+        }));
+    }
+    return childSubagents
+      .filter((entry) => `${entry.label ?? ""} ${entry.id}`.toLocaleLowerCase().includes(composerTrigger.query))
+      .slice(0, 8)
+      .map((entry) => {
+        const label = entry.label?.trim() || entry.id;
+        return {
+          kind: "subagent",
+          id: entry.id,
+          label: `@${label}`,
+          detail: `${subagentModeLabel(entry.mode)} · ${subagentActivityLabel(entry.activity)}`,
+          insertText: `@${label}`,
+        };
+      });
+  }, [childSubagents, composerTrigger, skills]);
+  const activeComposerCandidateIndex = composerCandidates.length === 0
+    ? 0
+    : Math.min(composerCandidateIndex, composerCandidates.length - 1);
   const subagentCount = childSubagents.length;
   const selectedSubagentIndex = childSubagents.findIndex((entry) => entry.id === selectedSubagentId);
   const selectedSubagent = selectedSubagentIndex >= 0 ? childSubagents[selectedSubagentIndex] : undefined;
@@ -727,11 +846,20 @@ function App() {
 
   async function loadSessions(selectFirst = false): Promise<DshSessionSummary[] | undefined> {
     if (!desktop) return undefined;
-    const result = await bridgeRequest<{ items: DshSessionSummary[] }>("session.list");
+    const [sessionResult, workspaceResult] = await Promise.allSettled([
+      bridgeRequest<{ items: DshSessionSummary[] }>("session.list"),
+      bridgeRequest<{ archivedSessionIds?: string[] }>("workspace.list"),
+    ]);
+    if (sessionResult.status !== "fulfilled") throw sessionResult.reason;
+    const result = sessionResult.value;
+    const archivedIds = workspaceResult.status === "fulfilled"
+      ? new Set((workspaceResult.value.archivedSessionIds ?? []).filter((sessionId): sessionId is string => typeof sessionId === "string" && sessionId.length > 0))
+      : archivedSessionIds;
     const unique = [...new Map(result.items.filter((session) => session.sessionId).map((session) => [session.sessionId, session])).values()];
+    setArchivedSessionIds(archivedIds);
     setSessions(unique);
     if (selectFirst && !activeSessionRef.current) {
-      const next = unique.find((session) => !session.blank);
+      const next = unique.find((session) => !archivedIds.has(session.sessionId) && !session.blank);
       if (next) await openSession(next);
     }
     return result.items;
@@ -742,7 +870,7 @@ function App() {
     const [hostResult, presetResult, workspaceResult, settingsResult, providerResult, modelResult, pluginResult] = await Promise.allSettled([
       bridgeRequest<Record<string, unknown>>("host.describe"),
       bridgeRequest<DshPresetRoster>("agentPreset.list"),
-      bridgeRequest<{ items: DshWorkspace[] }>("workspace.list"),
+      bridgeRequest<{ items: DshWorkspace[]; archivedSessionIds?: string[] }>("workspace.list"),
       bridgeRequest<DshSettingsDescription>("settings.describe"),
       bridgeRequest<{ providers: DshProvider[] }>("llm.providers"),
       bridgeRequest<DshHostModelCatalog>("llm.models"),
@@ -754,7 +882,10 @@ function App() {
       setPresetAuthorable(presetResult.value.authorable);
       setPresetHasDocument(presetResult.value.hasDocument);
     }
-    if (workspaceResult.status === "fulfilled") setWorkspaces(workspaceResult.value.items);
+    if (workspaceResult.status === "fulfilled") {
+      setWorkspaces(workspaceResult.value.items);
+      setArchivedSessionIds(new Set((workspaceResult.value.archivedSessionIds ?? []).filter((sessionId): sessionId is string => typeof sessionId === "string" && sessionId.length > 0)));
+    }
     if (settingsResult.status === "fulfilled") setSettings(settingsResult.value);
     if (providerResult.status === "fulfilled") setProviders(providerResult.value.providers);
     if (modelResult.status === "fulfilled") setHostModels(modelResult.value);
@@ -775,8 +906,19 @@ function App() {
     setSelectedSubagentId(null);
     setSubagentLoadError(null);
     setSubagentPanelOpen(false);
+    setSkills([]);
     void loadSubagents();
+    if (activeSessionId) {
+      void bridgeRequest<{ skills: DshSkill[] }>("skill.list", { sessionId: activeSessionId })
+        .then((result) => setSkills(result.skills))
+        .catch(() => undefined);
+    }
   }, [activeSessionId]);
+
+  useEffect(() => {
+    setComposerCandidateIndex(0);
+    setComposerMenuDismissed(false);
+  }, [composerTrigger?.kind, composerTrigger?.query]);
 
   async function loadSurface(tab: SurfaceTab) {
     if (!desktop || !activeSessionId && ["skills", "subagents", "goal"].includes(tab)) return;
@@ -986,6 +1128,7 @@ function App() {
     setActiveSessionId(session.sessionId);
     setWorkspace(session.cwd ?? "");
     setHistory([]);
+    setTodos(null);
     setTrajectoryOpen(false);
     setQueue([]);
     setApproval(null);
@@ -1010,8 +1153,14 @@ function App() {
         bridgeRequest<DshSessionModels>("session.models", { sessionId: session.sessionId }),
       ]);
       setHistory(historyResult.events);
-      setSessionStats(readSessionStats(historyResult.events, historyResult.projections));
+      const loadedStats = readSessionStats(historyResult.events, historyResult.projections);
+      setSessionStats({ ...loadedStats, contextLimit: modelsResult.contextWindow ?? loadedStats.contextLimit });
       setGoal((historyResult.projections?.values.goal as DshGoalProjection | null | undefined) ?? null);
+      const projectionValues = historyResult.projections?.values;
+      const projectedTodos = projectionValues && Object.prototype.hasOwnProperty.call(projectionValues, "todos")
+        ? todoProjection(projectionValues.todos)
+        : undefined;
+      setTodos(projectedTodos !== undefined ? projectedTodos : todosFromHistory(historyResult.events) ?? null);
       setModels(modelsResult);
       setNotice(modelsResult.routable ? "会话已打开" : "当前模型路由不可用");
     } catch (error) {
@@ -1069,11 +1218,21 @@ function App() {
         const nextEvent = payload.event as DshSessionEvent | undefined;
         if (!nextEvent) return;
         if (sessionId === activeSessionRef.current) {
+          if (nextEvent.type === "turn/start") setTodos(null);
+          if (nextEvent.type === "todo/write") {
+            const nextTodos = todoItems(nextEvent.data.todos);
+            if (nextTodos !== undefined) setTodos(nextTodos);
+          }
           setHistory((current) => {
             const next = current.some((entry) => entry.event.seq === nextEvent.seq)
               ? current
               : [...current, { event: nextEvent, view: payload.view }];
-            if (next.length !== current.length) setSessionStats(readSessionStats(next));
+            if (next.length !== current.length) {
+              setSessionStats((currentStats) => {
+                const nextStats = readSessionStats(next);
+                return nextStats.contextLimit > 0 ? nextStats : { ...nextStats, contextLimit: currentStats.contextLimit };
+              });
+            }
             return next;
           });
           if (nextEvent.type === "user/message") {
@@ -1093,6 +1252,34 @@ function App() {
       if (type === "session/projection") {
         const sessionId = String(payload.sessionId ?? "");
         const key = String(payload.key ?? "");
+        if (sessionId === activeSessionRef.current && (key === "contextPressure" || key === "tokenUsage")) {
+          const projection = recordValue(payload.value);
+          if (key === "contextPressure" && projection) {
+            setSessionStats((current) => ({
+              ...current,
+              contextTokens: numberValue(projection.projectedTokens ?? projection.pressureTokens) ?? current.contextTokens,
+              contextLimit: numberValue(projection.contextWindow) ?? current.contextLimit,
+            }));
+          }
+          if (key === "tokenUsage" && projection) {
+            const uncachedInput = numberValue(projection.uncachedInputTokens) ?? 0;
+            const cacheRead = numberValue(projection.cacheReadTokens) ?? 0;
+            const cacheWrite = numberValue(projection.cacheWriteTokens) ?? 0;
+            setSessionStats((current) => ({
+              ...current,
+              inputTokens: uncachedInput + cacheRead + cacheWrite,
+              outputTokens: numberValue(projection.outputTokens) ?? current.outputTokens,
+              cacheHitRate: cacheRead + cacheWrite > 0 ? Math.min(100, (cacheRead / (uncachedInput + cacheRead + cacheWrite)) * 100) : current.cacheHitRate,
+              totalTokens: uncachedInput + cacheRead + cacheWrite + (numberValue(projection.outputTokens) ?? current.outputTokens),
+            }));
+          }
+          return;
+        }
+        if (key === "todos" && sessionId === activeSessionRef.current) {
+          const nextTodos = todoProjection(payload.value);
+          if (nextTodos !== undefined) setTodos(nextTodos);
+          return;
+        }
         if (key === "goal" && sessionId === activeSessionRef.current) {
           setGoal((payload.value as DshGoalProjection | null | undefined) ?? null);
           return;
@@ -1176,6 +1363,12 @@ function App() {
       if (String(payload.parentSessionId ?? "") === activeSessionRef.current || payload.origin === "subagent") void loadSubagents();
       return;
     }
+    if (type === "host/archived-sessions-changed") {
+      const nextArchivedIds = new Set((Array.isArray(payload.archivedSessionIds) ? payload.archivedSessionIds : []).map(String));
+      setArchivedSessionIds(nextArchivedIds);
+      if (activeSessionRef.current && nextArchivedIds.has(activeSessionRef.current)) startNewSession();
+      return;
+    }
     if (type === "host/session-removed") {
       const sessionId = String(payload.sessionId ?? "");
       setSessions((current) => current.filter((session) => session.sessionId !== sessionId));
@@ -1229,6 +1422,7 @@ function App() {
     activeSessionRef.current = null;
     setActiveSessionId(null);
     setHistory([]);
+    setTodos(null);
     setTrajectoryOpen(false);
     setComposer("");
     setModels(null);
@@ -1264,7 +1458,10 @@ function App() {
     activeSessionRef.current = created.sessionId;
     setActiveSessionId(created.sessionId);
     void bridgeRequest<DshSessionModels>("session.models", { sessionId: created.sessionId })
-      .then(setModels)
+      .then((nextModels) => {
+        setModels(nextModels);
+        if (nextModels.contextWindow !== undefined) setSessionStats((current) => ({ ...current, contextLimit: nextModels.contextWindow! }));
+      })
       .catch(() => undefined);
     return created.sessionId;
     })();
@@ -1317,10 +1514,13 @@ function App() {
     }
   }
 
-  async function forkSession(sessionId: string = activeSessionId ?? "") {
+  async function forkSession(sessionId: string = activeSessionId ?? "", atSeq?: number) {
     if (!sessionId) return;
     try {
-      const result = await bridgeRequest<{ sessionId: string }>("session.fork", { sessionId });
+      const result = await bridgeRequest<{ sessionId: string }>("session.fork", {
+        sessionId,
+        ...(atSeq === undefined ? {} : { atSeq }),
+      });
       const nextSessions = await loadSessions();
       const forked = nextSessions?.find((session) => session.sessionId === result.sessionId);
       if (forked) await openSession(forked);
@@ -1330,19 +1530,29 @@ function App() {
     }
   }
 
-  async function deleteSession(session: DshSessionSummary) {
+  async function copyMessage(text: string) {
     try {
-      await bridgeRequest("session.delete", { sessionId: session.sessionId });
+      await navigator.clipboard.writeText(text);
+      setNotice("消息已复制");
+    } catch (error) {
+      setNotice(`复制失败：${errorText(error)}`);
+    }
+  }
+
+  async function archiveSession(session: DshSessionSummary) {
+    try {
+      await bridgeRequest("workspace.archiveSession", { sessionId: session.sessionId });
       setConfirmAction(null);
+      setArchivedSessionIds((current) => new Set(current).add(session.sessionId));
       await loadSessions();
       if (session.sessionId === activeSessionRef.current) startNewSession();
-      setNotice("会话已删除");
+      setNotice("会话已归档");
     } catch (error) { setNotice(errorText(error)); }
   }
 
   function requestSessionAction(action: SessionAction, session: DshSessionSummary) {
     setSessionContextMenu(null);
-    if (action === "delete") { setConfirmAction({ action, session }); return; }
+    if (action === "archive") { setConfirmAction({ action, session }); return; }
     if (action === "fork") { void forkSession(session.sessionId); return; }
     setRenameValue(displayTitle(session));
     if (session.sessionId === activeSessionId) setRenaming(true);
@@ -1391,7 +1601,9 @@ function App() {
     }
     try {
       await bridgeRequest("session.selectModel", { sessionId: activeSessionId, provider, model });
-      setModels((current) => current ? { ...current, current: { ...current.current, provider, model, reasoningEffort: undefined } } : current);
+      const selectedContextWindow = models?.groups.find((group) => group.id === provider)?.models.find((entry) => entry.id === model)?.contextWindow;
+      setModels((current) => current ? { ...current, current: { ...current.current, provider, model, reasoningEffort: undefined }, contextWindow: selectedContextWindow } : current);
+      if (selectedContextWindow !== undefined) setSessionStats((current) => ({ ...current, contextLimit: selectedContextWindow }));
       setModelMenuOpen(false);
       setModelMenuPane("root");
       setNotice("模型已切换");
@@ -1498,7 +1710,36 @@ function App() {
     }
   }
 
+  function chooseComposerCandidate(candidate: ComposerCandidate) {
+    if (!composerTrigger) return;
+    setComposer(`${composer.slice(0, composerTrigger.start)}${candidate.insertText} `);
+    setComposerCandidateIndex(0);
+    setComposerMenuDismissed(false);
+  }
+
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (composerCandidates.length > 0 && !composerMenuDismissed) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setComposerCandidateIndex((current) => (current + 1) % composerCandidates.length);
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setComposerCandidateIndex((current) => (current - 1 + composerCandidates.length) % composerCandidates.length);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setComposerMenuDismissed(true);
+        return;
+      }
+      if (event.key === "Enter" && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+        event.preventDefault();
+        chooseComposerCandidate(composerCandidates[activeComposerCandidateIndex]);
+        return;
+      }
+    }
     if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
       handleComposerAction();
@@ -1626,7 +1867,7 @@ function App() {
         </div>
       </header>
 
-      <div className="workspace-layout">
+      <div className={`workspace-layout ${todoVisible ? "todo-visible" : ""}`}>
         <aside className="session-sidebar">
           <div className="sidebar-actions">
             <button className="new-session-button" onClick={startNewSession}>
@@ -1666,7 +1907,7 @@ function App() {
           {sessionContextMenu && <div className="session-context-menu" style={{ left: sessionContextMenu.x, top: sessionContextMenu.y }} role="menu" onMouseDown={(event) => event.stopPropagation()}>
             <button role="menuitem" onClick={() => requestSessionAction("rename", sessionContextMenu.session)}>重命名</button>
             <button role="menuitem" onClick={() => requestSessionAction("fork", sessionContextMenu.session)}>分叉会话</button>
-            <button className="danger" role="menuitem" onClick={() => requestSessionAction("delete", sessionContextMenu.session)}>删除会话</button>
+            <button className="danger" role="menuitem" onClick={() => requestSessionAction("archive", sessionContextMenu.session)}>归档会话</button>
           </div>}
 
           <div className="sidebar-bottom">
@@ -1754,6 +1995,14 @@ function App() {
                           </div>
                         </details>
                       ) : <MarkdownContent text={item.text} />}
+                      {item.kind !== "tool" && item.kind !== "system" && (
+                        <div className="message-actions">
+                          <button type="button" onClick={() => void copyMessage(item.text)} title="复制消息">复制</button>
+                          {item.kind === "assistant" && item.seq !== undefined && activeSessionId && (
+                            <button type="button" onClick={() => void forkSession(activeSessionId, item.seq)} title="从此消息分叉">分叉</button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </article>
                 ))}
@@ -1809,16 +2058,45 @@ function App() {
             <div className="composer-shell">
               <textarea
                 value={composer}
-                onChange={(event) => setComposer(event.target.value)}
+                onChange={(event) => {
+                  setComposer(event.target.value);
+                  setComposerMenuDismissed(false);
+                }}
                 onKeyDown={handleComposerKeyDown}
                 placeholder={activeRunning ? "输入要排队或插入当前回合的内容" : "输入消息，开始与 DSH 对话"}
                 rows={3}
                 disabled={!status.runtimeAvailable}
+                aria-controls={composerCandidates.length > 0 && !composerMenuDismissed ? "composer-candidates" : undefined}
+                aria-activedescendant={composerCandidates.length > 0 && !composerMenuDismissed ? `composer-candidate-${activeComposerCandidateIndex}` : undefined}
               />
+              {composerCandidates.length > 0 && !composerMenuDismissed && (
+                <div className="composer-candidates" id="composer-candidates" role="listbox" aria-label="输入候选">
+                  <div className="composer-candidates-heading">{composerTrigger?.kind === "skill" ? "Skill" : "Subagent"}</div>
+                  {composerCandidates.map((candidate, index) => (
+                    <button
+                      className={`composer-candidate${index === activeComposerCandidateIndex ? " selected" : ""}`}
+                      id={`composer-candidate-${index}`}
+                      key={`${candidate.kind}-${candidate.id}`}
+                      type="button"
+                      role="option"
+                      aria-selected={index === activeComposerCandidateIndex}
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        chooseComposerCandidate(candidate);
+                      }}
+                    >
+                      <strong>{candidate.label}</strong>
+                      {candidate.detail && <small>{candidate.detail}</small>}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="composer-controls">
                 <div className="composer-left">
                   <button className={`mode-button ${promptMode === "queue" ? "selected" : ""}`} onClick={() => setPromptMode("queue")} title="将消息排入当前会话">排队</button>
                   <button className={`mode-button ${promptMode === "steer" ? "selected" : ""}`} onClick={() => setPromptMode("steer")} title="插入当前回合">插入</button>
+                </div>
+                <div className="composer-right">
                   {activeSession && models && <div className="model-picker" ref={modelMenuRef}>
                     <button
                       className="model-picker-trigger"
@@ -1897,17 +2175,6 @@ function App() {
                       </>}
                     </div>}
                   </div>}
-                  <div className="composer-stats" title={`上下文 ${formatTokens(sessionStats.contextTokens)} / ${sessionStats.contextLimit ? formatTokens(sessionStats.contextLimit) : "未知上限"}`}>
-                    <span className="context-meter" aria-label="上下文使用量"><i style={{ width: `${contextPercent(sessionStats)}%` }} /></span>
-                    <span>上下文 {formatTokens(sessionStats.contextTokens)}{sessionStats.contextLimit ? ` / ${formatTokens(sessionStats.contextLimit)}` : ""}</span>
-                    <span title="输入 Token">↓ {formatTokens(sessionStats.inputTokens)}</span>
-                    <span title="输出 Token">↑ {formatTokens(sessionStats.outputTokens)}</span>
-                    <span title="缓存命中率">缓存 {sessionStats.cacheHitRate ? `${sessionStats.cacheHitRate.toFixed(0)}%` : "—"}</span>
-                    <span title="首个 Token 延迟">首 T {sessionStats.firstTokenMs ? `${Math.round(sessionStats.firstTokenMs)}ms` : "—"}</span>
-                    <span>{sessionStats.messages} 条消息</span>
-                  </div>
-                </div>
-                <div className="composer-right">
                   <button
                     className={activeRunning ? "stop-button" : "send-button"}
                     onClick={handleComposerAction}
@@ -1919,9 +2186,53 @@ function App() {
                 </div>
               </div>
             </div>
+            <div className="composer-stats" title={sessionStats.contextLimit ? `上下文 ${formatTokens(sessionStats.contextTokens)} / ${formatTokens(sessionStats.contextLimit)}` : "当前模型未返回上下文窗口上限；使用量仍按请求统计。"}>
+              <span className="context-meter" aria-label="上下文使用量"><i style={{ width: `${contextPercent(sessionStats)}%` }} /></span>
+              <span>上下文 {formatTokens(sessionStats.contextTokens)}{sessionStats.contextLimit ? ` / ${formatTokens(sessionStats.contextLimit)}` : " · 上限未知"}</span>
+              <span title="输入 Token">↓ {formatTokens(sessionStats.inputTokens)}</span>
+              <span title="输出 Token">↑ {formatTokens(sessionStats.outputTokens)}</span>
+              <span title="缓存命中率">缓存 {sessionStats.cacheHitRate ? `${sessionStats.cacheHitRate.toFixed(0)}%` : "—"}</span>
+              <span title="首个 Token 延迟">首 T {sessionStats.firstTokenMs ? `${Math.round(sessionStats.firstTokenMs)}ms` : "—"}</span>
+              <span>{sessionStats.messages} 条消息</span>
+            </div>
             <div className="composer-hint">Ctrl / Cmd + Enter 发送 <span>{activeSession?.agentPreset ?? "standard"} · {workspace || status.runtimeDirectory || "运行目录"}</span></div>
           </footer>
         </section>
+
+        {todoVisible && (
+          <aside className="todo-panel" aria-label="当前会话任务清单" aria-live="polite">
+            <header className="todo-panel-header">
+              <div className="todo-panel-heading">
+                <span className="todo-panel-mark" aria-hidden="true">✓</span>
+                <div>
+                  <span className="todo-panel-kicker">CURRENT AGENT / TODO</span>
+                  <h2>任务清单</h2>
+                </div>
+              </div>
+              <span className="todo-panel-total">{todoCounts.completed}/{todos.length}</span>
+            </header>
+            <div className="todo-panel-summary">
+              <div className="todo-progress-track" aria-label={`已完成 ${todoCounts.completed} 项，共 ${todos.length} 项`}>
+                <i style={{ width: `${todos.length ? (todoCounts.completed / todos.length) * 100 : 0}%` }} />
+              </div>
+              <div className="todo-panel-counts">
+                <span className="completed">{todoCounts.completed} 已完成</span>
+                <span className="in-progress">{todoCounts.inProgress} 进行中</span>
+                <span className="pending">{todoCounts.pending} 待处理</span>
+              </div>
+            </div>
+            <ol className="todo-list">
+              {todos.map((item, index) => (
+                <li className={`todo-item ${item.status}`} key={`${index}-${item.content}`}>
+                  <span className="todo-item-index">{String(index + 1).padStart(2, "0")}</span>
+                  <span className={`todo-item-status ${item.status}`} aria-label={todoStatusLabel(item.status)}>{item.status === "completed" ? "✓" : item.status === "in_progress" ? "·" : ""}</span>
+                  <span className="todo-item-content">{item.content}</span>
+                  <span className="todo-item-label">{todoStatusLabel(item.status)}</span>
+                </li>
+              ))}
+            </ol>
+          </aside>
+        )}
 
         {subagentCount > 0 && (
           <div className={`subagent-layer ${subagentPanelOpen ? "open" : ""}`}>
@@ -2154,7 +2465,7 @@ function App() {
             </aside>
           </div>
         )}
-      {confirmAction && <div className="confirm-backdrop" onMouseDown={() => setConfirmAction(null)}><div className="confirm-dialog" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><strong>删除会话？</strong><p>“{displayTitle(confirmAction.session)}”及其历史记录将被永久删除，此操作无法撤销。</p><div className="surface-dialog-actions"><button onClick={() => setConfirmAction(null)}>取消</button><button className="confirm danger-button" onClick={() => void deleteSession(confirmAction.session)}>确认删除</button></div></div></div>}
+      {confirmAction && <div className="confirm-backdrop" onMouseDown={() => setConfirmAction(null)}><div className="confirm-dialog" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><strong>归档会话？</strong><p>“{displayTitle(confirmAction.session)}”将从会话列表中隐藏，历史记录会保留；当前桌面端不会显示归档会话。</p><div className="surface-dialog-actions"><button onClick={() => setConfirmAction(null)}>取消</button><button className="confirm danger-button" onClick={() => void archiveSession(confirmAction.session)}>确认归档</button></div></div></div>}
       </div>
     </main>
   );

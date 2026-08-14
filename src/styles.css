@@ -375,11 +375,16 @@ textarea:focus-visible {
 }
 
 .workspace-layout {
+  --todo-panel-width: 286px;
   position: relative;
   min-width: 0;
   min-height: 0;
   display: grid;
   grid-template-columns: 274px minmax(0, 1fr);
+}
+
+.workspace-layout.todo-visible {
+  grid-template-columns: 274px minmax(0, 1fr) var(--todo-panel-width);
 }
 
 .session-sidebar {
@@ -757,12 +762,221 @@ textarea:focus-visible {
   -webkit-user-select: text;
 }
 
+.todo-panel,
+.todo-panel * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.todo-panel {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid var(--line-strong);
+  background: #e8e6df;
+  color: var(--ink);
+}
+
+.todo-panel-header {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 16px 15px;
+  border-bottom: 1px solid var(--line-strong);
+  background: #efede7;
+}
+
+.todo-panel-heading {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.todo-panel-mark {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 1px solid #91a18e;
+  color: #5d775f;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.todo-panel-kicker {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--accent-deep);
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.1em;
+}
+
+.todo-panel-header h2 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.todo-panel-total {
+  flex: 0 0 auto;
+  color: #5d775f;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 24px;
+}
+
+.todo-panel-summary {
+  display: grid;
+  gap: 9px;
+  padding: 13px 16px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.todo-progress-track {
+  height: 5px;
+  overflow: hidden;
+  background: #d1d4cb;
+}
+
+.todo-progress-track i {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: #6e9273;
+  transition: width 180ms ease;
+}
+
+.todo-panel-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 8px;
+  line-height: 1.4;
+}
+
+.todo-panel-counts .completed { color: #5d775f; }
+.todo-panel-counts .in-progress { color: #9a7650; }
+.todo-panel-counts .pending { color: var(--muted); }
+
+.todo-list {
+  min-height: 0;
+  flex: 1;
+  margin: 0;
+  padding: 4px 0 18px;
+  overflow: auto;
+  list-style: none;
+}
+
+.todo-item {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 22px 16px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.todo-item:hover {
+  background: #f1f0eb;
+}
+
+.todo-item-index,
+.todo-item-label {
+  padding-top: 2px;
+  font-family: var(--mono);
+  font-size: 8px;
+  line-height: 1.45;
+}
+
+.todo-item-index {
+  color: var(--faint);
+}
+
+.todo-item-status {
+  width: 15px;
+  height: 15px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed #9ca59a;
+  border-radius: 50%;
+  color: transparent;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.todo-item-status.in_progress {
+  border-style: solid;
+  border-color: #ad8450;
+  color: #9a7650;
+  font-size: 16px;
+  line-height: 9px;
+  animation: todo-progress-pulse 1.2s ease-in-out infinite;
+}
+
+.todo-item-status.completed {
+  border-style: solid;
+  border-color: #6e9273;
+  background: #6e9273;
+  color: #f6f4ed;
+}
+
+.todo-item-content {
+  min-width: 0;
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.todo-item.completed .todo-item-content {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: #aeb8aa;
+}
+
+.todo-item-label {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.todo-item.in_progress .todo-item-label { color: #9a7650; }
+.todo-item.completed .todo-item-label { color: #5d775f; }
+
+@keyframes todo-progress-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(173, 132, 80, 0.12); }
+  50% { box-shadow: 0 0 0 3px rgba(173, 132, 80, 0.16); }
+}
+
 .subagent-layer {
   --subagent-drawer-width: min(420px, calc(100vw - 360px));
   position: absolute;
   inset: 0;
   z-index: 18;
   pointer-events: none;
+}
+
+.workspace-layout.todo-visible > .subagent-layer {
+  right: var(--todo-panel-width);
 }
 
 .subagent-panel-backdrop {
@@ -1851,6 +2065,36 @@ textarea:focus-visible {
   min-width: 0;
 }
 
+.message-actions {
+  display: flex;
+  gap: 5px;
+  margin-top: 8px;
+  opacity: 0.62;
+}
+
+.message-row.user .message-actions {
+  justify-content: flex-end;
+}
+
+.message-actions:hover,
+.message-actions:focus-within {
+  opacity: 1;
+}
+
+.message-actions button {
+  min-height: 22px;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.message-actions button:hover {
+  border-color: var(--line-strong);
+  color: var(--accent-deep);
+}
+
 /* Tool operations use the entire transcript width. */
 .message-row.tool-row {
   display: block;
@@ -2543,6 +2787,7 @@ textarea:focus-visible {
 }
 
 .composer-shell {
+  position: relative;
   width: min(920px, 100%);
   margin: 0 auto;
   border: 1px solid var(--line-strong);
@@ -2569,6 +2814,64 @@ textarea:focus-visible {
 
 .composer-shell textarea::placeholder {
   color: #a1a19b;
+}
+
+.composer-candidates {
+  position: absolute;
+  z-index: 5;
+  right: 10px;
+  bottom: calc(100% + 8px);
+  left: 10px;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  box-shadow: 0 10px 24px rgba(42, 39, 31, 0.12);
+}
+
+.composer-candidates-heading {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.composer-candidate {
+  width: 100%;
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.composer-candidate:last-child {
+  border-bottom: 0;
+}
+
+.composer-candidate:hover,
+.composer-candidate.selected {
+  background: #efeee9;
+}
+
+.composer-candidate strong {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.composer-candidate small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .composer-controls {
@@ -2629,9 +2932,9 @@ textarea:focus-visible {
 }
 
 .model-picker-trigger {
-  width: min(220px, 28vw);
+  width: min(190px, 24vw);
   min-width: 120px;
-  max-width: 220px;
+  max-width: 190px;
   height: 27px;
   display: flex;
   align-items: center;
@@ -2836,18 +3139,28 @@ textarea:focus-visible {
 }
 
 .composer-stats {
+  width: min(920px, 100%);
+  box-sizing: border-box;
   min-width: 0;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
+  margin: 4px auto 0;
+  padding: 0 16px;
   color: #858a82;
   font-family: var(--mono);
   font-size: 9px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .composer-stats > span:not(.context-meter) {
   display: inline-block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .context-meter {
@@ -2892,7 +3205,7 @@ textarea:focus-visible {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  margin: 7px auto 0;
+  margin: 5px auto 0;
   color: #999a94;
   font-family: var(--mono);
   font-size: 9px;
@@ -3958,7 +4271,12 @@ textarea:focus-visible {
 
 @media (max-width: 1120px) {
   .workspace-layout {
+    --todo-panel-width: 260px;
     grid-template-columns: 238px minmax(0, 1fr);
+  }
+
+  .workspace-layout.todo-visible {
+    grid-template-columns: 238px minmax(0, 1fr) var(--todo-panel-width);
   }
 
   .subagent-layer {
@@ -4034,6 +4352,25 @@ textarea:focus-visible {
   .workspace-layout {
     display: block;
     min-height: calc(100svh - var(--window-bar-height));
+  }
+
+  .workspace-layout.todo-visible > .todo-panel {
+    position: fixed;
+    top: calc(var(--window-bar-height) + 10px);
+    right: 8px;
+    bottom: 10px;
+    z-index: 35;
+    width: var(--todo-panel-width);
+    border: 1px solid var(--line-strong);
+    box-shadow: -12px 16px 34px rgba(25, 28, 24, 0.2);
+  }
+
+  .workspace-layout.todo-visible > .subagent-layer {
+    right: 0;
+  }
+
+  .workspace-layout.todo-visible .subagent-rail {
+    right: calc(var(--todo-panel-width) + 18px);
   }
 
   .subagent-layer {
@@ -4198,11 +4535,32 @@ textarea:focus-visible {
   .path-button,
   .model-picker,
   .model-picker-trigger {
-    max-width: 145px;
+    max-width: 135px;
   }
 
   .composer-hint {
     display: none;
+  }
+}
+
+@media (max-width: 500px) {
+  .workspace-layout {
+    --todo-panel-width: min(320px, calc(100vw - 16px));
+  }
+
+  .workspace-layout.todo-visible > .todo-panel {
+    top: auto;
+    right: 8px;
+    bottom: 10px;
+    left: 8px;
+    width: auto;
+    max-height: 46svh;
+  }
+
+  .workspace-layout.todo-visible .subagent-rail {
+    top: 10px;
+    right: 10px;
+    bottom: auto;
   }
 }
 
