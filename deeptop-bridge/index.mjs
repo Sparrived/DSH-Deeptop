@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 
 export const name = 'deeptop-bridge'
-export const inject = ['apiProxy', 'pluginInventory']
+export const inject = ['apiProxy', 'pluginInventory', 'llm']
 
 const PROTOCOL = 'deeptop/1'
 
@@ -65,6 +65,40 @@ class DesktopBridge {
     }
   }
 
+  async sessionModels(request) {
+    const response = await this.ctx.apiProxy.sessions.models(request)
+    const result = response?.result
+    if (!result?.ok || !isRecord(result.value)) return response
+    const current = result.value.current
+    if (!isRecord(current) || typeof current.provider !== 'string' || typeof current.model !== 'string') return response
+    try {
+      const info = await this.ctx.llm.resolveModelInfo(current.provider, current.model)
+      const contextWindow = info?.context?.contextWindow
+      if (typeof contextWindow !== 'number' || !Number.isInteger(contextWindow) || contextWindow <= 0) return response
+      const groups = Array.isArray(result.value.groups)
+        ? await Promise.all(result.value.groups.map(async group => {
+            if (!isRecord(group) || !Array.isArray(group.models)) return group
+            const models = await Promise.all(group.models.map(async model => {
+              if (!isRecord(model) || typeof model.id !== 'string') return model
+              try {
+                const modelInfo = await this.ctx.llm.resolveModelInfo(String(group.id), model.id)
+                const modelWindow = modelInfo?.context?.contextWindow
+                return typeof modelWindow === 'number' && Number.isInteger(modelWindow) && modelWindow > 0
+                  ? { ...model, contextWindow: modelWindow }
+                  : model
+              } catch {
+                return model
+              }
+            }))
+            return { ...group, models }
+          }))
+        : result.value.groups
+      return { ...response, result: { ...result, value: { ...result.value, contextWindow, groups } } }
+    } catch {
+      return response
+    }
+  }
+
   async call(method, payload) {
     const api = this.ctx.apiProxy
     const request = { rpcId: randomUUID(), payload }
@@ -74,7 +108,7 @@ class DesktopBridge {
       case 'session.search': return api.sessions.search(request, signal)
       case 'session.create': return api.sessions.create(request)
       case 'session.history': return api.sessions.history(request)
-      case 'session.models': return api.sessions.models(request)
+      case 'session.models': return this.sessionModels(request)
       case 'session.selectModel': return api.sessions.selectModel(request)
       case 'session.rename': return api.sessions.rename(request)
       case 'session.fork': return api.sessions.fork(request)

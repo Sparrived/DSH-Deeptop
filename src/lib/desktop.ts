@@ -60,6 +60,7 @@ export interface DshModel {
   id: string;
   name: string;
   description?: string;
+  contextWindow?: number;
   reasoning?: {
     efforts: Array<{ id: string; name: string; description?: string }>;
     defaultEffort?: string;
@@ -79,6 +80,7 @@ export interface DshModelCatalog {
 
 export interface DshSessionModels extends DshModelCatalog {
   current: { provider: string; model: string; reasoningEffort?: string };
+  contextWindow?: number;
   routable: boolean;
 }
 
