@@ -1,0 +1,13 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/target-desktop-build/
+src-tauri/gen/
+.DS_Store
+*.log
+
+# Local DSH profile/session probes
+work/desktop-profile-probe/
+work/desktop-session-probe*/
+work/desktop-session-probe*.mjs
+work/dsh-warmup-home/
