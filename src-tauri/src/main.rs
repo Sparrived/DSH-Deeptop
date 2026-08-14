@@ -19,6 +19,7 @@ use serde_json::{json, Value};
 use tauri::{
     AppHandle, Emitter, Manager, State,
 };
+use tauri_plugin_notification::NotificationExt;
 
 const DSH_PROFILE: &str = "desktop";
 const DSH_PACKAGE: &str = "@deepseek-ai/dsh@latest";
@@ -26,6 +27,8 @@ const BRIDGE_TIMEOUT: Duration = Duration::from_secs(45);
 const BRIDGE_PACKAGE_JSON: &str = include_str!("../../deeptop-bridge/package.json");
 const BRIDGE_PATCH: &str = include_str!("../../deeptop-bridge/cordis.patch.yml");
 const BRIDGE_ENTRY: &str = include_str!("../../deeptop-bridge/index.mjs");
+const BRIDGE_RUNTIME: &str = include_str!("../../deeptop-bridge/bridge.mjs");
+const BRIDGE_ROUTES: &str = include_str!("../../deeptop-bridge/routes.mjs");
 const PROFILE_TEMPLATE: &str = include_str!("../../deeptop-bridge/desktop-profile.json");
 const PROFILE_PATCH_TEMPLATE: &str = include_str!("../../deeptop-bridge/profile.patch.yml");
 const PROFILE_PNPM_WORKSPACE: &str = "packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n";
@@ -161,10 +164,13 @@ fn ensure_desktop_profile_manifest(path: &Path) -> Result<(), String> {
         .as_array_mut()
         .ok_or_else(|| "desktop Profile 的 dsh.profile.bundles 字段必须是数组".to_string())?;
 
+    // Migrate the old bridge name; loading both bundles duplicates every service entry.
     let mut user_bundles = Vec::new();
     for bundle in bundles.drain(..) {
         match bundle.as_str() {
-            Some("@deepseek-ai/dsh-base") | Some("deeptop-bridge") => {}
+            Some("@deepseek-ai/dsh-base")
+            | Some("deeptop-bridge")
+            | Some("@dsh-desktop/bridge") => {}
             Some(_) => user_bundles.push(bundle),
             None => return Err("desktop Profile 的 bundles 只能包含包名字符串".to_string()),
         }
@@ -194,6 +200,8 @@ fn materialize_desktop_profile() -> Result<(), String> {
     write_text(&bridge_dir.join("package.json"), BRIDGE_PACKAGE_JSON)?;
     write_text(&bridge_dir.join("cordis.patch.yml"), BRIDGE_PATCH)?;
     write_text(&bridge_dir.join("index.mjs"), BRIDGE_ENTRY)?;
+    write_text(&bridge_dir.join("bridge.mjs"), BRIDGE_RUNTIME)?;
+    write_text(&bridge_dir.join("routes.mjs"), BRIDGE_ROUTES)?;
     Ok(())
 }
 
@@ -300,6 +308,17 @@ impl BridgeManager {
 
     fn emit_status(&self, app: &AppHandle) {
         let _ = app.emit("dsh-runtime-status", self.status());
+    }
+
+    fn ensure_started(&self, app: &AppHandle) {
+        let should_start = self
+            .state
+            .lock()
+            .map(|state| state.phase == RuntimePhase::Idle)
+            .unwrap_or(false);
+        if should_start {
+            self.start(app.clone());
+        }
     }
 
     fn start(&self, app: AppHandle) {
@@ -653,7 +672,8 @@ impl BridgeManager {
 }
 
 #[tauri::command]
-fn check_dsh(runtime: State<'_, BridgeManager>) -> DshStatus {
+fn check_dsh(app: AppHandle, runtime: State<'_, BridgeManager>) -> DshStatus {
+    runtime.ensure_started(&app);
     runtime.status()
 }
 
@@ -661,6 +681,16 @@ fn check_dsh(runtime: State<'_, BridgeManager>) -> DshStatus {
 fn refresh_dsh(app: AppHandle, runtime: State<'_, BridgeManager>) -> DshStatus {
     runtime.restart(app);
     runtime.status()
+}
+
+#[tauri::command]
+fn send_system_notification(app: AppHandle, title: String, body: String) -> Result<(), String> {
+    app.notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show()
+        .map_err(|error| format!("无法发送系统通知：{error}"))
 }
 
 #[tauri::command]
@@ -674,6 +704,7 @@ fn bridge_request(
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .manage(BridgeManager::default())
         .setup(|app| {
             let runtime = app.state::<BridgeManager>().inner().clone();
@@ -683,6 +714,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             check_dsh,
             refresh_dsh,
+            send_system_notification,
             bridge_request,
         ])
         .run(tauri::generate_context!())

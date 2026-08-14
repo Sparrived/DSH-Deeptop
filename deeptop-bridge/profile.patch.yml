@@ -1,2 +1,6 @@
 # Personal Deeptop profile changes belong below this line.
+# Example: add a local Cordis plugin without changing the desktop client.
+# - insert:
+#     - id: my-plugin
+#       name: 'C:/absolute/path/to/my-plugin/src/index.ts'
 []

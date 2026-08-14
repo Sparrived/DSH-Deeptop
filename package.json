@@ -17,7 +17,8 @@
     "build": "tsc --noEmit && vite build",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "test:bridge": "node --test deeptop-bridge/routes.test.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
