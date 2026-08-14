@@ -1,5 +1,7 @@
 # Deeptop
 
+English | [中文](README.zh.md)
+
 Deeptop is a lightweight native desktop client for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). It is not a wrapper around `dsh web`: the Deeptop bridge is itself a Cordis profile bundle, and the Agent, session store, model routes, tools, presets, skills and workspace services stay inside the same DSH tree.
 
 Project: [Sparrived/DSH-Deeptop](https://github.com/Sparrived/DSH-Deeptop)
@@ -14,7 +16,7 @@ The desktop workbench currently provides the core WebUI conversation surface:
 - optional native workspace selection and workspace registration;
 - queue/steer prompt modes, stop current turn, tool-call/result rows and the turn-aware trajectory ledger;
 - native approval and question response paths;
-- native DSH 运行台：Profile roster、Skill 目录、Subagent 历史/追问/中断、Goal 生命周期、Host settings、Provider 与模型目录；
+- native DSH workbench with a Profile roster, Skill catalog, Subagent history/follow-up/interruption, Goal lifecycle, Host settings, and Provider/model catalogs;
 - runtime inspector for DSH host, Cordis profile, workspaces and active routes.
 
 The bridge forwards the same DSH `ApiProxy` domains used by the WebUI: sessions, subagents, skills, goals, settings, credentials, provider discovery, directory browsing, workspaces and preset authoring. The native UI consumes those domains directly; it does not duplicate plugin logic in the desktop process. If an optional domain is absent from a profile, its panel stays unavailable while the Agent conversation remains usable.
