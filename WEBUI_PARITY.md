@@ -32,17 +32,17 @@
 - [~] 可调整布局：侧栏拖拽和宽度持久化已完成；Inspector 仍是弹出面板，未实现 WebUI 的可拖拽三栏布局。
 - [x] 对话流：`assistant/chunk` 文本/reasoning 流式拼装、Think 折叠行和实时尾部更新。
 - [~] 历史分页：`load older`、尾部跟随暂停和完整导出已完成；未做长会话虚拟化。
-- [~] 消息操作：复制和按 `atSeq` 分叉已完成；重试、Like/Dislike 仍缺少 Bridge/API 暴露。
+- [~] 消息操作：复制、按 `atSeq` 分叉和 assistant Like/Dislike/反馈备注已完成；重试仍缺少 Bridge/API 暴露。
 - [~] 工具视图：通用 call/result、Workflow 和 Produced Files 已完成；终端、文件、Diff、搜索、Web、Todo、Skill 专用卡片仍未全部复刻。
 - [~] Markdown/媒体：GFM、图片展示、粘贴/拖放上传已完成；缺少数学公式、附件画廊和 Lightbox（图片可新窗口打开）。
 
 ### P1：输入和运行交互
 
-- [~] `/` 命令菜单、Skill 快捷候选、`@` Subagent 候选和键盘导航：Skill/Subagent 已完成，通用命令目录未由当前 Bridge 暴露。
+- [x] `/` 命令菜单、通用命令目录、Skill 快捷候选、`@` Subagent 候选和键盘导航：官方 `commands/list`、`commands/execute` 已接入运行台和输入候选。
 - [x] 队列：排队、Steer、编辑、删除和队列 dock 已完成。
-- [ ] Plan 模式、Plan chip、`/plan` 和结构化 Plan Review。
+- [~] Plan 模式、`/plan` 和运行台状态切换已接入；Plan chip 与结构化 Plan Review 仍未复刻。
 - [x] 用户问题：单选/多选、自定义文本、推荐标记和 Markdown detail 已完成；逐题导航和 Plan Review intent 未由当前问题 RPC 提供。
-- [~] Permission preset、当前会话权限弹窗和命令级权限操作：通用允许一次/拒绝已完成，Preset/命令级入口未由当前 Bridge 暴露。
+- [~] 当前会话 Permission preset、权限投影和 `/permission` 已接入，危险权限保留确认；全局设置弹窗和逐工具命令级权限 UI 仍未复刻。
 - [~] Subagent：已有直接子 Agent；缺少递归树、任意深度导航、懒加载和 `@` 引用。
 - [~] Goal：已有运行台生命周期操作；缺少 WebUI 输入区 GoalBar 集成。
 - [x] Background Jobs 列表和运行状态菜单。
@@ -56,8 +56,8 @@
 - [ ] 中英文语言切换和本地化资源。
 - [~] 插件设置：已有原始 JSON 编辑和只读清单；缺少 schema 驱动表单及插件管理卡片。
 - [~] Agent Preset：已有选择、默认值、复制、查看和打开文件；缺少完整管理入口、新会话 chip 和删除。
-- [ ] 消息 Like/Dislike 及反馈备注。
-- [~] 会话日志导出、ZIP 下载和完整会话统计：完整历史 JSON 导出和当前会话 token/缓存统计已完成；Host-only ZIP 下载和全量统计仍缺 Bridge 能力。
+- [x] 消息 Like/Dislike 及反馈备注：复用官方 `messageFeedback` Remote，使用版本号做并发冲突对账。
+- [~] 会话日志导出、ZIP 下载和完整会话统计：官方 `session-log-download`、`session-stats` 已接入；原生 JSONL Bridge 会缓冲 ZIP，且运行台只展示摘要字段，未达到 WebUI 的流式下载和完整 stats strip。
 
 ### 插件兼容边界
 
@@ -92,10 +92,12 @@
 - `src/styles.css` 增加消息操作栏和 composer 候选层；候选层不抢 textarea 焦点。
 - `src/App.tsx` 接入 workspace/session 排序、历史分页、assistant/chunk 拼装、reasoning、Jobs、Workflow、Produced Files、图片附件和 JSON 导出。
 - `src/App.tsx` 接入 `credentials.*`、`llm.discoverModels`、字段级 `settings.mutate`，Provider 支持自定义连接和模型写回。
+- `deeptop-bridge/cordis.patch.yml` 注入官方 `message-feedback`、`session-log-download`、`session-stats` Host 插件；`standard` preset 继续提供 Windows PowerShell、文件、搜索和 Job 工具，避免 Host 重复挂载。
+- `src/lib/desktop-client-runtime.ts` 暴露 loopback `remote.invoke/on`，桌面端接入官方 commands、messageFeedback、permissions、plan、sessionStats 以及 ZIP 导出。
 - `src/styles.css` 增加侧栏拖拽宽度、Job/Workflow/Produced Files/Provider 编辑/深色主题样式。
 - 验证：`npm run build` 通过（TypeScript 与 Vite）。
 - 不覆盖已有未提交改动。
 
 ## 对齐结论
 
-当前桌面端已经覆盖 WebUI 的核心会话、工作区、输入、运行状态、Provider 和媒体工作流。剩余项目不是已遗漏的基础交互，而是当前桌面 Bridge 尚未暴露的 Host/Agent 平面能力（Plan、通用命令目录、Permission preset、消息反馈、ZIP 下载），以及需要单独投入的 schema 表单、三栏布局和完整本地化；这些项目已单独标为 `[~]`/`[ ]`，不会用桌面端猜测实现破坏安全边界。
+当前桌面端已经覆盖 WebUI 的核心会话、工作区、输入、运行状态、Provider、媒体工作流，以及本轮选定的官方命令、反馈、权限、Plan、统计和 ZIP Host 能力。仍未达到 WebUI 的即插即用程度：缺少 `window.__ModuleLoader__`、Cordis client runner、slot registry、动态客户端插件生命周期、Plan chip/Review、schema 设置表单、完整本地化和流式下载；因此当前策略是复用官方 Host/Remote contract，在原生界面做薄适配，而不是加载整套 WebUI client bundle。
