@@ -88,7 +88,7 @@ Windows 工具由现有 `standard` Agent Preset 提供。`deeptop-bridge/cordis.
 - [ ] 补齐 Remote 调用的取消、超时和断线重连语义，尤其是命令执行、反馈写入和长时间导出。
 - [ ] 增加通用 Projection 缓存和 Session 切换隔离测试，确保晚到的 Projection 不覆盖当前会话。
 - [ ] 增加官方插件存在/缺失时的能力探测，让原生入口能区分“插件未安装”和“调用失败”。
-- [ ] 增加 `session.retry` 或等价官方能力后，再实现消息重试；当前 Bridge 尚未暴露该契约。
+- [x] 消息重试：复用官方 `session.fork({ sessionId, atSeq })` 创建已完成回合前缀分支，再从持久化用户提示词重发；首条消息使用当前会话配置创建空白分支。当前 Bridge/上游 Session API 仍不直接暴露原地 truncate/retryFrom，因此原会话保留为可恢复分支，并对切换会话、重复点击和历史图片恢复做了保护。
 
 ### P1：已有官方能力的原生体验补齐
 

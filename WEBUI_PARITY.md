@@ -35,7 +35,7 @@
 - [~] 可调整布局：侧栏拖拽和宽度持久化已完成；Inspector 仍是弹出面板，未实现 WebUI 的可拖拽三栏布局。
 - [x] 对话流：`assistant/chunk` 文本/reasoning 流式拼装、Think 折叠行和实时尾部更新。
 - [~] 历史分页：`load older`、尾部跟随暂停和完整导出已完成；未做长会话虚拟化。
-- [~] 消息操作：复制、按 `atSeq` 分叉和 assistant Like/Dislike/反馈备注已完成；重试仍缺少 Bridge/API 暴露。
+- [x] 消息操作：复制、按 `atSeq` 分叉、assistant Like/Dislike/反馈备注，以及用户消息“重试”（从最近已完成回合分支后重发当前提示词）已完成。
 - [~] 工具视图：通用 call/result、Workflow 和 Produced Files 已完成；终端、文件、Diff、搜索、Web、Todo、Skill 专用卡片仍未全部复刻。
 - [~] Markdown/媒体：GFM、图片展示、粘贴/拖放上传已完成；缺少数学公式、附件画廊和 Lightbox（图片可新窗口打开）。
 
@@ -71,7 +71,7 @@
 ## 本轮实施
 
 - [x] 建立本工程清单。
-- [x] 消息级复制与按 `atSeq` 分叉。
+- [x] 消息级复制、按 `atSeq` 分叉和用户消息重试；重试使用新的分支会话，原会话保留且工作区/外部副作用不回滚。当前上游没有原地 truncate/retryFrom，严格删除原会话后续事件仍需上游原子 API。
 - [x] 输入框 `/Skill` 和 `@Subagent` 快捷候选。
 - [x] Workspace/Session 树、全文搜索、历史分页、流式 reasoning 和尾部跟随。
 - [x] 队列编辑、用户问题自定义回答、后台 Jobs、Workflow、Produced Files、图片附件。
