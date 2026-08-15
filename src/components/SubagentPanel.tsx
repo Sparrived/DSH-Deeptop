@@ -105,7 +105,7 @@ export function SubagentPanel({
                 ) : (
                   <article className={`subagent-message ${item.kind}`} key={item.key}>
                     <div className="subagent-message-meta"><strong>{item.label}</strong><time>{formatClock(item.time)}</time></div>
-                    {item.injected ? <pre>{item.text}</pre> : <MarkdownContent text={item.text} />}
+                    {item.injected ? <pre>{item.text}</pre> : <MarkdownContent text={item.text} reveal={item.kind === "assistant" && item.key.startsWith("stream-")} />}
                   </article>
                 ))}
                 {transcript.length === 0 && <div className="subagent-drawer-empty"><strong>暂无执行记录</strong><p>这个子 Agent 还没有可展示的消息。</p></div>}

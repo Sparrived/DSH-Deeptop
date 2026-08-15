@@ -1,15 +1,11 @@
 import { useEffect, useState, type MouseEvent } from "react";
-import { isWindowChromeControl, projectName, runtimeLabel } from "../app/ui-model";
-import type { DshStatus } from "../lib/desktop";
+import { isWindowChromeControl } from "../app/ui-model";
 import type { WindowMenu } from "../app/model-types";
 import { WindowControls } from "./WindowControls";
 
 type EditCommand = "undo" | "redo" | "cut" | "copy" | "paste" | "selectAll";
 
 type WindowChromeProps = {
-  status: DshStatus;
-  workspace: string;
-  activeSessionCwd?: string;
   windowMaximized: boolean;
   settingsOpen: boolean;
   onDrag: (event: MouseEvent<HTMLElement>) => void;
@@ -24,9 +20,6 @@ type WindowChromeProps = {
 };
 
 export function WindowChrome({
-  status,
-  workspace,
-  activeSessionCwd,
   windowMaximized,
   settingsOpen,
   onDrag,
@@ -70,7 +63,7 @@ export function WindowChrome({
       onMouseDown={onDrag}
       onDoubleClick={(event) => { if (!isWindowChromeControl(event.target)) onToggleMaximize(); }}
     >
-      <div className="brand-mark">DSH <span>DESKTOP</span></div>
+      <div className="brand-mark">DSH <span>DEEPTOP</span></div>
       <nav className="window-menu" aria-label="应用菜单">
         <div className="window-menu-group">
           <button className={`window-menu-button ${windowMenu === "project" ? "selected" : ""}`} onClick={() => toggleMenu("project")}>项目</button>
@@ -96,17 +89,9 @@ export function WindowChrome({
           </div>}
         </div>
       </nav>
-      <div className="window-context" title={workspace || status.runtimeDirectory}>
-        <span className="context-dot" />
-        <strong>{projectName(workspace || activeSessionCwd)}</strong>
-        <span>{workspace || "DSH 运行目录"}</span>
-      </div>
       <div className="window-drag-space" />
       <div className="window-actions">
-        <span className={`runtime-state ${status.runtimeAvailable ? "ready" : ""}`}>
-          <i /> {runtimeLabel(status)}
-        </span>
-        <button className={`settings-button ${settingsOpen ? "selected" : ""}`} onClick={onOpenSettings} title="打开设置" aria-label="打开设置">⚙</button>
+        <button className={`settings-button window-settings-button ${settingsOpen ? "selected" : ""}`} onClick={onOpenSettings} title="打开设置" aria-label="打开设置">⚙</button>
         <WindowControls
           windowMaximized={windowMaximized}
           onMinimize={onMinimize}

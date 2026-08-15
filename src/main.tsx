@@ -4,8 +4,8 @@ import App from "./App";
 import "./styles.css";
 
 document.addEventListener("contextmenu", (event) => {
-  // Session rows own a contextual action menu; keep the native menu disabled elsewhere.
-  if (event.target instanceof Element && event.target.closest(".session-row")) return;
+  // Session rows and workspace headers own contextual action menus.
+  if (event.target instanceof Element && event.target.closest(".session-row, .workspace-group-header")) return;
   event.preventDefault();
 }, true);
 

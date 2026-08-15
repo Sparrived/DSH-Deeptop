@@ -11,16 +11,21 @@ type WorkspacePickerProps = {
 };
 
 export function WorkspacePicker({ workspace, workspaces, open, onToggle, onChoose, onAdd }: WorkspacePickerProps) {
+  const selectedWorkspace = workspaces.find((item) => item.path === workspace);
+  const selectedTitle = selectedWorkspace?.title || (workspace ? projectName(workspace) : "未分组");
+  const selectedPath = selectedWorkspace?.path || (workspace || "未注册工作区的会话");
   return (
     <div className="workspace-picker">
-      <button className="workspace-line" onClick={onToggle} title={workspace || "选择工作目录"} aria-expanded={open}>
+      <button className="workspace-line" onClick={onToggle} title={workspace || "未分组会话；新会话使用 DSH 运行目录"} aria-expanded={open}>
         <span className="line-icon">⌂</span>
-        <span><strong>{workspace ? projectName(workspace) : "工作目录"}</strong><small>{workspace || "新会话使用运行目录"}</small></span>
+        <span><strong>{selectedTitle}</strong><small>{selectedPath}</small></span>
         <span className="line-arrow">⌄</span>
       </button>
       {open && (
         <div className="workspace-menu" role="menu">
-          <button className={!workspace ? "selected" : ""} onClick={() => onChoose("")} role="menuitem">DSH 运行目录</button>
+          <button className={!workspace ? "selected" : ""} onClick={() => onChoose("")} role="menuitem" title="新会话使用 DSH 运行目录">
+            <strong>未分组</strong><small>未注册工作区的会话</small>
+          </button>
           {workspaces.map((item) => (
             <button key={item.workspaceId} className={workspace === item.path ? "selected" : ""} onClick={() => onChoose(item.path)} role="menuitem" title={item.path}>
               <strong>{item.title || projectName(item.path)}</strong><small>{item.path}</small>

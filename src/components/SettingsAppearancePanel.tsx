@@ -1,16 +1,19 @@
 import { useRef, type RefObject } from "react";
 import type { AppearanceSettings } from "../app/model";
+import type { ThemeMode } from "../app/model";
 
 type FontPreset = { value: string; label: string };
 
 type SettingsAppearancePanelProps = {
   appearance: AppearanceSettings;
+  themeMode: ThemeMode;
   fontPreset: string;
   codeFontPreset: string;
   fontPresets: FontPreset[];
   codeFontPresets: FontPreset[];
   fileInputRef: RefObject<HTMLInputElement | null>;
   onUpdate: (patch: Partial<AppearanceSettings>) => void;
+  onThemeChange: (mode: ThemeMode) => void;
   onBackgroundFile: (file: File | undefined) => void;
   onThemeFile: (file: File | undefined) => void;
   onReset: () => void;
@@ -18,12 +21,14 @@ type SettingsAppearancePanelProps = {
 
 export function SettingsAppearancePanel({
   appearance,
+  themeMode,
   fontPreset,
   codeFontPreset,
   fontPresets,
   codeFontPresets,
   fileInputRef,
   onUpdate,
+  onThemeChange,
   onBackgroundFile,
   onThemeFile,
   onReset,
@@ -37,11 +42,18 @@ export function SettingsAppearancePanel({
         <button type="button" className="settings-header-action" onClick={onReset}>恢复默认</button>
       </div>
 
+      <div className="settings-block">
+        <div className="settings-block-heading"><div><h3>界面</h3><p>选择应用的明暗主题。</p></div></div>
+        <div className="settings-preference-list">
+          <label className="settings-preference-row"><span><strong>主题</strong><small>默认跟随系统颜色</small></span><select value={themeMode} onChange={(event) => onThemeChange(event.target.value as ThemeMode)}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
+        </div>
+      </div>
+
       <div
         className={`appearance-preview${appearance.backgroundImage ? " has-preview-background" : ""}`}
         style={appearance.backgroundImage ? { backgroundImage: `linear-gradient(rgba(20, 23, 20, .58), rgba(20, 23, 20, .58)), url(${JSON.stringify(appearance.backgroundImage)})`, backgroundSize: appearance.backgroundSize, backgroundPosition: appearance.backgroundPosition } : undefined}
       >
-        <div className="appearance-preview-bar"><span>DSH DESKTOP</span><span>预览</span></div>
+        <div className="appearance-preview-bar"><span>DSH DEEPTOP</span><span>预览</span></div>
         <div className="appearance-preview-body">
           <span className="appearance-preview-label">消息预览</span>
           <p style={{ fontFamily: appearance.fontFamily, fontSize: `${appearance.messageFontSize}px`, lineHeight: appearance.messageLineHeight }}>把常用的阅读节奏和工作氛围留给自己。</p>
@@ -56,7 +68,7 @@ export function SettingsAppearancePanel({
           {fontPreset === "custom" && <label className="appearance-custom-field"><span>自定义界面字体栈</span><input value={appearance.fontFamily} onChange={(event) => onUpdate({ fontFamily: event.target.value })} placeholder='例如 "霞鹜文楷", sans-serif' /></label>}
           <label className="settings-preference-row"><span><strong>代码字体</strong><small>代码块和技术信息</small></span><select value={codeFontPreset} onChange={(event) => { if (event.target.value !== "custom") onUpdate({ codeFontFamily: event.target.value }); }}><option value="custom">自定义字体栈</option>{codeFontPresets.map((item) => <option value={item.value} key={item.value}>{item.label}</option>)}</select></label>
           {codeFontPreset === "custom" && <label className="appearance-custom-field"><span>自定义代码字体栈</span><input value={appearance.codeFontFamily} onChange={(event) => onUpdate({ codeFontFamily: event.target.value })} placeholder='例如 "Fira Code", monospace' /></label>}
-          <label className="settings-preference-row"><span><strong>消息字号</strong><small>{appearance.messageFontSize}px</small></span><span className="appearance-range-control"><input type="range" min="11" max="18" step="1" value={appearance.messageFontSize} onChange={(event) => onUpdate({ messageFontSize: Number(event.target.value) })} /><output>{appearance.messageFontSize}px</output></span></label>
+          <label className="settings-preference-row"><span><strong>消息字号</strong><small>{appearance.messageFontSize}px</small></span><span className="appearance-range-control"><input type="range" min="14" max="18" step="1" value={appearance.messageFontSize} onChange={(event) => onUpdate({ messageFontSize: Number(event.target.value) })} /><output>{appearance.messageFontSize}px</output></span></label>
           <label className="settings-preference-row"><span><strong>消息行距</strong><small>{appearance.messageLineHeight.toFixed(2)}</small></span><span className="appearance-range-control"><input type="range" min="1.35" max="2.2" step="0.05" value={appearance.messageLineHeight} onChange={(event) => onUpdate({ messageLineHeight: Number(event.target.value) })} /><output>{appearance.messageLineHeight.toFixed(2)}</output></span></label>
         </div>
       </div>

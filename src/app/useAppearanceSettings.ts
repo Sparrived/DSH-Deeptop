@@ -4,7 +4,7 @@ import type { AppearanceSettings } from "./model-types";
 export const defaultAppearance: AppearanceSettings = {
   fontFamily: '"Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", sans-serif',
   codeFontFamily: '"Cascadia Mono", Consolas, monospace',
-  messageFontSize: 13,
+  messageFontSize: 15,
   messageLineHeight: 1.7,
   backgroundImage: "",
   backgroundName: "",
@@ -48,7 +48,7 @@ function readAppearanceSettings(): AppearanceSettings {
       ...value,
       fontFamily: typeof value.fontFamily === "string" && value.fontFamily.trim() ? value.fontFamily : defaultAppearance.fontFamily,
       codeFontFamily: typeof value.codeFontFamily === "string" && value.codeFontFamily.trim() ? value.codeFontFamily : defaultAppearance.codeFontFamily,
-      messageFontSize: boundedNumber(value.messageFontSize, defaultAppearance.messageFontSize, 11, 18),
+      messageFontSize: boundedNumber(value.messageFontSize, defaultAppearance.messageFontSize, 14, 18),
       messageLineHeight: boundedNumber(value.messageLineHeight, defaultAppearance.messageLineHeight, 1.35, 2.2),
       backgroundImage: typeof value.backgroundImage === "string" && /^(?:https?:|data:image\/)/i.test(value.backgroundImage) ? value.backgroundImage : "",
       backgroundName: typeof value.backgroundName === "string" ? value.backgroundName : "",

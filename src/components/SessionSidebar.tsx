@@ -1,40 +1,39 @@
-import type { RefObject } from "react";
-import { SessionRow } from "./SessionRow";
+import { useMemo, useState, type RefObject } from "react";
+import { createPortal } from "react-dom";
+import { SessionRow, SessionStatusBadge } from "./SessionRow";
 import { WorkspaceGroup as WorkspaceGroupSection } from "./WorkspaceGroup";
 import { WorkspacePicker } from "./WorkspacePicker";
 import {
-  runtimeLabel,
+  displayTitle,
+  formatDate,
+  projectName,
   type SessionAction,
   type SessionContextMenu,
-  type WorkspaceViewMode,
 } from "../app/model";
-import type { DshSessionSummary, DshStatus, DshWorkspace } from "../lib/desktop";
+import type { DshSessionSummary, DshWorkspace } from "../lib/desktop";
 
 type WorkspaceGroup = {
-  workspace: DshWorkspace;
+  workspace: DshWorkspace | null;
+  workspaceId: string;
   sessions: DshSessionSummary[];
 };
 
-type SessionGroups = {
-  groups: WorkspaceGroup[];
-  ungrouped: DshSessionSummary[];
-};
-
 type SessionSidebarProps = {
-  status: DshStatus;
   search: string;
   onSearchChange: (value: string) => void;
   onSearch: () => void;
   onClearSearch: () => void;
   onNewSession: () => void;
+  settingsOpen: boolean;
+  onOpenSettings: () => void;
   onAddWorkspace: () => void | Promise<void>;
   visibleSessions: DshSessionSummary[];
-  workspaceViewMode: WorkspaceViewMode;
-  onWorkspaceViewModeChange: (mode: WorkspaceViewMode) => void;
-  workspaceGroups: SessionGroups;
+  archivedSessions: DshSessionSummary[];
+  onRestoreSession: (session: DshSessionSummary) => void | Promise<unknown>;
+  onDeleteArchivedSession: (session: DshSessionSummary) => void;
+  workspaceGroup: WorkspaceGroup;
   collapsedWorkspaces: Record<string, boolean>;
   onToggleWorkspace: (workspaceId: string) => void;
-  onMoveWorkspace: (workspace: DshWorkspace, direction: "up" | "down") => void | Promise<void>;
   onRenameWorkspace: (workspace: DshWorkspace) => void | Promise<void>;
   onDeleteWorkspace: (workspace: DshWorkspace) => void | Promise<void>;
   sessionContextMenu: SessionContextMenu | null;
@@ -54,24 +53,26 @@ type SessionSidebarProps = {
   onOpenSession: (session: DshSessionSummary) => void | Promise<unknown>;
   onMoveSessionBefore: (sessionId: string, beforeSessionId: string) => void | Promise<unknown>;
   onDragOverSessionChange: (sessionId: string | null) => void;
+  onSessionDragEnd: () => void;
   onSessionContextMenu: (session: DshSessionSummary, x: number, y: number) => void;
 };
 
 export function SessionSidebar({
-  status,
   search,
   onSearchChange,
   onSearch,
   onClearSearch,
   onNewSession,
+  settingsOpen,
+  onOpenSettings,
   onAddWorkspace,
   visibleSessions,
-  workspaceViewMode,
-  onWorkspaceViewModeChange,
-  workspaceGroups,
+  archivedSessions,
+  onRestoreSession,
+  onDeleteArchivedSession,
+  workspaceGroup,
   collapsedWorkspaces,
   onToggleWorkspace,
-  onMoveWorkspace,
   onRenameWorkspace,
   onDeleteWorkspace,
   sessionContextMenu,
@@ -91,9 +92,51 @@ export function SessionSidebar({
   onOpenSession,
   onMoveSessionBefore,
   onDragOverSessionChange,
+  onSessionDragEnd,
   onSessionContextMenu,
 }: SessionSidebarProps) {
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [dragPreviewOrder, setDragPreviewOrder] = useState<string[] | null>(null);
+  const baseSessionOrder = useMemo(() => visibleSessions.map((session) => session.sessionId), [visibleSessions]);
+  const dragPreviewRank = useMemo(
+    () => dragPreviewOrder ? new Map(dragPreviewOrder.map((sessionId, index) => [sessionId, index])) : null,
+    [dragPreviewOrder],
+  );
+
+  function orderSessions(items: DshSessionSummary[]) {
+    if (!dragPreviewRank) return items;
+    return [...items].sort((left, right) => (
+      (dragPreviewRank.get(left.sessionId) ?? Number.MAX_SAFE_INTEGER)
+      - (dragPreviewRank.get(right.sessionId) ?? Number.MAX_SAFE_INTEGER)
+    ));
+  }
+
+  function handleDragOverSessionChange(targetSessionId: string | null) {
+    const sourceSessionId = draggedSessionRef.current;
+    if (sourceSessionId && targetSessionId && sourceSessionId !== targetSessionId) {
+      setDragPreviewOrder((currentOrder) => {
+        const order = currentOrder ?? baseSessionOrder;
+        const sourceIndex = order.indexOf(sourceSessionId);
+        if (sourceIndex < 0) return currentOrder;
+        const nextOrder = [...order];
+        nextOrder.splice(sourceIndex, 1);
+        const targetIndex = nextOrder.indexOf(targetSessionId);
+        if (targetIndex < 0) return currentOrder;
+        nextOrder.splice(targetIndex, 0, sourceSessionId);
+        return nextOrder;
+      });
+    }
+    onDragOverSessionChange(targetSessionId);
+  }
+
+  function handleSessionDragEnd() {
+    setDragPreviewOrder(null);
+    onDragOverSessionChange(null);
+    onSessionDragEnd();
+  }
+
   const renderSessionRow = (session: DshSessionSummary) => <SessionRow
+    key={session.sessionId}
     session={session}
     active={session.sessionId === activeSessionId}
     indicator={sessionIndicators[session.sessionId] ?? "idle"}
@@ -104,18 +147,32 @@ export function SessionSidebar({
     draggedSessionRef={draggedSessionRef}
     onOpen={onOpenSession}
     onMoveBefore={onMoveSessionBefore}
-    onDragOverChange={onDragOverSessionChange}
+    onDragOverChange={handleDragOverSessionChange}
+    onSessionDragEnd={handleSessionDragEnd}
     onContextMenu={onSessionContextMenu}
   />;
+  const renderArchivedSession = (session: DshSessionSummary) => (
+    <div className={`archived-session-row session-status-${session.running ? "running" : "archived"}`} key={session.sessionId}>
+      <button className="archived-session-main" type="button" onClick={() => void onOpenSession(session)}>
+        <SessionStatusBadge status={session.running ? "running" : "archived"} />
+        <span className="archived-session-copy"><strong>{displayTitle(session)}</strong><small>{formatDate(session.updatedAt)}{session.cwd ? " · " + projectName(session.cwd) : ""}</small></span>
+      </button>
+      <div className="archived-session-actions">
+        <button type="button" onClick={() => void onRestoreSession(session)}>恢复</button>
+        <button className="danger" type="button" onClick={() => onDeleteArchivedSession(session)}>删除</button>
+      </div>
+    </div>
+  );
   return (
     <aside className="session-sidebar">
       <div className="sidebar-actions">
         <button className="new-session-button" onClick={onNewSession}>
           <span aria-hidden="true">+</span> 新会话
         </button>
+        <button className={`settings-button sidebar-settings-button ${settingsOpen ? "selected" : ""}`} onClick={onOpenSettings} title="打开设置" aria-label="打开设置">⚙</button>
         <button className="small-icon-button" onClick={() => void onAddWorkspace()} title="添加工作目录" aria-label="添加工作目录">⌂</button>
       </div>
-      <div className="search-box">
+      {!archiveOpen && <div className="search-box">
         <span aria-hidden="true">/</span>
         <input
           value={search}
@@ -125,57 +182,45 @@ export function SessionSidebar({
           aria-label="搜索会话"
         />
         {search && <button onClick={onClearSearch} title="清除搜索">×</button>}
-      </div>
+      </div>}
 
       <div className="sidebar-heading">
-        <span>会话</span>
+        {archiveOpen ? (
+          <div className="sidebar-heading-title"><button className="sidebar-back-button" type="button" onClick={() => setArchiveOpen(false)} title="返回会话列表" aria-label="返回会话列表">←</button><span>归档</span></div>
+        ) : <span>会话</span>}
         <div className="sidebar-heading-actions">
-          <button className={workspaceViewMode === "grouped" ? "selected" : ""} type="button" onClick={() => onWorkspaceViewModeChange("grouped")} title="按工作区分组">组</button>
-          <button className={workspaceViewMode === "flat" ? "selected" : ""} type="button" onClick={() => onWorkspaceViewModeChange("flat")} title="平铺会话">平</button>
-          <span>{visibleSessions.length || ""}</span>
+          <span>{archiveOpen ? archivedSessions.length : (visibleSessions.length > 0 ? visibleSessions.length : "")}</span>
+          {!archiveOpen && <>
+            <button type="button" onClick={() => setArchiveOpen(true)} title="打开归档页">归档</button>
+          </>}
         </div>
       </div>
-      <div className="session-list" aria-label="会话列表">
-        {visibleSessions.length === 0 ? (
-          <div className="sidebar-empty">没有已开始的会话</div>
-        ) : workspaceViewMode === "flat" ? visibleSessions.map(renderSessionRow) : (
-          <>
-            {workspaceGroups.groups.map(({ workspace: item, sessions: groupSessions }) => (
-              <WorkspaceGroupSection
-                key={item.workspaceId}
-                workspace={item}
-                workspaceId={item.workspaceId}
-                sessions={groupSessions}
-                collapsed={Boolean(collapsedWorkspaces[item.workspaceId])}
-                onToggle={onToggleWorkspace}
-                onMoveWorkspace={onMoveWorkspace}
-                onRenameWorkspace={onRenameWorkspace}
-                onDeleteWorkspace={onDeleteWorkspace}
-                renderSession={renderSessionRow}
-              />
-            ))}
-            {workspaceGroups.ungrouped.length > 0 && (
-              <WorkspaceGroupSection
-                workspace={null}
-                workspaceId="__ungrouped__"
-                sessions={workspaceGroups.ungrouped}
-                collapsed={Boolean(collapsedWorkspaces.__ungrouped__)}
-                onToggle={onToggleWorkspace}
-                onMoveWorkspace={onMoveWorkspace}
-                onRenameWorkspace={onRenameWorkspace}
-                onDeleteWorkspace={onDeleteWorkspace}
-                renderSession={renderSessionRow}
-              />
-            )}
-          </>
-        )}
+      <div className="session-list" aria-label={archiveOpen ? "归档会话列表" : "会话列表"}>
+        {archiveOpen ? (
+          archivedSessions.length === 0 ? <div className="sidebar-empty">没有归档会话</div> : archivedSessions.map(renderArchivedSession)
+        ) : <>
+          <WorkspaceGroupSection
+            workspace={workspaceGroup.workspace}
+            workspaceId={workspaceGroup.workspaceId}
+            sessions={orderSessions(workspaceGroup.sessions)}
+            collapsed={Boolean(collapsedWorkspaces[workspaceGroup.workspaceId])}
+            onToggle={onToggleWorkspace}
+            onRenameWorkspace={onRenameWorkspace}
+            onDeleteWorkspace={onDeleteWorkspace}
+            renderSession={renderSessionRow}
+          />
+          {visibleSessions.length === 0 && <div className="sidebar-empty">当前工作区没有已开始的会话</div>}
+        </>}
       </div>
 
-      {sessionContextMenu && <div className="session-context-menu" style={{ left: sessionContextMenu.x, top: sessionContextMenu.y }} role="menu" onMouseDown={(event) => event.stopPropagation()}>
-        <button role="menuitem" onClick={() => onRequestSessionAction("rename", sessionContextMenu.session)}>重命名</button>
-        <button role="menuitem" onClick={() => onRequestSessionAction("fork", sessionContextMenu.session)}>分叉会话</button>
-        <button className="danger" role="menuitem" onClick={() => onRequestSessionAction("archive", sessionContextMenu.session)}>归档会话</button>
-      </div>}
+      {!archiveOpen && sessionContextMenu && createPortal(
+        <div className="session-context-menu" style={{ left: sessionContextMenu.x, top: sessionContextMenu.y }} role="menu" onMouseDown={(event) => event.stopPropagation()}>
+          <button role="menuitem" onClick={() => onRequestSessionAction("rename", sessionContextMenu.session)}>重命名</button>
+          <button role="menuitem" onClick={() => onRequestSessionAction("fork", sessionContextMenu.session)}>分叉会话</button>
+          <button className="danger" role="menuitem" onClick={() => onRequestSessionAction("archive", sessionContextMenu.session)}>归档会话</button>
+        </div>,
+        document.body,
+      )}
 
       <div className="sidebar-bottom">
         <WorkspacePicker
@@ -186,7 +231,6 @@ export function SessionSidebar({
           onChoose={onChooseWorkspace}
           onAdd={onAddWorkspace}
         />
-        <div className="sidebar-footnote"><span className={status.runtimeAvailable ? "online" : ""} />DSH {runtimeLabel(status)}</div>
       </div>
     </aside>
   );

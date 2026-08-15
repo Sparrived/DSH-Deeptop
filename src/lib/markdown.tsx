@@ -1,6 +1,38 @@
 import ReactMarkdown, { type Components } from "react-markdown";
+import { isValidElement, useState, type HTMLAttributes, type ReactNode } from "react";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
+
+function textFromNode(node: ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(textFromNode).join("");
+  if (isValidElement<{ children?: ReactNode }>(node)) return textFromNode(node.props.children);
+  return "";
+}
+
+function MarkdownCodeBlock({ children, ...props }: HTMLAttributes<HTMLPreElement>) {
+  const [copied, setCopied] = useState(false);
+  const code = textFromNode(children).replace(/\n$/, "");
+
+  async function copyCode() {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <div className="markdown-code-block">
+      <pre {...props}>{children}</pre>
+      <button className="markdown-code-copy" type="button" onClick={() => void copyCode()} title="复制代码" aria-label="复制代码">
+        {copied ? "已复制" : "复制"}
+      </button>
+    </div>
+  );
+}
 
 const markdownComponents: Components = {
   a: ({ children, href, node, ...props }) => {
@@ -26,6 +58,7 @@ const markdownComponents: Components = {
       </code>
     );
   },
+  pre: ({ children, node, ...props }) => <MarkdownCodeBlock {...props}>{children}</MarkdownCodeBlock>,
   table: ({ children, node, ...props }) => (
     <div className="markdown-table-wrap">
       <table {...props}>{children}</table>
@@ -33,9 +66,10 @@ const markdownComponents: Components = {
   ),
 };
 
-export function MarkdownContent({ text, className = "message-text" }: { text: string; className?: string }) {
+export function MarkdownContent({ text, className = "message-text", reveal = false }: { text: string; className?: string; reveal?: boolean }) {
+  const contentClassName = reveal ? `${className} model-text-reveal` : className;
   return (
-    <div className={className}>
+    <div className={contentClassName}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkBreaks]}
         components={markdownComponents}

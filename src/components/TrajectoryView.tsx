@@ -22,6 +22,20 @@ function formatTime(time: number): string {
   return new Date(time).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
+type TrajectoryLane = "input" | "model" | "tools";
+
+const TRAJECTORY_LANES: Array<{ key: TrajectoryLane; label: string }> = [
+  { key: "input", label: "Input" },
+  { key: "model", label: "Model" },
+  { key: "tools", label: "Tools" },
+];
+
+function trajectoryLane(kind: TrajectoryKind): TrajectoryLane {
+  if (kind === "tool") return "tools";
+  if (kind === "assistant") return "model";
+  return "input";
+}
+
 function groupByTurn(records: TrajectoryRecord[]) {
   const groups = new Map<string, { turn?: number; records: TrajectoryRecord[] }>();
   for (const record of records) {
@@ -70,14 +84,24 @@ export function TrajectoryView({ entries, active }: { entries: DshHistoryEntry[]
 
       {records.length > 0 && (
         <div className="trajectory-overview" aria-label="轨迹时间概览">
-          <div className="trajectory-overview-label"><span>时间概览</span><small>{formatTime(firstTime)} — {formatTime(lastTime)}</small></div>
-          <div className="trajectory-overview-track">
-            {records.map((record, index) => {
-              const left = ((record.time - firstTime) / timeRange) * 100;
-              const width = Math.max(0.7, ((record.durationMs ?? 0) / timeRange) * 100);
-              const style: CSSProperties = { left: `${Math.min(99.3, Math.max(0, left))}%`, width: `${Math.min(100, width)}%` };
-              return <button className={`trajectory-overview-mark ${record.kind} ${record.status}`} key={record.key} style={style} onClick={() => setSelectedKey(record.key)} title={`#${index + 1} ${record.title}`} aria-label={`选择第 ${index + 1} 条轨迹记录`} />;
-            })}
+          <div className="trajectory-overview-label"><span>时间概览</span><small>{formatTime(firstTime)} 至 {formatTime(lastTime)}</small></div>
+          <div className="trajectory-overview-plot">
+            <div className="trajectory-overview-lane-labels" aria-hidden="true">
+              {TRAJECTORY_LANES.map((lane) => <span key={lane.key}>{lane.label}</span>)}
+            </div>
+            <div className="trajectory-overview-track" aria-label="轨迹三条时间轨道">
+              {TRAJECTORY_LANES.map((lane) => (
+                <div className={`trajectory-overview-lane ${lane.key}`} key={lane.key}>
+                  {records.filter((record) => trajectoryLane(record.kind) === lane.key).map((record) => {
+                    const index = records.indexOf(record);
+                    const left = ((record.time - firstTime) / timeRange) * 100;
+                    const width = Math.max(0.7, ((record.durationMs ?? 0) / timeRange) * 100);
+                    const style: CSSProperties = { left: `${Math.min(99.3, Math.max(0, left))}%`, width: `${Math.min(100, width)}%` };
+                    return <button className={`trajectory-overview-mark ${record.kind} ${record.status}`} key={record.key} style={style} onClick={() => setSelectedKey(record.key)} title={`#${index + 1} ${record.title}`} aria-label={`选择第 ${index + 1} 条轨迹记录`} />;
+                  })}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -120,7 +144,7 @@ export function TrajectoryView({ entries, active }: { entries: DshHistoryEntry[]
               <button onClick={() => setSelectedKey(null)} title="关闭详情" aria-label="关闭详情">×</button>
             </div>
             <dl className="trajectory-meta-list">
-              <div><dt>事件</dt><dd>{selected.seq} · {selected.time ? formatTime(selected.time) : "—"}</dd></div>
+              <div><dt>事件</dt><dd>{selected.seq} · {selected.time ? formatTime(selected.time) : "未提供"}</dd></div>
               {selected.turn !== undefined && <div><dt>位置</dt><dd>Turn {selected.turn}{selected.step === undefined ? "" : ` / Step ${selected.step}`}</dd></div>}
               <div><dt>耗时</dt><dd>{durationLabel(selected.durationMs)}</dd></div>
               {selected.callId && <div><dt>调用 ID</dt><dd>{selected.callId}</dd></div>}

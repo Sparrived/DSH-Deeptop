@@ -1,9 +1,9 @@
-import { useRef, type ClipboardEvent, type DragEvent, type KeyboardEvent, type RefObject } from "react";
+import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type RefObject } from "react";
 import { ComposerCandidates } from "./ComposerCandidates";
 import { ModelPicker } from "./ModelPicker";
 import type { ComposerAttachment, ComposerCandidate, ComposerTrigger, ModelMenuPane, PromptMode, SessionStats } from "../app/model";
 import { contextPercent, formatTokens } from "../app/model";
-import type { DshModel, DshSessionModels } from "../lib/desktop";
+import type { DshModel, DshPermissionSelect, DshSessionModels } from "../lib/desktop";
 
 type ReasoningChoice = {
   key: string;
@@ -16,7 +16,7 @@ interface ComposerShellProps {
   runtimeAvailable: boolean;
   activeRunning: boolean;
   activeSessionId: string | null;
-  hasActiveSession: boolean;
+  defaultModelName: string;
   loading: boolean;
   composer: string;
   attachments: ComposerAttachment[];
@@ -36,11 +36,12 @@ interface ComposerShellProps {
   modelMenuOpen: boolean;
   modelMenuPane: ModelMenuPane;
   sessionStats: SessionStats;
-  workspaceLabel: string;
   onComposerChange: (value: string) => void;
   onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
   onAddFiles: (files: FileList | File[]) => void | Promise<unknown>;
   onRemoveAttachment: (attachmentId: string) => void;
+  permissions: DshPermissionSelect | null;
+  onSetPermission: (value: string) => void | Promise<unknown>;
   onSetPromptMode: (mode: PromptMode) => void;
   onChooseCandidate: (candidate: ComposerCandidate) => void;
   onSetCandidateIndex: (index: number) => void;
@@ -56,7 +57,7 @@ export function ComposerShell({
   runtimeAvailable,
   activeRunning,
   activeSessionId,
-  hasActiveSession,
+  defaultModelName,
   loading,
   composer,
   attachments,
@@ -76,11 +77,12 @@ export function ComposerShell({
   modelMenuOpen,
   modelMenuPane,
   sessionStats,
-  workspaceLabel,
   onComposerChange,
   onPaste,
   onAddFiles,
   onRemoveAttachment,
+  permissions,
+  onSetPermission,
   onSetPromptMode,
   onChooseCandidate,
   onSetCandidateIndex,
@@ -92,6 +94,25 @@ export function ComposerShell({
   onChangeReasoningEffort,
 }: ComposerShellProps) {
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
+  const modeMenuRef = useRef<HTMLDivElement | null>(null);
+  const [modeMenuOpen, setModeMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (!modeMenuOpen) return;
+    const handlePointerDown = (event: globalThis.PointerEvent) => {
+      if (event.target instanceof Node && modeMenuRef.current?.contains(event.target)) return;
+      setModeMenuOpen(false);
+    };
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setModeMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [modeMenuOpen]);
 
   function handleDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
@@ -160,11 +181,53 @@ export function ComposerShell({
       <div className="composer-controls">
         <div className="composer-left">
           <button className="attachment-button" type="button" onClick={() => attachmentInputRef.current?.click()} title="添加图片附件">＋ 图片{attachments.length > 0 ? " " + attachments.length : ""}</button>
-          <button className={"mode-button " + (promptMode === "queue" ? "selected" : "")} onClick={() => onSetPromptMode("queue")} title="将消息排入当前会话">排队</button>
-          <button className={"mode-button " + (promptMode === "steer" ? "selected" : "")} onClick={() => onSetPromptMode("steer")} title="插入当前回合">插入</button>
+          {permissions && <label className="permission-picker">
+            <span>权限</span>
+            <select
+              value={permissions.currentValue}
+              onChange={(event) => void onSetPermission(event.target.value)}
+              aria-label="权限"
+              title={permissions.options.find((option) => option.value === permissions.currentValue)?.description ?? "选择 DSH 权限"}
+            >
+              {permissions.options.map((option) => <option value={option.value} key={option.value}>{option.name}</option>)}
+            </select>
+          </label>}
+          <div className="mode-picker" ref={modeMenuRef}>
+            <button
+              className="mode-picker-trigger"
+              type="button"
+              aria-label="选择消息发送方式"
+              aria-haspopup="menu"
+              aria-expanded={modeMenuOpen}
+              title={promptMode === "queue" ? "将消息排入当前会话" : "插入当前回合"}
+              onClick={() => setModeMenuOpen((open) => !open)}
+            >
+              <span>{promptMode === "queue" ? "排队" : "插入"}</span>
+              <span className="mode-picker-chevron" aria-hidden="true">&gt;</span>
+            </button>
+            {modeMenuOpen && <div className="mode-menu" role="menu" aria-label="消息发送方式">
+              {(["queue", "steer"] as PromptMode[]).map((mode) => {
+                const selected = promptMode === mode;
+                return <button
+                  className={`mode-menu-option${selected ? " selected" : ""}`}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={selected}
+                  key={mode}
+                  onClick={() => {
+                    onSetPromptMode(mode);
+                    setModeMenuOpen(false);
+                  }}
+                >
+                  <span className="mode-menu-option-label">{mode === "queue" ? "排队" : "插入"}</span>
+                  <span className="mode-menu-check" aria-hidden="true">{selected ? "✓" : ""}</span>
+                </button>;
+              })}
+            </div>}
+          </div>
         </div>
         <div className="composer-right">
-          {hasActiveSession && models && <ModelPicker
+          {models ? <ModelPicker
             models={models}
             menuRef={modelMenuRef}
             selectedModelValue={selectedModelValue}
@@ -179,14 +242,21 @@ export function ComposerShell({
             onSetPane={onSetModelPane}
             onChangeModel={onChangeModel}
             onChangeReasoningEffort={onChangeReasoningEffort}
-          />}
+          /> : <div className="model-picker">
+            <button className="model-picker-trigger model-picker-placeholder" type="button" disabled title="创建会话后可切换模型" aria-label={`当前默认模型：${defaultModelName}`}>
+              <span className="model-picker-label">{defaultModelName}</span>
+              <span className="model-picker-chevron" aria-hidden="true">v</span>
+            </button>
+          </div>}
           <button
             className={activeRunning ? "stop-button" : "send-button"}
+            type="button"
             onClick={onAction}
             disabled={activeRunning ? !activeSessionId : (!composer.trim() && attachments.length === 0) || loading || !runtimeAvailable}
-            title={activeRunning ? "停止当前回合" : "发送消息"}
+            aria-label={activeRunning ? "取消当前回合" : "发送消息"}
+            title={activeRunning ? "取消当前回合" : "发送消息"}
           >
-            {activeRunning ? "停止" : "发送"}
+            <span aria-hidden="true">{activeRunning ? "×" : "↑"}</span>
           </button>
         </div>
       </div>
@@ -196,10 +266,9 @@ export function ComposerShell({
       <span>上下文 {formatTokens(sessionStats.contextTokens)}{sessionStats.contextLimit ? " / " + formatTokens(sessionStats.contextLimit) : " · 上限未知"}</span>
       <span title="输入 Token">↓ {formatTokens(sessionStats.inputTokens)}</span>
       <span title="输出 Token">↑ {formatTokens(sessionStats.outputTokens)}</span>
-      <span title="缓存命中率">缓存 {sessionStats.cacheHitRate ? String(sessionStats.cacheHitRate.toFixed(0)) + "%" : "—"}</span>
-      <span title="首个 Token 延迟">首 T {sessionStats.firstTokenMs ? String(Math.round(sessionStats.firstTokenMs)) + "ms" : "—"}</span>
+      <span title="缓存命中率">缓存 {sessionStats.cacheHitRate ? String(sessionStats.cacheHitRate.toFixed(0)) + "%" : "未提供"}</span>
+      <span title="首个 Token 延迟">首 T {sessionStats.firstTokenMs ? String(Math.round(sessionStats.firstTokenMs)) + "ms" : "未提供"}</span>
       <span>{sessionStats.messages} 条消息</span>
     </div>
-    <div className="composer-hint">Ctrl / Cmd + Enter 发送 <span>{workspaceLabel}</span></div>
   </footer>;
 }

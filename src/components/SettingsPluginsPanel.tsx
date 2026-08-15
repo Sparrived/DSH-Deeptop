@@ -26,7 +26,7 @@ export function SettingsPluginsPanel({
 }: SettingsPluginsPanelProps) {
   return (
     <div className="settings-page">
-      <div className="settings-page-header"><div><span className="settings-overline">PLUGINS</span><h2>插件</h2><p>这是当前 Cordis Loader 的只读快照；插件的启停和装载仍由 DSH Profile 决定。</p></div><span className="settings-count">{inventory?.length ?? "—"} 个插件</span></div>
+      <div className="settings-page-header"><div><span className="settings-overline">PLUGINS</span><h2>插件</h2><p>这是当前 Cordis Loader 的只读快照；插件的启停和装载仍由 DSH Profile 决定。</p></div><span className="settings-count">{inventory?.length ?? "未提供"} 个插件</span></div>
       <div className="settings-block">
         <div className="settings-plugin-toolbar"><div><h3>插件列表</h3><p>展开条目查看 Loader id 和生命周期状态。</p></div><label className="settings-search"><span aria-hidden="true">⌕</span><input type="search" value={search} onChange={(event) => onSearchChange(event.target.value)} placeholder="搜索插件" aria-label="搜索插件" /></label></div>
         {inventory === null ? <p className="settings-empty">正在读取插件清单…</p> : visiblePlugins.length === 0 ? <p className="settings-empty">{search ? "没有匹配的插件。" : "当前没有已加载插件。"}</p> : <div className="settings-plugin-grid">{visiblePlugins.map((plugin) => {

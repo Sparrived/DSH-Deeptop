@@ -1,9 +1,10 @@
 import type { RefObject, UIEvent } from "react";
-import type { DshHistoryEntry, DshMessageFeedbackItem, DshPreset, DshSessionSummary } from "../lib/desktop";
+import type { DshHistoryEntry, DshMessageAnnotationItem, DshMessageFeedbackItem, DshPreset, DshSessionSummary } from "../lib/desktop";
 import { MarkdownContent } from "../lib/markdown";
 import { TrajectoryView } from "./TrajectoryView";
 import {
   formatClock,
+  formatTokens,
   imageSource,
   pathBasename,
   presetDescription,
@@ -12,6 +13,7 @@ import {
   type DiffSummary,
   type TranscriptItem,
 } from "../app/model";
+import type { MessageStats } from "../app/model";
 
 type ConversationTranscriptProps = {
   scrollRef: RefObject<HTMLDivElement | null>;
@@ -31,6 +33,7 @@ type ConversationTranscriptProps = {
   modelName: string;
   presets: DshPreset[];
   feedback: Record<string, DshMessageFeedbackItem>;
+  annotations: Record<string, DshMessageAnnotationItem>;
   nextPreset: string | null;
   presetMenuOpen: boolean;
   onLoadOlder: () => void | Promise<void>;
@@ -41,6 +44,7 @@ type ConversationTranscriptProps = {
   onCopyMessage: (text: string) => void | Promise<void>;
   onFeedback: (messageId: string, rating: "positive" | "negative") => void | Promise<void>;
   onEditFeedback: (messageId: string) => void | Promise<void>;
+  onEditAnnotation: (messageId: string) => void | Promise<void>;
   onForkSession: (sessionId: string, seq?: number) => void | Promise<void>;
   onOpenSessionPath: (path: string) => void | Promise<void>;
 };
@@ -49,6 +53,31 @@ function diffTextLines(text: string) {
   if (!text) return [];
   const body = text.endsWith("\n") ? text.slice(0, -1) : text;
   return body ? body.split("\n") : [];
+}
+
+function formatToolCall(text: string) {
+  const value = text.trim();
+  if (!value) return text;
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    return text;
+  }
+}
+
+function fileTypeLabel(path: string) {
+  const name = pathBasename(path);
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0 || dot === name.length - 1) return "FILE";
+  return name.slice(dot + 1).toUpperCase().slice(0, 6);
+}
+
+function fileDirectory(path: string) {
+  const normalized = path.replace(/[\\/]+$/, "");
+  const separator = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
+  if (separator < 0) return "工作目录";
+  const directory = normalized.slice(0, separator);
+  return directory || "工作目录";
 }
 
 function DiffResult({ diff }: { diff: DiffSummary }) {
@@ -88,6 +117,29 @@ function activeDiff(item: TranscriptItem) {
   return item.toolResultDiff ?? (item.toolResultText === undefined ? item.toolDiff : undefined);
 }
 
+function formatDuration(ms: number) {
+  const seconds = Math.max(0, ms) / 1000;
+  return seconds < 10 ? `${(Math.round(seconds * 10) / 10).toFixed(1)}s` : `${Math.round(seconds)}s`;
+}
+
+function formatTokensPerSecond(value: number) {
+  const speed = Math.max(0, value);
+  return speed >= 10 ? String(Math.round(speed)) : (Math.round(speed * 10) / 10).toFixed(1);
+}
+
+function MessageStatsLine({ stats }: { stats?: MessageStats }) {
+  if (!stats) return null;
+  const values = [
+    stats.inputTokens === undefined ? null : <span key="input">输入 {formatTokens(stats.inputTokens)} tok</span>,
+    stats.outputTokens === undefined ? null : <span key="output">输出 {formatTokens(stats.outputTokens)} tok</span>,
+    stats.cacheHitRate === undefined ? null : <span key="cache">缓存 {Math.round(stats.cacheHitRate)}%</span>,
+    stats.runMs === undefined ? null : <span key="run">运行 {formatDuration(stats.runMs)}</span>,
+    stats.ttftMs === undefined ? null : <span key="ttft">首 T {formatDuration(stats.ttftMs)}</span>,
+    stats.tokensPerSecond === undefined ? null : <span key="speed">{formatTokensPerSecond(stats.tokensPerSecond)} tok/s</span>,
+  ].filter((value) => value !== null);
+  return values.length > 0 ? <div className="message-stats" aria-label="消息统计">{values}</div> : null;
+}
+
 export function ConversationTranscript({
   scrollRef,
   endRef,
@@ -106,6 +158,7 @@ export function ConversationTranscript({
   modelName,
   presets,
   feedback,
+  annotations,
   nextPreset,
   presetMenuOpen,
   onLoadOlder,
@@ -116,6 +169,7 @@ export function ConversationTranscript({
   onCopyMessage,
   onFeedback,
   onEditFeedback,
+  onEditAnnotation,
   onForkSession,
   onOpenSessionPath,
 }: ConversationTranscriptProps) {
@@ -165,19 +219,28 @@ export function ConversationTranscript({
         <div className="transcript-inner">
           {transcript.map((item) => {
             const diff = activeDiff(item);
+            const hasToolResult = item.toolResultText !== undefined || item.toolResultDiff !== undefined || item.toolState === "result";
+            const toolStatus = item.toolResultError ? "error" : hasToolResult ? "returned" : "running";
+            const streamingAssistant = item.kind === "assistant" && item.key.startsWith("stream-");
+            const annotation = item.messageId ? annotations[item.messageId]?.note : undefined;
             return (
-            <article className={`message-row ${item.kind}${item.injected ? " context-row" : ""}${item.kind === "tool" ? " tool-row" : ""}`} key={item.key}>
-              {item.kind !== "tool" && <div className="message-gutter"><span>{item.label}</span><time>{formatClock(item.time)}</time></div>}
+            <article className={`message-row ${item.kind}${item.injected ? " context-row" : ""}${item.kind === "tool" ? " tool-row" : ""}${annotation ? " has-annotation" : ""}`} key={item.key}>
+              {item.kind !== "tool" && <div className="message-gutter"><span>{item.label}</span><time>{formatClock(item.time)}</time>{annotation && <aside className="message-annotation" title="消息注记"><i aria-hidden="true" />{annotation}</aside>}</div>}
               <div className="message-content">
                 {item.images && item.images.length > 0 && <div className="message-images">
                   {item.images.map((image, index) => <a className="message-image-link" href={imageSource(image)} target="_blank" rel="noreferrer" key={`${item.key}-image-${index}`} title={image.name || "打开图片"}><img src={imageSource(image)} alt={image.name || `消息图片 ${index + 1}`} loading="lazy" /></a>)}
                 </div>}
                 {item.kind === "tool" ? (
-                  <details className={`tool-entry ${item.toolResultText !== undefined ? "tool-paired" : ""} ${item.toolResultError ? "tool-error" : ""}`}>
-                    <summary><span className="tool-state" />{item.toolName}{(item.toolResultText !== undefined || item.toolState === "result") && <em>{item.toolResultError ? "异常" : "已返回"}</em>}{diff && <span className="tool-diff-badge"><b>+{diff.added}</b><b>-{diff.removed}</b></span>}</summary>
+                  <details className={`tool-entry ${hasToolResult ? "tool-paired" : ""} ${item.toolResultError ? "tool-error" : ""}`} open={item.toolResultError || undefined}>
+                    <summary>
+                      <span className="tool-summary-main"><span className="tool-state" aria-hidden="true" /><span className="tool-name">{item.toolName}</span></span>
+                      <span className={`tool-status ${toolStatus}`}><span className="tool-status-dot" aria-hidden="true" />{item.toolResultError ? "异常" : hasToolResult ? "已返回" : "执行中"}</span>
+                      {diff && <span className="tool-diff-badge" key={`${item.key}-diff-${diff.added}-${diff.removed}`} aria-label={`新增 ${diff.added} 行，删除 ${diff.removed} 行`}><b>+{diff.added}</b><b>-{diff.removed}</b></span>}
+                      <span className="tool-toggle" aria-hidden="true" />
+                    </summary>
                     <div className="tool-parts">
-                      <div className="tool-part tool-call-part"><pre>{item.text}</pre>{item.toolDiff && <DiffResult diff={item.toolDiff} />}</div>
-                      {(item.toolResultText !== undefined || item.toolResultDiff !== undefined) && <div className={`tool-part tool-result-part ${item.toolResultError ? "tool-result-error" : ""}`}><span className="tool-part-label">结果 <time>{formatClock(item.toolResultTime)}</time></span>{item.toolResultDiff && <DiffResult key={`${item.key}-diff-${item.toolResultTime ?? "result"}`} diff={item.toolResultDiff} />}{item.toolResultText !== undefined && <pre>{item.toolResultText}</pre>}</div>}
+                      <section className="tool-part tool-call-part"><div className="tool-part-label"><span>调用参数</span><time>{formatClock(item.time)}</time></div><pre>{formatToolCall(item.text)}</pre>{item.toolDiff && <DiffResult diff={item.toolDiff} />}</section>
+                      {hasToolResult && <section className={`tool-part tool-result-part ${item.toolResultError ? "tool-result-error" : ""}`}><div className="tool-part-label"><span>执行结果</span><time>{formatClock(item.toolResultTime)}</time></div>{item.toolResultDiff && <DiffResult key={`${item.key}-diff-${item.toolResultTime ?? "result"}`} diff={item.toolResultDiff} />}{item.toolResultText !== undefined && <pre>{item.toolResultText}</pre>}</section>}
                     </div>
                   </details>
                 ) : item.kind === "reasoning" ? (
@@ -192,9 +255,9 @@ export function ConversationTranscript({
                   </details>
                 ) : item.kind === "deliverables" ? (
                   <div className="deliverables-entry">
-                    <div className="deliverables-heading"><strong>生成文件</strong><span>{item.files?.length ?? 0} 个</span></div>
-                    <div className="deliverables-files">{(item.files ?? []).map((path) => <button type="button" key={`${item.key}-${path}`} onClick={() => void onOpenSessionPath(path)} title={path}>{pathBasename(path)}</button>)}</div>
-                    {activeSession?.cwd && <button type="button" className="deliverables-folder" onClick={() => void onOpenSessionPath(".")}>在文件夹中显示</button>}
+                    <div className="deliverables-heading"><div className="deliverables-title"><span className="deliverables-mark" aria-hidden="true" /><div><strong>生成文件</strong><small>本回合写入工作区</small></div></div><span className="deliverables-count">{item.files?.length ?? 0} 个文件</span></div>
+                    <div className="deliverables-files">{(item.files ?? []).map((path) => <button className="deliverable-file" type="button" key={`${item.key}-${path}`} onClick={() => void onOpenSessionPath(path)} title={path} aria-label={`打开 ${path}`}><span className="deliverable-file-type" aria-hidden="true">{fileTypeLabel(path)}</span><span className="deliverable-file-copy"><strong>{pathBasename(path)}</strong><small>{fileDirectory(path)}</small></span><span className="deliverable-file-open" aria-hidden="true" /></button>)}</div>
+                    {activeSession?.cwd && <div className="deliverables-actions"><button type="button" className="deliverables-folder" onClick={() => void onOpenSessionPath(".")}><span className="folder-icon" aria-hidden="true" />在文件夹中显示</button></div>}
                   </div>
                 ) : item.injected ? (
                   <details className="injected-entry">
@@ -208,10 +271,12 @@ export function ConversationTranscript({
                       <pre className="message-text">{item.text}</pre>
                     </div>
                   </details>
-                ) : <MarkdownContent text={item.text} />}
+                ) : <MarkdownContent text={item.text} reveal={streamingAssistant} />}
+                {item.kind === "assistant" && <MessageStatsLine stats={item.stats} />}
                 {(item.kind === "user" || item.kind === "assistant") && (
                   <div className="message-actions">
                     <button type="button" onClick={() => void onCopyMessage(item.text)} title="复制消息">复制</button>
+                    {item.messageId && <button type="button" onClick={() => void onEditAnnotation(item.messageId!)} title={annotation ? "编辑消息注记" : "添加消息注记"}>{annotation ? "改注记" : "加注记"}</button>}
                     {item.kind === "assistant" && item.messageId && <>
                       <button className={feedback[item.messageId]?.rating === "positive" ? "selected" : ""} type="button" onClick={() => void onFeedback(item.messageId!, "positive")} title="标记为有帮助">赞</button>
                       <button className={feedback[item.messageId]?.rating === "negative" ? "selected" : ""} type="button" onClick={() => void onFeedback(item.messageId!, "negative")} title="标记为需要改进">踩</button>

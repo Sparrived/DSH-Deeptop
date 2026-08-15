@@ -10,11 +10,6 @@ type ConversationHeaderProps = {
   jobsOpen: boolean;
   jobNow: number;
   trajectoryOpen: boolean;
-  renaming: boolean;
-  renameValue: string;
-  onRenameValueChange: (value: string) => void;
-  onRenameSubmit: () => void | Promise<void>;
-  onStartRename: () => void;
   onToggleJobs: () => void;
   onToggleTrajectory: () => void;
   onExport: () => void | Promise<void>;
@@ -31,11 +26,6 @@ export function ConversationHeader({
   jobsOpen,
   jobNow,
   trajectoryOpen,
-  renaming,
-  renameValue,
-  onRenameValueChange,
-  onRenameSubmit,
-  onStartRename,
   onToggleJobs,
   onToggleTrajectory,
   onExport,
@@ -45,15 +35,9 @@ export function ConversationHeader({
   return (
     <header className="conversation-header">
       <div className="conversation-heading">
-        {renaming ? (
-          <form onSubmit={(event) => { event.preventDefault(); void onRenameSubmit(); }}>
-            <input value={renameValue} onChange={(event) => onRenameValueChange(event.target.value)} autoFocus aria-label="会话名称" />
-          </form>
-        ) : (
-          <button className="conversation-title" onDoubleClick={onStartRename} title={activeSession ? "双击重命名会话" : "输入消息后创建会话"}>
-            {activeSession ? displayTitle(activeSession) : "新会话"}
-          </button>
-        )}
+        <span className="conversation-title" title={activeSession ? displayTitle(activeSession) : "输入消息后创建会话"}>
+          {activeSession ? displayTitle(activeSession) : "新会话"}
+        </span>
         <span className="conversation-subtitle">{presetDisplayName(activeSession?.agentPreset, presets)} · {activeSession?.cwd || runtimeDirectory || "等待运行目录"}</span>
       </div>
       <div className="conversation-actions">

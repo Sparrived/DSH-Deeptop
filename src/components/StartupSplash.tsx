@@ -30,7 +30,7 @@ export function StartupSplash({
         onMouseDown={onDrag}
         onDoubleClick={(event) => { if (!isWindowChromeControl(event.target)) onToggleMaximize(); }}
       >
-        <div className="brand-mark">DSH <span>DESKTOP</span></div>
+        <div className="brand-mark">DSH <span>DEEPTOP</span></div>
         <div className="window-drag-space" />
         <div className="window-actions">
           <WindowControls windowMaximized={windowMaximized} onMinimize={onMinimize} onToggleMaximize={onToggleMaximize} onClose={onClose} />
