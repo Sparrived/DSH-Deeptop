@@ -3,15 +3,15 @@
 use std::{
     collections::{HashMap, VecDeque},
     env, fs,
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::{Command, Output, Stdio},
     sync::{
         atomic::{AtomicU64, Ordering},
         mpsc, Arc, Mutex,
     },
     thread,
-    time::{Duration, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 use notify_rust::{Notification as DesktopNotification, NotificationResponse};
@@ -19,11 +19,14 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
 
+mod registry;
+
 const DSH_PROFILE: &str = "desktop";
 const DSH_PACKAGE: &str = "@deepseek-ai/dsh@latest";
 const NODEJS_DOWNLOAD_URL: &str = "https://nodejs.org/en/download";
 const BRIDGE_TIMEOUT: Duration = Duration::from_secs(45);
 const DSH_INSTALL_TIMEOUT: Duration = Duration::from_secs(300);
+const DSH_PACKAGE_JSON: &str = "{\n  \"name\": \"deeptop-dsh\",\n  \"private\": true\n}\n";
 const BRIDGE_PACKAGE_JSON: &str = include_str!("../../deeptop-bridge/package.json");
 const BRIDGE_PATCH: &str = include_str!("../../deeptop-bridge/cordis.patch.yml");
 const BRIDGE_ENTRY: &str = include_str!("../../deeptop-bridge/index.mjs");
@@ -38,8 +41,6 @@ const PROFILE_TEMPLATE: &str = include_str!("../../deeptop-bridge/desktop-profil
 const PROFILE_PATCH_TEMPLATE: &str = include_str!("../../deeptop-bridge/profile.patch.yml");
 const PROFILE_PNPM_WORKSPACE: &str =
     "packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n";
-const RUNTIME_PACKAGE_JSON: &str =
-    "{\n  \"name\": \"deeptop-dsh-runtime\",\n  \"private\": true\n}\n";
 const MAX_PENDING_OPEN_SESSIONS: usize = 16;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -55,6 +56,9 @@ enum RuntimePhase {
 struct BridgeState {
     phase: RuntimePhase,
     message: String,
+    package_available: bool,
+    registry_testing: bool,
+    selected_registry: Option<String>,
     generation: u64,
     pid: Option<u32>,
     install_pid: Option<u32>,
@@ -67,6 +71,9 @@ impl Default for BridgeState {
         Self {
             phase: RuntimePhase::Idle,
             message: "等待 DSH 启动".to_string(),
+            package_available: false,
+            registry_testing: false,
+            selected_registry: None,
             generation: 0,
             pid: None,
             install_pid: None,
@@ -160,12 +167,6 @@ fn dsh_home() -> PathBuf {
             .or_else(|| home.map(PathBuf::from).map(|path| path.join(".dsh")))
             .unwrap_or_else(|| PathBuf::from(".dsh")),
     )
-}
-
-fn desktop_runtime_directory() -> Result<PathBuf, String> {
-    let directory = dsh_home().join("desktop-runtime");
-    fs::create_dir_all(&directory).map_err(|error| format!("无法创建 DSH 运行目录：{error}"))?;
-    Ok(directory)
 }
 
 fn write_text(path: &Path, content: &str) -> Result<(), String> {
@@ -312,16 +313,6 @@ fn npm_available() -> bool {
     npm_command().is_ok()
 }
 
-fn node_command() -> Result<Command, String> {
-    let mut command = Command::new(node_executable()?);
-    command.env("NO_COLOR", "1");
-    #[cfg(windows)]
-    configure_hidden_process(&mut command);
-    #[cfg(unix)]
-    configure_process_group(&mut command);
-    Ok(command)
-}
-
 fn npm_command() -> Result<Command, String> {
     let mut command = if cfg!(windows) {
         let npm = npm_executable()?;
@@ -356,161 +347,115 @@ fn npm_command() -> Result<Command, String> {
     Ok(command)
 }
 
-fn dsh_runtime_package_directory(runtime_directory: &Path) -> PathBuf {
-    runtime_directory
-        .join("node_modules")
-        .join("@deepseek-ai")
-        .join("dsh")
-}
-
-fn dsh_package_directory_from_root(root: &Path) -> PathBuf {
-    root.join("node_modules").join("@deepseek-ai").join("dsh")
-}
-
-fn npm_global_roots() -> Vec<PathBuf> {
-    let mut roots = Vec::new();
-    if let Some(prefix) =
-        env::var_os("NPM_CONFIG_PREFIX").or_else(|| env::var_os("npm_config_prefix"))
-    {
-        roots.push(PathBuf::from(prefix).join("node_modules"));
-    }
-    if let Some(npm) = executable_from_path(if cfg!(windows) { "npm.cmd" } else { "npm" }) {
-        if let Some(parent) = npm.parent() {
-            roots.push(parent.join("node_modules"));
-            if let Some(prefix) = parent.parent() {
-                roots.push(prefix.join("lib/node_modules"));
+fn run_command_with_timeout(mut command: Command, timeout: Duration) -> Result<Output, String> {
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("无法执行 npm：{error}"))?;
+    let pid = child.id();
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "无法获取 npm 标准输出".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "无法获取 npm 错误输出".to_string())?;
+    let (output_sender, output_receiver) = mpsc::channel();
+    let stdout_sender = output_sender.clone();
+    thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = BufReader::new(stdout).read_to_end(&mut bytes);
+        let _ = stdout_sender.send((true, bytes));
+    });
+    let stderr_sender = output_sender.clone();
+    thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = BufReader::new(stderr).read_to_end(&mut bytes);
+        let _ = stderr_sender.send((false, bytes));
+    });
+    drop(output_sender);
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() >= deadline => {
+                terminate_process_tree(pid);
+                let _ = child.wait();
+                return Err("npm 命令超时".to_string());
+            }
+            Ok(None) => thread::sleep(Duration::from_millis(50)),
+            Err(error) => {
+                terminate_process_tree(pid);
+                let _ = child.wait();
+                return Err(format!("等待 npm 命令结束失败：{error}"));
             }
         }
-    }
-    if let Some(app_data) = env::var_os("APPDATA") {
-        roots.push(PathBuf::from(app_data).join("npm").join("node_modules"));
-    }
-    if let Some(home) = env::var_os("HOME") {
-        roots.push(PathBuf::from(&home).join(".npm-global/lib/node_modules"));
-    }
-    roots.extend([
-        PathBuf::from("/usr/local/lib/node_modules"),
-        PathBuf::from("/usr/lib/node_modules"),
-    ]);
-    roots
-        .into_iter()
-        .filter(|root| root.is_dir())
-        .fold(Vec::new(), |mut unique, root| {
-            if !unique.iter().any(|item| item == &root) {
-                unique.push(root);
-            }
-            unique
-        })
-}
-
-fn npm_cache_root() -> Option<PathBuf> {
-    env::var_os("npm_config_cache")
-        .or_else(|| env::var_os("NPM_CONFIG_CACHE"))
-        .map(PathBuf::from)
-        .or_else(|| {
-            if cfg!(windows) {
-                env::var_os("LOCALAPPDATA").map(|path| PathBuf::from(path).join("npm-cache"))
-            } else {
-                env::var_os("HOME").map(|path| PathBuf::from(path).join(".npm"))
-            }
-        })
-}
-
-fn cached_dsh_package_directories() -> Vec<PathBuf> {
-    let Some(npx_root) = npm_cache_root().map(|root| root.join("_npx")) else {
-        return Vec::new();
     };
-    let Ok(entries) = fs::read_dir(npx_root) else {
-        return Vec::new();
-    };
-    let mut candidates = entries
-        .filter_map(Result::ok)
-        .filter_map(|entry| {
-            let path = entry.path();
-            if !path.is_dir() {
-                return None;
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let mut streams_received = 0;
+    while streams_received < 2 {
+        match output_receiver.recv_timeout(Duration::from_millis(250)) {
+            Ok((is_stdout, bytes)) => {
+                if is_stdout {
+                    stdout = bytes;
+                } else {
+                    stderr = bytes;
+                }
+                streams_received += 1;
             }
-            let modified = entry
-                .metadata()
-                .and_then(|metadata| metadata.modified())
-                .unwrap_or(UNIX_EPOCH);
-            let package_directory = dsh_package_directory_from_root(&path);
-            package_directory
-                .is_dir()
-                .then_some((modified, package_directory))
-        })
-        .collect::<Vec<_>>();
-    candidates.sort_by(|left, right| right.0.cmp(&left.0));
-    candidates
-        .into_iter()
-        .map(|(_, package_directory)| package_directory)
-        .collect()
-}
-
-fn dsh_entrypoint_from_package_directory(package_directory: &Path) -> Result<PathBuf, String> {
-    let manifest_path = package_directory.join("package.json");
-    let raw = fs::read_to_string(&manifest_path)
-        .map_err(|_| "未检测到 DSH，正在准备安装...".to_string())?;
-    let manifest: Value =
-        serde_json::from_str(&raw).map_err(|_| "DSH 安装不完整，正在准备修复...".to_string())?;
-    if manifest.get("name").and_then(Value::as_str) != Some("@deepseek-ai/dsh") {
-        return Err("DSH 安装包不匹配，正在准备修复...".to_string());
-    }
-    let bin = manifest
-        .get("bin")
-        .and_then(|value| {
-            value.as_str().map(String::from).or_else(|| {
-                value.as_object().and_then(|bins| {
-                    bins.get("dsh")
-                        .or_else(|| bins.values().next())
-                        .and_then(Value::as_str)
-                        .map(String::from)
-                })
-            })
-        })
-        .ok_or_else(|| "DSH 安装缺少命令入口，正在准备修复...".to_string())?;
-    let entrypoint = package_directory.join(bin);
-    if !entrypoint.is_file() {
-        return Err("DSH 安装缺少命令入口，正在准备修复...".to_string());
-    }
-    Ok(entrypoint)
-}
-
-fn dsh_entrypoint(runtime_directory: &Path) -> Result<PathBuf, String> {
-    let mut package_directories = vec![dsh_runtime_package_directory(runtime_directory)];
-    package_directories.extend(
-        npm_global_roots()
-            .into_iter()
-            .map(|root| dsh_package_directory_from_root(&root)),
-    );
-    package_directories.extend(cached_dsh_package_directories());
-
-    for package_directory in package_directories {
-        if let Ok(entrypoint) = dsh_entrypoint_from_package_directory(&package_directory) {
-            return Ok(entrypoint);
+            Err(mpsc::RecvTimeoutError::Timeout) => break,
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
-    Err("未检测到 DSH，正在准备安装...".to_string())
+    Ok(Output {
+        status,
+        stdout,
+        stderr,
+    })
 }
 
-fn ensure_runtime_package_manifest(runtime_directory: &Path) -> Result<(), String> {
-    write_if_missing(
-        &runtime_directory.join("package.json"),
-        RUNTIME_PACKAGE_JSON,
-    )
+fn verify_dsh_with_npm() -> Result<(), String> {
+    let home = dsh_home();
+    let prefix = home.to_string_lossy().into_owned();
+    let mut command = npm_command()?;
+    command
+        .args([
+            "exec",
+            "--prefix",
+            &prefix,
+            "--offline",
+            "--package=@deepseek-ai/dsh",
+            "--",
+            "dsh",
+            "--version",
+        ])
+        .current_dir(&home);
+    let output = run_command_with_timeout(command, Duration::from_secs(30))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(if detail.is_empty() {
+            format!(
+                "npm 无法验证 DSH（退出码 {}）",
+                output.status.code().unwrap_or(-1)
+            )
+        } else {
+            format!("npm 无法验证 DSH：{detail}")
+        })
+    }
 }
 
-fn install_dsh(
-    manager: &BridgeManager,
-    app: &AppHandle,
-    generation: u64,
-    runtime_directory: &Path,
-) -> Result<(), String> {
-    ensure_runtime_package_manifest(runtime_directory)?;
-    let prefix = runtime_directory.to_string_lossy().into_owned();
+fn install_dsh(manager: &BridgeManager, app: &AppHandle, generation: u64) -> Result<(), String> {
+    let home = dsh_home();
+    fs::create_dir_all(&home).map_err(|error| format!("无法创建 DSH 目录：{error}"))?;
+    write_if_missing(&home.join("package.json"), DSH_PACKAGE_JSON)?;
+    let prefix = home.to_string_lossy().into_owned();
     let mut command = npm_command()?;
     let command_label = format!(
-        "npm install --prefix {} --no-audit --no-fund --no-update-notifier --force {}",
+        "npm install --prefix {} --no-audit --no-fund {}",
         prefix, DSH_PACKAGE
     );
     manager.emit_runtime_log(app, generation, "install", "command", command_label);
@@ -525,7 +470,7 @@ fn install_dsh(
             "--force",
             DSH_PACKAGE,
         ])
-        .current_dir(runtime_directory)
+        .current_dir(&home)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut child = command
@@ -611,7 +556,7 @@ fn install_dsh(
                         state.install_pid = None;
                     }
                 }
-                return Err("DSH 安装超时，请检查 npm registry 后重试。".to_string());
+                return Err("DSH 安装超时，请检查 npm 网络连接后重试。".to_string());
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 if !manager.is_current(generation) {
@@ -654,9 +599,7 @@ fn install_dsh(
     if !manager.is_current(generation) {
         return Err("DSH 安装已取消".to_string());
     }
-    dsh_entrypoint(runtime_directory)
-        .map(|_| ())
-        .map_err(|error| format!("DSH 安装校验失败：{error}"))
+    verify_dsh_with_npm().map_err(|error| format!("DSH 安装校验失败：{error}"))
 }
 
 #[cfg(windows)]
@@ -710,17 +653,20 @@ impl BridgeManager {
             ),
             Err(_) => (false, false, false, "DSH 启动状态不可用".to_string()),
         };
-        let runtime_directory = dsh_home().join("desktop-runtime");
         DshStatus {
             dsh_home: dsh_home().to_string_lossy().into_owned(),
-            runtime_directory: runtime_directory.to_string_lossy().into_owned(),
+            runtime_directory: dsh_home().to_string_lossy().into_owned(),
             package_name: DSH_PACKAGE.to_string(),
             runtime_available,
             runtime_starting,
             installing,
             node_available: node_executable().is_ok(),
             npm_available: npm_available(),
-            package_available: dsh_entrypoint(&runtime_directory).is_ok(),
+            package_available: self
+                .state
+                .lock()
+                .map(|state| state.package_available)
+                .unwrap_or(false),
             message,
         }
     }
@@ -790,22 +736,11 @@ impl BridgeManager {
     }
 
     fn prepare_and_launch(&self, app: AppHandle, generation: u64) {
-        let result = (|| -> Result<PathBuf, String> {
+        let result = (|| -> Result<(), String> {
             materialize_desktop_profile()?;
-            let runtime_directory = desktop_runtime_directory()?;
-            if dsh_entrypoint(&runtime_directory).is_err() {
-                if node_executable().is_err() {
-                    return Err(
-                        "未找到 Node.js，无法自动安装 DSH。请安装 Node.js（包含 npm）后重试。"
-                            .to_string(),
-                    );
-                }
-                if !npm_available() {
-                    return Err(
-                        "未找到 npm，无法自动安装 DSH。请安装 Node.js（包含 npm）后重试。"
-                            .to_string(),
-                    );
-                }
+            node_executable()?;
+            npm_executable()?;
+            if verify_dsh_with_npm().is_err() {
                 let changed = self
                     .state
                     .lock()
@@ -814,28 +749,69 @@ impl BridgeManager {
                             return false;
                         }
                         state.phase = RuntimePhase::Installing;
-                        state.message = "未检测到 DSH，正在安装...".to_string();
+                        state.registry_testing = true;
+                        state.message = "未检测到可用的 DSH，正在测试 npm 下载速度...".to_string();
                         true
                     })
                     .unwrap_or(false);
                 if changed {
                     self.emit_status(&app);
                 }
-                install_dsh(self, &app, generation, &runtime_directory)?;
+                let selection = registry::select_registry(npm_command);
+                if selection.all_failed {
+                    self.emit_runtime_log(
+                        &app,
+                        generation,
+                        "registry",
+                        "diagnostic",
+                        "所有 npm registry 测速均失败，回退到 npm 官方源安装 DSH".to_string(),
+                    );
+                }
+                for probe in &selection.probes {
+                    self.emit_runtime_log(
+                        &app,
+                        generation,
+                        "registry",
+                        "diagnostic",
+                        if probe.ok {
+                            format!(
+                                "registry {} 下载 {} KiB，速度 {:.1} KiB/s，耗时 {} ms",
+                                probe.registry,
+                                probe.bytes / 1024,
+                                probe.speed_kib,
+                                probe.elapsed_ms
+                            )
+                        } else {
+                            format!(
+                                "registry {} 下载测速失败（{} ms）",
+                                probe.registry, probe.elapsed_ms
+                            )
+                        },
+                    );
+                }
+                if let Ok(mut state) = self.state.lock() {
+                    if state.generation == generation {
+                        state.registry_testing = false;
+                        state.selected_registry = Some(selection.registry.clone());
+                        state.message = format!("使用 {} 安装 DSH...", selection.registry);
+                    }
+                }
+                self.emit_status(&app);
+                install_dsh(self, &app, generation, &selection.registry)?;
             }
             if !self.is_current(generation) {
                 return Err("DSH 启动已取消".to_string());
             }
-            Ok(dsh_entrypoint(&runtime_directory)?)
+            if let Ok(mut state) = self.state.lock() {
+                state.package_available = true;
+            }
+            Ok(())
         })();
 
-        let entrypoint = match result {
-            Ok(entrypoint) => entrypoint,
-            Err(message) => {
-                self.fail_start(&app, generation, message);
-                return;
-            }
-        };
+        if let Err(message) = result {
+            self.fail_start(&app, generation, message);
+            return;
+        }
         let changed = self
             .state
             .lock()
@@ -854,20 +830,33 @@ impl BridgeManager {
         if changed {
             self.emit_status(&app);
         }
-        self.launch(app, generation, entrypoint);
+        self.launch(app, generation);
     }
 
-    fn launch(&self, app: AppHandle, generation: u64, entrypoint: PathBuf) {
+    fn launch(&self, app: AppHandle, generation: u64) {
         let result = (|| -> Result<_, String> {
-            let runtime_directory = desktop_runtime_directory()?;
-            let mut command = node_command()?;
-            let command_label = format!("node {} --profile {}", entrypoint.display(), DSH_PROFILE);
+            let home = dsh_home();
+            let prefix = home.to_string_lossy().into_owned();
+            let mut command = npm_command()?;
+            let command_label = format!(
+                "npm exec --prefix {} -- dsh --profile {DSH_PROFILE}",
+                prefix
+            );
             self.emit_runtime_log(&app, generation, "start", "command", command_label);
             command
-                .arg(entrypoint)
-                .args(["--profile", DSH_PROFILE])
-                .current_dir(runtime_directory)
-                .env("DSH_HOME", dsh_home())
+                .args([
+                    "exec",
+                    "--prefix",
+                    &prefix,
+                    "--offline",
+                    "--package=@deepseek-ai/dsh",
+                    "--",
+                    "dsh",
+                    "--profile",
+                    DSH_PROFILE,
+                ])
+                .current_dir(&home)
+                .env("DSH_HOME", home)
                 .env_remove("DSH_CWD")
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
