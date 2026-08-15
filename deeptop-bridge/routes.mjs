@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto'
+import { rm } from 'node:fs/promises'
+import { isAbsolute } from 'node:path'
 import { installSkillFromSource } from './skill-installer.mjs'
 
 function isRecord(value) {
@@ -51,6 +53,129 @@ async function exportSessionZip(ctx, payload, signal) {
     filename: `dsh-session-${safeSessionId}.zip`,
     size: bytes.byteLength,
   }
+}
+
+async function attachWorkspaceSession(ctx, payload) {
+  if (!isRecord(payload)
+    || typeof payload.workspaceId !== 'string'
+    || payload.workspaceId.trim() === ''
+    || typeof payload.sessionId !== 'string'
+    || payload.sessionId.trim() === '') {
+    throw new Error('workspace.attachSession requires workspaceId and sessionId')
+  }
+  const registry = ctx.get?.('workspaceRegistry')
+  if (!registry || typeof registry.get !== 'function') {
+    throw new Error('workspace.attachSession requires @deepseek-ai/dsh-workspace')
+  }
+  const workspace = registry.get(payload.workspaceId)
+  if (!workspace || typeof workspace.attachSession !== 'function') {
+    throw new Error(`workspace "${payload.workspaceId}" not found`)
+  }
+  await workspace.attachSession(payload.sessionId)
+  return {
+    workspace: {
+      workspaceId: workspace.id,
+      path: workspace.path,
+      title: workspace.title,
+      sessionIds: [...workspace.sessionIds],
+      createdAt: workspace.createdAt,
+      updatedAt: workspace.updatedAt,
+    },
+  }
+}
+
+function sessionIdFromPayload(payload, method) {
+  if (!isRecord(payload) || typeof payload.sessionId !== 'string' || payload.sessionId.trim() === '') {
+    throw new Error(`${method} requires sessionId`)
+  }
+  return payload.sessionId
+}
+
+function archiveRegistry(ctx) {
+  const registry = ctx.get?.('workspaceRegistry')
+  if (!registry
+    || typeof registry.enqueueOperation !== 'function'
+    || !registry.global
+    || typeof registry.global.get !== 'function'
+    || typeof registry.global.set !== 'function') {
+    throw new Error('session archive mutations require the current @deepseek-ai/dsh-workspace registry')
+  }
+  return registry
+}
+
+function archiveState(registry) {
+  const state = typeof registry.requireState === 'function' ? registry.requireState() : registry.state
+  if (!isRecord(state) || !Array.isArray(state.archivedSessionIds)) {
+    throw new Error('session archive mutations require a readable workspace registry state')
+  }
+  return state
+}
+
+async function persistArchivedSessionIds(registry, state, archivedSessionIds) {
+  const current = await registry.global.get()
+  if (!isRecord(current)) throw new Error('workspace registry global state is unavailable')
+  await registry.global.set({ ...current, archivedSessionIds })
+  // ponytail: the official workspace package has archive-only APIs; keep its in-memory
+  // snapshot aligned with the durable global for the two missing desktop actions.
+  registry.state = { ...state, archivedSessionIds }
+  return archivedSessionIds
+}
+
+async function restoreWorkspaceSession(ctx, payload) {
+  const sessionId = sessionIdFromPayload(payload, 'workspace.restoreSession')
+  const registry = archiveRegistry(ctx)
+  return registry.enqueueOperation(async () => {
+    const state = archiveState(registry)
+    const archivedSessionIds = [...state.archivedSessionIds]
+    if (!archivedSessionIds.includes(sessionId)) return { archivedSessionIds }
+    const nextArchivedSessionIds = archivedSessionIds.filter((id) => id !== sessionId)
+    await persistArchivedSessionIds(registry, state, nextArchivedSessionIds)
+    return { archivedSessionIds: nextArchivedSessionIds }
+  })
+}
+
+async function deleteArchivedSession(ctx, payload, signal) {
+  const sessionId = sessionIdFromPayload(payload, 'workspace.deleteArchivedSession')
+  const registry = archiveRegistry(ctx)
+  const persistence = ctx.get?.('sessionPersistence')
+  if (!persistence || typeof persistence.list !== 'function' || typeof persistence.locate !== 'function') {
+    throw new Error('session deletion requires a persistence backend with artifact locations')
+  }
+  return registry.enqueueOperation(async () => {
+    signal?.throwIfAborted()
+    const state = archiveState(registry)
+    if (!state.archivedSessionIds.includes(sessionId)) {
+      throw new Error(`session "${sessionId}" is not archived`)
+    }
+    if (ctx.get?.('sessions')?.get?.(sessionId) !== undefined || ctx.get?.('agents')?.get?.(sessionId) !== undefined) {
+      throw new Error(`session "${sessionId}" is still running; stop it before deleting it`)
+    }
+
+    const header = (await persistence.list(signal)).find((item) => item?.id === sessionId)
+    signal?.throwIfAborted()
+    if (!header) throw new Error(`session "${sessionId}" was not found in persistence`)
+    const location = persistence.locate(header)
+    if (!location || typeof location.path !== 'string' || !isAbsolute(location.path)) {
+      throw new Error('the current persistence backend does not expose a deletable session artifact')
+    }
+
+    await rm(location.path, { force: true })
+    for (const workspace of registry.list()) await workspace.detachSession(sessionId)
+    const nextArchivedSessionIds = state.archivedSessionIds.filter((id) => id !== sessionId)
+    await persistArchivedSessionIds(registry, state, nextArchivedSessionIds)
+    registry.headers?.delete(sessionId)
+    registry.sessionPaths?.delete(sessionId)
+    registry.invalidSessionPaths?.delete(sessionId)
+    return { deleted: true, archivedSessionIds: nextArchivedSessionIds }
+  })
+}
+
+function messageAnnotations(ctx) {
+  const service = ctx.get?.('messageAnnotations')
+  if (!service || typeof service.list !== 'function' || typeof service.put !== 'function' || typeof service.delete !== 'function') {
+    throw new Error('message annotations plugin is unavailable')
+  }
+  return service
 }
 
 async function sessionModels(ctx, request) {
@@ -114,11 +239,16 @@ export async function routeDesktopRequest(ctx, method, payload, signal) {
     case 'host.openPath': return api.host.openPath(request, signal)
     case 'workspace.list': return api.workspace.list(request)
     case 'workspace.create': return api.workspace.create(request)
+    case 'workspace.attachSession': return attachWorkspaceSession(ctx, payload)
     case 'workspace.rename': return api.workspace.rename(request)
     case 'workspace.delete': return api.workspace.delete(request)
-    case 'workspace.insertBefore': return api.workspace.insertBefore(request)
     case 'workspace.insertSessionBefore': return api.workspace.insertSessionBefore(request)
     case 'workspace.archiveSession': return api.workspace.archiveSession(request)
+    case 'workspace.restoreSession': return restoreWorkspaceSession(ctx, payload)
+    case 'workspace.deleteArchivedSession': return deleteArchivedSession(ctx, payload, signal)
+    case 'messageAnnotations.list': return messageAnnotations(ctx).list(payload)
+    case 'messageAnnotations.put': return messageAnnotations(ctx).put(payload)
+    case 'messageAnnotations.delete': return messageAnnotations(ctx).delete(payload)
     case 'skill.list': return api.skills.list(request)
     case 'skill.install': return installSkillFromSource(payload, { signal })
     case 'agentPreset.list': return api.agentPresets.list(request)

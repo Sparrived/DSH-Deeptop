@@ -286,6 +286,25 @@ export interface DshMessageFeedbackItem {
   updatedAt: number;
 }
 
+export interface DshMessageAnnotationItem {
+  messageId: string;
+  note: string;
+  version: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type DshMessageAnnotationError =
+  | { code: "session-not-found"; sessionId: string }
+  | { code: "target-not-found"; sessionId: string; messageId: string }
+  | { code: "version-conflict"; current: DshMessageAnnotationItem | null }
+  | { code: "note-blank" }
+  | { code: "note-too-large"; maxBytes: number; actualBytes: number };
+
+export type DshMessageAnnotationResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: DshMessageAnnotationError };
+
 export interface DshRemoteEvent {
   type: "host/remote-event";
   event: string;
