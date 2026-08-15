@@ -11172,6 +11172,33 @@ textarea:focus-visible {
   overflow-wrap: anywhere;
 }
 
+.todo-item-meta {
+  min-width: 54px;
+  display: grid;
+  justify-items: end;
+  gap: 3px;
+  padding-top: 2px;
+}
+
+.todo-item-duration,
+.turn-duration {
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.todo-item.in_progress .todo-item-duration,
+.todo-item-meta.in_progress .todo-item-duration {
+  color: var(--warning);
+}
+
+.todo-item.completed .todo-item-duration,
+.todo-item-meta.completed .todo-item-duration {
+  color: var(--good);
+}
+
 .todo-item.completed .todo-item-content {
   color: var(--ink-faint);
   text-decoration: line-through;

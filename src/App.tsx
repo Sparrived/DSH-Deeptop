@@ -79,8 +79,10 @@ import {
   formatTokens,
   contextForm,
   contextSummary,
+  applyTodoSnapshot,
   todoProjection,
   todosFromHistory,
+  turnTimingFromHistory,
   workflowViewsFromHistory,
   deliverablesFromHistory,
   transcriptFromHistory,
@@ -357,12 +359,6 @@ function App() {
   }, [activeSessionId]);
 
   useEffect(() => {
-    if (jobsCollapsed || !activeJobs.some((job) => job.status === "running" || job.status === "stopping")) return;
-    const timer = window.setInterval(() => setJobNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [activeJobs, jobsCollapsed]);
-
-  useEffect(() => {
     if (!modelMenuOpen) return;
     const handlePointerDown = (event: globalThis.PointerEvent) => {
       if (event.target instanceof Node && modelMenuRef.current?.contains(event.target)) return;
@@ -453,6 +449,17 @@ function App() {
 
   const transcript = useMemo(() => transcriptFromHistory(history), [history]);
   const subagentTranscript = useMemo(() => subagentSession ? transcriptFromHistory(subagentSession.history) : [], [subagentSession]);
+  const turnTiming = useMemo(() => turnTimingFromHistory(history), [history]);
+
+  useEffect(() => {
+    const hasLiveJob = activeJobs.some((job) => job.status === "running" || job.status === "stopping");
+    const hasLiveTodo = todos?.some((item) => item.status === "in_progress" && item.startedAt !== undefined) ?? false;
+    const hasLiveTurn = turnTiming.startedAt !== undefined && turnTiming.finishedAt === undefined;
+    if (!hasLiveJob && !hasLiveTodo && !hasLiveTurn) return;
+    const timer = window.setInterval(() => setJobNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [activeJobs, todos, turnTiming]);
+
   const todoCounts = useMemo(() => ({
     completed: todos?.filter((item) => item.status === "completed").length ?? 0,
     inProgress: todos?.filter((item) => item.status === "in_progress").length ?? 0,
@@ -1102,10 +1109,16 @@ function App() {
       setGoal((projectionValues?.goal as DshGoalProjection | null | undefined) ?? null);
       setPermissionSelect((projectionValues?.permissions as DshPermissionSelect | null | undefined) ?? null);
       setPlan((projectionValues?.plan as DshPlanProjection | null | undefined) ?? null);
+      const historicalTodos = todosFromHistory(historyResult.events);
       const projectedTodos = projectionValues && Object.prototype.hasOwnProperty.call(projectionValues, "todos")
         ? todoProjection(projectionValues.todos)
         : undefined;
-      setTodos(projectedTodos !== undefined ? projectedTodos : todosFromHistory(historyResult.events) ?? null);
+      const mergedTodos = projectedTodos === undefined
+        ? historicalTodos
+        : projectedTodos === null
+          ? null
+          : applyTodoSnapshot(historicalTodos, projectedTodos) ?? historicalTodos;
+      setTodos(mergedTodos ?? null);
       setModels(modelsResult);
       setNotice(modelsResult.routable ? "会话已打开" : "当前模型路由不可用");
       return true;
@@ -2635,7 +2648,15 @@ function App() {
 
              {activeJobs.length > 0 && <TaskPanel jobs={activeJobs} collapsed={jobsCollapsed} now={jobNow} onToggle={() => { setJobsCollapsed((collapsed) => !collapsed); setJobNow(Date.now()); }} />}
 
-              {todoVisible && <TodoPanel todos={todos ?? []} collapsed={todoCollapsed} counts={todoCounts} onToggle={() => setTodoCollapsed((value) => !value)} />}
+              {todoVisible && <TodoPanel
+                todos={todos ?? []}
+                collapsed={todoCollapsed}
+                counts={todoCounts}
+                now={jobNow}
+                turnStartedAt={turnTiming.startedAt}
+                turnFinishedAt={turnTiming.finishedAt}
+                onToggle={() => { setTodoCollapsed((value) => !value); setJobNow(Date.now()); }}
+              />}
 
             <SubagentPanel
               entries={childSubagents}

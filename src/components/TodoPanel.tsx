@@ -1,4 +1,4 @@
-import { jobDuration, jobStatusLabel, todoStatusLabel, type TodoItem } from "../app/model";
+import { formatDurationMs, jobDuration, jobStatusLabel, todoDuration, todoStatusLabel, type TodoItem } from "../app/model";
 import type { DshJob } from "../lib/desktop";
 
 type TodoCounts = {
@@ -11,6 +11,9 @@ type TodoPanelProps = {
   todos: TodoItem[];
   collapsed: boolean;
   counts: TodoCounts;
+  now: number;
+  turnStartedAt?: number;
+  turnFinishedAt?: number;
   onToggle: () => void;
 };
 
@@ -43,7 +46,10 @@ export function TaskPanel({ jobs, collapsed, now, onToggle }: TaskPanelProps) {
   );
 }
 
-export function TodoPanel({ todos, collapsed, counts, onToggle }: TodoPanelProps) {
+export function TodoPanel({ todos, collapsed, counts, now, turnStartedAt, turnFinishedAt, onToggle }: TodoPanelProps) {
+  const turnDuration = turnStartedAt === undefined
+    ? undefined
+    : formatDurationMs(Math.max(0, (turnFinishedAt ?? now) - turnStartedAt));
   return (
     <aside className={`todo-panel ${collapsed ? "collapsed" : ""}`} aria-label="当前会话任务清单" aria-live="polite">
       <header className="todo-panel-header">
@@ -78,17 +84,24 @@ export function TodoPanel({ todos, collapsed, counts, onToggle }: TodoPanelProps
             <span className="completed">{counts.completed} 已完成</span>
             <span className="in-progress">{counts.inProgress} 进行中</span>
             <span className="pending">{counts.pending} 待处理</span>
+            {turnDuration !== undefined && <span className="turn-duration" title="本轮任务耗时">本轮 {turnDuration}</span>}
           </div>
         </div>
         <ol className="todo-list">
-          {todos.map((item, index) => (
-            <li className={`todo-item ${item.status}`} key={`${index}-${item.content}`}>
-              <span className="todo-item-index">{String(index + 1).padStart(2, "0")}</span>
-              <span className={`todo-item-status ${item.status}`} aria-label={todoStatusLabel(item.status)}>{item.status === "completed" ? "✓" : item.status === "in_progress" ? "·" : ""}</span>
-              <span className="todo-item-content">{item.content}</span>
-              <span className="todo-item-label">{todoStatusLabel(item.status)}</span>
-            </li>
-          ))}
+          {todos.map((item, index) => {
+            const duration = todoDuration(item, now, turnFinishedAt);
+            return (
+              <li className={`todo-item ${item.status}`} key={item.id ?? `${index}-${item.content}`}>
+                <span className="todo-item-index">{String(index + 1).padStart(2, "0")}</span>
+                <span className={`todo-item-status ${item.status}`} aria-label={todoStatusLabel(item.status)}>{item.status === "completed" ? "✓" : item.status === "in_progress" ? "·" : ""}</span>
+                <span className="todo-item-content">{item.content}</span>
+                <span className={`todo-item-meta ${item.status}`}>
+                  <span className="todo-item-label">{todoStatusLabel(item.status)}</span>
+                  {duration !== undefined && <span className="todo-item-duration" title={`${item.status === "completed" ? "任务耗时" : "已用时"} ${duration}`}>{duration}</span>}
+                </span>
+              </li>
+            );
+          })}
         </ol>
       </div>
     </aside>

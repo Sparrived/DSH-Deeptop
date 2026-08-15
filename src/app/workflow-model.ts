@@ -8,6 +8,10 @@ function diffLineCount(text: string) {
   return body ? body.split("\n").length : 0;
 }
 
+function timestampValue(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
 export function todoItems(value: unknown): TodoItem[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const items = value.map((item) => {
@@ -15,12 +19,66 @@ export function todoItems(value: unknown): TodoItem[] | undefined {
     const content = record?.content;
     const status = record?.status;
     if (typeof content !== "string" || !content.trim() || !["pending", "in_progress", "completed"].includes(String(status))) return undefined;
-    return { content, status: status as TodoStatus };
+    const id = typeof record?.id === "string" && record.id.trim()
+      ? record.id
+      : typeof record?.key === "string" && record.key.trim() ? record.key : undefined;
+    const startedAt = timestampValue(record?.startedAt ?? record?.started_at);
+    const finishedAt = timestampValue(record?.finishedAt ?? record?.finished_at);
+    return {
+      content,
+      status: status as TodoStatus,
+      ...(id ? { id } : {}),
+      ...(startedAt === undefined ? {} : { startedAt }),
+      ...(finishedAt === undefined ? {} : { finishedAt }),
+    };
   });
   return items.every((item): item is TodoItem => item !== undefined) ? items : undefined;
 }
+
 export function todoProjection(value: unknown): TodoItem[] | null | undefined {
   return value === null ? null : todoItems(value);
+}
+
+/**
+ * Apply a todo/write snapshot without losing timestamps learned from earlier
+ * snapshots in the same turn. DSH sends the complete list on every write, so
+ * matching by id (when available) and then by content keeps the timer stable.
+ */
+export function applyTodoSnapshot(previous: TodoItem[] | null | undefined, value: unknown, at?: number): TodoItem[] | undefined {
+  const next = todoItems(value);
+  if (!next) return undefined;
+  const used = new Set<number>();
+  return next.map((item) => {
+    const previousIndex = previous?.findIndex((candidate, index) => {
+      if (used.has(index)) return false;
+      if (item.id && candidate.id) return item.id === candidate.id;
+      return candidate.content === item.content;
+    }) ?? -1;
+    const prior = previousIndex >= 0 ? previous?.[previousIndex] : undefined;
+    if (previousIndex >= 0) used.add(previousIndex);
+
+    const startedAt = item.startedAt ?? prior?.startedAt
+      ?? (item.status === "in_progress" ? at : undefined);
+    let finishedAt = item.finishedAt ?? prior?.finishedAt;
+    if (item.status === "completed" && finishedAt === undefined) finishedAt = at ?? prior?.finishedAt;
+    if (item.status !== "completed") finishedAt = undefined;
+    return {
+      ...item,
+      ...(startedAt === undefined ? {} : { startedAt }),
+      ...(finishedAt === undefined ? {} : { finishedAt }),
+    };
+  });
+}
+
+export type TurnTiming = { startedAt?: number; finishedAt?: number };
+
+export function turnTimingFromHistory(entries: DshHistoryEntry[]): TurnTiming {
+  let timing: TurnTiming = {};
+  for (const { event } of [...entries].sort((left, right) => left.event.seq - right.event.seq)) {
+    if (event.type === "turn/start") timing = { startedAt: event.time };
+    else if (event.type === "turn/end" && timing.startedAt !== undefined) timing.finishedAt = event.time;
+  }
+  return timing;
 }
 
 export function todosFromHistory(entries: DshHistoryEntry[]): TodoItem[] | null | undefined {
@@ -28,11 +86,22 @@ export function todosFromHistory(entries: DshHistoryEntry[]): TodoItem[] | null 
   for (const { event } of [...entries].sort((left, right) => left.event.seq - right.event.seq)) {
     if (event.type === "turn/start") current = null;
     if (event.type === "todo/write") {
-      const next = todoItems(event.data.todos);
+      const next = applyTodoSnapshot(current, event.data.todos, event.time);
       if (next !== undefined) current = next;
     }
   }
   return current;
+}
+
+export function formatDurationMs(elapsedMs: number) {
+  const seconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  if (seconds >= 3600) return `${Math.floor(seconds / 3600)}h ${String(Math.floor((seconds % 3600) / 60)).padStart(2, "0")}m`;
+  return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
+}
+
+export function todoDuration(item: TodoItem, now: number, stopAt?: number) {
+  if (item.status === "pending" || item.startedAt === undefined) return undefined;
+  return formatDurationMs(Math.max(0, (item.finishedAt ?? stopAt ?? now) - item.startedAt));
 }
 
 export function todoStatusLabel(status: TodoStatus) {

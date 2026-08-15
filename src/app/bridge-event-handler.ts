@@ -14,7 +14,7 @@ import {
   type DshSessionSummary,
   type DshSubagentCatalog,
 } from "../lib/desktop";
-import { isInjectedMessage, numberValue, readSessionStats, recordValue, todoItems, todoProjection } from "./model";
+import { applyTodoSnapshot, isInjectedMessage, numberValue, readSessionStats, recordValue } from "./model";
 import {
   markSessionError,
   removeSessionRecordEntry,
@@ -115,8 +115,7 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
     if (sessionId === activeSessionRef.current) {
       if (nextEvent.type === "turn/start") setTodos(null);
       if (nextEvent.type === "todo/write") {
-        const nextTodos = todoItems(nextEvent.data.todos);
-        if (nextTodos !== undefined) setTodos(nextTodos);
+        setTodos((current) => applyTodoSnapshot(current, nextEvent.data.todos, nextEvent.time) ?? current);
       }
       setHistory((current) => {
         const next = current.some((entry) => entry.event.seq === nextEvent.seq)
@@ -219,8 +218,10 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
       return;
     }
     if (key === "todos" && sessionId === activeSessionRef.current) {
-      const nextTodos = todoProjection(payload.value);
-      if (nextTodos !== undefined) setTodos(nextTodos);
+      const nextTodos = payload.value === null ? null : applyTodoSnapshot(undefined, payload.value);
+      if (nextTodos !== undefined || nextTodos === null) {
+        setTodos((current) => nextTodos === null ? null : applyTodoSnapshot(current, nextTodos) ?? current);
+      }
       return;
     }
     if (key === "goal" && sessionId === activeSessionRef.current) {

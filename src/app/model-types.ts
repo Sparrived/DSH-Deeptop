@@ -110,7 +110,16 @@ export type WorkflowView = {
 };
 
 export type TodoStatus = "pending" | "in_progress" | "completed";
-export type TodoItem = { content: string; status: TodoStatus };
+export type TodoItem = {
+  /** Optional runtime-provided identity for matching successive snapshots. */
+  id?: string;
+  content: string;
+  status: TodoStatus;
+  /** Timestamp of the first transition into the active state for this turn. */
+  startedAt?: number;
+  /** Timestamp at which the task reached the completed state. */
+  finishedAt?: number;
+};
 
 export type SurfaceTab = "runtime" | "presets" | "skills" | "subagents" | "goal" | "settings";
 export type SettingsSection = "appearance" | "general" | "keyboard" | "models" | "plugins" | "presets";
