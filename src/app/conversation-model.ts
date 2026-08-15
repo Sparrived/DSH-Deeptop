@@ -67,6 +67,7 @@ export function transcriptFromHistory(entries: DshHistoryEntry[]): TranscriptIte
           label: injected ? (provenance?.role === "recall" ? "跨会话召回" : "上下文注入") : "你",
           text,
           images: segments.images,
+          content: event.data.content,
           seq: event.seq,
           messageId,
           time: event.time,
@@ -123,14 +124,14 @@ export function transcriptFromHistory(entries: DshHistoryEntry[]): TranscriptIte
     }
   }
   for (const [key, stream] of streams) {
-    if (stream.reasoning) items.push({ key: `reasoning-${key}`, kind: "reasoning", label: "Think", text: stream.reasoning, seq: stream.seq, time: stream.time });
+    if (stream.reasoning) items.push({ key: `reasoning-${key}`, kind: "reasoning", label: "Think", text: stream.reasoning, seq: stream.seq, time: stream.time, streaming: true });
     if (stream.text) items.push({ key: `stream-${key}`, kind: "assistant", label: "DSH", text: stream.text, seq: stream.seq, time: stream.time });
   }
   for (const workflow of workflowViewsFromHistory(orderedEntries)) {
     items.push({ key: `workflow-${workflow.seq}`, kind: "workflow", label: "Workflow", text: workflow.view.name, seq: workflow.seq, time: workflow.time, workflow: workflow.view });
   }
   for (const deliverable of deliverablesFromHistory(orderedEntries)) {
-    items.push({ key: `deliverables-${deliverable.seq}`, kind: "deliverables", label: "生成文件", text: deliverable.paths.join("\n"), seq: deliverable.seq + 0.1, time: deliverable.time, files: deliverable.paths });
+    items.push({ key: `deliverables-${deliverable.seq}`, kind: "deliverables", label: "生成文件", text: deliverable.paths.join("\n"), seq: deliverable.seq + 0.1, time: deliverable.time, files: deliverable.paths, fileDiffs: deliverable.fileDiffs });
   }
   items.sort((left, right) => (left.seq ?? Number.MAX_SAFE_INTEGER) - (right.seq ?? Number.MAX_SAFE_INTEGER));
   // Pair by the runtime call id; completion order is not guaranteed for parallel tools.

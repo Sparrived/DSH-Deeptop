@@ -16,9 +16,7 @@ use std::{
 
 use serde::Serialize;
 use serde_json::{json, Value};
-use tauri::{
-    AppHandle, Emitter, Manager, State,
-};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_notification::NotificationExt;
 
 const DSH_PROFILE: &str = "desktop";
@@ -29,12 +27,15 @@ const BRIDGE_PATCH: &str = include_str!("../../deeptop-bridge/cordis.patch.yml")
 const BRIDGE_ENTRY: &str = include_str!("../../deeptop-bridge/index.mjs");
 const BRIDGE_RUNTIME: &str = include_str!("../../deeptop-bridge/bridge.mjs");
 const BRIDGE_ROUTES: &str = include_str!("../../deeptop-bridge/routes.mjs");
-const BRIDGE_MESSAGE_ANNOTATIONS: &str = include_str!("../../deeptop-bridge/message-annotations.mjs");
+const BRIDGE_MESSAGE_ANNOTATIONS: &str =
+    include_str!("../../deeptop-bridge/message-annotations.mjs");
 const BRIDGE_SKILL_INSTALLER: &str = include_str!("../../deeptop-bridge/skill-installer.mjs");
-const BRIDGE_SKILL_INSTALL_PLUGIN: &str = include_str!("../../deeptop-bridge/skill-install-plugin.mjs");
+const BRIDGE_SKILL_INSTALL_PLUGIN: &str =
+    include_str!("../../deeptop-bridge/skill-install-plugin.mjs");
 const PROFILE_TEMPLATE: &str = include_str!("../../deeptop-bridge/desktop-profile.json");
 const PROFILE_PATCH_TEMPLATE: &str = include_str!("../../deeptop-bridge/profile.patch.yml");
-const PROFILE_PNPM_WORKSPACE: &str = "packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n";
+const PROFILE_PNPM_WORKSPACE: &str =
+    "packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum RuntimePhase {
@@ -94,7 +95,8 @@ fn absolute_path(path: PathBuf) -> PathBuf {
 }
 
 fn dsh_home() -> PathBuf {
-    let configured = env::var_os("DSH_HOME").filter(|value| !value.to_string_lossy().trim().is_empty());
+    let configured =
+        env::var_os("DSH_HOME").filter(|value| !value.to_string_lossy().trim().is_empty());
     let home = if cfg!(windows) {
         env::var_os("USERPROFILE")
     } else {
@@ -118,7 +120,8 @@ fn write_text(path: &Path, content: &str) -> Result<(), String> {
     let parent = path
         .parent()
         .ok_or_else(|| format!("无法确定文件目录：{}", path.display()))?;
-    fs::create_dir_all(parent).map_err(|error| format!("无法创建 {}：{error}", parent.display()))?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("无法创建 {}：{error}", parent.display()))?;
     if fs::read_to_string(path).ok().as_deref() == Some(content) {
         return Ok(());
     }
@@ -136,7 +139,8 @@ fn ensure_desktop_profile_manifest(path: &Path) -> Result<(), String> {
     let mut manifest: Value = if path.exists() {
         let raw = fs::read_to_string(path)
             .map_err(|error| format!("无法读取 desktop Profile：{error}"))?;
-        serde_json::from_str(&raw).map_err(|error| format!("desktop Profile 的 package.json 无效：{error}"))?
+        serde_json::from_str(&raw)
+            .map_err(|error| format!("desktop Profile 的 package.json 无效：{error}"))?
     } else {
         serde_json::from_str(PROFILE_TEMPLATE).expect("embedded desktop profile must be valid JSON")
     };
@@ -196,8 +200,14 @@ fn materialize_desktop_profile() -> Result<(), String> {
     fs::create_dir_all(&profile_dir)
         .map_err(|error| format!("无法创建 desktop Profile：{error}"))?;
     ensure_desktop_profile_manifest(&profile_dir.join("package.json"))?;
-    write_if_missing(&profile_dir.join("cordis.patch.yml"), PROFILE_PATCH_TEMPLATE)?;
-    write_if_missing(&profile_dir.join("pnpm-workspace.yaml"), PROFILE_PNPM_WORKSPACE)?;
+    write_if_missing(
+        &profile_dir.join("cordis.patch.yml"),
+        PROFILE_PATCH_TEMPLATE,
+    )?;
+    write_if_missing(
+        &profile_dir.join("pnpm-workspace.yaml"),
+        PROFILE_PNPM_WORKSPACE,
+    )?;
 
     let bridge_dir = profiles.join("node_modules").join("deeptop-bridge");
     write_text(&bridge_dir.join("package.json"), BRIDGE_PACKAGE_JSON)?;
@@ -205,9 +215,18 @@ fn materialize_desktop_profile() -> Result<(), String> {
     write_text(&bridge_dir.join("index.mjs"), BRIDGE_ENTRY)?;
     write_text(&bridge_dir.join("bridge.mjs"), BRIDGE_RUNTIME)?;
     write_text(&bridge_dir.join("routes.mjs"), BRIDGE_ROUTES)?;
-    write_text(&bridge_dir.join("message-annotations.mjs"), BRIDGE_MESSAGE_ANNOTATIONS)?;
-    write_text(&bridge_dir.join("skill-installer.mjs"), BRIDGE_SKILL_INSTALLER)?;
-    write_text(&bridge_dir.join("skill-install-plugin.mjs"), BRIDGE_SKILL_INSTALL_PLUGIN)?;
+    write_text(
+        &bridge_dir.join("message-annotations.mjs"),
+        BRIDGE_MESSAGE_ANNOTATIONS,
+    )?;
+    write_text(
+        &bridge_dir.join("skill-installer.mjs"),
+        BRIDGE_SKILL_INSTALLER,
+    )?;
+    write_text(
+        &bridge_dir.join("skill-install-plugin.mjs"),
+        BRIDGE_SKILL_INSTALL_PLUGIN,
+    )?;
     Ok(())
 }
 
@@ -506,7 +525,10 @@ impl BridgeManager {
                 return;
             }
         };
-        let frame_type = frame.get("type").and_then(Value::as_str).unwrap_or_default();
+        let frame_type = frame
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         match frame_type {
             "ready" => {
                 let changed = self
@@ -527,7 +549,11 @@ impl BridgeManager {
             }
             "response" => {
                 let Some(id) = frame.get("id").and_then(Value::as_str) else {
-                    self.emit_diagnostic(app, generation, "DSH bridge 返回了缺少 id 的响应".to_string());
+                    self.emit_diagnostic(
+                        app,
+                        generation,
+                        "DSH bridge 返回了缺少 id 的响应".to_string(),
+                    );
                     return;
                 };
                 let response = if let Some(error) = frame.get("error").and_then(Value::as_str) {
@@ -537,16 +563,12 @@ impl BridgeManager {
                 } else {
                     Err("DSH bridge 响应缺少结果".to_string())
                 };
-                let sender = self
-                    .state
-                    .lock()
-                    .ok()
-                    .and_then(|mut state| {
-                        if state.generation != generation {
-                            return None;
-                        }
-                        state.pending.remove(id)
-                    });
+                let sender = self.state.lock().ok().and_then(|mut state| {
+                    if state.generation != generation {
+                        return None;
+                    }
+                    state.pending.remove(id)
+                });
                 if let Some(sender) = sender {
                     let _ = sender.send(response);
                 }
@@ -603,7 +625,9 @@ impl BridgeManager {
                 if state.phase != RuntimePhase::Failed {
                     state.phase = RuntimePhase::Failed;
                     state.message = match result {
-                        Ok(status) => format!("DSH 桌面宿主已退出（{}）", status.code().unwrap_or(-1)),
+                        Ok(status) => {
+                            format!("DSH 桌面宿主已退出（{}）", status.code().unwrap_or(-1))
+                        }
                         Err(error) => format!("等待 DSH 结束失败：{error}"),
                     };
                 }

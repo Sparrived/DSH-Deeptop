@@ -34,6 +34,7 @@ export interface SettingsProviderCardActions {
   onSaveSettings: ProviderAction;
   onDiscoverModels: ProviderAction;
   onRemoveModel: (modelId: string) => void | Promise<unknown>;
+  onToggleModelImages: (modelId: string) => void | Promise<unknown>;
   onToggleCandidate: (modelId: string) => void;
   onApplyCandidates: ProviderAction;
   onCredentialDraftChange: (value: string) => void;
@@ -66,7 +67,15 @@ export function SettingsProviderCard({ view, actions }: SettingsProviderCardProp
         {provider.settingsNs === "llm-pi-ai" && <label><span>协议</span><input value={draft.api} placeholder="openai-completions / anthropic-messages" onChange={(event) => actions.onDraftChange({ api: event.target.value })} /></label>}
         <div className="settings-provider-draft-actions"><button disabled={!canEditSettings} onClick={() => void actions.onSaveSettings()}>保存连接</button><button disabled={view.discoveryBusy || !view.namespaceAvailable} onClick={() => void actions.onDiscoverModels()}>{view.discoveryBusy ? "发现中" : "发现模型"}</button></div>
       </div>
-      {view.configuredModels.length > 0 && <div className="settings-provider-models configured"><span className="settings-detail-label">配置模型</span>{view.configuredModels.map((model) => <span className="settings-model-chip editable" key={`${provider.provider}-configured-${String(model.id)}`}>{String(model.name || model.id)}<button type="button" onClick={() => void actions.onRemoveModel(String(model.id))} title={`移除 ${String(model.name || model.id)}`} aria-label={`移除 ${String(model.name || model.id)}`}>×</button></span>)}</div>}
+      {view.configuredModels.length > 0 && <div className="settings-provider-models configured"><span className="settings-detail-label">配置模型</span>{view.configuredModels.map((model) => {
+        const modelId = String(model.id);
+        const imageEnabled = Array.isArray(model.input) && model.input.includes("image");
+        return <span className="settings-model-chip editable" key={`${provider.provider}-configured-${modelId}`}>
+          <span>{String(model.name || modelId)}</span>
+          <button type="button" onClick={() => void actions.onToggleModelImages(modelId)} title={imageEnabled ? "关闭图片输入声明" : "声明支持图片输入"} aria-label={`${imageEnabled ? "关闭" : "开启"} ${String(model.name || modelId)} 的图片输入`}>{imageEnabled ? "图" : "文"}</button>
+          <button type="button" onClick={() => void actions.onRemoveModel(modelId)} title={`移除 ${String(model.name || modelId)}`} aria-label={`移除 ${String(model.name || modelId)}`}>×</button>
+        </span>;
+      })}</div>}
       {view.candidates.length > 0 && <div className="settings-provider-candidates"><div className="settings-provider-candidates-heading"><span>发现结果</span><button type="button" disabled={selectedCandidates.size === 0} onClick={() => void actions.onApplyCandidates()}>应用选中</button></div>{view.candidates.map((model) => <label key={`${provider.provider}-candidate-${model.id}`}><input type="checkbox" checked={selectedCandidates.has(model.id)} onChange={() => actions.onToggleCandidate(model.id)} /><span><strong>{model.name || model.id}</strong><small>{model.id}{model.contextWindow ? ` · ${model.contextWindow.toLocaleString()} context` : ""}</small></span></label>)}</div>}
       <div className="settings-provider-secret">
         <label><span>API 密钥</span><input type="password" autoComplete="off" value={view.credentialDraft} onChange={(event) => actions.onCredentialDraftChange(event.target.value)} placeholder={credential?.configured ? "已配置，输入新密钥替换" : "输入密钥"} disabled={credential?.writable === false || view.credentialBusy} /></label>

@@ -1,4 +1,5 @@
 import { formatTokens, runtimeLabel, type SessionStats } from "../app/model";
+import { PermissionPicker, permissionDescription } from "./PermissionPicker";
 import type { DshCommandDescriptor, DshPermissionSelect, DshPlanProjection, DshStatus } from "../lib/desktop";
 
 interface RuntimeSurfacePanelProps {
@@ -37,10 +38,8 @@ export function RuntimeSurfacePanel({
     {runtimeDetails && <div className="inspector-section"><span className="inspector-label">宿主路由</span><p>{String(runtimeDetails.provider || "默认 provider")} / {String(runtimeDetails.model || "默认 model")}</p><p>{String(runtimeDetails.attachedSessions ?? 0)} 个活动会话</p></div>}
     {permissions && <div className="inspector-section">
       <span className="inspector-label">权限</span>
-      <select className="surface-select" value={permissions.currentValue} onChange={(event) => void onSetPermission(event.target.value)}>
-        {permissions.options.map((option) => <option value={option.value} key={option.value}>{option.name}</option>)}
-      </select>
-      {permissions.options.find((option) => option.value === permissions.currentValue)?.description && <p>{permissions.options.find((option) => option.value === permissions.currentValue)?.description}</p>}
+      <PermissionPicker permissions={permissions} onSetPermission={onSetPermission} />
+      {permissionDescription(permissions.options.find((option) => option.value === permissions.currentValue)) && <p>{permissionDescription(permissions.options.find((option) => option.value === permissions.currentValue))}</p>}
     </div>}
     {plan && <div className="inspector-section">
       <span className="inspector-label">Plan</span>

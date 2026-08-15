@@ -1,6 +1,12 @@
 import type { DshHistoryEntry } from "../lib/desktop";
 import { diffSummaryFromHistoryEntry, eventToolCallId, eventToolResultError, recordValue } from "./message-model";
-import type { TodoItem, TodoStatus, WorkflowView } from "./model-types";
+import type { DeliverableFileDiff, TodoItem, TodoStatus, WorkflowView } from "./model-types";
+
+function diffLineCount(text: string) {
+  if (!text) return 0;
+  const body = text.endsWith("\n") ? text.slice(0, -1) : text;
+  return body ? body.split("\n").length : 0;
+}
 
 export function todoItems(value: unknown): TodoItem[] | undefined {
   if (!Array.isArray(value)) return undefined;
@@ -116,7 +122,7 @@ export function producedPathsFromView(value: unknown) {
 export function deliverablesFromHistory(entries: DshHistoryEntry[]) {
   const callViews = new Map<string, unknown>();
   const closingAssistantByTurn = new Map<string, { seq: number; time: number }>();
-  const pathsByTurn = new Map<string, { seq: number; time: number; paths: string[] }>();
+  const pathsByTurn = new Map<string, { seq: number; time: number; paths: string[]; fileDiffs: Record<string, DeliverableFileDiff> }>();
   for (const { event, view } of entries) {
     if ((event.type === "assistant/message" || event.type === "tool/result")
       && event.surfaceOp !== undefined && event.surfaceOp !== "append") continue;
@@ -133,14 +139,22 @@ export function deliverablesFromHistory(entries: DshHistoryEntry[]) {
       continue;
     }
     if (event.type !== "tool/result" || eventToolResultError(event) || !callId) continue;
-    const paths = diffSummaryFromHistoryEntry({ event, view })?.diffs.map((diff) => diff.path)
-      ?? producedPathsFromView(callViews.get(callId));
+    const diff = diffSummaryFromHistoryEntry({ event, view });
+    const paths = diff?.diffs.map((item) => item.path) ?? producedPathsFromView(callViews.get(callId));
     if (paths.length === 0) continue;
     const turnKey = turn ?? String(event.seq);
-    const current = pathsByTurn.get(turnKey) ?? { seq: event.seq, time: event.time, paths: [] };
+    const current = pathsByTurn.get(turnKey) ?? { seq: event.seq, time: event.time, paths: [], fileDiffs: {} };
     current.seq = Math.max(current.seq, event.seq);
     current.time = event.time;
     for (const path of paths) if (!current.paths.includes(path)) current.paths.push(path);
+    if (diff) {
+      for (const hunk of diff.diffs) {
+        const stats = current.fileDiffs[hunk.path] ?? { added: 0, removed: 0 };
+        stats.added += diffLineCount(hunk.newText);
+        stats.removed += hunk.oldText === null ? 0 : diffLineCount(hunk.oldText);
+        current.fileDiffs[hunk.path] = stats;
+      }
+    }
     pathsByTurn.set(turnKey, current);
   }
   for (const [turn, current] of pathsByTurn) {

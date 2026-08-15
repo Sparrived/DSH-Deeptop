@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type RefObject } from "react";
+import { shortcutMatches } from "../app/keyboard-shortcut";
 import { ComposerCandidates } from "./ComposerCandidates";
 import { ModelPicker } from "./ModelPicker";
+import { PermissionPicker } from "./PermissionPicker";
 import type { ComposerAttachment, ComposerCandidate, ComposerTrigger, ModelMenuPane, PromptMode, SessionStats } from "../app/model";
 import { contextPercent, formatTokens } from "../app/model";
 import type { DshModel, DshPermissionSelect, DshSessionModels } from "../lib/desktop";
@@ -36,6 +38,7 @@ interface ComposerShellProps {
   modelMenuOpen: boolean;
   modelMenuPane: ModelMenuPane;
   sessionStats: SessionStats;
+  sendShortcut: string;
   onComposerChange: (value: string) => void;
   onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
   onAddFiles: (files: FileList | File[]) => void | Promise<unknown>;
@@ -47,6 +50,7 @@ interface ComposerShellProps {
   onSetCandidateIndex: (index: number) => void;
   onDismissCandidates: () => void;
   onAction: () => void;
+  onCancel: () => void;
   onToggleModelMenu: () => void;
   onSetModelPane: (pane: ModelMenuPane) => void;
   onChangeModel: (value: string) => void | Promise<void>;
@@ -77,6 +81,7 @@ export function ComposerShell({
   modelMenuOpen,
   modelMenuPane,
   sessionStats,
+  sendShortcut,
   onComposerChange,
   onPaste,
   onAddFiles,
@@ -88,6 +93,7 @@ export function ComposerShell({
   onSetCandidateIndex,
   onDismissCandidates,
   onAction,
+  onCancel,
   onToggleModelMenu,
   onSetModelPane,
   onChangeModel,
@@ -120,6 +126,11 @@ export function ComposerShell({
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (shortcutMatches(event, sendShortcut)) {
+      event.preventDefault();
+      onAction();
+      return;
+    }
     if (candidates.length > 0 && !candidatesDismissed) {
       if (event.key === "ArrowDown") {
         event.preventDefault();
@@ -141,10 +152,6 @@ export function ComposerShell({
         onChooseCandidate(candidates[activeCandidateIndex]);
         return;
       }
-    }
-    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-      event.preventDefault();
-      onAction();
     }
   }
 
@@ -181,17 +188,7 @@ export function ComposerShell({
       <div className="composer-controls">
         <div className="composer-left">
           <button className="attachment-button" type="button" onClick={() => attachmentInputRef.current?.click()} title="添加图片附件">＋ 图片{attachments.length > 0 ? " " + attachments.length : ""}</button>
-          {permissions && <label className="permission-picker">
-            <span>权限</span>
-            <select
-              value={permissions.currentValue}
-              onChange={(event) => void onSetPermission(event.target.value)}
-              aria-label="权限"
-              title={permissions.options.find((option) => option.value === permissions.currentValue)?.description ?? "选择 DSH 权限"}
-            >
-              {permissions.options.map((option) => <option value={option.value} key={option.value}>{option.name}</option>)}
-            </select>
-          </label>}
+          {permissions && <PermissionPicker permissions={permissions} onSetPermission={onSetPermission} showLabel />}
           <div className="mode-picker" ref={modeMenuRef}>
             <button
               className="mode-picker-trigger"
@@ -249,15 +246,25 @@ export function ComposerShell({
             </button>
           </div>}
           <button
-            className={activeRunning ? "stop-button" : "send-button"}
+            className="send-button"
             type="button"
             onClick={onAction}
-            disabled={activeRunning ? !activeSessionId : (!composer.trim() && attachments.length === 0) || loading || !runtimeAvailable}
-            aria-label={activeRunning ? "取消当前回合" : "发送消息"}
-            title={activeRunning ? "取消当前回合" : "发送消息"}
+            disabled={(!composer.trim() && attachments.length === 0) || loading || !runtimeAvailable}
+            aria-label="发送消息"
+            title={`发送消息（${sendShortcut}）`}
           >
-            <span aria-hidden="true">{activeRunning ? "×" : "↑"}</span>
+            <span aria-hidden="true">↑</span>
           </button>
+          {activeRunning && <button
+            className="stop-button"
+            type="button"
+            onClick={onCancel}
+            disabled={!activeSessionId}
+            aria-label="取消当前回合"
+            title="取消当前回合"
+          >
+            <span aria-hidden="true">×</span>
+          </button>}
         </div>
       </div>
     </div>

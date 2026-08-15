@@ -1,4 +1,5 @@
 export * from "./transcript-model";
+export * from "./message-retry";
 export * from "./settings-model";
 export * from "./ui-model";
 
@@ -9,6 +10,7 @@ export type {
   ComposerCandidate,
   ComposerTrigger,
   CustomProviderDraft,
+  DeliverableFileDiff,
   DiffHunk,
   DiffSummary,
   DiscoveredModel,
@@ -16,6 +18,7 @@ export type {
   GoalRef,
   MessageStats,
   ModelMenuPane,
+  ModelSelection,
   PendingApproval,
   PendingQuestion,
   PromptMode,

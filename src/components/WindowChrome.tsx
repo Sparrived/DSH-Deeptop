@@ -56,11 +56,20 @@ export function WindowChrome({
     setWindowMenu(null);
   };
   const closeMenu = () => setWindowMenu(null);
+  const handleBarMouseDown = (event: MouseEvent<HTMLElement>) => {
+    // The whole custom titlebar is draggable, but controls must keep the
+    // native mouse sequence intact so React can deliver their click event.
+    if (isWindowChromeControl(event.target)) {
+      event.stopPropagation();
+      return;
+    }
+    onDrag(event);
+  };
 
   return (
     <header
       className="window-bar"
-      onMouseDown={onDrag}
+      onMouseDown={handleBarMouseDown}
       onDoubleClick={(event) => { if (!isWindowChromeControl(event.target)) onToggleMaximize(); }}
     >
       <div className="brand-mark">DSH <span>DEEPTOP</span></div>

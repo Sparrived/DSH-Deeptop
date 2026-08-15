@@ -167,6 +167,20 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
     await saveProviderSettings(provider, { models: next });
   }
 
+  async function toggleProviderModelImages(provider: DshProvider, modelId: string) {
+    const namespace = settings?.namespaces.find((item) => item.ns === provider.settingsNs);
+    const current = providerModels(provider, namespace);
+    const target = current.find((model) => String(model.id) === modelId);
+    if (!target) {
+      onNotice("请先将模型写入 Provider 配置，再声明图片输入能力");
+      return;
+    }
+    const input = Array.isArray(target.input) && target.input.includes("image") ? ["text"] : ["text", "image"];
+    await saveProviderSettings(provider, {
+      models: current.map((model) => String(model.id) === modelId ? { ...model, input } : model),
+    });
+  }
+
   async function removeProviderConfiguration(provider: DshProvider) {
     const namespace = settings?.namespaces.find((item) => item.ns === provider.settingsNs);
     if (!namespace || provider.settingsPath.length === 0 || valueAtPath(namespace.user, provider.settingsPath) === undefined) return;
@@ -275,6 +289,7 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
     discoverProviderModels,
     applyDiscoveredModels,
     removeProviderModel,
+    toggleProviderModelImages,
     removeProviderConfiguration,
     discoverCustomProviderModels,
     createCustomProvider,

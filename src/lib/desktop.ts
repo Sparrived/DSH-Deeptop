@@ -56,11 +56,14 @@ export interface DshSessionSummary {
   };
 }
 
+export type DshInputModality = "text" | "image";
+
 export interface DshModel {
   id: string;
   name: string;
   description?: string;
   contextWindow?: number;
+  inputModalities?: DshInputModality[];
   reasoning?: {
     efforts: Array<{ id: string; name: string; description?: string }>;
     defaultEffort?: string;

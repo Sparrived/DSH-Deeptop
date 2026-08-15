@@ -36,6 +36,7 @@ type ConversationTranscriptProps = {
   annotations: Record<string, DshMessageAnnotationItem>;
   nextPreset: string | null;
   presetMenuOpen: boolean;
+  retryingMessageSeq?: number | null;
   onLoadOlder: () => void | Promise<void>;
   onFollowingChange: (following: boolean) => void;
   onJumpToLatest: () => void;
@@ -45,6 +46,7 @@ type ConversationTranscriptProps = {
   onFeedback: (messageId: string, rating: "positive" | "negative") => void | Promise<void>;
   onEditFeedback: (messageId: string) => void | Promise<void>;
   onEditAnnotation: (messageId: string) => void | Promise<void>;
+  onRetryMessage?: (seq: number) => void | Promise<void>;
   onForkSession: (sessionId: string, seq?: number) => void | Promise<void>;
   onOpenSessionPath: (path: string) => void | Promise<void>;
 };
@@ -140,6 +142,35 @@ function MessageStatsLine({ stats }: { stats?: MessageStats }) {
   return values.length > 0 ? <div className="message-stats" aria-label="消息统计">{values}</div> : null;
 }
 
+function DeliverablesDock({
+  item,
+  activeSession,
+  onOpenSessionPath,
+}: {
+  item: TranscriptItem;
+  activeSession: DshSessionSummary | null;
+  onOpenSessionPath: (path: string) => void | Promise<void>;
+}) {
+  const files = item.files ?? [];
+  const fileDiffs = item.fileDiffs ?? {};
+  return (
+    <aside className="deliverables-dock" aria-label="生成文件">
+      <details className="deliverables-entry" key={item.key}>
+        <summary className="deliverables-heading">
+          <span className="deliverables-title"><span className="deliverables-mark" aria-hidden="true" /><span><strong>生成文件</strong><small>本回合写入工作区</small></span></span>
+          <span className="deliverables-summary-meta"><span className="deliverables-count">{files.length} 个文件</span><span className="deliverables-toggle" aria-hidden="true" /></span>
+        </summary>
+        <div className="deliverables-body">
+          <div className="deliverables-files">
+            {files.map((path) => { const diff = fileDiffs[path]; return <button className="deliverable-file" type="button" key={`${item.key}-${path}`} onClick={() => void onOpenSessionPath(path)} title={path} aria-label={`打开 ${path}${diff ? `，新增 ${diff.added} 行，删除 ${diff.removed} 行` : ""}`}><span className="deliverable-file-type" aria-hidden="true">{fileTypeLabel(path)}</span><span className="deliverable-file-copy"><strong>{pathBasename(path)}</strong><small>{fileDirectory(path)}</small></span>{diff && <span className="deliverable-file-diff" aria-label={`新增 ${diff.added} 行，删除 ${diff.removed} 行`}><b>+{diff.added}</b><b>−{diff.removed}</b></span>}<span className="deliverable-file-open" aria-hidden="true" /></button>; })}
+          </div>
+          {activeSession?.cwd && <div className="deliverables-actions"><button type="button" className="deliverables-folder" onClick={() => void onOpenSessionPath(".")}><span className="folder-icon" aria-hidden="true" />在文件夹中显示</button></div>}
+        </div>
+      </details>
+    </aside>
+  );
+}
+
 export function ConversationTranscript({
   scrollRef,
   endRef,
@@ -161,6 +192,7 @@ export function ConversationTranscript({
   annotations,
   nextPreset,
   presetMenuOpen,
+  retryingMessageSeq = null,
   onLoadOlder,
   onFollowingChange,
   onJumpToLatest,
@@ -170,6 +202,7 @@ export function ConversationTranscript({
   onFeedback,
   onEditFeedback,
   onEditAnnotation,
+  onRetryMessage,
   onForkSession,
   onOpenSessionPath,
 }: ConversationTranscriptProps) {
@@ -180,9 +213,23 @@ export function ConversationTranscript({
 
   const selectablePresets = presets.filter((preset) => !preset.broken);
   const selectedPresetId = nextPreset || selectablePresets.find((preset) => preset.isDefault)?.id || selectablePresets[0]?.id || "";
+  const deliverableItems = transcript.filter((item) => item.kind === "deliverables");
+  const deliverables = deliverableItems.length > 0
+    ? {
+        ...deliverableItems[deliverableItems.length - 1],
+        files: [...new Set(deliverableItems.flatMap((item) => item.files ?? []))],
+        fileDiffs: Object.fromEntries(deliverableItems.flatMap((item) => Object.entries(item.fileDiffs ?? {})).reduce((entries, [path, diff]) => {
+          const current = entries.get(path) ?? { added: 0, removed: 0 };
+          entries.set(path, { added: current.added + diff.added, removed: current.removed + diff.removed });
+          return entries;
+        }, new Map<string, { added: number; removed: number }>())),
+      }
+    : null;
+  const showDeliverablesDock = !trajectoryOpen && deliverables !== null;
 
   return (
-    <div className="transcript" ref={scrollRef} aria-live={trajectoryOpen ? undefined : "polite"} onScroll={handleScroll}>
+    <>
+    <div className={`transcript${showDeliverablesDock ? " has-deliverables" : ""}`} ref={scrollRef} aria-live={trajectoryOpen ? undefined : "polite"} onScroll={handleScroll}>
       {!trajectoryOpen && historyHasMore && (
         <button className="history-load-more" type="button" disabled={historyLoadingOlder} onClick={() => void onLoadOlder()}>
           {historyLoadingOlder ? "正在读取更早消息" : "读取更早消息"}
@@ -217,7 +264,7 @@ export function ConversationTranscript({
         </div>
       ) : (
         <div className="transcript-inner">
-          {transcript.map((item) => {
+          {transcript.filter((item) => item.kind !== "deliverables").map((item) => {
             const diff = activeDiff(item);
             const hasToolResult = item.toolResultText !== undefined || item.toolResultDiff !== undefined || item.toolState === "result";
             const toolStatus = item.toolResultError ? "error" : hasToolResult ? "returned" : "running";
@@ -225,7 +272,7 @@ export function ConversationTranscript({
             const annotation = item.messageId ? annotations[item.messageId]?.note : undefined;
             return (
             <article className={`message-row ${item.kind}${item.injected ? " context-row" : ""}${item.kind === "tool" ? " tool-row" : ""}${annotation ? " has-annotation" : ""}`} key={item.key}>
-              {item.kind !== "tool" && <div className="message-gutter"><span>{item.label}</span><time>{formatClock(item.time)}</time>{annotation && <aside className="message-annotation" title="消息注记"><i aria-hidden="true" />{annotation}</aside>}</div>}
+              {item.kind !== "tool" && item.kind !== "reasoning" && <div className="message-gutter"><span>{item.label}</span><time>{formatClock(item.time)}</time>{annotation && <aside className="message-annotation" title="消息注记"><i aria-hidden="true" />{annotation}</aside>}</div>}
               <div className="message-content">
                 {item.images && item.images.length > 0 && <div className="message-images">
                   {item.images.map((image, index) => <a className="message-image-link" href={imageSource(image)} target="_blank" rel="noreferrer" key={`${item.key}-image-${index}`} title={image.name || "打开图片"}><img src={imageSource(image)} alt={image.name || `消息图片 ${index + 1}`} loading="lazy" /></a>)}
@@ -244,8 +291,8 @@ export function ConversationTranscript({
                     </div>
                   </details>
                 ) : item.kind === "reasoning" ? (
-                  <details className="reasoning-entry">
-                    <summary><span className="reasoning-marker" />Think <em>{item.text.split("\n").filter(Boolean).at(-1) || "思考过程"}</em></summary>
+                  <details className="reasoning-entry" data-state={item.streaming ? "running" : "ok"}>
+                    <summary><span className="reasoning-marker" /><em>{(item.streaming ? item.text.split("\n").filter(Boolean).at(-1) : item.text.split("\n").filter(Boolean)[0]) || "思考过程"}</em></summary>
                     <div className="reasoning-body"><pre>{item.text}</pre></div>
                   </details>
                 ) : item.kind === "workflow" ? (
@@ -275,6 +322,17 @@ export function ConversationTranscript({
                 {item.kind === "assistant" && <MessageStatsLine stats={item.stats} />}
                 {(item.kind === "user" || item.kind === "assistant") && (
                   <div className="message-actions">
+                     {item.kind === "user" && item.seq !== undefined && onRetryMessage && (
+                       <button
+                         type="button"
+                         className="retry-message-button"
+                         disabled={activeRunning || loading || retryingMessageSeq !== null}
+                         onClick={() => void onRetryMessage(item.seq!)}
+                         title="清除此消息之后的内容，并从这里重新请求"
+                       >
+                         {retryingMessageSeq === item.seq ? "重试中" : "重试"}
+                       </button>
+                     )}
                     <button type="button" onClick={() => void onCopyMessage(item.text)} title="复制消息">复制</button>
                     {item.messageId && <button type="button" onClick={() => void onEditAnnotation(item.messageId!)} title={annotation ? "编辑消息注记" : "添加消息注记"}>{annotation ? "改注记" : "加注记"}</button>}
                     {item.kind === "assistant" && item.messageId && <>
@@ -291,10 +349,12 @@ export function ConversationTranscript({
             </article>
             );
           })}
-          {(loading || activeRunning) && <div className="agent-working"><span className="pulse" /><span className="working-label">DSH 正在工作</span></div>}
+          {(loading || activeRunning) && <div className="agent-working" role="status" aria-live="polite">Deep diving...</div>}
           <div ref={endRef} />
         </div>
       )}
     </div>
+    {showDeliverablesDock && <DeliverablesDock item={deliverables} activeSession={activeSession} onOpenSessionPath={onOpenSessionPath} />}
+    </>
   );
 }

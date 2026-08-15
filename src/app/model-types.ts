@@ -9,6 +9,7 @@ import type {
 
 export type PromptMode = "queue" | "steer";
 export type ModelMenuPane = "root" | "model" | "effort";
+export type ModelSelection = { provider: string; model: string; reasoningEffort?: string };
 export type WindowMenu = "project" | "edit";
 export type SessionAction = "rename" | "fork" | "archive";
 export type WorkspaceViewMode = "grouped" | "flat";
@@ -53,6 +54,8 @@ export type TranscriptItem = {
   text: string;
   seq?: number;
   messageId?: string;
+  /** Original durable user content, retained for lossless retry. */
+  content?: unknown;
   time?: number;
   toolName?: string;
   toolCallId?: string;
@@ -67,10 +70,13 @@ export type TranscriptItem = {
   contextForm?: "instructions" | "catalog" | "snapshot" | "notice" | "relay" | "recall" | null;
   contextSummary?: string;
   injected?: boolean;
+  /** True while this reasoning block is still receiving streaming deltas. */
+  streaming?: boolean;
   images?: TranscriptImage[];
   stats?: MessageStats;
   workflow?: WorkflowView;
   files?: string[];
+  fileDiffs?: Record<string, DeliverableFileDiff>;
 };
 
 export type MessageStats = {
@@ -107,7 +113,7 @@ export type TodoStatus = "pending" | "in_progress" | "completed";
 export type TodoItem = { content: string; status: TodoStatus };
 
 export type SurfaceTab = "runtime" | "presets" | "skills" | "subagents" | "goal" | "settings";
-export type SettingsSection = "appearance" | "general" | "models" | "plugins" | "presets";
+export type SettingsSection = "appearance" | "general" | "keyboard" | "models" | "plugins" | "presets";
 
 export type SettingsDraft = {
   ns: string;
@@ -197,6 +203,11 @@ export type DiffSummary = {
   added: number;
   removed: number;
   files: number;
+};
+
+export type DeliverableFileDiff = {
+  added: number;
+  removed: number;
 };
 
 export type ChildSubagentEntry = Extract<DshSubagentCatalog["entries"][number], { kind: "child" }>;

@@ -14,7 +14,14 @@ import {
   type DshSessionSummary,
   type DshSubagentCatalog,
 } from "../lib/desktop";
-import { numberValue, readSessionStats, recordValue, todoItems, todoProjection } from "./model";
+import { isInjectedMessage, numberValue, readSessionStats, recordValue, todoItems, todoProjection } from "./model";
+import {
+  markSessionError,
+  removeSessionRecordEntry,
+  updateSessionIndicator,
+  updateSessionRunning,
+  type SessionIndicator,
+} from "./session-runtime-state";
 import type {
   PendingApproval,
   PendingQuestion,
@@ -23,10 +30,20 @@ import type {
   TodoItem,
 } from "./model-types";
 
-type SessionIndicator = "idle" | "running" | "completed" | "error";
+function eventHasUsage(event: DshSessionEvent) {
+  const message = recordValue(event.data.message);
+  const chunk = recordValue(event.data.chunk);
+  return Boolean(
+    recordValue(event.data.usage)
+    ?? recordValue(event.data.tokenUsage)
+    ?? recordValue(chunk?.usage)
+    ?? recordValue(message?.usage),
+  );
+}
 
 type BridgeEventHandlerContext = {
   activeSessionRef: MutableRefObject<string | null>;
+  contextProjectionRef: MutableRefObject<boolean>;
   selectedSubagentRef: MutableRefObject<string | null>;
   subagentRequestRef: MutableRefObject<number>;
   setTodos: Dispatch<SetStateAction<TodoItem[] | null>>;
@@ -43,6 +60,7 @@ type BridgeEventHandlerContext = {
   setQuestionAnswersBySession: Dispatch<SetStateAction<Record<string, Record<string, string[]>>>>;
   setQuestionCustomAnswersBySession: Dispatch<SetStateAction<Record<string, Record<string, string>>>>;
   setSessionIndicators: Dispatch<SetStateAction<Record<string, SessionIndicator>>>;
+  setLoading: Dispatch<SetStateAction<boolean>>;
   setSubagents: Dispatch<SetStateAction<DshSubagentCatalog | null>>;
   setArchivedSessionIds: Dispatch<SetStateAction<Set<string>>>;
   setSelectedSubagentId: Dispatch<SetStateAction<string | null>>;
@@ -53,6 +71,7 @@ type BridgeEventHandlerContext = {
   loadSubagents: () => void | Promise<void>;
   refreshSessionStats: (sessionId?: string) => void | Promise<void>;
   startNewSession: () => void;
+  promoteSessionOnMessage: (sessionId: string) => void | Promise<void>;
 };
 
 export function routeBridgeEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext) {
@@ -68,6 +87,7 @@ export function routeBridgeEvent(event: DshBridgeEvent, context: BridgeEventHand
 function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext) {
   const {
     activeSessionRef,
+    contextProjectionRef,
     selectedSubagentRef,
     setTodos,
     setHistory,
@@ -83,6 +103,7 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
     setQuestionAnswersBySession,
     setQuestionCustomAnswersBySession,
     setGoal,
+    promoteSessionOnMessage,
   } = context;
   const payload = event.frame.payload;
   const type = payload.type;
@@ -110,7 +131,12 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
               inputTokens: nextStats.inputTokens > 0 ? nextStats.inputTokens : currentStats.inputTokens,
               outputTokens: nextStats.outputTokens > 0 ? nextStats.outputTokens : currentStats.outputTokens,
               totalTokens: nextStats.totalTokens > 0 ? nextStats.totalTokens : currentStats.totalTokens,
-              contextTokens: nextStats.contextTokens > 0 ? nextStats.contextTokens : currentStats.contextTokens,
+              // Keep the latest projected context value while the stream
+              // advances; the history scan is only a fallback for runtimes that
+              // do not publish contextPressure frames.
+              contextTokens: (!contextProjectionRef.current || eventHasUsage(nextEvent)) && nextStats.contextTokens > 0
+                ? nextStats.contextTokens
+                : currentStats.contextTokens,
               contextLimit: nextStats.contextLimit > 0 ? nextStats.contextLimit : currentStats.contextLimit,
               messages: nextStats.messages > 0 ? nextStats.messages : currentStats.messages,
             };
@@ -118,11 +144,12 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
         }
         return next;
       });
-      if (nextEvent.type === "user/message") {
-        setSessions((current) => current.map((session) => session.sessionId === sessionId
-          ? { ...session, blank: false, updatedAt: nextEvent.time }
-          : session));
-      }
+    }
+    if (nextEvent.type === "user/message") {
+      setSessions((current) => current.map((session) => session.sessionId === sessionId
+        ? { ...session, blank: false, updatedAt: nextEvent.time }
+        : session));
+      if (!isInjectedMessage(nextEvent)) void promoteSessionOnMessage(sessionId);
     }
     if (sessionId === selectedSubagentRef.current) {
       setSubagentSession((current) => {
@@ -140,6 +167,7 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
     if (sessionId === activeSessionRef.current && (projectionKey === "contextpressure" || projectionKey === "tokenusage" || projectionKey === "usage" || projectionKey === "tokens")) {
       const projection = recordValue(payload.value);
       if (projectionKey === "contextpressure" && projection) {
+        contextProjectionRef.current = true;
         setSessionStats((current) => ({
           ...current,
           contextTokens: numberValue(projection.projectedTokens ?? projection.pressureTokens) ?? current.contextTokens,
@@ -295,12 +323,17 @@ function routeHostEvent(event: DshBridgeEvent, context: BridgeEventHandlerContex
     subagentRequestRef,
     setSessions,
     setSessionIndicators,
+    setLoading,
     setSubagents,
     setArchivedSessionIds,
     setSelectedSubagentId,
     setSubagentLoadingId,
     setSubagentSession,
     setSubagentPanelOpen,
+    setPendingApprovals,
+    setPendingQuestions,
+    setQuestionAnswersBySession,
+    setQuestionCustomAnswersBySession,
     setNotice,
     loadSubagents,
     refreshSessionStats,
@@ -312,8 +345,8 @@ function routeHostEvent(event: DshBridgeEvent, context: BridgeEventHandlerContex
   if (type === "host/session-status") {
     const sessionId = String(payload.sessionId ?? "");
     const running = Boolean(payload.running);
-    setSessions((current) => current.map((session) => session.sessionId === sessionId ? { ...session, running } : session));
-    setSessionIndicators((current) => ({ ...current, [sessionId]: running ? "running" : "completed" }));
+    setSessions((current) => updateSessionRunning(current, sessionId, running));
+    setSessionIndicators((current) => updateSessionIndicator(current, sessionId, running));
     if (!running && sessionId === activeSessionRef.current) void refreshSessionStats(sessionId);
     setSubagents((current) => current ? {
       ...current,
@@ -362,7 +395,24 @@ function routeHostEvent(event: DshBridgeEvent, context: BridgeEventHandlerContex
   }
   if (type === "host/agent-error") {
     const sessionId = String(payload.sessionId ?? "");
-    setSessionIndicators((current) => ({ ...current, [sessionId]: "error" }));
-    if (sessionId === activeSessionRef.current) setNotice(String(payload.message ?? "Agent 运行失败"));
+    if (!sessionId) return;
+    setSessions((current) => updateSessionRunning(current, sessionId, false));
+    setSessionIndicators((current) => markSessionError(current, sessionId));
+    setPendingApprovals((current) => removeSessionRecordEntry(current, sessionId));
+    setPendingQuestions((current) => removeSessionRecordEntry(current, sessionId));
+    setQuestionAnswersBySession((current) => removeSessionRecordEntry(current, sessionId));
+    setQuestionCustomAnswersBySession((current) => removeSessionRecordEntry(current, sessionId));
+    setSubagents((current) => current ? {
+      ...current,
+      entries: current.entries.map((entry) => entry.kind === "child" && entry.id === sessionId
+        ? { ...entry, activity: "inactive" }
+        : entry),
+    } : current);
+    if (sessionId === activeSessionRef.current) {
+      setLoading(false);
+      setNotice(typeof payload.message === "string" && payload.message.trim() ? payload.message : "模型调用失败，已重置会话状态");
+      void refreshSessionStats(sessionId);
+    }
+    return;
   }
 }

@@ -7,6 +7,7 @@ import { ComposerShell } from "./components/ComposerShell";
 import { InteractionPanel } from "./components/InteractionPanel";
 import { SettingsAppearancePanel } from "./components/SettingsAppearancePanel";
 import { SettingsGeneralPanel } from "./components/SettingsGeneralPanel";
+import { SettingsKeyboardPanel } from "./components/SettingsKeyboardPanel";
 import { SettingsModelsPanel } from "./components/SettingsModelsPanel";
 import { SettingsPluginsPanel } from "./components/SettingsPluginsPanel";
 import { SettingsPresetPanel } from "./components/SettingsPresetPanel";
@@ -15,6 +16,7 @@ import { SessionSidebar } from "./components/SessionSidebar";
 import { SubagentPanel } from "./components/SubagentPanel";
 import { TodoPanel } from "./components/TodoPanel";
 import { WindowChrome } from "./components/WindowChrome";
+import { PopupDialog } from "./components/PopupDialog";
 import { useProviderSettings } from "./app/useProviderSettings";
 import { useWindowControls } from "./app/useWindowControls";
 import { routeBridgeEvent } from "./app/bridge-event-handler";
@@ -66,6 +68,7 @@ import {
   displayTitle,
   textFromContent,
   readSessionStats,
+  recordValue,
   formatTokens,
   contextForm,
   contextSummary,
@@ -82,6 +85,9 @@ import {
   sessionPath,
   presetDisplayName,
   sessionIsVisible,
+  isInjectedMessage,
+  retryBoundarySeq,
+  retryPromptSourceParts,
 } from "./app/model";
 import {
   type PromptMode,
@@ -97,6 +103,7 @@ import {
   type SettingsDraft,
   type GoalRef,
   type DshHostModelCatalog,
+  type ModelSelection,
   type ComposerCandidate,
   type ComposerTrigger,
   type SessionSearchResult,
@@ -108,6 +115,8 @@ import {
 import {
   useAppearanceSettings,
 } from "./app/useAppearanceSettings";
+import { SEND_SHORTCUT_STORAGE_KEY, readSendShortcut } from "./app/keyboard-shortcut";
+import { readStoredDefaultModel, readStoredDefaultPermission, writeStoredDefaultModel, writeStoredDefaultPermission, type DefaultPermission } from "./app/session-defaults";
 
 const demoStatus: DshStatus = {
   dshHome: "",
@@ -166,16 +175,22 @@ function App() {
   const [composerCandidateIndex, setComposerCandidateIndex] = useState(0);
   const [composerMenuDismissed, setComposerMenuDismissed] = useState(false);
   const [promptMode, setPromptMode] = useState<PromptMode>("queue");
+  const [sendShortcut, setSendShortcut] = useState(readSendShortcut);
   const [notice, setNotice] = useState("准备连接 DSH");
   const [loading, setLoading] = useState(false);
+  const [retryingMessageSeq, setRetryingMessageSeq] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [remoteSearchResults, setRemoteSearchResults] = useState<SessionSearchResult[] | null>(null);
   const [models, setModels] = useState<DshSessionModels | null>(null);
-  const [draftModelSelection, setDraftModelSelection] = useState<{ provider: string; model: string; reasoningEffort?: string } | null>(null);
+  const [draftModelSelection, setDraftModelSelection] = useState<ModelSelection | null>(null);
+  const [storedDefaultModel, setStoredDefaultModel] = useState<ModelSelection | null>(readStoredDefaultModel);
+  const [storedDefaultPermission, setStoredDefaultPermission] = useState<DefaultPermission | null>(readStoredDefaultPermission);
   const [commands, setCommands] = useState<DshCommandDescriptor[]>([]);
   const [feedback, setFeedback] = useState<Record<string, DshMessageFeedbackItem>>({});
   const [annotations, setAnnotations] = useState<Record<string, DshMessageAnnotationItem>>({});
   const [permissionSelect, setPermissionSelect] = useState<DshPermissionSelect | null>(null);
+  const [pendingPermissionValue, setPendingPermissionValue] = useState<string | null>(null);
+  const [pendingDefaultPermission, setPendingDefaultPermission] = useState<DefaultPermission | null>(null);
   const [plan, setPlan] = useState<DshPlanProjection | null>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelMenuPane, setModelMenuPane] = useState<ModelMenuPane>("root");
@@ -252,11 +267,19 @@ function App() {
   const [transcriptFollowing, setTranscriptFollowing] = useState(true);
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
   const activeSessionRef = useRef<string | null>(null);
+  const contextProjectionRef = useRef(false);
   const workspaceSelectionInitializedRef = useRef(false);
   const selectedSubagentRef = useRef<string | null>(null);
   const subagentRequestRef = useRef(0);
   const searchRequestRef = useRef(0);
+  const workspaceRequestRef = useRef(0);
+  const workspaceMutationQueueRef = useRef(Promise.resolve());
+  const workspacesRef = useRef<DshWorkspace[]>(workspaces);
+  workspacesRef.current = workspaces;
   const creatingSessionRef = useRef<Promise<string> | null>(null);
+  const sessionLoadRequestRef = useRef(0);
+  const retryingMessageRef = useRef<number | null>(null);
+  const retryingSessionRef = useRef<string | null>(null);
   const {
     windowMaximized,
     startWindowDrag,
@@ -297,6 +320,9 @@ function App() {
 
   useEffect(() => {
     activeSessionRef.current = activeSessionId;
+    if (activeSessionId !== retryingSessionRef.current && retryingMessageRef.current === null) {
+      setRetryingMessageSeq(null);
+    }
   }, [activeSessionId]);
 
   useEffect(() => {
@@ -348,13 +374,22 @@ function App() {
   }, [presetMenuOpen]);
 
   useEffect(() => {
-    if (!showInspector) return;
+    if (!showInspector && !settingsDraft && !presetCopy && !presetView) return;
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") setShowInspector(false);
+      if (event.key !== "Escape") return;
+      if (settingsDraft) {
+        setSettingsDraft(null);
+      } else if (presetCopy) {
+        setPresetCopy(null);
+      } else if (presetView) {
+        setPresetView(null);
+      } else {
+        closeSettings();
+      }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [showInspector]);
+  }, [presetCopy, presetView, settingsDraft, showInspector]);
 
   useEffect(() => {
     if (!subagentPanelOpen) return;
@@ -447,13 +482,28 @@ function App() {
     workspaceId: selectedWorkspace?.workspaceId ?? "__ungrouped__",
     sessions: selectedWorkspaceSessions,
   }), [selectedWorkspace, selectedWorkspaceSessions]);
-  const defaultModelSelection = useMemo<{ provider: string; model: string; reasoningEffort?: string } | null>(() => {
+  const defaultModelSelection = useMemo<ModelSelection | null>(() => {
     const configured = settings?.namespaces.find((namespace) => namespace.ns === "agent-default-model")?.value;
-    const configuredProvider = valueAtPath(configured, ["provider"]);
     const configuredModel = valueAtPath(configured, ["model"]);
-    if (typeof configuredProvider === "string" && typeof configuredModel === "string") {
-      return { provider: configuredProvider, model: configuredModel };
+    const configuredProvider = valueAtPath(configured, ["provider"]);
+    const configuredSelection = configuredModel && typeof configuredModel === "object" && !Array.isArray(configuredModel)
+      ? {
+        provider: valueAtPath(configuredModel, ["provider"]),
+        model: valueAtPath(configuredModel, ["model"]),
+        reasoningEffort: valueAtPath(configuredModel, ["reasoningEffort"]),
+      }
+      : { provider: configuredProvider, model: configuredModel, reasoningEffort: valueAtPath(configured, ["reasoningEffort"]) };
+    const isAvailable = (selection: ModelSelection) => !hostModels
+      || hostModels.groups.some((group) => group.id === selection.provider && group.models.some((model) => model.id === selection.model));
+    if (typeof configuredSelection.provider === "string" && typeof configuredSelection.model === "string") {
+      const selection = {
+        provider: configuredSelection.provider,
+        model: configuredSelection.model,
+        ...(typeof configuredSelection.reasoningEffort === "string" ? { reasoningEffort: configuredSelection.reasoningEffort } : {}),
+      } satisfies ModelSelection;
+      if (isAvailable(selection)) return selection;
     }
+    if (storedDefaultModel && isAvailable(storedDefaultModel)) return storedDefaultModel;
     const runtimeProvider = runtimeDetails?.provider;
     const runtimeModel = runtimeDetails?.model;
     if (typeof runtimeProvider === "string" && typeof runtimeModel === "string") {
@@ -462,7 +512,12 @@ function App() {
     const fallbackGroup = hostModels?.groups[0];
     const fallbackModel = fallbackGroup?.models[0];
     return fallbackGroup && fallbackModel ? { provider: fallbackGroup.id, model: fallbackModel.id } : null;
-  }, [hostModels, runtimeDetails, settings]);
+  }, [hostModels, runtimeDetails, settings, storedDefaultModel]);
+  const defaultPermission = useMemo<DefaultPermission | null>(() => {
+    const configured = settings?.namespaces.find((namespace) => namespace.ns === "permission")?.value;
+    const value = valueAtPath(configured, ["defaultPreset"]);
+    return value === "read-only" || value === "workspace-write" || value === "danger-full-access" ? value : storedDefaultPermission;
+  }, [settings, storedDefaultPermission]);
   const defaultModelName = useMemo(() => {
     if (!defaultModelSelection) return "默认模型";
     return hostModels?.groups.find((group) => group.id === defaultModelSelection.provider)?.models.find((model) => model.id === defaultModelSelection.model)?.name ?? defaultModelSelection.model;
@@ -476,6 +531,10 @@ function App() {
       routable: true,
     } satisfies DshSessionModels
     : models;
+  const selectedModelSupportsImages = composerModels?.groups
+    .find((group) => group.id === composerModels.current.provider)
+    ?.models.find((model) => model.id === composerModels.current.model)
+    ?.inputModalities?.includes("image") ?? false;
   const modelOptions = useMemo(() => {
     if (!composerModels) return [];
     return composerModels.groups.flatMap((group) => group.models.map((model) => ({
@@ -632,6 +691,7 @@ function App() {
 
   async function loadRuntimeDetails(sessionItems = sessions) {
     if (!desktop) return;
+    const workspaceVersion = workspaceRequestRef.current;
     const [hostResult, presetResult, workspaceResult, settingsResult, providerResult, modelResult, pluginResult] = await Promise.allSettled([
       bridgeRequest<Record<string, unknown>>("host.describe"),
       bridgeRequest<DshPresetRoster>("agentPreset.list"),
@@ -647,7 +707,7 @@ function App() {
       setPresetAuthorable(presetResult.value.authorable);
       setPresetHasDocument(presetResult.value.hasDocument);
     }
-    if (workspaceResult.status === "fulfilled") {
+    if (workspaceResult.status === "fulfilled" && workspaceVersion === workspaceRequestRef.current) {
       let workspaceItems = workspaceResult.value.items;
       let archivedIds = new Set((workspaceResult.value.archivedSessionIds ?? []).filter((sessionId): sessionId is string => typeof sessionId === "string" && sessionId.length > 0));
       const attachedCount = await repairWorkspaceMembership(workspaceItems, sessionItems);
@@ -659,13 +719,15 @@ function App() {
         } catch {
           // The attach writes are durable; the next refresh will pick up the new projection.
         }
-        setNotice(`已将 ${attachedCount} 个历史会话登记到对应工作区`);
       }
-      setWorkspaces(workspaceItems);
-      setArchivedSessionIds(archivedIds);
-      if (!workspaceSelectionInitializedRef.current && activeSessionRef.current) {
-        setWorkspace(workspaceItems.find((item) => item.sessionIds.includes(activeSessionRef.current!))?.path ?? "");
-        workspaceSelectionInitializedRef.current = true;
+      if (workspaceVersion === workspaceRequestRef.current) {
+        if (attachedCount > 0) setNotice(`已将 ${attachedCount} 个历史会话登记到对应工作区`);
+        setWorkspaces(workspaceItems);
+        setArchivedSessionIds(archivedIds);
+        if (!workspaceSelectionInitializedRef.current && activeSessionRef.current) {
+          setWorkspace(workspaceItems.find((item) => item.sessionIds.includes(activeSessionRef.current!))?.path ?? "");
+          workspaceSelectionInitializedRef.current = true;
+        }
       }
     }
     if (settingsResult.status === "fulfilled") setSettings(settingsResult.value);
@@ -976,10 +1038,12 @@ function App() {
 
   async function openSession(session: DshSessionSummary) {
     if (!desktop) return;
+    const loadRequest = ++sessionLoadRequestRef.current;
     activeSessionRef.current = session.sessionId;
+    contextProjectionRef.current = false;
     setSessionIndicators((current) => ({ ...current, [session.sessionId]: "idle" }));
     setActiveSessionId(session.sessionId);
-    setWorkspace(workspaces.find((item) => item.sessionIds.includes(session.sessionId))?.path ?? "");
+    setWorkspace(workspaces.find((item) => item.sessionIds.includes(session.sessionId))?.path ?? session.cwd ?? "");
     setHistory([]);
     setHistoryHasMore(false);
     setHistoryLoadingOlder(false);
@@ -1011,9 +1075,11 @@ function App() {
         }),
         bridgeRequest<DshSessionModels>("session.models", { sessionId: session.sessionId }),
       ]);
+      if (loadRequest !== sessionLoadRequestRef.current || activeSessionRef.current !== session.sessionId) return;
       setHistory(historyResult.events);
       setHistoryHasMore(historyResult.hasMore);
       const loadedStats = readSessionStats(historyResult.events, historyResult.projections);
+      contextProjectionRef.current = Boolean(recordValue(historyResult.projections?.values.contextPressure));
       setSessionStats({ ...loadedStats, contextLimit: modelsResult.contextWindow ?? loadedStats.contextLimit });
       const projectionValues = historyResult.projections?.values;
       setGoal((projectionValues?.goal as DshGoalProjection | null | undefined) ?? null);
@@ -1028,7 +1094,7 @@ function App() {
     } catch (error) {
       setNotice(errorText(error));
     } finally {
-      setLoading(false);
+      if (loadRequest === sessionLoadRequestRef.current) setLoading(false);
     }
   }
 
@@ -1106,6 +1172,7 @@ function App() {
 
   const routedBridgeEvent = (event: DshBridgeEvent) => routeBridgeEvent(event, {
     activeSessionRef,
+    contextProjectionRef,
     selectedSubagentRef,
     subagentRequestRef,
     setTodos,
@@ -1122,6 +1189,7 @@ function App() {
     setQuestionAnswersBySession,
     setQuestionCustomAnswersBySession,
     setSessionIndicators,
+    setLoading,
     setSubagents,
     setArchivedSessionIds,
     setSelectedSubagentId,
@@ -1132,6 +1200,7 @@ function App() {
     loadSubagents,
     refreshSessionStats,
     startNewSession,
+    promoteSessionOnMessage,
   });
 
   useEffect(() => {
@@ -1277,13 +1346,14 @@ function App() {
     }
   }
 
-  async function moveSessionBefore(sessionId: string, beforeSessionId: string) {
+  async function performMoveSessionBefore(sessionId: string, beforeSessionId: string, announce = true) {
     if (sessionId === beforeSessionId) return;
-    const targetWorkspace = workspaceBySessionId.get(beforeSessionId);
+    const targetWorkspace = workspacesRef.current.find((item) => item.sessionIds.includes(beforeSessionId));
     if (!targetWorkspace) {
       setNotice("未分组会话不能参与工作区排序");
       return;
     }
+    const workspaceVersion = ++workspaceRequestRef.current;
     try {
       const attachedSessionIds = new Set(targetWorkspace.sessionIds);
       for (const candidateSessionId of [beforeSessionId, sessionId]) {
@@ -1299,15 +1369,50 @@ function App() {
         sessionId,
         beforeSessionId,
       });
-      await loadRuntimeDetails();
-      setNotice("会话顺序已更新");
+
+      // Apply the committed order immediately. The drag preview must not wait
+      // for the broad runtime refresh below, otherwise the row can snap back
+      // to the stale workspace projection after the pointer is released.
+      const nextSessionIds = targetWorkspace.sessionIds.filter((candidate) => candidate !== sessionId);
+      const targetIndex = nextSessionIds.indexOf(beforeSessionId);
+      if (targetIndex >= 0) nextSessionIds.splice(targetIndex, 0, sessionId);
+      const nextWorkspaces = workspacesRef.current.map((item) => item.workspaceId === targetWorkspace.workspaceId
+        ? { ...item, sessionIds: nextSessionIds }
+        : { ...item, sessionIds: item.sessionIds.filter((candidate) => candidate !== sessionId) });
+      workspacesRef.current = nextWorkspaces;
+      setWorkspaces(nextWorkspaces);
+
+      // Read back only the authoritative workspace projection. A broad runtime
+      // refresh is slower and can briefly restore a stale sessionIds array.
+      const refreshed = await bridgeRequest<{ items: DshWorkspace[]; archivedSessionIds?: string[] }>("workspace.list");
+      if (workspaceVersion !== workspaceRequestRef.current) return;
+      workspacesRef.current = refreshed.items;
+      setWorkspaces(refreshed.items);
+      if (refreshed.archivedSessionIds) setArchivedSessionIds(new Set(refreshed.archivedSessionIds));
+      if (announce) setNotice("会话顺序已更新");
     } catch (error) {
-      setNotice(errorText(error));
+      if (announce) setNotice(errorText(error));
     }
+  }
+
+  function moveSessionBefore(sessionId: string, beforeSessionId: string, announce = true) {
+    const mutation = workspaceMutationQueueRef.current
+      .catch(() => undefined)
+      .then(() => performMoveSessionBefore(sessionId, beforeSessionId, announce));
+    workspaceMutationQueueRef.current = mutation.then(() => undefined, () => undefined);
+    return mutation;
+  }
+
+  function promoteSessionOnMessage(sessionId: string) {
+    if (!desktop) return;
+    const currentWorkspace = workspacesRef.current.find((item) => item.sessionIds.includes(sessionId));
+    if (!currentWorkspace || currentWorkspace.sessionIds[0] === sessionId) return;
+    void moveSessionBefore(sessionId, currentWorkspace.sessionIds[0], false);
   }
 
   function startNewSession() {
     activeSessionRef.current = null;
+    contextProjectionRef.current = false;
     setActiveSessionId(null);
     setHistory([]);
     setHistoryHasMore(false);
@@ -1346,7 +1451,7 @@ function App() {
     const creation = (async () => {
     const presetId = nextPreset || presets.find((preset) => preset.isDefault)?.id;
     const selectedWorkspace = workspaces.find((item) => sameWorkspacePath(item.path, workspace));
-    const requestedModel = draftModelSelection;
+    const requestedModel = draftModelSelection ?? defaultModelSelection;
     const created = await bridgeRequest<{ sessionId: string; agentPreset?: string }>("session.create", {
       ...(selectedWorkspace ? { workspaceId: selectedWorkspace.workspaceId } : workspace ? { cwd: workspace } : {}),
       ...(presetId ? { agentPreset: presetId } : {}),
@@ -1360,6 +1465,12 @@ function App() {
         model: requestedModel.model,
         ...(requestedModel.reasoningEffort === undefined ? {} : { reasoningEffort: requestedModel.reasoningEffort }),
       });
+    }
+    // Profiles without the official permission namespace still get the desktop
+    // fallback applied to the new session. A Host-owned namespace applies its
+    // value during session creation, so it remains the source of truth there.
+    if (defaultPermission && !settings?.namespaces.some((item) => item.ns === "permission")) {
+      await executeCommandLine(created.sessionId, `/permission ${defaultPermission}`);
     }
     // session.create also emits host/session-added. Do not prepend an optimistic
     // row here: the event and the next list refresh are the source of truth and
@@ -1410,6 +1521,12 @@ function App() {
   async function sendPrompt() {
     const text = composer.trim();
     if ((!text && attachments.length === 0) || loading || !status.runtimeAvailable) return;
+    if (attachments.length > 0) {
+      if (!selectedModelSupportsImages) {
+        setNotice("当前模型不支持图片输入，请切换到支持图片的模型后再发送");
+        return;
+      }
+    }
     setLoading(true);
     setNotice(promptMode === "steer" ? "正在插入当前回合" : "正在发送");
     try {
@@ -1458,10 +1575,15 @@ function App() {
   }
 
   function handleComposerAction() {
-    if (activeRunning) {
-      void cancelSession();
-    } else {
-      void sendPrompt();
+    void sendPrompt();
+  }
+
+  function updateSendShortcut(shortcut: string) {
+    setSendShortcut(shortcut);
+    try {
+      localStorage.setItem(SEND_SHORTCUT_STORAGE_KEY, shortcut);
+    } catch {
+      // The native webview may disable storage in a restricted preview.
     }
   }
 
@@ -1478,6 +1600,132 @@ function App() {
       else setNotice("已创建分叉会话");
     } catch (error) {
       setNotice(errorText(error));
+    }
+  }
+
+  async function loadHistoryForRetry(sessionId: string, targetSeq: number) {
+    const pages: DshHistoryEntry[] = [];
+    let beforeSeq: number | undefined;
+    let targetFound = false;
+    for (let page = 0; page < 100; page += 1) {
+      const result = await bridgeRequest<{ events: DshHistoryEntry[]; hasMore: boolean }>("session.history", {
+        sessionId,
+        ...(beforeSeq === undefined ? {} : { beforeSeq }),
+        maxMessages: 100,
+      });
+      pages.unshift(...result.events);
+      if (result.events.some((entry) => entry.event.seq === targetSeq)) targetFound = true;
+      const hasPreviousTurn = pages.some((entry) => entry.event.type === "turn/end" && entry.event.seq < targetSeq);
+      if (targetFound && hasPreviousTurn) return pages;
+      if (!result.hasMore || result.events.length === 0) break;
+      const firstSeq = result.events[0]?.event.seq;
+      if (firstSeq === undefined || (beforeSeq !== undefined && firstSeq >= beforeSeq)) break;
+      beforeSeq = firstSeq;
+    }
+    return pages;
+  }
+
+  async function retryMessage(targetSeq: number) {
+    const sessionId = activeSessionRef.current;
+    if (!sessionId || activeRunning || loading || retryingMessageRef.current !== null) return;
+    if (!window.confirm("将清除此消息之后的会话内容，并从这条提示词重新请求。原会话会保留为分支；已执行的文件或外部操作不会回滚。继续吗？")) return;
+    retryingMessageRef.current = targetSeq;
+    retryingSessionRef.current = sessionId;
+    setRetryingMessageSeq(targetSeq);
+    setLoading(true);
+    setNotice("正在创建重试分支");
+    try {
+      const entries = await loadHistoryForRetry(sessionId, targetSeq);
+      const target = entries.find((entry) => entry.event.seq === targetSeq)?.event;
+      if (!target || target.type !== "user/message" || isInjectedMessage(target)) {
+        throw new Error("找不到可重试的用户消息，请刷新会话后再试");
+      }
+      const sourceParts = retryPromptSourceParts(target.data.content);
+      if (sourceParts.length === 0) throw new Error("这条消息没有可重发的提示词");
+
+      const hydratedContent = await Promise.all(sourceParts.map(async (part) => {
+        if (part.type === "text" || part.data) return part.type === "image" ? {
+          type: "image" as const,
+          mediaType: part.mediaType,
+          data: part.data!,
+          ...(part.name ? { name: part.name } : {}),
+        } : part;
+        const attachment = await bridgeRequest<{ attachment: { mediaType: string; name?: string }; data: string }>("session.attachment", {
+          sessionId,
+          attachmentId: part.attachmentId,
+        });
+        if (attachment.attachment.mediaType !== part.mediaType) throw new Error("历史图片格式与消息记录不一致");
+        return {
+          type: "image" as const,
+          mediaType: part.mediaType,
+          data: attachment.data,
+          ...(part.name || attachment.attachment.name ? { name: part.name || attachment.attachment.name } : {}),
+        };
+      }));
+      if (activeSessionRef.current !== sessionId) throw new Error("会话已切换，已取消本次重试");
+      const boundary = retryBoundarySeq(entries, targetSeq);
+      let retrySessionId: string;
+      if (boundary !== undefined) {
+        const fork = await bridgeRequest<{ sessionId: string }>("session.fork", {
+          sessionId,
+          atSeq: boundary,
+        });
+        retrySessionId = fork.sessionId;
+      } else {
+        const sourceSession = sessions.find((session) => session.sessionId === sessionId);
+        const selectedWorkspace = workspaces.find((item) => item.sessionIds.includes(sessionId));
+        const created = await bridgeRequest<{ sessionId: string }>("session.create", {
+          ...(selectedWorkspace ? { workspaceId: selectedWorkspace.workspaceId } : sourceSession?.cwd ? { cwd: sourceSession.cwd } : workspace ? { cwd: workspace } : {}),
+          ...(sourceSession?.agentPreset ? { agentPreset: sourceSession.agentPreset } : {}),
+        });
+        retrySessionId = created.sessionId;
+        if (selectedWorkspace) {
+          await bridgeRequest("workspace.attachSession", {
+            workspaceId: selectedWorkspace.workspaceId,
+            sessionId: retrySessionId,
+          });
+        }
+        if (models?.current) {
+          await bridgeRequest("session.selectModel", {
+            sessionId: retrySessionId,
+            provider: models.current.provider,
+            model: models.current.model,
+            ...(models.current.reasoningEffort === undefined ? {} : { reasoningEffort: models.current.reasoningEffort }),
+          });
+        }
+      }
+      const sourceSession = sessions.find((session) => session.sessionId === sessionId);
+      if (activeSessionRef.current !== sessionId) throw new Error("会话已切换，已取消本次重试");
+      const nextSessions = await loadSessions().catch(() => undefined);
+      const forked = nextSessions?.find((session) => session.sessionId === retrySessionId) ?? {
+        sessionId: retrySessionId,
+        updatedAt: Date.now(),
+        running: false,
+        blank: true,
+        ...(sourceSession?.cwd || workspace ? { cwd: sourceSession?.cwd ?? workspace } : {}),
+        ...(sourceSession?.agentPreset ? { agentPreset: sourceSession.agentPreset } : {}),
+      } satisfies DshSessionSummary;
+      if (activeSessionRef.current !== sessionId) throw new Error("会话已切换，已取消本次重试");
+      await openSession(forked);
+      if (activeSessionRef.current !== retrySessionId) throw new Error("会话已切换，已取消本次重试");
+      await bridgeRequest("session.prompt", {
+        sessionId: retrySessionId,
+        mode: "queue",
+        content: hydratedContent,
+        clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      });
+      setLoading(false);
+      setNotice("已从该消息重新请求");
+      void refreshSessionStats(retrySessionId);
+    } catch (error) {
+      if (activeSessionRef.current === sessionId) {
+        setNotice(errorText(error));
+        setLoading(false);
+      }
+    } finally {
+      retryingMessageRef.current = null;
+      retryingSessionRef.current = null;
+      setRetryingMessageSeq(null);
     }
   }
 
@@ -1780,9 +2028,93 @@ function App() {
     setNotice("命令已放入输入框");
   }
 
+  async function setDefaultModel(selection: ModelSelection) {
+    const group = hostModels?.groups.find((item) => item.id === selection.provider);
+    const model = group?.models.find((item) => item.id === selection.model);
+    if (!model) {
+      setNotice("该模型当前不可用，请刷新模型目录后重试");
+      return;
+    }
+    const next = {
+      provider: selection.provider,
+      model: selection.model,
+      ...(selection.reasoningEffort ? { reasoningEffort: selection.reasoningEffort } : {}),
+    } satisfies ModelSelection;
+    try {
+      const namespace = settings?.namespaces.find((item) => item.ns === "agent-default-model");
+      if (namespace) {
+        const nestedModel = valueAtPath(namespace.value, ["model"]);
+        const modelPath = nestedModel && typeof nestedModel === "object" && !Array.isArray(nestedModel) ? ["model"] : [];
+        const reasoningPath = [...modelPath, "reasoningEffort"];
+        const currentReasoning = valueAtPath(namespace.value, reasoningPath);
+        const ops: Array<{ op: "set" | "unset"; path: string[]; value?: unknown }> = [
+          { op: "set", path: [...modelPath, "provider"], value: next.provider },
+          { op: "set", path: [...modelPath, "model"], value: next.model },
+        ];
+        if (typeof currentReasoning === "string") {
+          ops.push(next.reasoningEffort
+            ? { op: "set", path: reasoningPath, value: next.reasoningEffort }
+            : { op: "unset", path: reasoningPath });
+        }
+        await bridgeRequest("settings.mutate", { ns: namespace.ns, ops, expectedRevision: namespace.revision });
+        await refreshSettings();
+      } else {
+        writeStoredDefaultModel(next);
+        setStoredDefaultModel(next);
+      }
+      setDraftModelSelection(next);
+      setNotice(`${model.name} 已设为新会话默认模型`);
+    } catch (error) {
+      setNotice(errorText(error));
+    }
+  }
+
+  async function persistDefaultPermission(value: DefaultPermission) {
+    try {
+      const namespace = settings?.namespaces.find((item) => item.ns === "permission");
+      if (!namespace) {
+        writeStoredDefaultPermission(value);
+        setStoredDefaultPermission(value);
+      } else {
+        await bridgeRequest("settings.update", { ns: "permission", patch: { defaultPreset: value } });
+        await refreshSettings();
+      }
+      setNotice("新会话默认权限已更新");
+    } catch (error) {
+      setNotice(errorText(error));
+    }
+  }
+
+  async function setDefaultPermission(value: string) {
+    if (value !== "read-only" && value !== "workspace-write" && value !== "danger-full-access") return;
+    const next = value as DefaultPermission;
+    if (next === "danger-full-access") {
+      setPendingDefaultPermission(next);
+      return;
+    }
+    await persistDefaultPermission(next);
+  }
+
+  async function confirmDefaultPermission() {
+    const value = pendingDefaultPermission;
+    if (!value) return;
+    setPendingDefaultPermission(null);
+    await persistDefaultPermission(value);
+  }
+
   async function setPermissionPreset(value: string) {
     if (value === "custom") return;
-    if (value === "danger-full-access" && !window.confirm("危险权限会允许 DSH 在当前工作区执行不受限制的操作，确定切换吗？")) return;
+    if (value === "danger-full-access") {
+      setPendingPermissionValue(value);
+      return;
+    }
+    await runCommand(`/permission ${value}`);
+  }
+
+  async function confirmPermissionPreset() {
+    const value = pendingPermissionValue;
+    if (!value) return;
+    setPendingPermissionValue(null);
     await runCommand(`/permission ${value}`);
   }
 
@@ -2069,9 +2401,16 @@ function App() {
     });
   }
 
+  function closeSettings() {
+    setShowInspector(false);
+    setSettingsDraft(null);
+    setPresetCopy(null);
+    setPresetView(null);
+  }
+
   function openSettings() {
     if (showInspector) {
-      setShowInspector(false);
+      closeSettings();
       return;
     }
     setSettingsSection("appearance");
@@ -2211,6 +2550,8 @@ function App() {
               onFeedback={rateMessage}
               onEditFeedback={editMessageFeedback}
               onEditAnnotation={editMessageAnnotation}
+               onRetryMessage={retryMessage}
+               retryingMessageSeq={retryingMessageSeq}
               onForkSession={forkSession}
               onOpenSessionPath={openSessionPath}
             />
@@ -2290,6 +2631,7 @@ function App() {
             modelMenuOpen={modelMenuOpen}
             modelMenuPane={modelMenuPane}
             sessionStats={sessionStats}
+             sendShortcut={sendShortcut}
             onComposerChange={(value) => {
               setComposer(value);
               setComposerMenuDismissed(false);
@@ -2304,6 +2646,7 @@ function App() {
             onSetCandidateIndex={setComposerCandidateIndex}
             onDismissCandidates={() => setComposerMenuDismissed(true)}
             onAction={handleComposerAction}
+             onCancel={() => void cancelSession()}
             onToggleModelMenu={() => {
               if (modelMenuOpen) {
                 setModelMenuOpen(false);
@@ -2321,9 +2664,9 @@ function App() {
 
         {showInspector && (
           <div className="inspector-modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="inspector-title">
-            <button className="inspector-backdrop" onClick={() => setShowInspector(false)} aria-label="关闭设置" />
+            <button className="inspector-backdrop" onClick={closeSettings} aria-label="关闭设置" />
             <aside className="inspector-panel">
-            <div className="inspector-header"><strong id="inspector-title">设置</strong><button onClick={() => setShowInspector(false)} title="关闭设置">×</button></div>
+            <div className="inspector-header"><strong id="inspector-title">设置</strong><button onClick={closeSettings} title="关闭设置">×</button></div>
             {surfaceLoading && <div className="surface-loading">正在读取 DSH 状态…</div>}
 
             <div className="settings-layout">
@@ -2335,7 +2678,10 @@ function App() {
                   <button className={settingsSection === "general" ? "selected" : ""} onClick={() => setSettingsSection("general")}>
                     <strong>通用</strong><small>会话与 Host</small>
                   </button>
-                  <button className={settingsSection === "models" ? "selected" : ""} onClick={() => setSettingsSection("models")}>
+                  <button className={settingsSection === "keyboard" ? "selected" : ""} onClick={() => setSettingsSection("keyboard")}>
+                     <strong>按键</strong><small>消息快捷键</small>
+                   </button>
+                   <button className={settingsSection === "models" ? "selected" : ""} onClick={() => setSettingsSection("models")}>
                     <strong>模型</strong><small>Provider 与模型目录</small>
                   </button>
                   <button className={settingsSection === "presets" ? "selected" : ""} onClick={() => setSettingsSection("presets")}>
@@ -2365,18 +2711,28 @@ function App() {
                   {settingsSection === "general" && <SettingsGeneralPanel
                     settings={settings}
                     presets={presets}
+                    hostModels={hostModels}
+                    defaultModel={defaultModelSelection}
+                    defaultPermission={defaultPermission}
                     workspace={workspace}
                     runtimeDirectory={status.runtimeDirectory}
                     sidebarWidth={sidebarWidth}
                     pluginSettings={pluginSettings}
                     onOpenDocument={() => bridgeRequest("settings.openDocument").then(() => setNotice("已打开 DSH 配置文件")).catch((error) => setNotice(errorText(error)))}
                     onSetDefaultPreset={setDefaultPreset}
+                    onSetDefaultModel={setDefaultModel}
+                    onSetDefaultPermission={setDefaultPermission}
                     onAddWorkspace={addWorkspace}
                     onResetSidebar={() => setSidebarWidth(320)}
                     onOpenNamespace={openSettingsNamespace}
                   />}
 
-                  {settingsSection === "presets" && <SettingsPresetPanel
+                  {settingsSection === "keyboard" && <SettingsKeyboardPanel
+                     sendShortcut={sendShortcut}
+                     onSendShortcutChange={updateSendShortcut}
+                   />}
+
+                   {settingsSection === "presets" && <SettingsPresetPanel
                     presets={presets}
                     writable={settings?.writable}
                     authorable={presetAuthorable}
@@ -2407,13 +2763,43 @@ function App() {
                     onOpenNamespace={openSettingsNamespace}
                   />}
                 </section>
-                {settingsDraft && <div className="settings-json-panel"><div className="settings-json-heading"><strong>编辑 {settingsDraft.ns}</strong><button onClick={() => setSettingsDraft(null)} title="关闭编辑器" aria-label="关闭编辑器">×</button></div><p>仅修改公开字段；密钥和其他 Host 专属字段不会被覆盖。</p><textarea className="surface-code-input" value={settingsDraft.value} onChange={(event) => setSettingsDraft({ ...settingsDraft, value: event.target.value })} /><div className="surface-dialog-actions"><button onClick={() => setSettingsDraft(null)}>取消</button><button className="confirm" onClick={() => void saveSettings()}>保存</button></div></div>}
-                {presetCopy && <div className="surface-dialog"><strong>复制 {presetCopy.from}</strong><input placeholder="新 Preset id" value={presetCopy.id} onChange={(event) => setPresetCopy({ ...presetCopy, id: event.target.value })} /><input placeholder="显示名称（可选）" value={presetCopy.name} onChange={(event) => setPresetCopy({ ...presetCopy, name: event.target.value })} /><div className="surface-dialog-actions"><button onClick={() => setPresetCopy(null)}>取消</button><button className="confirm" disabled={!presetCopy.id.trim()} onClick={() => void copyPreset()}>创建</button></div></div>}
-                {presetView && <div className="surface-dialog"><strong>{presetView.id} / agent.cordis.yml</strong><pre className="surface-code">{presetView.content}</pre><button onClick={() => setPresetView(null)}>关闭</button></div>}
+                {/* settings JSON popup is rendered below the settings sheet */}
+                 {settingsDraft && <PopupDialog title={`编辑 ${settingsDraft.ns}`} eyebrow="公开设置 / JSON" description="仅修改公开字段；密钥和其他 Host 专属字段不会被覆盖。" className="popup-json-dialog" onClose={() => setSettingsDraft(null)} footer={<><button type="button" onClick={() => setSettingsDraft(null)}>取消</button><button type="button" className="confirm" onClick={() => void saveSettings()}>保存设置</button></>}><textarea className="surface-code-input popup-code-input" value={settingsDraft.value} onChange={(event) => setSettingsDraft({ ...settingsDraft, value: event.target.value })} autoFocus aria-label={`${settingsDraft.ns} JSON`} /></PopupDialog>}
+                {presetCopy && <PopupDialog title={`复制 ${presetCopy.from}`} eyebrow="AGENT PRESET / 新建" description="从现有 Preset 创建一份用户组合，创建后可继续在本地文件中编辑。" className="popup-form-dialog" onClose={() => setPresetCopy(null)} footer={<><button type="button" onClick={() => setPresetCopy(null)}>取消</button><button type="button" className="confirm" disabled={!presetCopy.id.trim()} onClick={() => void copyPreset()}>创建 Preset</button></>}><label className="popup-field"><span>Preset id</span><input placeholder="例如：researcher-local" value={presetCopy.id} onChange={(event) => setPresetCopy({ ...presetCopy, id: event.target.value })} autoFocus /></label><label className="popup-field"><span>显示名称 <em>可选</em></span><input placeholder="例如：本地研究助手" value={presetCopy.name} onChange={(event) => setPresetCopy({ ...presetCopy, name: event.target.value })} /></label></PopupDialog>}
+                {presetView && <PopupDialog title={`${presetView.id} / agent.cordis.yml`} eyebrow="AGENT PRESET / 预览" description="查看该 Preset 的组合内容。" className="popup-preview-dialog" onClose={() => setPresetView(null)} footer={<button type="button" className="confirm" onClick={() => setPresetView(null)}>完成</button>}><pre className="surface-code popup-code-preview">{presetView.content}</pre></PopupDialog>}
               </div>
             </aside>
           </div>
         )}
+      {pendingDefaultPermission && <PopupDialog
+        title="确认新会话默认权限"
+        eyebrow="DSH / 默认设置"
+        description="完全访问会让之后创建的会话拥有不受限制的操作权限。"
+        className="popup-permission-dialog"
+        onClose={() => setPendingDefaultPermission(null)}
+        footer={<><button type="button" onClick={() => setPendingDefaultPermission(null)}>取消</button><button type="button" className="confirm danger-button" onClick={() => void confirmDefaultPermission()}>确认设为默认</button></>}
+      >
+        <div className="permission-confirm-content">
+          <div className="permission-confirm-mark" aria-hidden="true">!</div>
+          <div><strong>仅在你信任之后创建会话所处的工作区时使用。</strong><p>当前已经打开的会话不会改变；这个默认值只会影响之后创建的新会话。</p></div>
+        </div>
+      </PopupDialog>}
+      {pendingPermissionValue && <PopupDialog
+        title="确认修改权限"
+        eyebrow="DSH / 权限变更"
+        description="即将把当前会话切换到危险权限模式。"
+        className="popup-permission-dialog"
+        onClose={() => setPendingPermissionValue(null)}
+        footer={<><button type="button" onClick={() => setPendingPermissionValue(null)}>取消</button><button type="button" className="confirm danger-button" onClick={() => void confirmPermissionPreset()}>确认切换</button></>}
+      >
+        <div className="permission-confirm-content">
+          <div className="permission-confirm-mark" aria-hidden="true">!</div>
+          <div>
+            <strong>危险权限会允许 DSH 在当前工作区执行不受限制的操作。</strong>
+            <p>仅在你明确了解风险并信任当前工作区时继续。你可以随时从权限菜单切换回更受限的模式。</p>
+          </div>
+        </div>
+      </PopupDialog>}
       {confirmAction && <div className="confirm-backdrop" onMouseDown={() => setConfirmAction(null)}><div className="confirm-dialog" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><strong>归档会话？</strong><p>“{displayTitle(confirmAction.session)}”将从会话列表中隐藏，历史记录会保留；可在归档页查看、恢复或永久删除。</p><div className="surface-dialog-actions"><button onClick={() => setConfirmAction(null)}>取消</button><button className="confirm danger-button" onClick={() => void archiveSession(confirmAction.session)}>确认归档</button></div></div></div>}
       {deleteArchivedTarget && <div className="confirm-backdrop" onMouseDown={() => setDeleteArchivedTarget(null)}><div className="confirm-dialog" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><strong>永久删除归档会话？</strong><p>“{displayTitle(deleteArchivedTarget)}”的历史记录将被永久删除，无法恢复。</p><div className="surface-dialog-actions"><button onClick={() => setDeleteArchivedTarget(null)}>取消</button><button className="confirm danger-button" onClick={() => void deleteArchivedSession()}>永久删除</button></div></div></div>}
       {renameTarget && <div className="confirm-backdrop" onMouseDown={() => setRenameTarget(null)}><form className="confirm-dialog rename-dialog" role="dialog" aria-modal="true" onSubmit={(event) => { event.preventDefault(); void renameSession(); }} onMouseDown={(event) => event.stopPropagation()}><strong>重命名会话</strong><p>修改“{displayTitle(renameTarget)}”在左侧会话列表中的显示名称。</p><input className="rename-dialog-input" value={renameValue} onChange={(event) => setRenameValue(event.target.value)} autoFocus aria-label="会话名称" /><div className="surface-dialog-actions"><button type="button" onClick={() => setRenameTarget(null)}>取消</button><button className="confirm" type="submit" disabled={!renameValue.trim()}>保存</button></div></form></div>}

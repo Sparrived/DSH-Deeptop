@@ -178,38 +178,57 @@ function messageAnnotations(ctx) {
   return service
 }
 
-async function sessionModels(ctx, request) {
-  const response = await ctx.apiProxy.sessions.models(request)
+async function enrichModelGroups(ctx, groups) {
+  if (!Array.isArray(groups)) return groups
+  return Promise.all(groups.map(async group => {
+    if (!isRecord(group) || !Array.isArray(group.models)) return group
+    const models = await Promise.all(group.models.map(async model => {
+      if (!isRecord(model) || typeof model.id !== 'string' || typeof group.id !== 'string') return model
+      try {
+        const info = await ctx.llm.resolveModelInfo(group.id, model.id)
+        const contextWindow = info?.context?.contextWindow
+        const inputModalities = Array.isArray(info?.inputModalities)
+          ? info.inputModalities.filter(value => value === 'text' || value === 'image')
+          : undefined
+        return {
+          ...model,
+          ...(typeof contextWindow === 'number' && Number.isInteger(contextWindow) && contextWindow > 0 ? { contextWindow } : {}),
+          ...(inputModalities && inputModalities.length > 0 ? { inputModalities } : {}),
+        }
+      } catch {
+        return model
+      }
+    }))
+    return { ...group, models }
+  }))
+}
+
+async function enrichModelCatalog(ctx, response, includeCurrent) {
   const result = response?.result
   if (!result?.ok || !isRecord(result.value)) return response
-  const current = result.value.current
-  if (!isRecord(current) || typeof current.provider !== 'string' || typeof current.model !== 'string') return response
   try {
-    const info = await ctx.llm.resolveModelInfo(current.provider, current.model)
-    const contextWindow = info?.context?.contextWindow
-    if (typeof contextWindow !== 'number' || !Number.isInteger(contextWindow) || contextWindow <= 0) return response
-    const groups = Array.isArray(result.value.groups)
-      ? await Promise.all(result.value.groups.map(async group => {
-          if (!isRecord(group) || !Array.isArray(group.models)) return group
-          const models = await Promise.all(group.models.map(async model => {
-            if (!isRecord(model) || typeof model.id !== 'string') return model
-            try {
-              const modelInfo = await ctx.llm.resolveModelInfo(String(group.id), model.id)
-              const modelWindow = modelInfo?.context?.contextWindow
-              return typeof modelWindow === 'number' && Number.isInteger(modelWindow) && modelWindow > 0
-                ? { ...model, contextWindow: modelWindow }
-                : model
-            } catch {
-              return model
-            }
-          }))
-          return { ...group, models }
-        }))
-      : result.value.groups
-    return { ...response, result: { ...result, value: { ...result.value, contextWindow, groups } } }
+    const groups = await enrichModelGroups(ctx, result.value.groups)
+    const value = { ...result.value, groups }
+    if (includeCurrent) {
+      const current = result.value.current
+      if (isRecord(current) && typeof current.provider === 'string' && typeof current.model === 'string') {
+        const info = await ctx.llm.resolveModelInfo(current.provider, current.model)
+        const contextWindow = info?.context?.contextWindow
+        if (typeof contextWindow === 'number' && Number.isInteger(contextWindow) && contextWindow > 0) value.contextWindow = contextWindow
+      }
+    }
+    return { ...response, result: { ...result, value } }
   } catch {
     return response
   }
+}
+
+async function sessionModels(ctx, request) {
+  return enrichModelCatalog(ctx, await ctx.apiProxy.sessions.models(request), true)
+}
+
+async function hostModels(ctx, request) {
+  return enrichModelCatalog(ctx, await ctx.apiProxy.llm.models(request), false)
 }
 
 export async function routeDesktopRequest(ctx, method, payload, signal) {
@@ -273,7 +292,7 @@ export async function routeDesktopRequest(ctx, method, payload, signal) {
     case 'credentials.unset': return api.credentials.unset(request)
     case 'llm.providers': return api.llm.providers(request)
     case 'host.describe': return api.host.describe(request)
-    case 'llm.models': return api.llm.models(request)
+    case 'llm.models': return hostModels(ctx, request)
     case 'llm.discoverModels': return api.llm.discoverModels(request, signal)
     case 'remote.invoke': return invokeRemote(ctx, payload, signal)
     case 'plugin.list': return ctx.pluginInventory.list()

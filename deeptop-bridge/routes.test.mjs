@@ -96,7 +96,7 @@ test('deletes an archived session artifact and removes its workspace membership'
   }
 })
 
-test('adds model context windows without changing the API response shape', async () => {
+test('adds model context windows and input modalities without changing the API response shape', async () => {
   const ctx = {
     apiProxy: {
       sessions: {
@@ -105,7 +105,7 @@ test('adds model context windows without changing the API response shape', async
             ok: true,
             value: {
               current: { provider: 'demo', model: 'chat' },
-              groups: [{ id: 'demo', models: [{ id: 'chat' }] }],
+              groups: [{ id: 'demo', models: [{ id: 'chat' }, { id: 'text-only' }] }],
             },
           },
         }),
@@ -114,6 +114,7 @@ test('adds model context windows without changing the API response shape', async
     llm: {
       resolveModelInfo: async (_provider, model) => ({
         context: { contextWindow: model === 'chat' ? 262144 : 0 },
+        inputModalities: model === 'chat' ? ['text', 'image'] : ['text'],
       }),
     },
   }
@@ -122,6 +123,30 @@ test('adds model context windows without changing the API response shape', async
 
   assert.equal(result.result.value.contextWindow, 262144)
   assert.equal(result.result.value.groups[0].models[0].contextWindow, 262144)
+  assert.deepEqual(result.result.value.groups[0].models[0].inputModalities, ['text', 'image'])
+  assert.deepEqual(result.result.value.groups[0].models[1].inputModalities, ['text'])
+})
+
+test('enriches the host model catalog with image capabilities', async () => {
+  const ctx = {
+    apiProxy: {
+      llm: {
+        models: async () => ({
+          result: {
+            ok: true,
+            value: { groups: [{ id: 'demo', models: [{ id: 'vision' }] }], failures: [] },
+          },
+        }),
+      },
+    },
+    llm: {
+      resolveModelInfo: async () => ({ inputModalities: ['text', 'image'] }),
+    },
+  }
+
+  const result = await routeDesktopRequest(ctx, 'llm.models', {}, signal)
+
+  assert.deepEqual(result.result.value.groups[0].models[0].inputModalities, ['text', 'image'])
 })
 
 test('forwards a validated Typert Remote call through the desktop bridge', async () => {

@@ -1,6 +1,6 @@
 import { useMemo, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { SessionRow, SessionStatusBadge } from "./SessionRow";
+import { SessionRow, sessionStatusLabels } from "./SessionRow";
 import { WorkspaceGroup as WorkspaceGroupSection } from "./WorkspaceGroup";
 import { WorkspacePicker } from "./WorkspacePicker";
 import {
@@ -17,6 +17,14 @@ type WorkspaceGroup = {
   workspaceId: string;
   sessions: DshSessionSummary[];
 };
+
+type DragPreview = {
+  order: string[];
+};
+
+function sameOrder(left: string[], right: string[]) {
+  return left.length === right.length && left.every((sessionId, index) => sessionId === right[index]);
+}
 
 type SessionSidebarProps = {
   search: string;
@@ -96,11 +104,12 @@ export function SessionSidebar({
   onSessionContextMenu,
 }: SessionSidebarProps) {
   const [archiveOpen, setArchiveOpen] = useState(false);
-  const [dragPreviewOrder, setDragPreviewOrder] = useState<string[] | null>(null);
+  const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
+  const [dragCommitPending, setDragCommitPending] = useState(false);
   const baseSessionOrder = useMemo(() => visibleSessions.map((session) => session.sessionId), [visibleSessions]);
   const dragPreviewRank = useMemo(
-    () => dragPreviewOrder ? new Map(dragPreviewOrder.map((sessionId, index) => [sessionId, index])) : null,
-    [dragPreviewOrder],
+    () => dragPreview ? new Map(dragPreview.order.map((sessionId, index) => [sessionId, index])) : null,
+    [dragPreview],
   );
 
   function orderSessions(items: DshSessionSummary[]) {
@@ -114,23 +123,33 @@ export function SessionSidebar({
   function handleDragOverSessionChange(targetSessionId: string | null) {
     const sourceSessionId = draggedSessionRef.current;
     if (sourceSessionId && targetSessionId && sourceSessionId !== targetSessionId) {
-      setDragPreviewOrder((currentOrder) => {
-        const order = currentOrder ?? baseSessionOrder;
+      setDragPreview((currentPreview) => {
+        const order = currentPreview?.order ?? baseSessionOrder;
         const sourceIndex = order.indexOf(sourceSessionId);
-        if (sourceIndex < 0) return currentOrder;
+        if (sourceIndex < 0) return currentPreview;
         const nextOrder = [...order];
         nextOrder.splice(sourceIndex, 1);
         const targetIndex = nextOrder.indexOf(targetSessionId);
-        if (targetIndex < 0) return currentOrder;
+        if (targetIndex < 0) return currentPreview;
         nextOrder.splice(targetIndex, 0, sourceSessionId);
-        return nextOrder;
+        if (sameOrder(order, nextOrder)) return currentPreview;
+        return { order: nextOrder };
       });
     }
     onDragOverSessionChange(targetSessionId);
   }
 
+  async function handleMoveSessionBefore(sessionId: string, beforeSessionId: string) {
+    setDragCommitPending(true);
+    await onMoveSessionBefore(sessionId, beforeSessionId);
+  }
+
   function handleSessionDragEnd() {
-    setDragPreviewOrder(null);
+    // The parent applies the committed workspace order before refreshing its
+    // runtime projections. Keep the preview through that async mutation so a
+    // release never renders the old order for one frame.
+    setDragPreview(null);
+    setDragCommitPending(false);
     onDragOverSessionChange(null);
     onSessionDragEnd();
   }
@@ -143,18 +162,22 @@ export function SessionSidebar({
     pending={pendingSessionIds.has(session.sessionId)}
     snippet={searchResultById.get(session.sessionId)}
     canDrag={Boolean(workspaceBySessionId.get(session.sessionId))}
+    dragDisabled={Boolean(search.trim()) || dragCommitPending}
     dragOver={dragOverSessionId === session.sessionId}
     draggedSessionRef={draggedSessionRef}
     onOpen={onOpenSession}
-    onMoveBefore={onMoveSessionBefore}
+    onMoveBefore={handleMoveSessionBefore}
     onDragOverChange={handleDragOverSessionChange}
     onSessionDragEnd={handleSessionDragEnd}
     onContextMenu={onSessionContextMenu}
   />;
   const renderArchivedSession = (session: DshSessionSummary) => (
-    <div className={`archived-session-row session-status-${session.running ? "running" : "archived"}`} key={session.sessionId}>
+    <div
+      className={`archived-session-row session-status-${session.running ? "running" : "archived"}`}
+      key={session.sessionId}
+      aria-label={`会话状态：${sessionStatusLabels[session.running ? "running" : "archived"]}`}
+    >
       <button className="archived-session-main" type="button" onClick={() => void onOpenSession(session)}>
-        <SessionStatusBadge status={session.running ? "running" : "archived"} />
         <span className="archived-session-copy"><strong>{displayTitle(session)}</strong><small>{formatDate(session.updatedAt)}{session.cwd ? " · " + projectName(session.cwd) : ""}</small></span>
       </button>
       <div className="archived-session-actions">
