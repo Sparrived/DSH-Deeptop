@@ -84,7 +84,8 @@ git push origin master --follow-tags
 1. 从 Tag 检出完全一致的源码；
 2. 验证 Tag 是 `v` 开头的 SemVer，并与所有应用清单一致；
 3. 在原生 runner 上并行构建：
-   - Windows x64：NSIS `.exe` 和 MSI `.msi`；
+   - 稳定版 Windows x64：NSIS `.exe` 和 MSI `.msi`；
+   - 开发版 Windows x64：NSIS `.exe`；Windows MSI 要求 prerelease 标识为纯数字且范围不超过 65535，因此带 `-dev.1` 的版本会自动跳过 MSI；
    - Linux x64：Debian `.deb` 和 AppImage；
    - macOS x64：DMG；
    - macOS arm64：DMG；
@@ -140,6 +141,7 @@ Release workflow 使用 `tauri build --ci --no-sign`，当前流程生成**未�
 - **找不到安装包**：查看对应矩阵任务的 Tauri 构建日志；`collect-release-assets.mjs` 只接受预期的 `nsis`、`msi`、`deb`、`appimage` 和 `dmg` 输出。
 - **Release 已存在**：重新运行工作流会使用 `gh release upload --clobber` 更新同名资产；不要同时启动同一个 Tag 的多个 Release 工作流。
 - **手动输入不合法 Tag**：工作流将输入作为环境变量传给 Bash，并要求 `v<SemVer>`；不会从分支最新提交或用户输入的任意字符串构建。
+- **Windows 开发版 MSI 构建失败**：Windows MSI 不接受 `dev` 这样的非数字 prerelease identifier；工作流会自动为开发版只构建 NSIS，稳定版仍构建 NSIS + MSI。
 - **开发版未显示为 Pre-release**：检查 Tag 是否包含 `-` prerelease 段，例如 `v0.1.1-dev.1`；稳定版本号不能强制选择 `development` 通道。
 - **macOS 打开受阻**：这是未签名/未公证包的预期行为，不是构建失败；完成 Apple 签名和公证后再用于正式分发。
 - **DSH 运行时问题**：Tauri 构建不会联网预下载 `@deepseek-ai/dsh@latest`，应用首次启动仍需要 npm registry 网络访问，且运行时继续遵循项目的 DSH Profile 约定。

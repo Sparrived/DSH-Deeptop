@@ -116,6 +116,7 @@ jobs:
             arch: x64
             runner: windows-latest
             bundles: nsis,msi
+            development_bundles: nsis
           - platform: linux
             arch: x64
             runner: ubuntu-latest
@@ -171,7 +172,7 @@ jobs:
           workspaces: src-tauri
 
       - name: Build Tauri bundles
-        run: npm run tauri -- build --bundles ${{ matrix.bundles }} --ci --no-sign
+        run: npm run tauri -- build --bundles ${{ needs.prepare.outputs.prerelease == 'true' && matrix.development_bundles || matrix.bundles }} --ci --no-sign
 
       - name: Collect release assets
         run: node scripts/collect-release-assets.mjs --version "${{ needs.prepare.outputs.version }}" --platform "${{ matrix.platform }}" --arch "${{ matrix.arch }}"
