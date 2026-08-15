@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     env, fs,
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
@@ -40,6 +40,7 @@ const PROFILE_PNPM_WORKSPACE: &str =
     "packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n";
 const RUNTIME_PACKAGE_JSON: &str =
     "{\n  \"name\": \"deeptop-dsh-runtime\",\n  \"private\": true\n}\n";
+const MAX_PENDING_OPEN_SESSIONS: usize = 16;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum RuntimePhase {
@@ -79,6 +80,37 @@ impl Default for BridgeState {
 struct BridgeManager {
     state: Arc<Mutex<BridgeState>>,
     next_request_id: Arc<AtomicU64>,
+    pending_open_sessions: Arc<Mutex<VecDeque<String>>>,
+}
+
+impl BridgeManager {
+    fn enqueue_open_session(&self, session_id: String) {
+        let session_id = session_id.trim().to_string();
+        if session_id.is_empty() {
+            return;
+        }
+        let Ok(mut pending) = self.pending_open_sessions.lock() else {
+            return;
+        };
+        pending.retain(|item| item != &session_id);
+        pending.push_back(session_id);
+        while pending.len() > MAX_PENDING_OPEN_SESSIONS {
+            pending.pop_front();
+        }
+    }
+
+    fn list_pending_open_sessions(&self) -> Vec<String> {
+        self.pending_open_sessions
+            .lock()
+            .map(|pending| pending.iter().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    fn acknowledge_pending_open_session(&self, session_id: &str) {
+        if let Ok(mut pending) = self.pending_open_sessions.lock() {
+            pending.retain(|item| item != session_id);
+        }
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -1213,9 +1245,26 @@ fn open_nodejs_download() -> Result<(), String> {
         .map_err(|error| format!("无法打开 Node.js 下载页面：{error}"))
 }
 
+fn publish_open_session(app: &AppHandle, runtime: &BridgeManager, session_id: String) {
+    runtime.enqueue_open_session(session_id.clone());
+    focus_main_window(app);
+    let _ = app.emit("notification-click", json!({ "sessionId": session_id }));
+}
+
+#[tauri::command]
+fn list_pending_open_sessions(runtime: State<'_, BridgeManager>) -> Vec<String> {
+    runtime.list_pending_open_sessions()
+}
+
+#[tauri::command]
+fn acknowledge_pending_open_session(runtime: State<'_, BridgeManager>, session_id: String) {
+    runtime.acknowledge_pending_open_session(&session_id);
+}
+
 #[tauri::command]
 fn send_system_notification(
     app: AppHandle,
+    runtime: State<'_, BridgeManager>,
     title: String,
     body: String,
     session_id: Option<String>,
@@ -1230,14 +1279,14 @@ fn send_system_notification(
         .show()
         .map_err(|error| format!("无法发送系统通知：{error}"))?;
     if let Some(session_id) = session_id.filter(|value| !value.trim().is_empty()) {
+        let runtime_for_callback = runtime.inner().clone();
         thread::spawn(move || {
             let _ = handle.wait_for_response(move |response: &NotificationResponse| {
                 if matches!(
                     response,
                     NotificationResponse::Default | NotificationResponse::Action(_)
                 ) {
-                    focus_main_window(&app);
-                    let _ = app.emit("notification-click", json!({ "sessionId": session_id }));
+                    publish_open_session(&app, &runtime_for_callback, session_id);
                 }
             });
         });
@@ -1272,6 +1321,8 @@ fn main() {
             check_dsh,
             refresh_dsh,
             open_nodejs_download,
+            list_pending_open_sessions,
+            acknowledge_pending_open_session,
             send_system_notification,
             bridge_request,
         ])

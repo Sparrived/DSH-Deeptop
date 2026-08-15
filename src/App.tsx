@@ -31,6 +31,8 @@ import {
   listenToSingleInstance,
   openNodejsDownload,
   pickWorkspace,
+  listPendingOpenSessions,
+  acknowledgePendingOpenSession,
   refreshDsh,
   type DshBridgeEvent,
   type DshGoalProjection,
@@ -278,7 +280,9 @@ function App() {
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
   const sessionsRef = useRef<DshSessionSummary[]>(sessions);
   sessionsRef.current = sessions;
-  const openSessionRef = useRef<(session: DshSessionSummary) => void>(() => undefined);
+  const openSessionRef = useRef<(session: DshSessionSummary) => Promise<boolean>>(() => Promise.resolve(false));
+  const openingNotificationSessionsRef = useRef(new Set<string>());
+  const runtimeAvailableRef = useRef(desktop && status.runtimeAvailable);
   const activeSessionRef = useRef<string | null>(null);
   const contextProjectionRef = useRef(false);
   const workspaceSelectionInitializedRef = useRef(false);
@@ -1049,8 +1053,8 @@ function App() {
     }
   }
 
-  async function openSession(session: DshSessionSummary) {
-    if (!desktop) return;
+  async function openSession(session: DshSessionSummary): Promise<boolean> {
+    if (!desktop) return false;
     const loadRequest = ++sessionLoadRequestRef.current;
     activeSessionRef.current = session.sessionId;
     contextProjectionRef.current = false;
@@ -1088,7 +1092,7 @@ function App() {
         }),
         bridgeRequest<DshSessionModels>("session.models", { sessionId: session.sessionId }),
       ]);
-      if (loadRequest !== sessionLoadRequestRef.current || activeSessionRef.current !== session.sessionId) return;
+      if (loadRequest !== sessionLoadRequestRef.current || activeSessionRef.current !== session.sessionId) return false;
       setHistory(historyResult.events);
       setHistoryHasMore(historyResult.hasMore);
       const loadedStats = readSessionStats(historyResult.events, historyResult.projections);
@@ -1104,14 +1108,54 @@ function App() {
       setTodos(projectedTodos !== undefined ? projectedTodos : todosFromHistory(historyResult.events) ?? null);
       setModels(modelsResult);
       setNotice(modelsResult.routable ? "会话已打开" : "当前模型路由不可用");
+      return true;
     } catch (error) {
       setNotice(errorText(error));
+      return false;
     } finally {
       if (loadRequest === sessionLoadRequestRef.current) setLoading(false);
     }
   }
 
-  openSessionRef.current = (session) => { void openSession(session); };
+  openSessionRef.current = (session) => openSession(session);
+
+  async function openNotificationSession(sessionId: string) {
+    if (!runtimeAvailableRef.current || openingNotificationSessionsRef.current.has(sessionId)) return;
+    openingNotificationSessionsRef.current.add(sessionId);
+    try {
+      let session = sessionsRef.current.find((item) => item.sessionId === sessionId);
+      if (!session) {
+        const loaded = await loadSessions(false);
+        session = loaded?.find((item) => item.sessionId === sessionId);
+      }
+      if (!session) {
+        await acknowledgePendingOpenSession(sessionId);
+        setNotice("通知对应的会话已不存在");
+        return;
+      }
+      const opened = await openSessionRef.current(session);
+      if (opened) await acknowledgePendingOpenSession(sessionId);
+    } finally {
+      openingNotificationSessionsRef.current.delete(sessionId);
+    }
+  }
+
+  const pendingOpenSessionFlushRef = useRef<Promise<void> | null>(null);
+  async function flushPendingOpenSessions() {
+    if (pendingOpenSessionFlushRef.current) return pendingOpenSessionFlushRef.current;
+    const flush = (async () => {
+      const pendingSessionIds = await listPendingOpenSessions();
+      for (const sessionId of pendingSessionIds) {
+        await openNotificationSession(sessionId);
+      }
+    })();
+    pendingOpenSessionFlushRef.current = flush;
+    try {
+      await flush;
+    } finally {
+      if (pendingOpenSessionFlushRef.current === flush) pendingOpenSessionFlushRef.current = null;
+    }
+  }
 
   async function refreshSessionStats(sessionId = activeSessionRef.current) {
     if (!desktop || !sessionId) return;
@@ -1173,14 +1217,17 @@ function App() {
     try {
       setStartupLogs([]);
       const nextStatus = await checkDsh();
+      runtimeAvailableRef.current = nextStatus.runtimeAvailable;
       setStatus(nextStatus);
       setNotice(nextStatus.message);
       if (nextStatus.runtimeAvailable) {
         const loadedSessions = await loadSessions(true);
         await loadRuntimeDetails(loadedSessions);
+        await flushPendingOpenSessions();
       }
     } catch (error) {
       const message = errorText(error);
+      runtimeAvailableRef.current = false;
       setStatus((current) => ({ ...current, runtimeAvailable: false, runtimeStarting: false, message }));
       setNotice(message);
     }
@@ -1223,12 +1270,14 @@ function App() {
     if (!desktop) return;
     const cleanups: Array<UnlistenFn | undefined> = [];
     void listenToRuntimeStatus((nextStatus) => {
+      runtimeAvailableRef.current = nextStatus.runtimeAvailable;
       setStatus(nextStatus);
       setNotice(nextStatus.message);
       if (nextStatus.runtimeAvailable) {
         void (async () => {
           const loadedSessions = await loadSessions(true);
           await loadRuntimeDetails(loadedSessions);
+          await flushPendingOpenSessions();
         })().catch((error) => setNotice(errorText(error)));
       }
     }).then((unlisten) => { cleanups.push(unlisten); });
@@ -1240,18 +1289,7 @@ function App() {
       setStartupLogs((current) => [...current, log].slice(-160));
     }).then((unlisten) => { cleanups.push(unlisten); });
     void listenToNotificationClick((sessionId) => {
-      void (async () => {
-        let session = sessionsRef.current.find((item) => item.sessionId === sessionId);
-        if (!session) {
-          const loaded = await loadSessions(false);
-          session = loaded?.find((item) => item.sessionId === sessionId);
-        }
-        if (session) {
-          openSessionRef.current(session);
-        } else {
-          setNotice("通知对应的会话已不存在");
-        }
-      })().catch((error) => setNotice(errorText(error)));
+      void openNotificationSession(sessionId).catch((error) => setNotice(errorText(error)));
     }).then((unlisten) => { cleanups.push(unlisten); });
     void listenToSingleInstance(() => {
       setNotice("已切换到正在运行的 Deeptop");

@@ -358,6 +358,19 @@ export async function sendSystemNotification(title: string, body: string, sessio
   }
 }
 
+export async function listPendingOpenSessions(): Promise<string[]> {
+  if (!isTauri()) return [];
+  const pending = await invoke<unknown>("list_pending_open_sessions");
+  return Array.isArray(pending)
+    ? pending.filter((sessionId): sessionId is string => typeof sessionId === "string" && sessionId.trim().length > 0)
+    : [];
+}
+
+export async function acknowledgePendingOpenSession(sessionId: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("acknowledge_pending_open_session", { sessionId });
+}
+
 export async function listenToNotificationClick(handler: (sessionId: string) => void): Promise<UnlistenFn> {
   return listen<{ sessionId?: unknown }>("notification-click", (event) => {
     const sessionId = event.payload?.sessionId;
