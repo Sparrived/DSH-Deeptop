@@ -85,6 +85,7 @@ export function displayTitle(session: DshSessionSummary) {
 }
 
 export function runtimeLabel(status: DshStatus) {
+  if (status.installing) return "安装中";
   if (status.runtimeStarting) return "启动中";
   if (status.runtimeAvailable) return "已连接";
   return "未连接";

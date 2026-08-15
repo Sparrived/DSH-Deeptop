@@ -23,6 +23,7 @@ export function StartupSplash({
   onClose,
 }: StartupSplashProps) {
   const failed = !status.runtimeStarting && !status.runtimeAvailable;
+  const installing = status.installing;
   return (
     <main className={`startup-screen ${failed ? "failed" : ""}`} role="status" aria-live="polite">
       <header
@@ -38,8 +39,8 @@ export function StartupSplash({
       </header>
       <section className="startup-content" aria-label="DSH 启动画面">
         <div className="startup-rule" />
-        <p className="startup-kicker">{failed ? "RUNTIME UNAVAILABLE" : "DESKTOP RUNTIME"}</p>
-        <h1>{failed ? "DSH 启动失败" : "正在启动 DSH"}</h1>
+        <p className="startup-kicker">{failed ? "RUNTIME UNAVAILABLE" : installing ? "INSTALLING DSH" : "DESKTOP RUNTIME"}</p>
+        <h1>{failed ? "DSH 启动失败" : installing ? "正在安装 DSH" : "正在启动 DSH"}</h1>
         <p className="startup-message">{status.message || "正在等待 DSH 桌面宿主就绪..."}</p>
         <div className="startup-progress" aria-hidden="true"><i /></div>
         {failed ? (

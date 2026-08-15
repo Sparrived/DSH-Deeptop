@@ -41,7 +41,7 @@ Optional DSH domains are capability-gated. If a profile does not provide a domai
 
 ## First use
 
-1. Run `npm run tauri:dev` and wait for the runtime indicator to show that DSH is ready. On first use, `npx` may download `@deepseek-ai/dsh@latest` from the configured npm registry.
+1. Run `npm run tauri:dev` and wait for the runtime indicator to show that DSH is ready. Startup first validates the DSH package in `$DSH_HOME/desktop-runtime`; if it is missing or incomplete, Deeptop installs `@deepseek-ai/dsh@latest` through the local npm.
 2. Open the settings/workbench panels and configure a Provider and credential when the active Profile exposes those domains. Credentials are written through DSH APIs; do not put secrets in the repository or Profile patch.
 3. Select or create a workspace. A selected directory becomes the `cwd` for newly created sessions; it is not automatically applied to every existing session.
 4. Create a session, choose its model, and send a prompt. Use queue/steering mode when you need to add context while a turn is running.
@@ -61,7 +61,7 @@ Rust Bridge Manager
   profile materialization, process supervision, JSONL stdin/stdout
         │ deeptop/1 JSONL
         ▼
-npx --yes @deepseek-ai/dsh@latest --profile desktop
+node <installed @deepseek-ai/dsh bin> --profile desktop
         │
 dsh-base + deeptop-bridge + user desktop Profile bundles
         │ one Cordis tree
@@ -86,8 +86,9 @@ On startup Deeptop:
 1. creates or completes `$DSH_HOME/profiles/desktop`;
 2. preserves user desktop Profile bundles and `cordis.patch.yml` edits;
 3. materializes the embedded Bridge at `$DSH_HOME/profiles/node_modules/deeptop-bridge`;
-4. uses `$DSH_HOME/desktop-runtime` as DSH's default current directory;
-5. runs `@deepseek-ai/dsh@latest --profile desktop` and waits for `deeptop/1` readiness.
+4. uses `$DSH_HOME/desktop-runtime` as DSH's default current directory and checks the installed `@deepseek-ai/dsh` entrypoint;
+5. installs `@deepseek-ai/dsh@latest` into `$DSH_HOME/desktop-runtime` through the local npm when the package is missing or incomplete, with non-interactive install flags;
+6. launches the validated DSH entrypoint through the local Node.js executable and waits for `deeptop/1` readiness.
 
 A selected workspace is passed to DSH as `session.create({ cwd })`, so the desktop project directory is not silently used as every session's working directory. DSH owns storage, persistence and Profile data according to its own configuration.
 
@@ -95,7 +96,7 @@ A selected workspace is passed to DSH as `session.create({ cwd })`, so the deskt
 
 - Node.js 22.19+ or 24+;
 - Rust/Cargo and the Tauri desktop toolchain;
-- `npx` available on `PATH`;
+- Node.js and npm available on `PATH`;
 - network access to the configured npm registry on first DSH startup;
 - a working WebView2 environment on Windows.
 
@@ -205,7 +206,7 @@ WEBUI_PARITY.md            WebUI alignment status and gaps
 
 ## Troubleshooting
 
-- **`npx` or `node.exe` is missing:** verify Node.js installation and the `PATH` inherited by the process launching Deeptop. On Windows the launcher locates `npx.cmd` and the matching Node executable from `PATH`.
+- **Node.js or npm is missing:** verify the Node.js installation and the `PATH` inherited by the process launching Deeptop. The launcher resolves Node/npm directly from `PATH` and cannot install DSH without them.
 - **DSH does not become ready:** inspect the runtime panel and diagnostics; check npm access, a writable `DSH_HOME`, and valid JSON/YAML in the desktop Profile. Refreshing the runtime restarts the child process.
 - **No sessions in the browser preview:** expected; only `npm run tauri:dev` owns the Rust Bridge and DSH child.
 - **A Profile change has no effect:** edit `$DSH_HOME/profiles/desktop/cordis.patch.yml`, not the generated Bridge package, then refresh DSH.

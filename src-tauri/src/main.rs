@@ -36,10 +36,14 @@ const PROFILE_TEMPLATE: &str = include_str!("../../deeptop-bridge/desktop-profil
 const PROFILE_PATCH_TEMPLATE: &str = include_str!("../../deeptop-bridge/profile.patch.yml");
 const PROFILE_PNPM_WORKSPACE: &str =
     "packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n";
+const RUNTIME_PACKAGE_JSON: &str =
+    "{\n  \"name\": \"deeptop-dsh-runtime\",\n  \"private\": true\n}\n";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum RuntimePhase {
     Idle,
+    Checking,
+    Installing,
     Starting,
     Ready,
     Failed,
@@ -50,6 +54,7 @@ struct BridgeState {
     message: String,
     generation: u64,
     pid: Option<u32>,
+    install_pid: Option<u32>,
     stdin: Option<Arc<Mutex<std::process::ChildStdin>>>,
     pending: HashMap<String, mpsc::Sender<Result<Value, String>>>,
 }
@@ -61,6 +66,7 @@ impl Default for BridgeState {
             message: "等待 DSH 启动".to_string(),
             generation: 0,
             pid: None,
+            install_pid: None,
             stdin: None,
             pending: HashMap::new(),
         }
@@ -81,6 +87,9 @@ struct DshStatus {
     package_name: String,
     runtime_available: bool,
     runtime_starting: bool,
+    installing: bool,
+    node_available: bool,
+    package_available: bool,
     message: String,
 }
 
@@ -238,37 +247,196 @@ fn executable_from_path(name: &str) -> Option<PathBuf> {
         .find(|path| path.is_file())
 }
 
-fn base_npx_command() -> Result<Command, String> {
-    let mut command = if cfg!(windows) {
-        let npx = executable_from_path("npx.cmd")
-            .ok_or_else(|| "PATH 中未找到 npx.cmd，请先安装 Node.js".to_string())?;
-        let node = npx
-            .parent()
-            .map(|directory| directory.join("node.exe"))
-            .filter(|path| path.is_file())
-            .or_else(|| executable_from_path("node.exe"))
-            .ok_or_else(|| "未找到与 npx 对应的 node.exe".to_string())?;
-        let npx_cli = npx
-            .parent()
-            .map(|directory| directory.join("node_modules/npm/bin/npx-cli.js"))
-            .filter(|path| path.is_file())
-            .ok_or_else(|| "未找到 npm 的 npx-cli.js".to_string())?;
-        let mut command = Command::new(node);
-        command.arg(npx_cli);
-        command
-    } else {
-        Command::new("npx")
-    };
-    command
-        .arg("--yes")
-        .arg(DSH_PACKAGE)
-        .env("NO_COLOR", "1")
-        .env("DSH_HOME", dsh_home());
+fn node_executable() -> Result<PathBuf, String> {
+    let name = if cfg!(windows) { "node.exe" } else { "node" };
+    executable_from_path(name).ok_or_else(|| "未找到 Node.js，请先安装 Node.js 后重试".to_string())
+}
+
+fn npm_executable() -> Result<PathBuf, String> {
+    let name = if cfg!(windows) { "npm.cmd" } else { "npm" };
+    executable_from_path(name)
+        .or_else(|| {
+            node_executable().ok().and_then(|node| {
+                node.parent()
+                    .map(|directory| directory.join(name))
+                    .filter(|path| path.is_file())
+            })
+        })
+        .ok_or_else(|| "未找到 npm，请确认 Node.js 安装完整后重试".to_string())
+}
+
+fn node_command() -> Result<Command, String> {
+    let mut command = Command::new(node_executable()?);
+    command.env("NO_COLOR", "1");
     #[cfg(windows)]
     configure_hidden_process(&mut command);
     #[cfg(unix)]
     configure_process_group(&mut command);
     Ok(command)
+}
+
+fn npm_command() -> Result<Command, String> {
+    let mut command = if cfg!(windows) {
+        let npm = npm_executable()?;
+        let node = npm
+            .parent()
+            .map(|directory| directory.join("node.exe"))
+            .filter(|path| path.is_file())
+            .or_else(|| executable_from_path("node.exe"))
+            .ok_or_else(|| "未找到与 npm 对应的 node.exe".to_string())?;
+        let npm_cli = npm
+            .parent()
+            .map(|directory| directory.join("node_modules/npm/bin/npm-cli.js"))
+            .filter(|path| path.is_file())
+            .ok_or_else(|| "未找到 npm 的 npm-cli.js".to_string())?;
+        let mut command = Command::new(node);
+        command.arg(npm_cli);
+        command
+    } else {
+        Command::new(npm_executable()?)
+    };
+    command
+        .env("NO_COLOR", "1")
+        .env("CI", "1")
+        .env("NPM_CONFIG_YES", "true")
+        .env("NPM_CONFIG_AUDIT", "false")
+        .env("NPM_CONFIG_FUND", "false")
+        .env("NPM_CONFIG_UPDATE_NOTIFIER", "false");
+    #[cfg(windows)]
+    configure_hidden_process(&mut command);
+    #[cfg(unix)]
+    configure_process_group(&mut command);
+    Ok(command)
+}
+
+fn dsh_runtime_package_directory(runtime_directory: &Path) -> PathBuf {
+    runtime_directory
+        .join("node_modules")
+        .join("@deepseek-ai")
+        .join("dsh")
+}
+
+fn dsh_entrypoint(runtime_directory: &Path) -> Result<PathBuf, String> {
+    let package_directory = dsh_runtime_package_directory(runtime_directory);
+    let manifest_path = package_directory.join("package.json");
+    let raw = fs::read_to_string(&manifest_path)
+        .map_err(|_| "未检测到 DSH，正在准备安装...".to_string())?;
+    let manifest: Value =
+        serde_json::from_str(&raw).map_err(|_| "DSH 安装不完整，正在准备修复...".to_string())?;
+    if manifest.get("name").and_then(Value::as_str) != Some("@deepseek-ai/dsh") {
+        return Err("DSH 安装包不匹配，正在准备修复...".to_string());
+    }
+    let bin = manifest
+        .get("bin")
+        .and_then(|value| {
+            value.as_str().map(String::from).or_else(|| {
+                value.as_object().and_then(|bins| {
+                    bins.get("dsh")
+                        .or_else(|| bins.values().next())
+                        .and_then(Value::as_str)
+                        .map(String::from)
+                })
+            })
+        })
+        .ok_or_else(|| "DSH 安装缺少命令入口，正在准备修复...".to_string())?;
+    let entrypoint = package_directory.join(bin);
+    if !entrypoint.is_file() {
+        return Err("DSH 安装缺少命令入口，正在准备修复...".to_string());
+    }
+    Ok(entrypoint)
+}
+
+fn ensure_runtime_package_manifest(runtime_directory: &Path) -> Result<(), String> {
+    write_if_missing(
+        &runtime_directory.join("package.json"),
+        RUNTIME_PACKAGE_JSON,
+    )
+}
+
+fn install_dsh(
+    manager: &BridgeManager,
+    generation: u64,
+    runtime_directory: &Path,
+) -> Result<(), String> {
+    ensure_runtime_package_manifest(runtime_directory)?;
+    let prefix = runtime_directory.to_string_lossy().into_owned();
+    let mut command = npm_command()?;
+    command
+        .args([
+            "install",
+            "--prefix",
+            &prefix,
+            "--no-audit",
+            "--no-fund",
+            "--no-update-notifier",
+            "--force",
+            DSH_PACKAGE,
+        ])
+        .current_dir(runtime_directory)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("无法执行 DSH 安装：{error}"))?;
+    let pid = child.id();
+    let active = manager
+        .state
+        .lock()
+        .map(|mut state| {
+            if state.generation != generation || state.phase != RuntimePhase::Installing {
+                return false;
+            }
+            state.install_pid = Some(pid);
+            true
+        })
+        .unwrap_or(false);
+    if !active {
+        terminate_process_tree(pid);
+        let _ = child.wait();
+        return Err("DSH 安装已取消".to_string());
+    }
+    let output = match child.wait_with_output() {
+        Ok(output) => output,
+        Err(error) => {
+            if let Ok(mut state) = manager.state.lock() {
+                if state.generation == generation {
+                    state.install_pid = None;
+                }
+            }
+            return Err(format!("等待 DSH 安装结束失败：{error}"));
+        }
+    };
+    if let Ok(mut state) = manager.state.lock() {
+        if state.generation == generation {
+            state.install_pid = None;
+        }
+    }
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let detail = stderr
+            .lines()
+            .rev()
+            .take(3)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join(" ");
+        return Err(if detail.is_empty() {
+            format!(
+                "DSH 安装失败（退出码 {}）",
+                output.status.code().unwrap_or(-1)
+            )
+        } else {
+            format!("DSH 安装失败：{detail}")
+        });
+    }
+    if !manager.is_current(generation) {
+        return Err("DSH 安装已取消".to_string());
+    }
+    dsh_entrypoint(runtime_directory)
+        .map(|_| ())
+        .map_err(|error| format!("DSH 安装校验失败：{error}"))
 }
 
 #[cfg(windows)]
@@ -310,23 +478,28 @@ fn pending_error(state: &mut BridgeState, message: String) {
 impl BridgeManager {
     fn status(&self) -> DshStatus {
         let state = self.state.lock();
-        let (runtime_available, runtime_starting, message) = match state {
+        let (runtime_available, runtime_starting, installing, message) = match state {
             Ok(state) => (
                 state.phase == RuntimePhase::Ready,
-                state.phase == RuntimePhase::Starting,
+                matches!(
+                    state.phase,
+                    RuntimePhase::Checking | RuntimePhase::Installing | RuntimePhase::Starting
+                ),
+                state.phase == RuntimePhase::Installing,
                 state.message.clone(),
             ),
-            Err(_) => (false, false, "DSH 启动状态不可用".to_string()),
+            Err(_) => (false, false, false, "DSH 启动状态不可用".to_string()),
         };
+        let runtime_directory = dsh_home().join("desktop-runtime");
         DshStatus {
             dsh_home: dsh_home().to_string_lossy().into_owned(),
-            runtime_directory: dsh_home()
-                .join("desktop-runtime")
-                .to_string_lossy()
-                .into_owned(),
+            runtime_directory: runtime_directory.to_string_lossy().into_owned(),
             package_name: DSH_PACKAGE.to_string(),
             runtime_available,
             runtime_starting,
+            installing,
+            node_available: node_executable().is_ok(),
+            package_available: dsh_entrypoint(&runtime_directory).is_ok(),
             message,
         }
     }
@@ -339,7 +512,7 @@ impl BridgeManager {
         let should_start = self
             .state
             .lock()
-            .map(|state| state.phase == RuntimePhase::Idle)
+            .map(|state| matches!(state.phase, RuntimePhase::Idle | RuntimePhase::Failed))
             .unwrap_or(false);
         if should_start {
             self.start(app.clone());
@@ -351,21 +524,27 @@ impl BridgeManager {
             let Ok(mut state) = self.state.lock() else {
                 return;
             };
-            if matches!(state.phase, RuntimePhase::Starting | RuntimePhase::Ready) {
+            if matches!(
+                state.phase,
+                RuntimePhase::Checking
+                    | RuntimePhase::Installing
+                    | RuntimePhase::Starting
+                    | RuntimePhase::Ready
+            ) {
                 return;
             }
             state.generation += 1;
-            state.phase = RuntimePhase::Starting;
-            state.message = "正在静默启动 DSH...".to_string();
+            state.phase = RuntimePhase::Checking;
+            state.message = "正在检查 DSH 安装...".to_string();
             state.generation
         };
         self.emit_status(&app);
         let manager = self.clone();
-        thread::spawn(move || manager.launch(app, generation));
+        thread::spawn(move || manager.prepare_and_launch(app, generation));
     }
 
     fn stop(&self, message: &str) {
-        let pid = {
+        let (pid, install_pid) = {
             let Ok(mut state) = self.state.lock() else {
                 return;
             };
@@ -374,10 +553,11 @@ impl BridgeManager {
             state.message = message.to_string();
             state.stdin = None;
             let pid = state.pid.take();
+            let install_pid = state.install_pid.take();
             pending_error(&mut state, "DSH 桌面宿主已停止".to_string());
-            pid
+            (pid, install_pid)
         };
-        if let Some(pid) = pid {
+        if let Some(pid) = pid.or(install_pid) {
             terminate_process_tree(pid);
         }
     }
@@ -388,14 +568,71 @@ impl BridgeManager {
         self.start(app);
     }
 
-    fn launch(&self, app: AppHandle, generation: u64) {
-        let result = (|| -> Result<_, String> {
+    fn prepare_and_launch(&self, app: AppHandle, generation: u64) {
+        let result = (|| -> Result<PathBuf, String> {
             materialize_desktop_profile()?;
             let runtime_directory = desktop_runtime_directory()?;
-            let mut command = base_npx_command()?;
+            if dsh_entrypoint(&runtime_directory).is_err() {
+                let changed = self
+                    .state
+                    .lock()
+                    .map(|mut state| {
+                        if state.generation != generation {
+                            return false;
+                        }
+                        state.phase = RuntimePhase::Installing;
+                        state.message = "未检测到 DSH，正在安装...".to_string();
+                        true
+                    })
+                    .unwrap_or(false);
+                if changed {
+                    self.emit_status(&app);
+                }
+                install_dsh(self, generation, &runtime_directory)?;
+            }
+            if !self.is_current(generation) {
+                return Err("DSH 启动已取消".to_string());
+            }
+            Ok(dsh_entrypoint(&runtime_directory)?)
+        })();
+
+        let entrypoint = match result {
+            Ok(entrypoint) => entrypoint,
+            Err(message) => {
+                self.fail_start(&app, generation, message);
+                return;
+            }
+        };
+        let changed = self
+            .state
+            .lock()
+            .map(|mut state| {
+                if state.generation != generation
+                    || state.phase != RuntimePhase::Installing
+                        && state.phase != RuntimePhase::Checking
+                {
+                    return false;
+                }
+                state.phase = RuntimePhase::Starting;
+                state.message = "正在启动 DSH...".to_string();
+                true
+            })
+            .unwrap_or(false);
+        if changed {
+            self.emit_status(&app);
+        }
+        self.launch(app, generation, entrypoint);
+    }
+
+    fn launch(&self, app: AppHandle, generation: u64, entrypoint: PathBuf) {
+        let result = (|| -> Result<_, String> {
+            let runtime_directory = desktop_runtime_directory()?;
+            let mut command = node_command()?;
             command
+                .arg(entrypoint)
                 .args(["--profile", DSH_PROFILE])
                 .current_dir(runtime_directory)
+                .env("DSH_HOME", dsh_home())
                 .env_remove("DSH_CWD")
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())

@@ -21,7 +21,7 @@ Deeptop 是 DSH 的原生桌面工作台：
 
 - Node.js 22.19+ 或 24+；
 - Rust/Cargo 和 Tauri 桌面开发环境；
-- `npx` 在 `PATH` 中可用；
+- Node.js 与 npm 在 `PATH` 中可用；
 - 首次启动 DSH 时可访问 npm registry；
 - Windows 上需要可用的 WebView2 环境。
 
@@ -91,15 +91,16 @@ npm run version:check
 Tauri setup
   -> materialize_desktop_profile()
   -> create $DSH_HOME/desktop-runtime
-  -> spawn Node + npx --yes @deepseek-ai/dsh@latest
-       --profile desktop
+  -> validate @deepseek-ai/dsh package entrypoint
+  -> npm install --prefix $DSH_HOME/desktop-runtime (when missing)
+  -> spawn Node + installed DSH bin --profile desktop
   -> pipe stdin/stdout/stderr
   -> receive { type: "ready", protocol: "deeptop/1" }
   -> emit dsh-runtime-status
   -> React starts DSH API calls
 ```
 
-启动器会在 Windows 上从 `PATH` 查找 `npx.cmd`、对应的 `node.exe` 和 npm 的 `npx-cli.js`，避免固定安装路径。DSH 的 stdout 用于结构化 JSONL，stderr 转为诊断事件；非 JSONL 输出不会被当作 API 响应。
+启动器会从 `PATH` 查找本机 Node.js 和 npm；Windows 下会直接调用 npm 的 CLI JavaScript 文件，避免依赖 shell 和 GUI 进程中的 `.cmd` 脚本解析。DSH 的 stdout 用于结构化 JSONL，stderr 转为诊断事件；非 JSONL 输出不会被当作 API 响应。
 
 Bridge 进程退出、启动失败或请求超时后，Rust 会更新运行时状态并结束等待中的请求。应用可以调用 `refresh_dsh` 重启 DSH 子进程。
 
@@ -243,7 +244,7 @@ Rust 将 Bridge 帧转发为 `deeptop-bridge-event`，React 再通过 `bridge-ev
 ### DSH 未就绪
 
 1. 检查运行时 Inspector 的状态和诊断文本。
-2. 确认 `npx`、`node.exe` 和 npm registry 可用。
+2. 确认 Node.js、npm 和 npm registry 可用；如果 DSH 缺失，应用会先执行一次非交互安装。
 3. 确认 `DSH_HOME` 可写。
 4. 检查 `$DSH_HOME/profiles/desktop/package.json` 和 `cordis.patch.yml` 是否为有效内容。
 5. 刷新 DSH 运行时，观察新的启动日志。

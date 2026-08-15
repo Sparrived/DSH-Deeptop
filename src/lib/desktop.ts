@@ -9,6 +9,9 @@ export interface DshStatus {
   packageName: string;
   runtimeAvailable: boolean;
   runtimeStarting: boolean;
+  installing: boolean;
+  nodeAvailable: boolean;
+  packageAvailable: boolean;
   message: string;
 }
 

@@ -40,7 +40,7 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 
 ## 首次使用
 
-1. 运行 `npm run tauri:dev`，等待运行时指示器显示 DSH 已就绪。首次使用时，`npx` 可能需要从配置的 npm registry 下载 `@deepseek-ai/dsh@latest`。
+1. 运行 `npm run tauri:dev`，等待运行时指示器显示 DSH 已就绪。启动时会先校验 `$DSH_HOME/desktop-runtime` 中的 DSH；如果未安装或不完整，应用会自动通过本机 npm 安装 `@deepseek-ai/dsh@latest`。
 2. 打开设置/运行台；如果当前 Profile 提供对应域，配置 Provider 和凭据。凭据通过 DSH API 写入，不要把密钥放进仓库或 Profile 补丁。
 3. 选择或创建工作区。选定目录会作为新建会话的 `cwd`，不会自动修改已有会话的工作目录。
 4. 创建会话、选择模型并发送提示。运行中需要追加上下文时，可使用 queue 或 steering 模式。
@@ -64,7 +64,7 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 └──────────────────────┬───────────────────────┘
                        │ deeptop/1 JSONL
 ┌──────────────────────▼───────────────────────┐
-│ npx --yes @deepseek-ai/dsh@latest             │
+│ node <installed @deepseek-ai/dsh bin>         │
 │ --profile desktop                             │
 │ dsh-base + deeptop-bridge + 用户 Profile      │
 └──────────────────────┬───────────────────────┘
@@ -94,8 +94,9 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 2. 创建 `$DSH_HOME/profiles/desktop`，写入或补齐 desktop Profile 清单。
 3. 将内置 `deeptop-bridge` 写入 `$DSH_HOME/profiles/node_modules/deeptop-bridge`，因此无需全局安装该 Bridge。
 4. 保留用户已有的 desktop Profile Bundle 和 `$DSH_HOME/profiles/desktop/cordis.patch.yml` 修改。
-5. 使用 `$DSH_HOME/desktop-runtime` 作为 DSH 默认当前目录。
-6. 启动 `@deepseek-ai/dsh@latest --profile desktop`，并等待 Bridge 返回 `deeptop/1` 的 `ready` 帧。
+5. 使用 `$DSH_HOME/desktop-runtime` 作为 DSH 默认当前目录，并检查其中的 `@deepseek-ai/dsh` 命令入口。
+6. 如果 DSH 未安装或安装不完整，应用会通过本机 npm 将 `@deepseek-ai/dsh@latest` 安装到 `$DSH_HOME/desktop-runtime`，随后重新校验包入口；安装过程不会使用交互式提示。
+7. 使用本机 Node.js 启动已校验的 DSH 命令入口，并等待 Bridge 返回 `deeptop/1` 的 `ready` 帧。
 
 选定工作区后，桌面端会将其作为 `session.create({ cwd })` 的工作目录传给 DSH；它不会把桌面项目目录隐式当成所有会话的工作区。Storage、Session Persistence 和 Profile 数据仍由 DSH 按自身配置管理。
 
@@ -105,7 +106,7 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 
 - Node.js 22.19+ 或 24+；
 - Rust/Cargo，以及 Tauri 所需的 Windows 桌面开发环境；
-- `npx` 位于 `PATH` 中；
+- Node.js 与 npm 位于 `PATH` 中；
 - 首次启动 DSH 时可以访问配置的 npm registry；
 - Windows 运行时需要可用的 WebView2 环境。
 
@@ -213,9 +214,9 @@ Deeptop 的目标是“功能和契约兼容，界面和生命周期原生化”
 
 ## 常见问题
 
-### 找不到 `npx` 或 `node.exe`
+### 找不到 Node.js 或 npm
 
-确认 Node.js 已安装，并且启动 Deeptop 的进程继承了包含 `node.exe` 和 `npx.cmd` 的 `PATH`。Windows 启动器会从 `PATH` 定位 Node/npm，而不是假定固定安装目录。
+确认 Node.js 已安装，并且启动 Deeptop 的进程继承了包含 Node.js 与 npm 的 `PATH`。应用会直接从 `PATH` 定位 Node/npm；缺少它们时无法自动安装 DSH。
 
 ### DSH 启动失败或停留在“正在启动”
 
