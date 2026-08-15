@@ -41,7 +41,7 @@ Optional DSH domains are capability-gated. If a profile does not provide a domai
 
 ## First use
 
-1. Run `npm run tauri:dev` and wait for the runtime indicator to show that DSH is ready. Startup first validates the DSH package in `$DSH_HOME/desktop-runtime`; if it is missing or incomplete, Deeptop installs `@deepseek-ai/dsh@latest` through the local npm.
+1. Run `npm run tauri:dev` and wait for the runtime indicator to show that DSH is ready. Startup first asks npm to validate `@deepseek-ai/dsh` under the `$DSH_HOME` prefix; if it is missing or incomplete, Deeptop installs `@deepseek-ai/dsh@latest` there through the local npm.
 2. Open the settings/workbench panels and configure a Provider and credential when the active Profile exposes those domains. Credentials are written through DSH APIs; do not put secrets in the repository or Profile patch.
 3. Select or create a workspace. A selected directory becomes the `cwd` for newly created sessions; it is not automatically applied to every existing session.
 4. Create a session, choose its model, and send a prompt. Use queue/steering mode when you need to add context while a turn is running.
@@ -86,9 +86,9 @@ On startup Deeptop:
 1. creates or completes `$DSH_HOME/profiles/desktop`;
 2. preserves user desktop Profile bundles and `cordis.patch.yml` edits;
 3. materializes the embedded Bridge at `$DSH_HOME/profiles/node_modules/deeptop-bridge`;
-4. checks `@deepseek-ai/dsh` entrypoints in `$DSH_HOME/desktop-runtime`, the npm global directory and the npx cache, in that order;
-5. reuses the first valid existing DSH installation without reinstalling; only when all candidates are missing or invalid does it install `@deepseek-ai/dsh@latest` into `$DSH_HOME/desktop-runtime` through the local npm;
-6. launches the validated DSH entrypoint through the local Node.js executable and waits for `deeptop/1` readiness.
+4. asks npm to validate `@deepseek-ai/dsh` under the `$DSH_HOME` prefix with offline `npm exec`;
+5. installs `@deepseek-ai/dsh@latest` into the same `$DSH_HOME` prefix through the local npm when validation fails;
+6. launches DSH with offline `npm exec` from that prefix and waits for `deeptop/1` readiness.
 
 A selected workspace is passed to DSH as `session.create({ cwd })`, so the desktop project directory is not silently used as every session's working directory. DSH owns storage, persistence and Profile data according to its own configuration.
 

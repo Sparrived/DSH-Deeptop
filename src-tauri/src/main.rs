@@ -19,8 +19,6 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
 
-mod registry;
-
 const DSH_PROFILE: &str = "desktop";
 const DSH_PACKAGE: &str = "@deepseek-ai/dsh@latest";
 const NODEJS_DOWNLOAD_URL: &str = "https://nodejs.org/en/download";
@@ -57,8 +55,6 @@ struct BridgeState {
     phase: RuntimePhase,
     message: String,
     package_available: bool,
-    registry_testing: bool,
-    selected_registry: Option<String>,
     generation: u64,
     pid: Option<u32>,
     install_pid: Option<u32>,
@@ -72,8 +68,6 @@ impl Default for BridgeState {
             phase: RuntimePhase::Idle,
             message: "等待 DSH 启动".to_string(),
             package_available: false,
-            registry_testing: false,
-            selected_registry: None,
             generation: 0,
             pid: None,
             install_pid: None,
@@ -749,55 +743,14 @@ impl BridgeManager {
                             return false;
                         }
                         state.phase = RuntimePhase::Installing;
-                        state.registry_testing = true;
-                        state.message = "未检测到可用的 DSH，正在测试 npm 下载速度...".to_string();
+                        state.message = "未检测到可用的 DSH，正在通过 npm 安装...".to_string();
                         true
                     })
                     .unwrap_or(false);
                 if changed {
                     self.emit_status(&app);
                 }
-                let selection = registry::select_registry(npm_command);
-                if selection.all_failed {
-                    self.emit_runtime_log(
-                        &app,
-                        generation,
-                        "registry",
-                        "diagnostic",
-                        "所有 npm registry 测速均失败，回退到 npm 官方源安装 DSH".to_string(),
-                    );
-                }
-                for probe in &selection.probes {
-                    self.emit_runtime_log(
-                        &app,
-                        generation,
-                        "registry",
-                        "diagnostic",
-                        if probe.ok {
-                            format!(
-                                "registry {} 下载 {} KiB，速度 {:.1} KiB/s，耗时 {} ms",
-                                probe.registry,
-                                probe.bytes / 1024,
-                                probe.speed_kib,
-                                probe.elapsed_ms
-                            )
-                        } else {
-                            format!(
-                                "registry {} 下载测速失败（{} ms）",
-                                probe.registry, probe.elapsed_ms
-                            )
-                        },
-                    );
-                }
-                if let Ok(mut state) = self.state.lock() {
-                    if state.generation == generation {
-                        state.registry_testing = false;
-                        state.selected_registry = Some(selection.registry.clone());
-                        state.message = format!("使用 {} 安装 DSH...", selection.registry);
-                    }
-                }
-                self.emit_status(&app);
-                install_dsh(self, &app, generation, &selection.registry)?;
+                install_dsh(self, &app, generation)?;
             }
             if !self.is_current(generation) {
                 return Err("DSH 启动已取消".to_string());

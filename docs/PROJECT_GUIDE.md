@@ -90,10 +90,10 @@ npm run version:check
 ```text
 Tauri setup
   -> materialize_desktop_profile()
-  -> create $DSH_HOME/desktop-runtime
-  -> validate @deepseek-ai/dsh package entrypoint
-  -> npm install --prefix $DSH_HOME/desktop-runtime (when missing)
-  -> spawn Node + installed DSH bin --profile desktop
+  -> ensure $DSH_HOME/package.json exists
+  -> npm exec --prefix $DSH_HOME --offline --package=@deepseek-ai/dsh -- dsh --version
+  -> npm install --prefix $DSH_HOME (when missing)
+  -> npm exec --prefix $DSH_HOME --offline --package=@deepseek-ai/dsh -- dsh --profile desktop
   -> pipe stdin/stdout/stderr
   -> receive { type: "ready", protocol: "deeptop/1" }
   -> emit dsh-runtime-status
@@ -124,7 +124,7 @@ $DSH_HOME/
 │  │  └─ pnpm-workspace.yaml
 │  └─ node_modules/
 │     └─ deeptop-bridge/        # 应用物化的 Bridge Bundle
-├─ desktop-runtime/              # DSH 默认 cwd
+├─ node_modules/                 # npm prefix 下安装的 DSH 及依赖
 ├─ storages/                     # 默认 JSON storage 配置使用的目录
 └─ ...                           # 其他 DSH 数据
 ```

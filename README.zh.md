@@ -40,7 +40,7 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 
 ## 首次使用
 
-1. 运行 `npm run tauri:dev`，等待运行时指示器显示 DSH 已就绪。启动时会先校验 `$DSH_HOME/desktop-runtime` 中的 DSH；如果未安装或不完整，应用会自动通过本机 npm 安装 `@deepseek-ai/dsh@latest`。
+1. 运行 `npm run tauri:dev`，等待运行时指示器显示 DSH 已就绪。启动时会先让 npm 在 `$DSH_HOME` prefix 下校验 `@deepseek-ai/dsh`；如果未安装或不完整，应用会自动通过本机 npm 安装 `@deepseek-ai/dsh@latest`。
 2. 打开设置/运行台；如果当前 Profile 提供对应域，配置 Provider 和凭据。凭据通过 DSH API 写入，不要把密钥放进仓库或 Profile 补丁。
 3. 选择或创建工作区。选定目录会作为新建会话的 `cwd`，不会自动修改已有会话的工作目录。
 4. 创建会话、选择模型并发送提示。运行中需要追加上下文时，可使用 queue 或 steering 模式。
@@ -94,9 +94,9 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 2. 创建 `$DSH_HOME/profiles/desktop`，写入或补齐 desktop Profile 清单。
 3. 将内置 `deeptop-bridge` 写入 `$DSH_HOME/profiles/node_modules/deeptop-bridge`，因此无需全局安装该 Bridge。
 4. 保留用户已有的 desktop Profile Bundle 和 `$DSH_HOME/profiles/desktop/cordis.patch.yml` 修改。
-5. 优先检查 `$DSH_HOME/desktop-runtime`、npm 全局目录和 npx 缓存中的 `@deepseek-ai/dsh` 命令入口。
-6. 如果已有入口可用，直接复用已有 DSH，不会重复安装；只有所有位置都缺失或损坏时，才会通过本机 npm 安装到 `$DSH_HOME/desktop-runtime`。
-7. 使用本机 Node.js 启动已校验的 DSH 命令入口，并等待 Bridge 返回 `deeptop/1` 的 `ready` 帧。
+5. 让 npm 在 `$DSH_HOME` prefix 下通过离线 `npm exec` 校验 `@deepseek-ai/dsh`。
+6. 如果校验失败，就通过本机 npm 将 `@deepseek-ai/dsh@latest` 安装到同一个 `$DSH_HOME` prefix。
+7. 使用该 prefix 下的离线 `npm exec` 启动 DSH，并等待 Bridge 返回 `deeptop/1` 的 `ready` 帧。
 
 选定工作区后，桌面端会将其作为 `session.create({ cwd })` 的工作目录传给 DSH；它不会把桌面项目目录隐式当成所有会话的工作区。Storage、Session Persistence 和 Profile 数据仍由 DSH 按自身配置管理。
 

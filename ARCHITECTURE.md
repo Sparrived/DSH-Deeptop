@@ -39,8 +39,8 @@ Tauri window
         WorkspaceGroup.tsx and WorkspacePicker.tsx sidebar subdomains
 
 Tauri runtime
-  -> validate/install @deepseek-ai/dsh in $DSH_HOME/desktop-runtime
-  -> node <installed DSH bin> --profile desktop
+  -> npm install/validate @deepseek-ai/dsh with --prefix $DSH_HOME
+  -> npm exec --prefix $DSH_HOME --offline --package=@deepseek-ai/dsh -- dsh --profile desktop
      -> desktop Profile + Cordis services
         -> deeptop-bridge plugin
            -> bridge.mjs       JSONL lifecycle and event forwarding
