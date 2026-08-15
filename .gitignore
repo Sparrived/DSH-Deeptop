@@ -3,6 +3,7 @@ dist/
 release-assets/
 src-tauri/target/
 src-tauri/target-desktop-build/
+src-tauri/target-test-*/
 src-tauri/gen/
 .DS_Store
 *.log
