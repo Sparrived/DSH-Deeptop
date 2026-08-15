@@ -7,9 +7,18 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "要发布的版本 Tag（例如 v0.1.0）"
+        description: "要发布的版本 Tag（例如 v0.1.1-dev.1）"
         required: true
         type: string
+      release_channel:
+        description: "发布通道；auto 按 Tag 自动判断"
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - development
+          - stable
 
 permissions:
   contents: read
@@ -29,6 +38,8 @@ jobs:
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      channel: ${{ steps.version.outputs.channel }}
     steps:
       - name: Check out release ref
         uses: actions/checkout@v4
@@ -54,23 +65,45 @@ jobs:
         env:
           RELEASE_EVENT: ${{ github.event_name }}
           INPUT_TAG: ${{ inputs.tag }}
+          INPUT_CHANNEL: ${{ inputs.release_channel }}
           PUSH_TAG: ${{ github.ref_name }}
         run: |
           if [[ "$RELEASE_EVENT" == "workflow_dispatch" ]]; then
             tag="$INPUT_TAG"
+            requested_channel="${INPUT_CHANNEL:-auto}"
           else
             tag="$PUSH_TAG"
+            requested_channel="auto"
           fi
 
-          if [[ "$tag" != v* ]]; then
-            echo "Release tag must start with v: $tag" >&2
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "Release tag must be v<SemVer>, for example v0.1.1-dev.1: $tag" >&2
+            exit 1
+          fi
+          if [[ "$requested_channel" != "auto" && "$requested_channel" != "development" && "$requested_channel" != "stable" ]]; then
+            echo "Unsupported release channel: $requested_channel" >&2
             exit 1
           fi
 
           version="${tag#v}"
           npm run version:check -- "$version"
+          if [[ "$version" == *-* ]]; then
+            prerelease=true
+            detected_channel=development
+          else
+            prerelease=false
+            detected_channel=stable
+          fi
+          if [[ "$requested_channel" != "auto" && "$requested_channel" != "$detected_channel" ]]; then
+            echo "Tag $tag belongs to $detected_channel, not requested channel $requested_channel" >&2
+            exit 1
+          fi
+
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "channel=$detected_channel" >> "$GITHUB_OUTPUT"
+          echo "Validated $tag as $detected_channel release"
 
   build:
     name: Build ${{ matrix.platform }} (${{ matrix.arch }})
@@ -177,13 +210,29 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
           VERSION: ${{ needs.prepare.outputs.version }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+          CHANNEL: ${{ needs.prepare.outputs.channel }}
         run: |
+          if [[ "$PRERELEASE" == "true" ]]; then
+            title="Deeptop $VERSION (Development)"
+            release_flags=(--prerelease)
+          else
+            title="Deeptop $VERSION"
+            release_flags=()
+          fi
+
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$title" \
+              --prerelease="$PRERELEASE"
           else
             gh release create "$TAG" release-assets/* \
               --repo "$GITHUB_REPOSITORY" \
-              --title "Deeptop $VERSION" \
+              --title "$title" \
               --generate-notes \
-              --verify-tag
+              --verify-tag \
+              "${release_flags[@]}"
           fi
+          echo "Published $CHANNEL release $TAG"

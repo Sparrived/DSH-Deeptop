@@ -3,7 +3,7 @@
 本项目使用 GitHub Actions 完成持续集成、跨平台桌面构建和 GitHub Release。工作流文件位于：
 
 - `.github/workflows/ci.yml`：Pull Request、`main`/`master` 推送和手动触发时运行质量检查；
-- `.github/workflows/release.yml`：SemVer Tag 或手动触发时构建并发布安装包。
+- `.github/workflows/release.yml`：稳定版或开发版 SemVer Tag、以及手动触发时构建并发布安装包。
 
 ## CI 流程
 
@@ -53,16 +53,33 @@ npm test
 
 ### Tag 触发
 
-将同步版本提交到默认分支后，创建并推送 Tag：
+将同步版本提交到默认分支后，创建并推送稳定版 Tag：
 
 ```powershell
+npm run version:set -- 0.2.0
+npm run version:check
 git add package.json package-lock.json deeptop-bridge/package.json src-tauri scripts .github docs README.md README.zh.md
 git commit -m "chore: prepare release v0.2.0"
 git tag v0.2.0
 git push origin main --follow-tags
 ```
 
-`v*.*.*` Tag 会触发 `.github/workflows/release.yml`。工作流会：
+开发版使用带 prerelease 标识的版本号。版本清单必须先同步到完整版本，再创建 Tag：
+
+```powershell
+npm run version:set -- 0.1.1-dev.1
+npm run version:check
+npm run build
+npm test
+git add package.json package-lock.json deeptop-bridge/package.json src-tauri scripts .github docs README.md README.zh.md
+git commit -m "chore: prepare development release v0.1.1-dev.1"
+git tag v0.1.1-dev.1
+git push origin master --follow-tags
+```
+
+`vMAJOR.MINOR.PATCH` Tag 会创建稳定 Release；`vMAJOR.MINOR.PATCH-identifier` Tag 会创建标记为 **Pre-release** 的开发版 Release。开发版不会被 GitHub 标记为 Latest。
+
+工作流会：
 
 1. 从 Tag 检出完全一致的源码；
 2. 验证 Tag 是 `v` 开头的 SemVer，并与所有应用清单一致；
@@ -74,11 +91,14 @@ git push origin main --follow-tags
 4. 对 Tauri 输出进行稳定命名；
 5. 先上传 GitHub Actions 制品（保留 14 天）；
 6. 汇总所有平台资产，生成 `SHA256SUMS`；
-7. 创建 GitHub Release 并生成 GitHub release notes。若同一 Tag 的 Release 已存在，重跑时会覆盖同名资产而不是创建重复 Release。
+7. 根据 Tag 生成稳定版或 Development 标题；开发版自动传递 `--prerelease`，不会成为 Latest；
+8. 创建 GitHub Release 并生成 GitHub release notes。若同一 Tag 的 Release 已存在，重跑时会覆盖同名资产并同步 Release 的 prerelease 状态，不会创建重复 Release。
 
 ### 手动触发
 
-也可以在 GitHub Actions 页面手动运行 **Release**，输入已经存在的 Tag，例如 `v0.2.0`。手动运行仍会从该 Tag 构建，不会从当前分支构建，也不会自动改写版本或创建 Tag。
+也可以在 GitHub Actions 页面手动运行 **Release**，输入已经存在的 Tag，例如 `v0.2.0` 或 `v0.1.1-dev.1`，并选择 `auto`、`stable` 或 `development` 通道。`auto` 会根据 Tag 自动判断；显式通道与 Tag 类型不一致时工作流会失败。
+
+手动运行仍会从该 Tag 构建，不会从当前分支构建，也不会自动改写版本或创建 Tag。只有已经推送到远端的 Tag 才能通过 Release 的 `--verify-tag` 校验。
 
 ### GitHub 仓库设置
 
@@ -120,5 +140,6 @@ Release workflow 使用 `tauri build --ci --no-sign`，当前流程生成**未�
 - **找不到安装包**：查看对应矩阵任务的 Tauri 构建日志；`collect-release-assets.mjs` 只接受预期的 `nsis`、`msi`、`deb`、`appimage` 和 `dmg` 输出。
 - **Release 已存在**：重新运行工作流会使用 `gh release upload --clobber` 更新同名资产；不要同时启动同一个 Tag 的多个 Release 工作流。
 - **手动输入不合法 Tag**：工作流将输入作为环境变量传给 Bash，并要求 `v<SemVer>`；不会从分支最新提交或用户输入的任意字符串构建。
+- **开发版未显示为 Pre-release**：检查 Tag 是否包含 `-` prerelease 段，例如 `v0.1.1-dev.1`；稳定版本号不能强制选择 `development` 通道。
 - **macOS 打开受阻**：这是未签名/未公证包的预期行为，不是构建失败；完成 Apple 签名和公证后再用于正式分发。
 - **DSH 运行时问题**：Tauri 构建不会联网预下载 `@deepseek-ai/dsh@latest`，应用首次启动仍需要 npm registry 网络访问，且运行时继续遵循项目的 DSH Profile 约定。
