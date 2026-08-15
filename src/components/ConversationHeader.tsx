@@ -1,5 +1,5 @@
 import type { DshJob, DshPreset, DshSessionSummary } from "../lib/desktop";
-import { displayTitle, jobDuration, jobStatusLabel, presetDisplayName } from "../app/model";
+import { displayTitle, presetDisplayName } from "../app/model";
 
 type ConversationHeaderProps = {
   activeSession: DshSessionSummary | null | undefined;
@@ -8,7 +8,6 @@ type ConversationHeaderProps = {
   queueCount: number;
   activeJobs: DshJob[];
   jobsOpen: boolean;
-  jobNow: number;
   trajectoryOpen: boolean;
   onToggleJobs: () => void;
   onToggleTrajectory: () => void;
@@ -24,7 +23,6 @@ export function ConversationHeader({
   queueCount,
   activeJobs,
   jobsOpen,
-  jobNow,
   trajectoryOpen,
   onToggleJobs,
   onToggleTrajectory,
@@ -42,20 +40,7 @@ export function ConversationHeader({
       </div>
       <div className="conversation-actions">
         {queueCount > 0 && <span className="queue-count">排队 {queueCount}</span>}
-        {activeJobs.length > 0 && <div className="jobs-control">
-          <button className={`header-action jobs-button${jobsOpen ? " selected" : ""}`} onClick={onToggleJobs} aria-expanded={jobsOpen} aria-haspopup="dialog" title="查看当前会话任务">任务 <span>{activeJobs.filter((job) => job.status === "running" || job.status === "stopping").length || activeJobs.length}</span></button>
-          {jobsOpen && <div className="jobs-popover" role="dialog" aria-label="当前会话任务">
-            <div className="jobs-popover-heading"><strong>任务</strong><span>{activeJobs.length} 项</span></div>
-            {[...activeJobs].sort((left, right) => {
-              const leftLive = left.status === "running" || left.status === "stopping";
-              const rightLive = right.status === "running" || right.status === "stopping";
-              return Number(rightLive) - Number(leftLive) || (right.finishedAt ?? right.startedAt) - (left.finishedAt ?? left.startedAt);
-            }).map((job) => <div className={`job-row ${job.status}`} key={job.id}>
-              <span className="job-status-dot" />
-              <div><strong>{job.label || job.kind}</strong><small>{jobStatusLabel(job.status)} · {jobDuration(job, jobNow)}</small>{job.detail && <p>{job.detail}</p>}</div>
-            </div>)}
-          </div>}
-        </div>}
+        {activeJobs.length > 0 && <button className={`header-action jobs-button${jobsOpen ? " selected" : ""}`} onClick={onToggleJobs} aria-expanded={jobsOpen} aria-controls="task-panel-content" title={jobsOpen ? "收起右侧任务" : "展开右侧任务"}>任务 <span>{activeJobs.filter((job) => job.status === "running" || job.status === "stopping").length || activeJobs.length}</span></button>}
         {activeSession && <button className={`header-action trajectory-toggle${trajectoryOpen ? " selected" : ""}`} onClick={onToggleTrajectory} title="查看当前会话轨迹" aria-pressed={trajectoryOpen}>轨迹</button>}
         {activeSession && <button className="header-action" onClick={() => void onExport()} title="导出当前会话 JSON">导出</button>}
         {activeSession && <button className="header-action" onClick={() => void onExportZip()} title="导出当前会话 ZIP">ZIP</button>}

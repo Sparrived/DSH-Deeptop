@@ -14,7 +14,7 @@ import { SettingsPresetPanel } from "./components/SettingsPresetPanel";
 import { QueueDock } from "./components/QueueDock";
 import { SessionSidebar } from "./components/SessionSidebar";
 import { SubagentPanel } from "./components/SubagentPanel";
-import { TodoPanel } from "./components/TodoPanel";
+import { TaskPanel, TodoPanel } from "./components/TodoPanel";
 import { WindowChrome } from "./components/WindowChrome";
 import { PopupDialog } from "./components/PopupDialog";
 import { useProviderSettings } from "./app/useProviderSettings";
@@ -124,6 +124,9 @@ const demoStatus: DshStatus = {
   packageName: "@deepseek-ai/dsh@latest",
   runtimeAvailable: false,
   runtimeStarting: false,
+  installing: false,
+  nodeAvailable: false,
+  packageAvailable: false,
   message: "浏览器预览模式",
 };
 
@@ -157,7 +160,7 @@ function App() {
   const desktop = isTauri();
   applyFrontendVisualResetOnce();
   const [status, setStatus] = useState<DshStatus>(() => desktop
-    ? { ...demoStatus, runtimeStarting: true, message: "正在启动 DSH..." }
+    ? { ...demoStatus, runtimeStarting: true, message: "正在检查 DSH 安装..." }
     : demoStatus);
   const [sessions, setSessions] = useState<DshSessionSummary[]>([]);
   const [archivedSessionIds, setArchivedSessionIds] = useState<Set<string>>(new Set());
@@ -249,7 +252,7 @@ function App() {
   const [queueEditingId, setQueueEditingId] = useState<string | null>(null);
   const [queueEditingText, setQueueEditingText] = useState("");
   const [sessionJobs, setSessionJobs] = useState<Record<string, DshJob[]>>({});
-  const [jobsOpen, setJobsOpen] = useState(false);
+  const [jobsCollapsed, setJobsCollapsed] = useState(false);
   const [jobNow, setJobNow] = useState(() => Date.now());
   const [pendingApprovals, setPendingApprovals] = useState<Record<string, PendingApproval>>({});
   const [pendingQuestions, setPendingQuestions] = useState<Record<string, PendingQuestion>>({});
@@ -336,14 +339,14 @@ function App() {
   }, [activeSessionId]);
 
   useEffect(() => {
-    setJobsOpen(false);
+    setJobsCollapsed(false);
   }, [activeSessionId]);
 
   useEffect(() => {
-    if (!jobsOpen || !activeJobs.some((job) => job.status === "running" || job.status === "stopping")) return;
+    if (jobsCollapsed || !activeJobs.some((job) => job.status === "running" || job.status === "stopping")) return;
     const timer = window.setInterval(() => setJobNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [activeJobs, jobsOpen]);
+  }, [activeJobs, jobsCollapsed]);
 
   useEffect(() => {
     if (!modelMenuOpen) return;
@@ -2448,7 +2451,7 @@ function App() {
         onEditCommand={(command) => { if (desktop) document.execCommand(command); }}
       />
 
-      <div className={`workspace-layout ${todoVisible ? "todo-visible" : ""} ${todoVisible && todoCollapsed ? "todo-collapsed" : ""}`} style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
+      <div className={`workspace-layout ${todoVisible ? "todo-visible" : ""} ${todoVisible && todoCollapsed ? "todo-collapsed" : ""} ${activeJobs.length > 0 ? "tasks-visible" : ""} ${activeJobs.length > 0 && jobsCollapsed ? "tasks-collapsed" : ""}`} style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
         <SessionSidebar
           search={search}
           onSearchChange={setSearch}
@@ -2509,10 +2512,9 @@ function App() {
             runtimeDirectory={status.runtimeDirectory}
             queueCount={queue.length}
             activeJobs={activeJobs}
-            jobsOpen={jobsOpen}
-            jobNow={jobNow}
+            jobsOpen={activeJobs.length > 0 && !jobsCollapsed}
             trajectoryOpen={trajectoryOpen}
-            onToggleJobs={() => { setJobsOpen((open) => !open); setJobNow(Date.now()); }}
+            onToggleJobs={() => { setJobsCollapsed((collapsed) => !collapsed); setJobNow(Date.now()); }}
             onToggleTrajectory={() => setTrajectoryOpen((open) => !open)}
             onExport={exportSession}
             onExportZip={() => exportSessionZip()}
@@ -2556,7 +2558,10 @@ function App() {
               onOpenSessionPath={openSessionPath}
             />
 
-            {todoVisible && <TodoPanel todos={todos ?? []} collapsed={todoCollapsed} counts={todoCounts} onToggle={() => setTodoCollapsed((value) => !value)} />}
+
+             {activeJobs.length > 0 && <TaskPanel jobs={activeJobs} collapsed={jobsCollapsed} now={jobNow} onToggle={() => { setJobsCollapsed((collapsed) => !collapsed); setJobNow(Date.now()); }} />}
+
+              {todoVisible && <TodoPanel todos={todos ?? []} collapsed={todoCollapsed} counts={todoCounts} onToggle={() => setTodoCollapsed((value) => !value)} />}
 
             <SubagentPanel
               entries={childSubagents}

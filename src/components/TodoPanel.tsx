@@ -1,4 +1,5 @@
-import { todoStatusLabel, type TodoItem } from "../app/model";
+import { jobDuration, jobStatusLabel, todoStatusLabel, type TodoItem } from "../app/model";
+import type { DshJob } from "../lib/desktop";
 
 type TodoCounts = {
   completed: number;
@@ -12,6 +13,35 @@ type TodoPanelProps = {
   counts: TodoCounts;
   onToggle: () => void;
 };
+
+type TaskPanelProps = {
+  jobs: DshJob[];
+  collapsed: boolean;
+  now: number;
+  onToggle: () => void;
+};
+
+export function TaskPanel({ jobs, collapsed, now, onToggle }: TaskPanelProps) {
+  const liveCount = jobs.filter((job) => job.status === "running" || job.status === "stopping").length;
+  const orderedJobs = [...jobs].sort((left, right) => {
+    const leftLive = left.status === "running" || left.status === "stopping";
+    const rightLive = right.status === "running" || right.status === "stopping";
+    return Number(rightLive) - Number(leftLive) || (right.finishedAt ?? right.startedAt) - (left.finishedAt ?? left.startedAt);
+  });
+
+  return (
+    <aside className={`task-panel ${collapsed ? "collapsed" : ""}`} aria-label="当前会话任务" aria-live="polite">
+      <header className="task-panel-header">
+        <div className="task-panel-heading"><span className="task-panel-mark" aria-hidden="true">▦</span><div><span className="task-panel-kicker">当前会话</span><h2>任务</h2></div></div>
+        <div className="task-panel-header-actions">{!collapsed && <span className="task-panel-total">{liveCount || jobs.length}</span>}<button className="task-panel-toggle" type="button" onClick={onToggle} aria-controls="task-panel-content" aria-expanded={!collapsed} aria-label={collapsed ? "展开任务" : "收起任务"} title={collapsed ? "展开任务" : "收起任务"}><span aria-hidden="true">{collapsed ? "‹" : "›"}</span></button></div>
+      </header>
+      <div id="task-panel-content" className="task-panel-body" hidden={collapsed}>
+        <div className="task-panel-summary"><span className="live">{liveCount} 进行中</span><span>{jobs.length} 项任务</span></div>
+        <ol className="task-list">{orderedJobs.map((job) => <li className={`task-item ${job.status}`} key={job.id}><span className="task-item-status" aria-label={jobStatusLabel(job.status)} /><div className="task-item-copy"><strong>{job.label || job.kind}</strong><small>{jobStatusLabel(job.status)} · {jobDuration(job, now)}</small>{job.detail && <p>{job.detail}</p>}</div></li>)}</ol>
+      </div>
+    </aside>
+  );
+}
 
 export function TodoPanel({ todos, collapsed, counts, onToggle }: TodoPanelProps) {
   return (
