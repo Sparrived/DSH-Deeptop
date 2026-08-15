@@ -663,7 +663,7 @@ dependencies = [
 
 [[package]]
 name = "deeptop"
-version = "0.1.1-dev.1"
+version = "0.1.1-dev.2"
 dependencies = [
  "serde",
  "serde_json",
