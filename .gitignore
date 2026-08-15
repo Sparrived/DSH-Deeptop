@@ -1,5 +1,6 @@
 node_modules/
 dist/
+release-assets/
 src-tauri/target/
 src-tauri/target-desktop-build/
 src-tauri/gen/

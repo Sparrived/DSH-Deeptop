@@ -18,7 +18,11 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "test:bridge": "node --test deeptop-bridge/routes.test.mjs"
+    "test": "node --test deeptop-bridge/routes.test.mjs src/app/session-runtime-state.test.mjs src/app/message-retry.test.mjs",
+    "test:bridge": "node --test deeptop-bridge/routes.test.mjs",
+    "test:retry": "node --test src/app/message-retry.test.mjs",
+    "version:check": "node scripts/version.mjs check",
+    "version:set": "node scripts/version.mjs set"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
