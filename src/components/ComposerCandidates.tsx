@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type { ComposerCandidate, ComposerTrigger } from "../app/model";
 
 type ComposerCandidatesProps = {
@@ -9,6 +10,13 @@ type ComposerCandidatesProps = {
 };
 
 export function ComposerCandidates({ candidates, triggerKind, dismissed, activeIndex, onChoose }: ComposerCandidatesProps) {
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  useEffect(() => {
+    if (candidates.length === 0 || dismissed) return;
+    optionRefs.current[activeIndex]?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex, candidates.length, dismissed]);
+
   if (candidates.length === 0 || dismissed) return null;
 
   return (
@@ -16,12 +24,14 @@ export function ComposerCandidates({ candidates, triggerKind, dismissed, activeI
       <div className="composer-candidates-heading">{triggerKind === "skill" ? "Command / Skill" : "Subagent"}</div>
       {candidates.map((candidate, index) => (
         <button
+          ref={(element) => { optionRefs.current[index] = element; }}
           className={`composer-candidate${index === activeIndex ? " selected" : ""}`}
           id={`composer-candidate-${index}`}
           key={`${candidate.kind}-${candidate.id}`}
           type="button"
           role="option"
           aria-selected={index === activeIndex}
+          onMouseEnter={() => optionRefs.current[index]?.scrollIntoView({ block: "nearest" })}
           onMouseDown={(event) => {
             event.preventDefault();
             onChoose(candidate);
