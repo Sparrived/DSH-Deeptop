@@ -11,17 +11,19 @@ use std::{
         mpsc, Arc, Mutex,
     },
     thread,
-    time::Duration,
+    time::{Duration, UNIX_EPOCH},
 };
 
+use notify_rust::{Notification as DesktopNotification, NotificationResponse};
 use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
-use tauri_plugin_notification::NotificationExt;
 
 const DSH_PROFILE: &str = "desktop";
 const DSH_PACKAGE: &str = "@deepseek-ai/dsh@latest";
+const NODEJS_DOWNLOAD_URL: &str = "https://nodejs.org/en/download";
 const BRIDGE_TIMEOUT: Duration = Duration::from_secs(45);
+const DSH_INSTALL_TIMEOUT: Duration = Duration::from_secs(300);
 const BRIDGE_PACKAGE_JSON: &str = include_str!("../../deeptop-bridge/package.json");
 const BRIDGE_PATCH: &str = include_str!("../../deeptop-bridge/cordis.patch.yml");
 const BRIDGE_ENTRY: &str = include_str!("../../deeptop-bridge/index.mjs");
@@ -89,8 +91,17 @@ struct DshStatus {
     runtime_starting: bool,
     installing: bool,
     node_available: bool,
+    npm_available: bool,
     package_available: bool,
     message: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DshRuntimeLog {
+    phase: String,
+    stream: String,
+    text: String,
 }
 
 fn absolute_path(path: PathBuf) -> PathBuf {
@@ -265,6 +276,10 @@ fn npm_executable() -> Result<PathBuf, String> {
         .ok_or_else(|| "未找到 npm，请确认 Node.js 安装完整后重试".to_string())
 }
 
+fn npm_available() -> bool {
+    npm_command().is_ok()
+}
+
 fn node_command() -> Result<Command, String> {
     let mut command = Command::new(node_executable()?);
     command.env("NO_COLOR", "1");
@@ -316,8 +331,91 @@ fn dsh_runtime_package_directory(runtime_directory: &Path) -> PathBuf {
         .join("dsh")
 }
 
-fn dsh_entrypoint(runtime_directory: &Path) -> Result<PathBuf, String> {
-    let package_directory = dsh_runtime_package_directory(runtime_directory);
+fn dsh_package_directory_from_root(root: &Path) -> PathBuf {
+    root.join("node_modules").join("@deepseek-ai").join("dsh")
+}
+
+fn npm_global_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(prefix) =
+        env::var_os("NPM_CONFIG_PREFIX").or_else(|| env::var_os("npm_config_prefix"))
+    {
+        roots.push(PathBuf::from(prefix).join("node_modules"));
+    }
+    if let Some(npm) = executable_from_path(if cfg!(windows) { "npm.cmd" } else { "npm" }) {
+        if let Some(parent) = npm.parent() {
+            roots.push(parent.join("node_modules"));
+            if let Some(prefix) = parent.parent() {
+                roots.push(prefix.join("lib/node_modules"));
+            }
+        }
+    }
+    if let Some(app_data) = env::var_os("APPDATA") {
+        roots.push(PathBuf::from(app_data).join("npm").join("node_modules"));
+    }
+    if let Some(home) = env::var_os("HOME") {
+        roots.push(PathBuf::from(&home).join(".npm-global/lib/node_modules"));
+    }
+    roots.extend([
+        PathBuf::from("/usr/local/lib/node_modules"),
+        PathBuf::from("/usr/lib/node_modules"),
+    ]);
+    roots
+        .into_iter()
+        .filter(|root| root.is_dir())
+        .fold(Vec::new(), |mut unique, root| {
+            if !unique.iter().any(|item| item == &root) {
+                unique.push(root);
+            }
+            unique
+        })
+}
+
+fn npm_cache_root() -> Option<PathBuf> {
+    env::var_os("npm_config_cache")
+        .or_else(|| env::var_os("NPM_CONFIG_CACHE"))
+        .map(PathBuf::from)
+        .or_else(|| {
+            if cfg!(windows) {
+                env::var_os("LOCALAPPDATA").map(|path| PathBuf::from(path).join("npm-cache"))
+            } else {
+                env::var_os("HOME").map(|path| PathBuf::from(path).join(".npm"))
+            }
+        })
+}
+
+fn cached_dsh_package_directories() -> Vec<PathBuf> {
+    let Some(npx_root) = npm_cache_root().map(|root| root.join("_npx")) else {
+        return Vec::new();
+    };
+    let Ok(entries) = fs::read_dir(npx_root) else {
+        return Vec::new();
+    };
+    let mut candidates = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let path = entry.path();
+            if !path.is_dir() {
+                return None;
+            }
+            let modified = entry
+                .metadata()
+                .and_then(|metadata| metadata.modified())
+                .unwrap_or(UNIX_EPOCH);
+            let package_directory = dsh_package_directory_from_root(&path);
+            package_directory
+                .is_dir()
+                .then_some((modified, package_directory))
+        })
+        .collect::<Vec<_>>();
+    candidates.sort_by(|left, right| right.0.cmp(&left.0));
+    candidates
+        .into_iter()
+        .map(|(_, package_directory)| package_directory)
+        .collect()
+}
+
+fn dsh_entrypoint_from_package_directory(package_directory: &Path) -> Result<PathBuf, String> {
     let manifest_path = package_directory.join("package.json");
     let raw = fs::read_to_string(&manifest_path)
         .map_err(|_| "未检测到 DSH，正在准备安装...".to_string())?;
@@ -346,6 +444,23 @@ fn dsh_entrypoint(runtime_directory: &Path) -> Result<PathBuf, String> {
     Ok(entrypoint)
 }
 
+fn dsh_entrypoint(runtime_directory: &Path) -> Result<PathBuf, String> {
+    let mut package_directories = vec![dsh_runtime_package_directory(runtime_directory)];
+    package_directories.extend(
+        npm_global_roots()
+            .into_iter()
+            .map(|root| dsh_package_directory_from_root(&root)),
+    );
+    package_directories.extend(cached_dsh_package_directories());
+
+    for package_directory in package_directories {
+        if let Ok(entrypoint) = dsh_entrypoint_from_package_directory(&package_directory) {
+            return Ok(entrypoint);
+        }
+    }
+    Err("未检测到 DSH，正在准备安装...".to_string())
+}
+
 fn ensure_runtime_package_manifest(runtime_directory: &Path) -> Result<(), String> {
     write_if_missing(
         &runtime_directory.join("package.json"),
@@ -355,12 +470,18 @@ fn ensure_runtime_package_manifest(runtime_directory: &Path) -> Result<(), Strin
 
 fn install_dsh(
     manager: &BridgeManager,
+    app: &AppHandle,
     generation: u64,
     runtime_directory: &Path,
 ) -> Result<(), String> {
     ensure_runtime_package_manifest(runtime_directory)?;
     let prefix = runtime_directory.to_string_lossy().into_owned();
     let mut command = npm_command()?;
+    let command_label = format!(
+        "npm install --prefix {} --no-audit --no-fund --no-update-notifier --force {}",
+        prefix, DSH_PACKAGE
+    );
+    manager.emit_runtime_log(app, generation, "install", "command", command_label);
     command
         .args([
             "install",
@@ -395,38 +516,105 @@ fn install_dsh(
         let _ = child.wait();
         return Err("DSH 安装已取消".to_string());
     }
-    let output = match child.wait_with_output() {
-        Ok(output) => output,
-        Err(error) => {
-            if let Ok(mut state) = manager.state.lock() {
-                if state.generation == generation {
-                    state.install_pid = None;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "无法获取 DSH 安装标准输出".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "无法获取 DSH 安装错误输出".to_string())?;
+    let (line_sender, line_receiver) = mpsc::channel::<(String, String)>();
+    let stdout_sender = line_sender.clone();
+    thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().flatten() {
+            let _ = stdout_sender.send(("stdout".to_string(), line));
+        }
+    });
+    let stderr_sender = line_sender.clone();
+    thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().flatten() {
+            let _ = stderr_sender.send(("stderr".to_string(), line));
+        }
+    });
+    drop(line_sender);
+    let (exit_sender, exit_receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let _ = exit_sender.send(child.wait());
+    });
+    let deadline = std::time::Instant::now() + DSH_INSTALL_TIMEOUT;
+    let mut stderr_lines = Vec::new();
+    let status = loop {
+        while let Ok((stream, line)) = line_receiver.try_recv() {
+            if stream == "stderr" && !line.trim().is_empty() {
+                stderr_lines.push(line.clone());
+                if stderr_lines.len() > 12 {
+                    stderr_lines.remove(0);
                 }
             }
-            return Err(format!("等待 DSH 安装结束失败：{error}"));
+            manager.emit_runtime_log(app, generation, "install", &stream, line);
+        }
+        match exit_receiver.recv_timeout(Duration::from_millis(100)) {
+            Ok(Ok(status)) => {
+                while let Ok((stream, line)) = line_receiver.try_recv() {
+                    if stream == "stderr" && !line.trim().is_empty() {
+                        stderr_lines.push(line.clone());
+                    }
+                    manager.emit_runtime_log(app, generation, "install", &stream, line);
+                }
+                break status;
+            }
+            Ok(Err(error)) => {
+                if let Ok(mut state) = manager.state.lock() {
+                    if state.generation == generation {
+                        state.install_pid = None;
+                    }
+                }
+                return Err(format!("等待 DSH 安装结束失败：{error}"));
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) if std::time::Instant::now() >= deadline => {
+                terminate_process_tree(pid);
+                if let Ok(mut state) = manager.state.lock() {
+                    if state.generation == generation {
+                        state.install_pid = None;
+                    }
+                }
+                return Err("DSH 安装超时，请检查 npm registry 后重试。".to_string());
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if !manager.is_current(generation) {
+                    terminate_process_tree(pid);
+                    return Err("DSH 安装已取消".to_string());
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                return Err("DSH 安装进程已断开".to_string());
+            }
         }
     };
+    manager.emit_runtime_log(
+        app,
+        generation,
+        "install",
+        "diagnostic",
+        format!("npm 安装进程结束，退出码 {}", status.code().unwrap_or(-1)),
+    );
     if let Ok(mut state) = manager.state.lock() {
         if state.generation == generation {
             state.install_pid = None;
         }
     }
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let detail = stderr
-            .lines()
+    if !status.success() {
+        let detail = stderr_lines
+            .iter()
             .rev()
             .take(3)
-            .collect::<Vec<_>>()
-            .into_iter()
             .rev()
+            .cloned()
             .collect::<Vec<_>>()
             .join(" ");
         return Err(if detail.is_empty() {
-            format!(
-                "DSH 安装失败（退出码 {}）",
-                output.status.code().unwrap_or(-1)
-            )
+            format!("DSH 安装失败（退出码 {}）", status.code().unwrap_or(-1))
         } else {
             format!("DSH 安装失败：{detail}")
         });
@@ -499,6 +687,7 @@ impl BridgeManager {
             runtime_starting,
             installing,
             node_available: node_executable().is_ok(),
+            npm_available: npm_available(),
             package_available: dsh_entrypoint(&runtime_directory).is_ok(),
             message,
         }
@@ -573,6 +762,18 @@ impl BridgeManager {
             materialize_desktop_profile()?;
             let runtime_directory = desktop_runtime_directory()?;
             if dsh_entrypoint(&runtime_directory).is_err() {
+                if node_executable().is_err() {
+                    return Err(
+                        "未找到 Node.js，无法自动安装 DSH。请安装 Node.js（包含 npm）后重试。"
+                            .to_string(),
+                    );
+                }
+                if !npm_available() {
+                    return Err(
+                        "未找到 npm，无法自动安装 DSH。请安装 Node.js（包含 npm）后重试。"
+                            .to_string(),
+                    );
+                }
                 let changed = self
                     .state
                     .lock()
@@ -588,7 +789,7 @@ impl BridgeManager {
                 if changed {
                     self.emit_status(&app);
                 }
-                install_dsh(self, generation, &runtime_directory)?;
+                install_dsh(self, &app, generation, &runtime_directory)?;
             }
             if !self.is_current(generation) {
                 return Err("DSH 启动已取消".to_string());
@@ -628,6 +829,8 @@ impl BridgeManager {
         let result = (|| -> Result<_, String> {
             let runtime_directory = desktop_runtime_directory()?;
             let mut command = node_command()?;
+            let command_label = format!("node {} --profile {}", entrypoint.display(), DSH_PROFILE);
+            self.emit_runtime_log(&app, generation, "start", "command", command_label);
             command
                 .arg(entrypoint)
                 .args(["--profile", DSH_PROFILE])
@@ -702,13 +905,19 @@ impl BridgeManager {
         thread::spawn(move || {
             for line in BufReader::new(stderr).lines() {
                 match line {
-                    Ok(line) if !line.trim().is_empty() => {
-                        stderr_manager.emit_diagnostic(&stderr_app, generation, line)
-                    }
-                    Ok(_) => {}
-                    Err(error) => stderr_manager.emit_diagnostic(
+                    Ok(line) if !line.trim().is_empty() => stderr_manager.emit_runtime_log(
                         &stderr_app,
                         generation,
+                        "runtime",
+                        "stderr",
+                        line,
+                    ),
+                    Ok(_) => {}
+                    Err(error) => stderr_manager.emit_runtime_log(
+                        &stderr_app,
+                        generation,
+                        "runtime",
+                        "stderr",
                         format!("读取 DSH 错误输出失败：{error}"),
                     ),
                 }
@@ -748,17 +957,40 @@ impl BridgeManager {
             .unwrap_or(false)
     }
 
-    fn emit_diagnostic(&self, app: &AppHandle, generation: u64, message: String) {
-        if self.is_current(generation) {
-            let _ = app.emit("dsh-diagnostic", message);
+    fn emit_runtime_log(
+        &self,
+        app: &AppHandle,
+        generation: u64,
+        phase: &str,
+        stream: &str,
+        text: impl Into<String>,
+    ) {
+        if !self.is_current(generation) {
+            return;
+        }
+        let text = text.into();
+        let _ = app.emit(
+            "dsh-runtime-log",
+            DshRuntimeLog {
+                phase: phase.to_string(),
+                stream: stream.to_string(),
+                text: text.clone(),
+            },
+        );
+        if stream == "diagnostic" || stream == "stderr" {
+            let _ = app.emit("dsh-diagnostic", text);
         }
     }
 
+    fn emit_diagnostic(&self, app: &AppHandle, generation: u64, message: String) {
+        self.emit_runtime_log(app, generation, "runtime", "diagnostic", message);
+    }
+
     fn handle_stdout(&self, app: &AppHandle, generation: u64, line: String) {
+        self.emit_runtime_log(app, generation, "runtime", "stdout", line.clone());
         let frame: Value = match serde_json::from_str(&line) {
             Ok(frame) => frame,
             Err(_) => {
-                self.emit_diagnostic(app, generation, line);
                 return;
             }
         };
@@ -950,14 +1182,67 @@ fn refresh_dsh(app: AppHandle, runtime: State<'_, BridgeManager>) -> DshStatus {
     runtime.status()
 }
 
+fn focus_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
 #[tauri::command]
-fn send_system_notification(app: AppHandle, title: String, body: String) -> Result<(), String> {
-    app.notification()
-        .builder()
-        .title(title)
-        .body(body)
+fn open_nodejs_download() -> Result<(), String> {
+    let mut command = if cfg!(windows) {
+        let mut command = Command::new("cmd");
+        command.args(["/C", "start", "", NODEJS_DOWNLOAD_URL]);
+        command
+    } else if cfg!(target_os = "macos") {
+        let mut command = Command::new("open");
+        command.arg(NODEJS_DOWNLOAD_URL);
+        command
+    } else {
+        let mut command = Command::new("xdg-open");
+        command.arg(NODEJS_DOWNLOAD_URL);
+        command
+    };
+    #[cfg(windows)]
+    configure_hidden_process(&mut command);
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("无法打开 Node.js 下载页面：{error}"))
+}
+
+#[tauri::command]
+fn send_system_notification(
+    app: AppHandle,
+    title: String,
+    body: String,
+    session_id: Option<String>,
+) -> Result<(), String> {
+    let mut notification = DesktopNotification::new();
+    notification.summary(&title).body(&body).auto_icon();
+    #[cfg(windows)]
+    if !tauri::is_dev() {
+        notification.app_id("com.deeptop.desktop");
+    }
+    let handle = notification
         .show()
-        .map_err(|error| format!("无法发送系统通知：{error}"))
+        .map_err(|error| format!("无法发送系统通知：{error}"))?;
+    if let Some(session_id) = session_id.filter(|value| !value.trim().is_empty()) {
+        thread::spawn(move || {
+            let _ = handle.wait_for_response(move |response: &NotificationResponse| {
+                if matches!(
+                    response,
+                    NotificationResponse::Default | NotificationResponse::Action(_)
+                ) {
+                    focus_main_window(&app);
+                    let _ = app.emit("notification-click", json!({ "sessionId": session_id }));
+                }
+            });
+        });
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -971,7 +1256,12 @@ fn bridge_request(
 
 fn main() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_notification::init())
+        // This plugin must be registered first so a second launch is forwarded
+        // before any runtime or window setup can create another instance.
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            focus_main_window(app);
+            let _ = app.emit("single-instance", json!({ "args": args, "cwd": cwd }));
+        }))
         .manage(BridgeManager::default())
         .setup(|app| {
             let runtime = app.state::<BridgeManager>().inner().clone();
@@ -981,6 +1271,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             check_dsh,
             refresh_dsh,
+            open_nodejs_download,
             send_system_notification,
             bridge_request,
         ])

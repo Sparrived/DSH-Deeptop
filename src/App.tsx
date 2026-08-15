@@ -25,7 +25,11 @@ import {
   checkDsh,
   isTauri,
   listenToDiagnostic,
+  listenToNotificationClick,
+  listenToRuntimeLog,
   listenToRuntimeStatus,
+  listenToSingleInstance,
+  openNodejsDownload,
   pickWorkspace,
   refreshDsh,
   type DshBridgeEvent,
@@ -52,6 +56,7 @@ import {
   type DshSessionModels,
   type DshSessionSummary,
   type DshStatus,
+  type DshRuntimeLog,
   type DshSubagentAddress,
   type DshSubagentCatalog,
   type DshWorkspace,
@@ -126,6 +131,7 @@ const demoStatus: DshStatus = {
   runtimeStarting: false,
   installing: false,
   nodeAvailable: false,
+  npmAvailable: false,
   packageAvailable: false,
   message: "浏览器预览模式",
 };
@@ -180,6 +186,7 @@ function App() {
   const [promptMode, setPromptMode] = useState<PromptMode>("queue");
   const [sendShortcut, setSendShortcut] = useState(readSendShortcut);
   const [notice, setNotice] = useState("准备连接 DSH");
+  const [startupLogs, setStartupLogs] = useState<DshRuntimeLog[]>([]);
   const [loading, setLoading] = useState(false);
   const [retryingMessageSeq, setRetryingMessageSeq] = useState<number | null>(null);
   const [search, setSearch] = useState("");
@@ -269,6 +276,9 @@ function App() {
   const historyLoadingOlderRef = useRef(false);
   const [transcriptFollowing, setTranscriptFollowing] = useState(true);
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
+  const sessionsRef = useRef<DshSessionSummary[]>(sessions);
+  sessionsRef.current = sessions;
+  const openSessionRef = useRef<(session: DshSessionSummary) => void>(() => undefined);
   const activeSessionRef = useRef<string | null>(null);
   const contextProjectionRef = useRef(false);
   const workspaceSelectionInitializedRef = useRef(false);
@@ -1101,6 +1111,8 @@ function App() {
     }
   }
 
+  openSessionRef.current = (session) => { void openSession(session); };
+
   async function refreshSessionStats(sessionId = activeSessionRef.current) {
     if (!desktop || !sessionId) return;
     try {
@@ -1159,6 +1171,7 @@ function App() {
       return;
     }
     try {
+      setStartupLogs([]);
       const nextStatus = await checkDsh();
       setStatus(nextStatus);
       setNotice(nextStatus.message);
@@ -1222,6 +1235,26 @@ function App() {
     void listenToDiagnostic((message) => {
       setNotice(message);
       setStatus((current) => current.runtimeAvailable ? current : { ...current, message });
+    }).then((unlisten) => { cleanups.push(unlisten); });
+    void listenToRuntimeLog((log) => {
+      setStartupLogs((current) => [...current, log].slice(-160));
+    }).then((unlisten) => { cleanups.push(unlisten); });
+    void listenToNotificationClick((sessionId) => {
+      void (async () => {
+        let session = sessionsRef.current.find((item) => item.sessionId === sessionId);
+        if (!session) {
+          const loaded = await loadSessions(false);
+          session = loaded?.find((item) => item.sessionId === sessionId);
+        }
+        if (session) {
+          openSessionRef.current(session);
+        } else {
+          setNotice("通知对应的会话已不存在");
+        }
+      })().catch((error) => setNotice(errorText(error)));
+    }).then((unlisten) => { cleanups.push(unlisten); });
+    void listenToSingleInstance(() => {
+      setNotice("已切换到正在运行的 Deeptop");
     }).then((unlisten) => { cleanups.push(unlisten); });
     void desktopClientRuntime.remote.on("commands/change", () => { void loadCommands(); }).then((unlisten) => { cleanups.push(unlisten); });
     void desktopClientRuntime.start(routedBridgeEvent).then((unlisten) => { cleanups.push(unlisten); });
@@ -1855,6 +1888,7 @@ function App() {
 
   async function restartRuntime() {
     if (!desktop) return;
+    setStartupLogs([]);
     setNotice("正在重新启动 DSH");
     try {
       const nextStatus = await refreshDsh();
@@ -2425,6 +2459,8 @@ function App() {
     return (
       <StartupSplash
         status={status}
+        logs={startupLogs}
+        onOpenNodejsDownload={() => void openNodejsDownload().catch((error) => setNotice(errorText(error)))}
         onRetry={() => void restartRuntime()}
         windowMaximized={windowMaximized}
         onDrag={(event) => void startWindowDrag(event)}

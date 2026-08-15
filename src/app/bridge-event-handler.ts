@@ -263,7 +263,7 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
         reason: typeof payload.reason === "string" ? payload.reason : undefined,
       },
     }));
-    void sendSystemNotification("需要审批", `会话 ${sessionId.slice(-8)} 请求允许执行 ${toolName}`);
+    void sendSystemNotification("需要审批", `会话 ${sessionId.slice(-8)} 请求允许执行 ${toolName}`, sessionId);
     return;
   }
   if (type === "approval/resolved") {
@@ -290,7 +290,7 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
     }));
     setQuestionAnswersBySession((current) => ({ ...current, [sessionId]: {} }));
     setQuestionCustomAnswersBySession((current) => ({ ...current, [sessionId]: {} }));
-    void sendSystemNotification("需要回答问题", `会话 ${sessionId.slice(-8)} 有 ${questions.length} 个问题待处理`);
+    void sendSystemNotification("需要回答问题", `会话 ${sessionId.slice(-8)} 有 ${questions.length} 个问题待处理`, sessionId);
     return;
   }
   if (type === "question/resolved") {

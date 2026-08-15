@@ -94,8 +94,8 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 2. 创建 `$DSH_HOME/profiles/desktop`，写入或补齐 desktop Profile 清单。
 3. 将内置 `deeptop-bridge` 写入 `$DSH_HOME/profiles/node_modules/deeptop-bridge`，因此无需全局安装该 Bridge。
 4. 保留用户已有的 desktop Profile Bundle 和 `$DSH_HOME/profiles/desktop/cordis.patch.yml` 修改。
-5. 使用 `$DSH_HOME/desktop-runtime` 作为 DSH 默认当前目录，并检查其中的 `@deepseek-ai/dsh` 命令入口。
-6. 如果 DSH 未安装或安装不完整，应用会通过本机 npm 将 `@deepseek-ai/dsh@latest` 安装到 `$DSH_HOME/desktop-runtime`，随后重新校验包入口；安装过程不会使用交互式提示。
+5. 优先检查 `$DSH_HOME/desktop-runtime`、npm 全局目录和 npx 缓存中的 `@deepseek-ai/dsh` 命令入口。
+6. 如果已有入口可用，直接复用已有 DSH，不会重复安装；只有所有位置都缺失或损坏时，才会通过本机 npm 安装到 `$DSH_HOME/desktop-runtime`。
 7. 使用本机 Node.js 启动已校验的 DSH 命令入口，并等待 Bridge 返回 `deeptop/1` 的 `ready` 帧。
 
 选定工作区后，桌面端会将其作为 `session.create({ cwd })` 的工作目录传给 DSH；它不会把桌面项目目录隐式当成所有会话的工作区。Storage、Session Persistence 和 Profile 数据仍由 DSH 按自身配置管理。
@@ -216,7 +216,7 @@ Deeptop 的目标是“功能和契约兼容，界面和生命周期原生化”
 
 ### 找不到 Node.js 或 npm
 
-确认 Node.js 已安装，并且启动 Deeptop 的进程继承了包含 Node.js 与 npm 的 `PATH`。应用会直接从 `PATH` 定位 Node/npm；缺少它们时无法自动安装 DSH。
+如果缺少 npm，Deeptop 会快速失败并显示可重试的提示，不会一直卡在安装中。请确认 Node.js（包含 npm）已安装，并且启动 Deeptop 的进程继承了正确的 `PATH`；缺少 npm 时无法自动安装 DSH。
 
 ### DSH 启动失败或停留在“正在启动”
 

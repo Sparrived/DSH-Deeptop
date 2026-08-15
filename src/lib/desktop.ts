@@ -11,8 +11,17 @@ export interface DshStatus {
   runtimeStarting: boolean;
   installing: boolean;
   nodeAvailable: boolean;
+  npmAvailable: boolean;
   packageAvailable: boolean;
   message: string;
+}
+
+export type DshRuntimeLogStream = "command" | "stdout" | "stderr" | "diagnostic";
+
+export interface DshRuntimeLog {
+  phase: string;
+  stream: DshRuntimeLogStream;
+  text: string;
 }
 
 export interface DshRpcError {
@@ -340,13 +349,24 @@ export interface DshJob {
 export const isTauri = (): boolean =>
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-export async function sendSystemNotification(title: string, body: string) {
+export async function sendSystemNotification(title: string, body: string, sessionId?: string) {
   if (!isTauri()) return;
   try {
-    await invoke("send_system_notification", { title, body });
+    await invoke("send_system_notification", { title, body, sessionId });
   } catch {
     // System notifications must not interrupt the approval/question flow.
   }
+}
+
+export async function listenToNotificationClick(handler: (sessionId: string) => void): Promise<UnlistenFn> {
+  return listen<{ sessionId?: unknown }>("notification-click", (event) => {
+    const sessionId = event.payload?.sessionId;
+    if (typeof sessionId === "string" && sessionId.trim()) handler(sessionId);
+  });
+}
+
+export async function listenToSingleInstance(handler: () => void): Promise<UnlistenFn> {
+  return listen("single-instance", () => handler());
 }
 
 export class DshApiError extends Error {
@@ -387,6 +407,14 @@ export async function refreshDsh(): Promise<DshStatus> {
   return invoke<DshStatus>("refresh_dsh");
 }
 
+export async function openNodejsDownload(): Promise<void> {
+  if (!isTauri()) {
+    window.open("https://nodejs.org/en/download", "_blank", "noopener,noreferrer");
+    return;
+  }
+  await invoke("open_nodejs_download");
+}
+
 export async function listenToBridgeEvent(handler: (event: DshBridgeEvent) => void): Promise<UnlistenFn> {
   return listen<DshBridgeEvent>("deeptop-bridge-event", (event) => handler(event.payload));
 }
@@ -397,4 +425,8 @@ export async function listenToRuntimeStatus(handler: (status: DshStatus) => void
 
 export async function listenToDiagnostic(handler: (message: string) => void): Promise<UnlistenFn> {
   return listen<string>("dsh-diagnostic", (event) => handler(event.payload));
+}
+
+export async function listenToRuntimeLog(handler: (log: DshRuntimeLog) => void): Promise<UnlistenFn> {
+  return listen<DshRuntimeLog>("dsh-runtime-log", (event) => handler(event.payload));
 }

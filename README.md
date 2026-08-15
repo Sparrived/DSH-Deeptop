@@ -86,8 +86,8 @@ On startup Deeptop:
 1. creates or completes `$DSH_HOME/profiles/desktop`;
 2. preserves user desktop Profile bundles and `cordis.patch.yml` edits;
 3. materializes the embedded Bridge at `$DSH_HOME/profiles/node_modules/deeptop-bridge`;
-4. uses `$DSH_HOME/desktop-runtime` as DSH's default current directory and checks the installed `@deepseek-ai/dsh` entrypoint;
-5. installs `@deepseek-ai/dsh@latest` into `$DSH_HOME/desktop-runtime` through the local npm when the package is missing or incomplete, with non-interactive install flags;
+4. checks `@deepseek-ai/dsh` entrypoints in `$DSH_HOME/desktop-runtime`, the npm global directory and the npx cache, in that order;
+5. reuses the first valid existing DSH installation without reinstalling; only when all candidates are missing or invalid does it install `@deepseek-ai/dsh@latest` into `$DSH_HOME/desktop-runtime` through the local npm;
 6. launches the validated DSH entrypoint through the local Node.js executable and waits for `deeptop/1` readiness.
 
 A selected workspace is passed to DSH as `session.create({ cwd })`, so the desktop project directory is not silently used as every session's working directory. DSH owns storage, persistence and Profile data according to its own configuration.
@@ -206,7 +206,7 @@ WEBUI_PARITY.md            WebUI alignment status and gaps
 
 ## Troubleshooting
 
-- **Node.js or npm is missing:** verify the Node.js installation and the `PATH` inherited by the process launching Deeptop. The launcher resolves Node/npm directly from `PATH` and cannot install DSH without them.
+- **Node.js or npm is missing:** Deeptop now fails fast with a retryable message instead of waiting for an installer. Verify the Node.js installation and the `PATH` inherited by the process launching Deeptop; automatic DSH installation requires npm.
 - **DSH does not become ready:** inspect the runtime panel and diagnostics; check npm access, a writable `DSH_HOME`, and valid JSON/YAML in the desktop Profile. Refreshing the runtime restarts the child process.
 - **No sessions in the browser preview:** expected; only `npm run tauri:dev` owns the Rust Bridge and DSH child.
 - **A Profile change has no effect:** edit `$DSH_HOME/profiles/desktop/cordis.patch.yml`, not the generated Bridge package, then refresh DSH.
