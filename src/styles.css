@@ -9627,6 +9627,16 @@ textarea:focus-visible {
 
 .tool-entry pre { width: 100%; }
 
+/* Call arguments should remain readable inside the split tool card. */
+.tool-entry pre.tool-call-arguments {
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 /* One readable diff surface for both the call-side preview and the result. */
 .diff-result {
   --diff-border: var(--line);

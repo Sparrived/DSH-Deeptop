@@ -286,7 +286,7 @@ export function ConversationTranscript({
                       <span className="tool-toggle" aria-hidden="true" />
                     </summary>
                     <div className="tool-parts">
-                      <section className="tool-part tool-call-part"><div className="tool-part-label"><span>调用参数</span><time>{formatClock(item.time)}</time></div><pre>{formatToolCall(item.text)}</pre>{item.toolDiff && <DiffResult diff={item.toolDiff} />}</section>
+                      <section className="tool-part tool-call-part"><div className="tool-part-label"><span>调用参数</span><time>{formatClock(item.time)}</time></div><pre className="tool-call-arguments">{formatToolCall(item.text)}</pre>{item.toolDiff && <DiffResult diff={item.toolDiff} />}</section>
                       {hasToolResult && <section className={`tool-part tool-result-part ${item.toolResultError ? "tool-result-error" : ""}`}><div className="tool-part-label"><span>执行结果</span><time>{formatClock(item.toolResultTime)}</time></div>{item.toolResultDiff && <DiffResult key={`${item.key}-diff-${item.toolResultTime ?? "result"}`} diff={item.toolResultDiff} />}{item.toolResultText !== undefined && <pre>{item.toolResultText}</pre>}</section>}
                     </div>
                   </details>
