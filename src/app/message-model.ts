@@ -1,5 +1,5 @@
 import type { DshHistoryEntry, DshJob, DshSessionEvent } from "../lib/desktop";
-import type { DiffHunk, DiffSummary, SessionStats, TranscriptImage, TranscriptItem } from "./model-types";
+import type { DiffHunk, DiffSummary, MessageStats, SessionStats, TranscriptImage, TranscriptItem } from "./model-types";
 
 export type ContentSegments = { text: string; reasoning: string; images: TranscriptImage[] };
 
@@ -71,13 +71,91 @@ export function imageSource(image: TranscriptImage) {
 }
 
 export function streamKey(event: DshSessionEvent) {
-  const turn = numberValue(event.data?.turn);
-  const step = numberValue(event.data?.step);
+  const coordinates = eventCoordinates(event);
+  const turn = coordinates?.turn;
+  const step = coordinates?.step;
   return `${turn ?? "?"}/${step ?? "?"}`;
+}
+
+function eventCoordinates(event: DshSessionEvent) {
+  const message = recordValue(event.data?.message);
+  const turn = numberValue(event.data?.turn) ?? numberValue(message?.turn);
+  const step = numberValue(event.data?.step) ?? numberValue(message?.step);
+  return turn === undefined || step === undefined ? undefined : { turn, step };
 }
 
 export function numberValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function mergeRecords(left: Record<string, unknown> | undefined, right: Record<string, unknown> | undefined) {
+  return left || right ? { ...left, ...right } : undefined;
+}
+
+function eventUsage(event: DshSessionEvent) {
+  const message = recordValue(event.data?.message);
+  const chunk = recordValue(event.data?.chunk);
+  return recordValue(event.data?.usage)
+    ?? recordValue(event.data?.tokenUsage)
+    ?? recordValue(chunk?.usage)
+    ?? recordValue(message?.usage);
+}
+
+function hasTokenDelta(event: DshSessionEvent) {
+  if (event.type !== "assistant/chunk") return false;
+  const chunk = recordValue(event.data?.chunk);
+  if (!chunk) return false;
+  if (chunk.type === "text-delta" || chunk.type === "reasoning-delta") return typeof chunk.text === "string" && chunk.text !== "";
+  return chunk.type === "tool-call-delta"
+    && ((typeof chunk.argumentsDelta === "string" && chunk.argumentsDelta !== "") || chunk.name !== undefined);
+}
+
+function usageStats(usage: Record<string, unknown> | undefined): MessageStats {
+  if (!usage) return {};
+  const uncachedInput = numberValue(usage.uncachedInputTokens ?? usage.uncached_input_tokens);
+  const cacheRead = numberValue(usage.cacheReadTokens ?? usage.cacheRead ?? usage.cache_read ?? usage.cachedInputTokens ?? usage.cached_input_tokens);
+  const cacheWrite = numberValue(usage.cacheWriteTokens ?? usage.cacheWrite ?? usage.cache_write ?? usage.cachedInputTokensCreation ?? usage.cached_input_tokens_creation);
+  const rawInput = numberValue(usage.inputTokens ?? usage.input_tokens);
+  const hasCacheBuckets = uncachedInput !== undefined || cacheRead !== undefined || cacheWrite !== undefined;
+  const input = rawInput === undefined
+    ? (uncachedInput === undefined ? undefined : uncachedInput + (cacheRead ?? 0) + (cacheWrite ?? 0))
+    : rawInput + (hasCacheBuckets ? (cacheRead ?? 0) + (cacheWrite ?? 0) : 0);
+  const output = numberValue(usage.outputTokens ?? usage.output_tokens);
+  const total = numberValue(usage.totalTokens ?? usage.total_tokens) ?? (input === undefined || output === undefined ? undefined : input + output);
+  return {
+    ...(input === undefined ? {} : { inputTokens: input }),
+    ...(output === undefined ? {} : { outputTokens: output }),
+    ...(total === undefined ? {} : { totalTokens: total }),
+    ...(hasCacheBuckets && input !== undefined && input > 0 ? { cacheHitRate: ((cacheRead ?? 0) / input) * 100 } : {}),
+  };
+}
+
+export function assistantMessageStats(entries: DshHistoryEntry[]): Map<number, MessageStats> {
+  const steps = new Map<string, { stepStartTime?: number; firstTokenTime?: number; usage?: Record<string, unknown> }>();
+  const result = new Map<number, MessageStats>();
+  for (const { event } of [...entries].sort((left, right) => left.event.seq - right.event.seq)) {
+    const key = eventCoordinates(event);
+    const keyText = key ? `${key.turn}/${key.step}` : undefined;
+    if (!keyText) continue;
+    const state = steps.get(keyText) ?? {};
+    if (event.type === "step/start") state.stepStartTime = event.time;
+    if (hasTokenDelta(event) && state.firstTokenTime === undefined) state.firstTokenTime = event.time;
+    const usage = eventUsage(event);
+    if (usage) state.usage = mergeRecords(state.usage, usage);
+    steps.set(keyText, state);
+    if (event.type !== "assistant/message") continue;
+    const stats = usageStats(state.usage);
+    if (state.stepStartTime !== undefined) stats.runMs = Math.max(0, event.time - state.stepStartTime);
+    if (state.stepStartTime !== undefined && state.firstTokenTime !== undefined) {
+      stats.ttftMs = Math.max(0, state.firstTokenTime - state.stepStartTime);
+    }
+    if (state.firstTokenTime !== undefined && stats.outputTokens !== undefined) {
+      const decodeMs = Math.max(0, event.time - state.firstTokenTime);
+      if (decodeMs > 0) stats.tokensPerSecond = stats.outputTokens / (decodeMs / 1000);
+    }
+    if (Object.keys(stats).length > 0) result.set(event.seq, stats);
+  }
+  return result;
 }
 
 export function readSessionStats(entries: DshHistoryEntry[], projections?: { values: Record<string, unknown> }): SessionStats {
@@ -85,15 +163,17 @@ export function readSessionStats(entries: DshHistoryEntry[], projections?: { val
   const official = recordValue(values.sessionStats);
   const usage = recordValue(values.usage ?? values.tokenUsage ?? values.tokens);
   const pressure = recordValue(values.contextPressure);
-  const uncachedInput = numberValue(usage?.uncachedInputTokens);
+  const uncachedInput = numberValue(usage?.uncachedInputTokens ?? usage?.uncached_input_tokens);
   const cacheRead = numberValue(usage?.cacheReadTokens ?? usage?.cacheRead ?? usage?.cache_read ?? usage?.cachedInputTokens) ?? 0;
   const cacheWrite = numberValue(usage?.cacheWriteTokens ?? usage?.cacheWrite ?? usage?.cache_write) ?? 0;
   const projectedInput = numberValue(usage?.inputTokens ?? usage?.input_tokens);
   const billedInput = projectedInput ?? (uncachedInput === undefined ? undefined : uncachedInput + cacheRead + cacheWrite);
   let inputTokens = billedInput ?? numberValue(values.inputTokens ?? values.input_tokens) ?? 0;
   let outputTokens = numberValue(usage?.outputTokens ?? usage?.output_tokens ?? values.outputTokens ?? values.output_tokens) ?? 0;
-  const totalTokens = numberValue(usage?.totalTokens ?? usage?.total_tokens ?? values.totalTokens ?? values.total_tokens) ?? inputTokens + outputTokens;
-  let contextTokens = numberValue(pressure?.projectedTokens ?? pressure?.pressureTokens) ?? numberValue(values.contextTokens ?? values.context_tokens) ?? totalTokens;
+  const explicitTotalTokens = numberValue(usage?.totalTokens ?? usage?.total_tokens ?? values.totalTokens ?? values.total_tokens);
+  let totalTokens = explicitTotalTokens ?? inputTokens + outputTokens;
+  const explicitContextTokens = numberValue(pressure?.projectedTokens ?? pressure?.pressureTokens) ?? numberValue(values.contextTokens ?? values.context_tokens);
+  let contextTokens = explicitContextTokens ?? totalTokens;
   let contextLimit = numberValue(pressure?.contextWindow) ?? numberValue(values.contextLimit ?? values.context_limit) ?? 0;
   let firstTokenMs = numberValue(usage?.firstTokenMs ?? usage?.first_token_ms ?? usage?.ttft ?? values.firstTokenMs ?? values.first_token_ms ?? values.ttft) ?? 0;
   for (const { event } of entries) {
@@ -104,9 +184,9 @@ export function readSessionStats(entries: DshHistoryEntry[], projections?: { val
     const chunk = recordValue(event.data.chunk);
     const eventUsage = recordValue(event.data.usage ?? event.data.tokenUsage ?? chunk?.usage);
     if (eventUsage) {
-      const eventUncachedInput = numberValue(eventUsage.uncachedInputTokens);
-      const eventCacheRead = numberValue(eventUsage.cacheReadTokens ?? eventUsage.cacheRead ?? eventUsage.cache_read) ?? 0;
-      const eventCacheWrite = numberValue(eventUsage.cacheWriteTokens ?? eventUsage.cacheWrite ?? eventUsage.cache_write) ?? 0;
+      const eventUncachedInput = numberValue(eventUsage.uncachedInputTokens ?? eventUsage.uncached_input_tokens);
+      const eventCacheRead = numberValue(eventUsage.cacheReadTokens ?? eventUsage.cacheRead ?? eventUsage.cache_read ?? eventUsage.cachedInputTokens ?? eventUsage.cached_input_tokens) ?? 0;
+      const eventCacheWrite = numberValue(eventUsage.cacheWriteTokens ?? eventUsage.cacheWrite ?? eventUsage.cache_write ?? eventUsage.cachedInputTokensCreation ?? eventUsage.cached_input_tokens_creation) ?? 0;
       const eventInput = numberValue(eventUsage.inputTokens ?? eventUsage.input_tokens) ?? (eventUncachedInput === undefined ? undefined : eventUncachedInput + eventCacheRead + eventCacheWrite);
       const eventOutput = numberValue(eventUsage.outputTokens ?? eventUsage.output_tokens);
       const eventFirstToken = numberValue(eventUsage.firstTokenMs ?? eventUsage.first_token_ms ?? eventUsage.ttft);
@@ -115,10 +195,12 @@ export function readSessionStats(entries: DshHistoryEntry[], projections?: { val
       if (eventOutput !== undefined) outputTokens = Math.max(outputTokens, eventOutput);
     }
   }
+  if (explicitTotalTokens === undefined) totalTokens = inputTokens + outputTokens;
+  if (explicitContextTokens === undefined) contextTokens = totalTokens;
   return {
     inputTokens,
     outputTokens,
-    totalTokens: totalTokens || inputTokens + outputTokens,
+    totalTokens,
     contextTokens,
     contextLimit,
     cacheHitRate: cacheRead + cacheWrite > 0 ? Math.min(100, (cacheRead / (cacheRead + cacheWrite + (uncachedInput ?? 0))) * 100) : 0,

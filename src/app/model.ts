@@ -14,6 +14,7 @@ export type {
   DiscoveredModel,
   DshHostModelCatalog,
   GoalRef,
+  MessageStats,
   ModelMenuPane,
   PendingApproval,
   PendingQuestion,

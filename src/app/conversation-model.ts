@@ -1,6 +1,7 @@
 import type { DshHistoryEntry } from "../lib/desktop";
 import {
   assistantContent,
+  assistantMessageStats,
   contentSegments,
   contextForm,
   contextProvenance,
@@ -18,10 +19,22 @@ import {
 import { deliverablesFromHistory, workflowViewsFromHistory } from "./workflow-model";
 import type { TranscriptItem } from "./model-types";
 
+function turnEndText(reason: unknown, kind: string) {
+  if (kind !== "error") return kind;
+  const detail = recordValue(reason);
+  const error = detail?.error;
+  const failure = recordValue(error);
+  if (typeof failure?.message === "string" && failure.message.trim()) return failure.message;
+  if (typeof error === "string" && error.trim()) return error;
+  if (typeof detail?.message === "string" && detail.message.trim()) return detail.message;
+  return "回合执行失败";
+}
+
 export function transcriptFromHistory(entries: DshHistoryEntry[]): TranscriptItem[] {
   const items: TranscriptItem[] = [];
   const streams = new Map<string, { text: string; reasoning: string; seq: number; time: number }>();
   const orderedEntries = [...entries].sort((left, right) => left.event.seq - right.event.seq);
+  const messageStats = assistantMessageStats(orderedEntries);
   for (const entry of orderedEntries) {
     const event = entry.event;
     if ((event.type === "user/message" || event.type === "assistant/message" || event.type === "tool/result")
@@ -42,6 +55,7 @@ export function transcriptFromHistory(entries: DshHistoryEntry[]): TranscriptIte
     if (event.type === "user/message") {
       const segments = contentSegments(event.data.content);
       const text = segments.text;
+      const messageId = typeof event.data.id === "string" ? event.data.id : undefined;
       if (text || segments.images.length > 0) {
         const injected = isInjectedMessage(event);
         const source = injected ? messageSource(event) : undefined;
@@ -54,6 +68,7 @@ export function transcriptFromHistory(entries: DshHistoryEntry[]): TranscriptIte
           text,
           images: segments.images,
           seq: event.seq,
+          messageId,
           time: event.time,
           source: provenance?.label,
           contextRole: provenance?.role,
@@ -72,7 +87,7 @@ export function transcriptFromHistory(entries: DshHistoryEntry[]): TranscriptIte
       const reasoning = segments.reasoning || stream?.reasoning || "";
       const text = segments.text || stream?.text || "";
       if (reasoning) items.push({ key: `reasoning-${event.seq}`, kind: "reasoning", label: "Think", text: reasoning, seq: stream?.seq ?? event.seq, time: event.time });
-      if (text || segments.images.length > 0) items.push({ key: `event-${event.seq}`, kind: "assistant", label: "DSH", text, images: segments.images, seq: event.seq, messageId, time: event.time });
+      if (text || segments.images.length > 0) items.push({ key: `event-${event.seq}`, kind: "assistant", label: "DSH", text, images: segments.images, seq: event.seq, messageId, time: event.time, stats: messageStats.get(event.seq) });
       streams.delete(streamKey(event));
       continue;
     }
@@ -99,7 +114,7 @@ export function transcriptFromHistory(entries: DshHistoryEntry[]): TranscriptIte
         ? (reason as Record<string, unknown>).kind
         : undefined;
       if (reasonKind && reasonKind !== "completed") {
-        items.push({ key: `event-${event.seq}`, kind: "system", label: "回合结束", text: String(reasonKind), time: event.time });
+        items.push({ key: `event-${event.seq}`, kind: "system", label: "回合结束", text: turnEndText(reason, String(reasonKind)), seq: event.seq, time: event.time });
       }
       continue;
     }

@@ -115,8 +115,18 @@ export function producedPathsFromView(value: unknown) {
 
 export function deliverablesFromHistory(entries: DshHistoryEntry[]) {
   const callViews = new Map<string, unknown>();
+  const closingAssistantByTurn = new Map<string, { seq: number; time: number }>();
   const pathsByTurn = new Map<string, { seq: number; time: number; paths: string[] }>();
   for (const { event, view } of entries) {
+    if ((event.type === "assistant/message" || event.type === "tool/result")
+      && event.surfaceOp !== undefined && event.surfaceOp !== "append") continue;
+    const message = recordValue(event.data.message);
+    const turnValue = event.data.turn ?? message?.turn;
+    const turn = turnValue === undefined || turnValue === null ? undefined : String(turnValue);
+    if (event.type === "assistant/message" && turn !== undefined) {
+      const current = closingAssistantByTurn.get(turn);
+      if (!current || event.seq > current.seq) closingAssistantByTurn.set(turn, { seq: event.seq, time: event.time });
+    }
     const callId = eventToolCallId(event);
     if (event.type === "tool/call" && callId) {
       callViews.set(callId, view);
@@ -126,12 +136,19 @@ export function deliverablesFromHistory(entries: DshHistoryEntry[]) {
     const paths = diffSummaryFromHistoryEntry({ event, view })?.diffs.map((diff) => diff.path)
       ?? producedPathsFromView(callViews.get(callId));
     if (paths.length === 0) continue;
-    const turn = String(event.data.turn ?? recordValue(event.data.message)?.turn ?? event.seq);
-    const current = pathsByTurn.get(turn) ?? { seq: event.seq, time: event.time, paths: [] };
+    const turnKey = turn ?? String(event.seq);
+    const current = pathsByTurn.get(turnKey) ?? { seq: event.seq, time: event.time, paths: [] };
     current.seq = Math.max(current.seq, event.seq);
     current.time = event.time;
     for (const path of paths) if (!current.paths.includes(path)) current.paths.push(path);
-    pathsByTurn.set(turn, current);
+    pathsByTurn.set(turnKey, current);
+  }
+  for (const [turn, current] of pathsByTurn) {
+    const closingAssistant = closingAssistantByTurn.get(turn);
+    if (closingAssistant && closingAssistant.seq > current.seq) {
+      current.seq = closingAssistant.seq;
+      current.time = closingAssistant.time;
+    }
   }
   return [...pathsByTurn.values()];
 }

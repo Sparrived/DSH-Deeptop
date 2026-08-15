@@ -51,6 +51,7 @@ type BridgeEventHandlerContext = {
   setGoal: Dispatch<SetStateAction<DshGoalProjection | null | undefined>>;
   setNotice: (message: string) => void;
   loadSubagents: () => void | Promise<void>;
+  refreshSessionStats: (sessionId?: string) => void | Promise<void>;
   startNewSession: () => void;
 };
 
@@ -106,7 +107,12 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
             return {
               ...currentStats,
               ...nextStats,
+              inputTokens: nextStats.inputTokens > 0 ? nextStats.inputTokens : currentStats.inputTokens,
+              outputTokens: nextStats.outputTokens > 0 ? nextStats.outputTokens : currentStats.outputTokens,
+              totalTokens: nextStats.totalTokens > 0 ? nextStats.totalTokens : currentStats.totalTokens,
+              contextTokens: nextStats.contextTokens > 0 ? nextStats.contextTokens : currentStats.contextTokens,
               contextLimit: nextStats.contextLimit > 0 ? nextStats.contextLimit : currentStats.contextLimit,
+              messages: nextStats.messages > 0 ? nextStats.messages : currentStats.messages,
             };
           });
         }
@@ -130,30 +136,38 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
   if (type === "session/projection") {
     const sessionId = String(payload.sessionId ?? "");
     const key = String(payload.key ?? "");
-    if (sessionId === activeSessionRef.current && (key === "contextPressure" || key === "tokenUsage")) {
+    const projectionKey = key.replace(/[\s_-]+/g, "").toLocaleLowerCase();
+    if (sessionId === activeSessionRef.current && (projectionKey === "contextpressure" || projectionKey === "tokenusage" || projectionKey === "usage" || projectionKey === "tokens")) {
       const projection = recordValue(payload.value);
-      if (key === "contextPressure" && projection) {
+      if (projectionKey === "contextpressure" && projection) {
         setSessionStats((current) => ({
           ...current,
           contextTokens: numberValue(projection.projectedTokens ?? projection.pressureTokens) ?? current.contextTokens,
           contextLimit: numberValue(projection.contextWindow) ?? current.contextLimit,
         }));
       }
-      if (key === "tokenUsage" && projection) {
-        const uncachedInput = numberValue(projection.uncachedInputTokens) ?? 0;
-        const cacheRead = numberValue(projection.cacheReadTokens) ?? 0;
-        const cacheWrite = numberValue(projection.cacheWriteTokens) ?? 0;
+      if (["tokenusage", "usage", "tokens"].includes(projectionKey) && projection) {
+        const uncachedInput = numberValue(projection.uncachedInputTokens ?? projection.uncached_input_tokens);
+        const cacheRead = numberValue(projection.cacheReadTokens ?? projection.cacheRead ?? projection.cache_read ?? projection.cachedInputTokens ?? projection.cached_input_tokens);
+        const cacheWrite = numberValue(projection.cacheWriteTokens ?? projection.cacheWrite ?? projection.cache_write ?? projection.cachedInputTokensCreation ?? projection.cached_input_tokens_creation);
+        const projectedInput = numberValue(projection.inputTokens ?? projection.input_tokens);
+        const inputTokens = projectedInput ?? (uncachedInput === undefined ? undefined : uncachedInput + (cacheRead ?? 0) + (cacheWrite ?? 0));
+        const outputTokens = numberValue(projection.outputTokens ?? projection.output_tokens);
+        const projectedContext = numberValue(projection.projectedTokens ?? projection.contextTokens ?? projection.context_tokens);
         setSessionStats((current) => ({
           ...current,
-          inputTokens: uncachedInput + cacheRead + cacheWrite,
-          outputTokens: numberValue(projection.outputTokens) ?? current.outputTokens,
-          cacheHitRate: cacheRead + cacheWrite > 0 ? Math.min(100, (cacheRead / (uncachedInput + cacheRead + cacheWrite)) * 100) : current.cacheHitRate,
-          totalTokens: uncachedInput + cacheRead + cacheWrite + (numberValue(projection.outputTokens) ?? current.outputTokens),
+          inputTokens: inputTokens ?? current.inputTokens,
+          outputTokens: outputTokens ?? current.outputTokens,
+          cacheHitRate: cacheRead !== undefined || cacheWrite !== undefined
+            ? Math.min(100, ((cacheRead ?? 0) / ((uncachedInput ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0))) * 100)
+            : current.cacheHitRate,
+          totalTokens: (inputTokens ?? current.inputTokens) + (outputTokens ?? current.outputTokens),
+          contextTokens: projectedContext ?? current.contextTokens,
         }));
       }
       return;
     }
-    if (key === "sessionStats" && sessionId === activeSessionRef.current) {
+    if (projectionKey === "sessionstats" && sessionId === activeSessionRef.current) {
       const projection = recordValue(payload.value) as unknown as DshSessionStatsProjection | null;
       if (projection) {
         setSessionStats((current) => ({
@@ -289,6 +303,7 @@ function routeHostEvent(event: DshBridgeEvent, context: BridgeEventHandlerContex
     setSubagentPanelOpen,
     setNotice,
     loadSubagents,
+    refreshSessionStats,
     startNewSession,
   } = context;
   const payload = event.frame.payload;
@@ -299,6 +314,7 @@ function routeHostEvent(event: DshBridgeEvent, context: BridgeEventHandlerContex
     const running = Boolean(payload.running);
     setSessions((current) => current.map((session) => session.sessionId === sessionId ? { ...session, running } : session));
     setSessionIndicators((current) => ({ ...current, [sessionId]: running ? "running" : "completed" }));
+    if (!running && sessionId === activeSessionRef.current) void refreshSessionStats(sessionId);
     setSubagents((current) => current ? {
       ...current,
       entries: current.entries.map((entry) => entry.kind === "child" && entry.id === sessionId

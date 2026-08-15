@@ -5,9 +5,6 @@ import { ConversationTranscript } from "./components/ConversationTranscript";
 import { ConversationHeader } from "./components/ConversationHeader";
 import { ComposerShell } from "./components/ComposerShell";
 import { InteractionPanel } from "./components/InteractionPanel";
-import { GoalSurfacePanel } from "./components/GoalSurfacePanel";
-import { PresetSurfacePanel } from "./components/PresetSurfacePanel";
-import { RuntimeSurfacePanel } from "./components/RuntimeSurfacePanel";
 import { SettingsAppearancePanel } from "./components/SettingsAppearancePanel";
 import { SettingsGeneralPanel } from "./components/SettingsGeneralPanel";
 import { SettingsModelsPanel } from "./components/SettingsModelsPanel";
@@ -15,9 +12,7 @@ import { SettingsPluginsPanel } from "./components/SettingsPluginsPanel";
 import { SettingsPresetPanel } from "./components/SettingsPresetPanel";
 import { QueueDock } from "./components/QueueDock";
 import { SessionSidebar } from "./components/SessionSidebar";
-import { SkillsSurfacePanel } from "./components/SkillsSurfacePanel";
 import { SubagentPanel } from "./components/SubagentPanel";
-import { SubagentsSurfacePanel } from "./components/SubagentsSurfacePanel";
 import { TodoPanel } from "./components/TodoPanel";
 import { WindowChrome } from "./components/WindowChrome";
 import { useProviderSettings } from "./app/useProviderSettings";
@@ -37,6 +32,8 @@ import {
   type DshJob,
   type DshCommandDescriptor,
   type DshCommandExecution,
+  type DshMessageAnnotationItem,
+  type DshMessageAnnotationResult,
   type DshMessageFeedbackItem,
   type DshPluginInventoryEntry,
   type DshPluginInventorySnapshot,
@@ -81,6 +78,7 @@ import {
   jsonText,
   parseJsonObject,
   settingsOps,
+  valueAtPath,
   sessionPath,
   presetDisplayName,
   sessionIsVisible,
@@ -89,7 +87,6 @@ import {
   type PromptMode,
   type ModelMenuPane,
   type SessionAction,
-  type WorkspaceViewMode,
   type ThemeMode,
   type SessionContextMenu,
   type PendingApproval,
@@ -125,8 +122,31 @@ type FeedbackOperationResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: { code: string; current?: DshMessageFeedbackItem | null } };
 
+const FRONTEND_VISUAL_RESET_VERSION = "workbench-v2";
+let frontendVisualResetChecked = false;
+
+function sameWorkspacePath(left?: string, right?: string) {
+  if (!left || !right) return false;
+  const normalize = (value: string) => value.replace(/[\\/]+$/, "").toLocaleLowerCase();
+  return normalize(left) === normalize(right);
+}
+
+function applyFrontendVisualResetOnce() {
+  if (frontendVisualResetChecked) return;
+  frontendVisualResetChecked = true;
+  try {
+    if (localStorage.getItem("deeptop.frontend-visual-reset") === FRONTEND_VISUAL_RESET_VERSION) return;
+    localStorage.setItem("deeptop.frontend-visual-reset", FRONTEND_VISUAL_RESET_VERSION);
+    localStorage.setItem("deeptop.theme", "light");
+    localStorage.setItem("deeptop.sidebar-width", "320");
+  } catch {
+    // The native webview may disable storage in a restricted preview.
+  }
+}
+
 function App() {
   const desktop = isTauri();
+  applyFrontendVisualResetOnce();
   const [status, setStatus] = useState<DshStatus>(() => desktop
     ? { ...demoStatus, runtimeStarting: true, message: "正在启动 DSH..." }
     : demoStatus);
@@ -151,8 +171,10 @@ function App() {
   const [search, setSearch] = useState("");
   const [remoteSearchResults, setRemoteSearchResults] = useState<SessionSearchResult[] | null>(null);
   const [models, setModels] = useState<DshSessionModels | null>(null);
+  const [draftModelSelection, setDraftModelSelection] = useState<{ provider: string; model: string; reasoningEffort?: string } | null>(null);
   const [commands, setCommands] = useState<DshCommandDescriptor[]>([]);
   const [feedback, setFeedback] = useState<Record<string, DshMessageFeedbackItem>>({});
+  const [annotations, setAnnotations] = useState<Record<string, DshMessageAnnotationItem>>({});
   const [permissionSelect, setPermissionSelect] = useState<DshPermissionSelect | null>(null);
   const [plan, setPlan] = useState<DshPlanProjection | null>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
@@ -164,25 +186,18 @@ function App() {
   const [nextPreset, setNextPreset] = useState("");
   const [presetMenuOpen, setPresetMenuOpen] = useState(false);
   const [workspaces, setWorkspaces] = useState<DshWorkspace[]>([]);
-  const [workspaceViewMode, setWorkspaceViewMode] = useState<WorkspaceViewMode>(() => {
-    try {
-      return localStorage.getItem("deeptop.workspace-view") === "flat" ? "flat" : "grouped";
-    } catch {
-      return "grouped";
-    }
-  });
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     try {
       const saved = Number(localStorage.getItem("deeptop.sidebar-width"));
-      return Number.isFinite(saved) ? Math.min(440, Math.max(220, saved)) : 274;
+      return Number.isFinite(saved) ? Math.min(440, Math.max(300, saved)) : 320;
     } catch {
-      return 274;
+      return 320;
     }
   });
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     try {
       const saved = localStorage.getItem("deeptop.theme");
-      return saved === "light" || saved === "dark" ? saved : "system";
+      return saved === "light" || saved === "dark" || saved === "system" ? saved : "system";
     } catch {
       return "system";
     }
@@ -195,7 +210,6 @@ function App() {
   const [hostModels, setHostModels] = useState<DshHostModelCatalog | null>(null);
   const [pluginInventory, setPluginInventory] = useState<DshPluginInventoryEntry[] | null>(null);
   const [showInspector, setShowInspector] = useState(false);
-  const [surfaceTab, setSurfaceTab] = useState<SurfaceTab>("runtime");
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
   const [pluginSearch, setPluginSearch] = useState("");
   const [expandedPlugin, setExpandedPlugin] = useState<string | null>(null);
@@ -214,7 +228,7 @@ function App() {
   const [presetView, setPresetView] = useState<{ id: string; content: string } | null>(null);
   const [presetCopy, setPresetCopy] = useState<{ from: string; id: string; name: string } | null>(null);
   const [surfaceLoading, setSurfaceLoading] = useState(false);
-  const [renaming, setRenaming] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<DshSessionSummary | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [queue, setQueue] = useState<DshQueueItem[]>([]);
   const [queueEditingId, setQueueEditingId] = useState<string | null>(null);
@@ -228,6 +242,7 @@ function App() {
   const [questionCustomAnswersBySession, setQuestionCustomAnswersBySession] = useState<Record<string, Record<string, string>>>({});
   const [sessionContextMenu, setSessionContextMenu] = useState<SessionContextMenu | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ action: SessionAction; session: DshSessionSummary } | null>(null);
+  const [deleteArchivedTarget, setDeleteArchivedTarget] = useState<DshSessionSummary | null>(null);
   const transcriptEnd = useRef<HTMLDivElement | null>(null);
   const transcriptScroll = useRef<HTMLDivElement | null>(null);
   const appearanceFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -237,6 +252,7 @@ function App() {
   const [transcriptFollowing, setTranscriptFollowing] = useState(true);
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
   const activeSessionRef = useRef<string | null>(null);
+  const workspaceSelectionInitializedRef = useRef(false);
   const selectedSubagentRef = useRef<string | null>(null);
   const subagentRequestRef = useRef(0);
   const searchRequestRef = useRef(0);
@@ -352,7 +368,7 @@ function App() {
   useEffect(() => {
     if (!sessionContextMenu) return;
     const handlePointerDown = (event: globalThis.MouseEvent) => {
-      if (!(event.target instanceof Element) || !event.target.closest(".session-context-menu, .session-row-trigger")) {
+      if (!(event.target instanceof Element) || !event.target.closest(".session-context-menu")) {
         setSessionContextMenu(null);
       }
     };
@@ -373,6 +389,15 @@ function App() {
       window.removeEventListener("keydown", handleKeyDown, true);
     };
   }, [sessionContextMenu]);
+
+  useEffect(() => {
+    if (!renameTarget) return;
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setRenameTarget(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [renameTarget]);
 
   const transcript = useMemo(() => transcriptFromHistory(history), [history]);
   const subagentTranscript = useMemo(() => subagentSession ? transcriptFromHistory(subagentSession.history) : [], [subagentSession]);
@@ -395,28 +420,65 @@ function App() {
   }, [archivedSessionIds, remoteSearchResults, search, sessions]);
   const searchResultById = useMemo(() => new Map((remoteSearchResults ?? []).map((item) => [item.sessionId, item.snippet])), [remoteSearchResults]);
   const sessionById = useMemo(() => new Map(sessions.map((session) => [session.sessionId, session])), [sessions]);
+  const archivedSessions = useMemo(
+    () => [...archivedSessionIds].map((sessionId) => sessionById.get(sessionId)).filter((session): session is DshSessionSummary => session !== undefined),
+    [archivedSessionIds, sessionById],
+  );
   const workspaceBySessionId = useMemo(() => {
     const result = new Map<string, DshWorkspace>();
     workspaces.forEach((item) => item.sessionIds.forEach((sessionId) => result.set(sessionId, item)));
     return result;
   }, [workspaces]);
-  const workspaceGroups = useMemo(() => {
-    const groupedIds = new Set<string>();
-    const groups = workspaces.map((item) => {
-      const groupSessions = item.sessionIds
-        .map((sessionId) => sessionById.get(sessionId))
-        .filter((session): session is DshSessionSummary => session !== undefined && visibleSessions.some((item) => item.sessionId === session.sessionId));
-      groupSessions.forEach((session) => groupedIds.add(session.sessionId));
-      return { workspace: item, sessions: groupSessions };
-    });
-    return {
-      groups,
-      ungrouped: visibleSessions.filter((session) => !groupedIds.has(session.sessionId)),
-    };
-  }, [sessionById, visibleSessions, workspaces]);
+  const selectedWorkspace = useMemo(
+    () => workspaces.find((item) => sameWorkspacePath(item.path, workspace)) ?? null,
+    [workspace, workspaces],
+  );
+  const selectedWorkspaceSessions = useMemo(() => {
+    const visibleById = new Map(visibleSessions.map((session) => [session.sessionId, session]));
+    if (selectedWorkspace) {
+      return selectedWorkspace.sessionIds
+        .map((sessionId) => visibleById.get(sessionId))
+        .filter((session): session is DshSessionSummary => session !== undefined);
+    }
+    return visibleSessions.filter((session) => !workspaceBySessionId.has(session.sessionId));
+  }, [selectedWorkspace, visibleSessions, workspaceBySessionId]);
+  const selectedWorkspaceGroup = useMemo(() => ({
+    workspace: selectedWorkspace,
+    workspaceId: selectedWorkspace?.workspaceId ?? "__ungrouped__",
+    sessions: selectedWorkspaceSessions,
+  }), [selectedWorkspace, selectedWorkspaceSessions]);
+  const defaultModelSelection = useMemo<{ provider: string; model: string; reasoningEffort?: string } | null>(() => {
+    const configured = settings?.namespaces.find((namespace) => namespace.ns === "agent-default-model")?.value;
+    const configuredProvider = valueAtPath(configured, ["provider"]);
+    const configuredModel = valueAtPath(configured, ["model"]);
+    if (typeof configuredProvider === "string" && typeof configuredModel === "string") {
+      return { provider: configuredProvider, model: configuredModel };
+    }
+    const runtimeProvider = runtimeDetails?.provider;
+    const runtimeModel = runtimeDetails?.model;
+    if (typeof runtimeProvider === "string" && typeof runtimeModel === "string") {
+      return { provider: runtimeProvider, model: runtimeModel };
+    }
+    const fallbackGroup = hostModels?.groups[0];
+    const fallbackModel = fallbackGroup?.models[0];
+    return fallbackGroup && fallbackModel ? { provider: fallbackGroup.id, model: fallbackModel.id } : null;
+  }, [hostModels, runtimeDetails, settings]);
+  const defaultModelName = useMemo(() => {
+    if (!defaultModelSelection) return "默认模型";
+    return hostModels?.groups.find((group) => group.id === defaultModelSelection.provider)?.models.find((model) => model.id === defaultModelSelection.model)?.name ?? defaultModelSelection.model;
+  }, [defaultModelSelection, hostModels]);
+  const pendingModelSelection = draftModelSelection ?? defaultModelSelection;
+  const composerModels = !activeSessionId && hostModels && pendingModelSelection
+    ? {
+      ...hostModels,
+      current: pendingModelSelection,
+      contextWindow: hostModels.groups.find((group) => group.id === pendingModelSelection.provider)?.models.find((model) => model.id === pendingModelSelection.model)?.contextWindow,
+      routable: true,
+    } satisfies DshSessionModels
+    : models;
   const modelOptions = useMemo(() => {
-    if (!models) return [];
-    return models.groups.flatMap((group) => group.models.map((model) => ({
+    if (!composerModels) return [];
+    return composerModels.groups.flatMap((group) => group.models.map((model) => ({
       value: `${group.id}\u0000${model.id}`,
       label: `${group.name} / ${model.name}`,
       name: model.name,
@@ -425,11 +487,11 @@ function App() {
       model: model.id,
       reasoning: model.reasoning,
     })));
-  }, [models]);
-  const selectedModelValue = models ? `${models.current.provider}\u0000${models.current.model}` : "";
+  }, [composerModels]);
+  const selectedModelValue = composerModels ? `${composerModels.current.provider}\u0000${composerModels.current.model}` : "";
   const selectedModel = modelOptions.find((option) => option.value === selectedModelValue);
   const selectedReasoning = selectedModel?.reasoning;
-  const selectedReasoningEffort = models?.current.reasoningEffort ?? selectedReasoning?.defaultEffort;
+  const selectedReasoningEffort = composerModels?.current.reasoningEffort ?? selectedReasoning?.defaultEffort;
   const selectedReasoningLabel = selectedReasoning === undefined
     ? undefined
     : selectedReasoningEffort === undefined
@@ -499,14 +561,6 @@ function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem("deeptop.workspace-view", workspaceViewMode);
-    } catch {
-      // The native webview may disable storage in a restricted preview.
-    }
-  }, [workspaceViewMode]);
-
-  useEffect(() => {
-    try {
       localStorage.setItem("deeptop.sidebar-width", String(sidebarWidth));
     } catch {
       // The native webview may disable storage in a restricted preview.
@@ -531,7 +585,7 @@ function App() {
     const handlePointerMove = (event: globalThis.PointerEvent) => {
       const resize = sidebarResizeRef.current;
       if (!resize) return;
-      setSidebarWidth(Math.min(440, Math.max(220, resize.startWidth + event.clientX - resize.startX)));
+      setSidebarWidth(Math.min(440, Math.max(300, resize.startWidth + event.clientX - resize.startX)));
     };
     const handlePointerUp = () => {
       sidebarResizeRef.current = null;
@@ -573,10 +627,10 @@ function App() {
       const next = unique.find((session) => !archivedIds.has(session.sessionId) && !session.blank);
       if (next) await openSession(next);
     }
-    return result.items;
+    return unique;
   }
 
-  async function loadRuntimeDetails() {
+  async function loadRuntimeDetails(sessionItems = sessions) {
     if (!desktop) return;
     const [hostResult, presetResult, workspaceResult, settingsResult, providerResult, modelResult, pluginResult] = await Promise.allSettled([
       bridgeRequest<Record<string, unknown>>("host.describe"),
@@ -594,8 +648,25 @@ function App() {
       setPresetHasDocument(presetResult.value.hasDocument);
     }
     if (workspaceResult.status === "fulfilled") {
-      setWorkspaces(workspaceResult.value.items);
-      setArchivedSessionIds(new Set((workspaceResult.value.archivedSessionIds ?? []).filter((sessionId): sessionId is string => typeof sessionId === "string" && sessionId.length > 0)));
+      let workspaceItems = workspaceResult.value.items;
+      let archivedIds = new Set((workspaceResult.value.archivedSessionIds ?? []).filter((sessionId): sessionId is string => typeof sessionId === "string" && sessionId.length > 0));
+      const attachedCount = await repairWorkspaceMembership(workspaceItems, sessionItems);
+      if (attachedCount > 0) {
+        try {
+          const refreshed = await bridgeRequest<{ items: DshWorkspace[]; archivedSessionIds?: string[] }>("workspace.list");
+          workspaceItems = refreshed.items;
+          archivedIds = new Set((refreshed.archivedSessionIds ?? []).filter((sessionId): sessionId is string => typeof sessionId === "string" && sessionId.length > 0));
+        } catch {
+          // The attach writes are durable; the next refresh will pick up the new projection.
+        }
+        setNotice(`已将 ${attachedCount} 个历史会话登记到对应工作区`);
+      }
+      setWorkspaces(workspaceItems);
+      setArchivedSessionIds(archivedIds);
+      if (!workspaceSelectionInitializedRef.current && activeSessionRef.current) {
+        setWorkspace(workspaceItems.find((item) => item.sessionIds.includes(activeSessionRef.current!))?.path ?? "");
+        workspaceSelectionInitializedRef.current = true;
+      }
     }
     if (settingsResult.status === "fulfilled") setSettings(settingsResult.value);
     if (providerResult.status === "fulfilled") setProviders(providerResult.value.providers);
@@ -646,6 +717,22 @@ function App() {
     }
   }
 
+  async function loadAnnotations(sessionId = activeSessionRef.current) {
+    if (!desktop || !sessionId) {
+      setAnnotations({});
+      return;
+    }
+    try {
+      const result = await bridgeRequest<DshMessageAnnotationResult<{ items: DshMessageAnnotationItem[] }>>("messageAnnotations.list", { sessionId });
+      if (activeSessionRef.current !== sessionId) return;
+      if (!result.ok) throw new Error(result.error.code);
+      setAnnotations(Object.fromEntries(result.value.items.map((item) => [item.messageId, item])));
+    } catch {
+      if (activeSessionRef.current !== sessionId) return;
+      setAnnotations({});
+    }
+  }
+
   useEffect(() => {
     setSubagentSession(null);
     setSelectedSubagentId(null);
@@ -654,12 +741,14 @@ function App() {
     setSkills([]);
     setCommands([]);
     setFeedback({});
+    setAnnotations({});
     setPermissionSelect(null);
     setPlan(null);
     void loadSubagents();
     if (activeSessionId) {
       void loadCommands(activeSessionId);
       void loadFeedback(activeSessionId);
+      void loadAnnotations(activeSessionId);
       void bridgeRequest<{ skills: DshSkill[] }>("skill.list", { sessionId: activeSessionId })
         .then((result) => setSkills(result.skills))
         .catch(() => undefined);
@@ -673,7 +762,6 @@ function App() {
 
   async function loadSurface(tab: SurfaceTab) {
     if (!desktop || !activeSessionId && ["skills", "subagents", "goal"].includes(tab)) return;
-    setSurfaceTab(tab);
     setSurfaceLoading(true);
     try {
       if (tab === "skills" && activeSessionId) {
@@ -684,7 +772,7 @@ function App() {
         setSubagents(await bridgeRequest<DshSubagentCatalog>("subagent.list", { parentSessionId: activeSessionId }));
       }
       if (tab === "runtime" && activeSessionId) {
-        await Promise.all([loadCommands(activeSessionId), loadFeedback(activeSessionId)]);
+        await Promise.all([loadCommands(activeSessionId), loadFeedback(activeSessionId), loadAnnotations(activeSessionId)]);
       }
       if (tab === "goal" && activeSessionId) {
         const historyResult = await bridgeRequest<{ events: DshHistoryEntry[]; projections?: { values: Record<string, unknown> } }>("session.history", { sessionId: activeSessionId, maxMessages: 100 });
@@ -891,7 +979,7 @@ function App() {
     activeSessionRef.current = session.sessionId;
     setSessionIndicators((current) => ({ ...current, [session.sessionId]: "idle" }));
     setActiveSessionId(session.sessionId);
-    setWorkspace(session.cwd ?? "");
+    setWorkspace(workspaces.find((item) => item.sessionIds.includes(session.sessionId))?.path ?? "");
     setHistory([]);
     setHistoryHasMore(false);
     setHistoryLoadingOlder(false);
@@ -912,6 +1000,8 @@ function App() {
     setSubagentPanelOpen(false);
     setPresetView(null);
     setModels(null);
+    setDraftModelSelection(null);
+    setAnnotations({});
     setLoading(true);
     try {
       const [historyResult, modelsResult] = await Promise.all([
@@ -939,6 +1029,25 @@ function App() {
       setNotice(errorText(error));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function refreshSessionStats(sessionId = activeSessionRef.current) {
+    if (!desktop || !sessionId) return;
+    try {
+      const result = await bridgeRequest<{ events: DshHistoryEntry[]; projections?: { values: Record<string, unknown> } }>("session.history", {
+        sessionId,
+        maxMessages: 100,
+      });
+      if (activeSessionRef.current !== sessionId) return;
+      const nextStats = readSessionStats(result.events, result.projections);
+      setSessionStats((current) => ({
+        ...current,
+        ...nextStats,
+        contextLimit: nextStats.contextLimit > 0 ? nextStats.contextLimit : current.contextLimit,
+      }));
+    } catch {
+      // Live projection events remain the primary refresh path; a late history read is best effort.
     }
   }
 
@@ -985,8 +1094,8 @@ function App() {
       setStatus(nextStatus);
       setNotice(nextStatus.message);
       if (nextStatus.runtimeAvailable) {
-        await loadSessions(true);
-        await loadRuntimeDetails();
+        const loadedSessions = await loadSessions(true);
+        await loadRuntimeDetails(loadedSessions);
       }
     } catch (error) {
       const message = errorText(error);
@@ -1021,6 +1130,7 @@ function App() {
     setGoal,
     setNotice,
     loadSubagents,
+    refreshSessionStats,
     startNewSession,
   });
 
@@ -1031,8 +1141,10 @@ function App() {
       setStatus(nextStatus);
       setNotice(nextStatus.message);
       if (nextStatus.runtimeAvailable) {
-        void loadSessions(true).catch((error) => setNotice(errorText(error)));
-        void loadRuntimeDetails().catch((error) => setNotice(errorText(error)));
+        void (async () => {
+          const loadedSessions = await loadSessions(true);
+          await loadRuntimeDetails(loadedSessions);
+        })().catch((error) => setNotice(errorText(error)));
       }
     }).then((unlisten) => { cleanups.push(unlisten); });
     void listenToDiagnostic((message) => {
@@ -1058,12 +1170,19 @@ function App() {
     try {
       const picked = await pickWorkspace();
       if (!picked) return;
+      workspaceSelectionInitializedRef.current = true;
       setWorkspace(picked);
       setWorkspaceMenuOpen(false);
       setNotice("新会话将使用此工作目录");
       try {
-        await bridgeRequest("workspace.create", { path: picked });
+        const result = await bridgeRequest<{ workspace: DshWorkspace }>("workspace.create", { path: picked });
+        setWorkspace(result.workspace.path);
+        setWorkspaces((current) => current.some((item) => item.workspaceId === result.workspace.workspaceId)
+          ? current.map((item) => item.workspaceId === result.workspace.workspaceId ? result.workspace : item)
+          : [result.workspace, ...current]);
+        const attachedCount = await attachUnregisteredSessions(result.workspace);
         await loadRuntimeDetails();
+        if (attachedCount > 0) setNotice(`已将 ${attachedCount} 个同目录会话登记到工作区`);
       } catch {
         // A session can use a directory even when workspace registration is unavailable.
       }
@@ -1072,10 +1191,44 @@ function App() {
     }
   }
 
-  function chooseWorkspace(path: string) {
+  async function chooseWorkspace(path: string) {
+    workspaceSelectionInitializedRef.current = true;
     setWorkspace(path);
     setWorkspaceMenuOpen(false);
     setNotice(path ? "新会话将使用此工作目录" : "新会话将使用 DSH 运行目录");
+    const selected = workspaces.find((item) => item.path === path);
+    if (!selected) return;
+    try {
+      const attachedCount = await attachUnregisteredSessions(selected);
+      if (attachedCount > 0) {
+        await loadRuntimeDetails();
+        setNotice(`已将 ${attachedCount} 个同目录会话登记到工作区`);
+      }
+    } catch (error) {
+      setNotice(errorText(error));
+    }
+  }
+
+  async function repairWorkspaceMembership(
+    workspaceItems: DshWorkspace[],
+    sessionItems: DshSessionSummary[],
+    allWorkspaceItems = workspaceItems,
+  ) {
+    const registeredSessionIds = new Set(allWorkspaceItems.flatMap((item) => item.sessionIds));
+    const candidates = workspaceItems.flatMap((item) => sessionItems
+      .filter((session) => Boolean(session.cwd) && sameWorkspacePath(session.cwd, item.path) && !registeredSessionIds.has(session.sessionId))
+      .map((session) => ({ item, session })));
+    if (candidates.length === 0) return 0;
+    // The official attach operation performs canonical-path validation; this is only a candidate hint.
+    const results = await Promise.allSettled(candidates.map(({ item, session }) => bridgeRequest("workspace.attachSession", {
+      workspaceId: item.workspaceId,
+      sessionId: session.sessionId,
+    })));
+    return results.filter((result) => result.status === "fulfilled").length;
+  }
+
+  async function attachUnregisteredSessions(item: DshWorkspace) {
+    return repairWorkspaceMembership([item], sessions, [...workspaces, item]);
   }
 
   function toggleWorkspace(workspaceId: string) {
@@ -1124,23 +1277,6 @@ function App() {
     }
   }
 
-  async function moveWorkspace(item: DshWorkspace, direction: "up" | "down") {
-    const index = workspaces.findIndex((workspaceItem) => workspaceItem.workspaceId === item.workspaceId);
-    if (index < 0) return;
-    const targetIndex = direction === "up" ? index - 1 : index + 2;
-    if (direction === "up" && index === 0) return;
-    if (direction === "down" && index >= workspaces.length - 1) return;
-    try {
-      await bridgeRequest("workspace.insertBefore", {
-        workspaceId: item.workspaceId,
-        ...(workspaces[targetIndex] ? { beforeWorkspaceId: workspaces[targetIndex].workspaceId } : {}),
-      });
-      await loadRuntimeDetails();
-    } catch (error) {
-      setNotice(errorText(error));
-    }
-  }
-
   async function moveSessionBefore(sessionId: string, beforeSessionId: string) {
     if (sessionId === beforeSessionId) return;
     const targetWorkspace = workspaceBySessionId.get(beforeSessionId);
@@ -1149,6 +1285,15 @@ function App() {
       return;
     }
     try {
+      const attachedSessionIds = new Set(targetWorkspace.sessionIds);
+      for (const candidateSessionId of [beforeSessionId, sessionId]) {
+        if (attachedSessionIds.has(candidateSessionId)) continue;
+        await bridgeRequest("workspace.attachSession", {
+          workspaceId: targetWorkspace.workspaceId,
+          sessionId: candidateSessionId,
+        });
+        attachedSessionIds.add(candidateSessionId);
+      }
       await bridgeRequest("workspace.insertSessionBefore", {
         workspaceId: targetWorkspace.workspaceId,
         sessionId,
@@ -1173,9 +1318,11 @@ function App() {
     setComposer("");
     setAttachments([]);
     setModels(null);
+    setDraftModelSelection(null);
     setSessionStats({ inputTokens: 0, outputTokens: 0, totalTokens: 0, contextTokens: 0, contextLimit: 0, cacheHitRate: 0, firstTokenMs: 0, messages: 0 });
     setCommands([]);
     setFeedback({});
+    setAnnotations({});
     setPermissionSelect(null);
     setPlan(null);
     setQueue([]);
@@ -1190,7 +1337,6 @@ function App() {
     setSubagentLoadError(null);
     setSubagentPanelOpen(false);
     setPresetMenuOpen(false);
-    setSurfaceTab("runtime");
     setNotice("输入消息后创建会话");
   }
 
@@ -1199,16 +1345,40 @@ function App() {
     if (creatingSessionRef.current) return creatingSessionRef.current;
     const creation = (async () => {
     const presetId = nextPreset || presets.find((preset) => preset.isDefault)?.id;
+    const selectedWorkspace = workspaces.find((item) => sameWorkspacePath(item.path, workspace));
+    const requestedModel = draftModelSelection;
     const created = await bridgeRequest<{ sessionId: string; agentPreset?: string }>("session.create", {
-      ...(workspace ? { cwd: workspace } : {}),
+      ...(selectedWorkspace ? { workspaceId: selectedWorkspace.workspaceId } : workspace ? { cwd: workspace } : {}),
       ...(presetId ? { agentPreset: presetId } : {}),
     });
+    activeSessionRef.current = created.sessionId;
+    setActiveSessionId(created.sessionId);
+    if (requestedModel) {
+      await bridgeRequest("session.selectModel", {
+        sessionId: created.sessionId,
+        provider: requestedModel.provider,
+        model: requestedModel.model,
+        ...(requestedModel.reasoningEffort === undefined ? {} : { reasoningEffort: requestedModel.reasoningEffort }),
+      });
+    }
     // session.create also emits host/session-added. Do not prepend an optimistic
     // row here: the event and the next list refresh are the source of truth and
     // otherwise the same newly-created session can appear twice.
-    await loadSessions();
-    activeSessionRef.current = created.sessionId;
-    setActiveSessionId(created.sessionId);
+    // The host session API may accept workspaceId without updating the desktop
+    // workspace registry, so make the membership write explicit before loading
+    // the projections used by the sidebar.
+    if (selectedWorkspace) {
+      const attached = await bridgeRequest<{ workspace: DshWorkspace }>("workspace.attachSession", {
+        workspaceId: selectedWorkspace.workspaceId,
+        sessionId: created.sessionId,
+      });
+      setWorkspaces((current) => current.map((item) =>
+        item.workspaceId === attached.workspace.workspaceId ? attached.workspace : item,
+      ));
+    }
+    const nextSessions = await loadSessions();
+    await loadRuntimeDetails(nextSessions ?? []);
+    setDraftModelSelection(null);
     setNextPreset("");
     setPresetMenuOpen(false);
     void bridgeRequest<DshSessionModels>("session.models", { sessionId: created.sessionId })
@@ -1267,6 +1437,7 @@ function App() {
       });
       setComposer("");
       setAttachments([]);
+      void refreshSessionStats(sessionId);
       setNotice(promptMode === "steer" ? "已插入当前回合" : "已发送");
     } catch (error) {
       setNotice(errorText(error));
@@ -1330,20 +1501,44 @@ function App() {
     } catch (error) { setNotice(errorText(error)); }
   }
 
+  async function restoreSession(session: DshSessionSummary) {
+    try {
+      const result = await bridgeRequest<{ archivedSessionIds: string[] }>("workspace.restoreSession", { sessionId: session.sessionId });
+      setArchivedSessionIds(new Set(result.archivedSessionIds));
+      await loadSessions();
+      setNotice("会话已恢复");
+    } catch (error) { setNotice(errorText(error)); }
+  }
+
+  async function deleteArchivedSession() {
+    const session = deleteArchivedTarget;
+    if (!session) return;
+    try {
+      await bridgeRequest("workspace.deleteArchivedSession", { sessionId: session.sessionId });
+      setDeleteArchivedTarget(null);
+      await loadSessions();
+      if (session.sessionId === activeSessionRef.current) startNewSession();
+      setNotice("归档会话已永久删除");
+    } catch (error) { setNotice(errorText(error)); }
+  }
+
   function requestSessionAction(action: SessionAction, session: DshSessionSummary) {
     setSessionContextMenu(null);
     if (action === "archive") { setConfirmAction({ action, session }); return; }
     if (action === "fork") { void forkSession(session.sessionId); return; }
     setRenameValue(displayTitle(session));
-    if (session.sessionId === activeSessionId) setRenaming(true);
-    else void openSession(session).then(() => setRenaming(true));
+    setRenameTarget(session);
   }
 
   async function renameSession() {
-    if (!activeSessionId || !renameValue.trim()) return;
+    const session = renameTarget;
+    const title = renameValue.trim();
+    if (!session || !title) return;
     try {
-      await bridgeRequest("session.rename", { sessionId: activeSessionId, title: renameValue.trim() });
-      setRenaming(false);
+      await bridgeRequest("session.rename", { sessionId: session.sessionId, title });
+      setRenameTarget(null);
+      setRenameValue("");
+      await loadSessions();
       setNotice("会话已重命名");
     } catch (error) {
       setNotice(errorText(error));
@@ -1351,7 +1546,14 @@ function App() {
   }
 
   async function changeReasoningEffort(reasoningEffort?: string) {
-    if (!activeSessionId || !models) return;
+    if (!activeSessionId || !models) {
+      if (!activeSessionId && pendingModelSelection) {
+        setDraftModelSelection({ ...pendingModelSelection, reasoningEffort });
+        setModelMenuOpen(false);
+        setModelMenuPane("root");
+      }
+      return;
+    }
     if (selectedReasoningEffort === reasoningEffort) {
       setModelMenuOpen(false);
       setModelMenuPane("root");
@@ -1372,8 +1574,16 @@ function App() {
   }
 
   async function changeModel(value: string) {
-    if (!activeSessionId || !value) return;
+    if (!value) return;
     const [provider, model] = value.split("\u0000");
+    if (!activeSessionId) {
+      const selected = composerModels?.groups.find((group) => group.id === provider)?.models.find((entry) => entry.id === model);
+      if (selected) setDraftModelSelection({ provider, model, reasoningEffort: selected.reasoning?.defaultEffort });
+      setModelMenuOpen(false);
+      setModelMenuPane("root");
+      setNotice("新会话将使用此模型");
+      return;
+    }
     if (models?.current.provider === provider && models.current.model === model) {
       setModelMenuOpen(false);
       setModelMenuPane("root");
@@ -1428,6 +1638,76 @@ function App() {
       throw new Error(`反馈未保存：${result.error.code}`);
     }
     setFeedback((items) => ({ ...items, [messageId]: result.value }));
+  }
+
+  async function putAnnotation(messageId: string, note: string) {
+    const sessionId = activeSessionRef.current;
+    if (!sessionId) return;
+    const current = annotations[messageId];
+    const result = await bridgeRequest<DshMessageAnnotationResult<DshMessageAnnotationItem>>("messageAnnotations.put", {
+      sessionId,
+      messageId,
+      note,
+      ifVersion: current?.version ?? null,
+    });
+    if (!result.ok) {
+      if (result.error.code === "version-conflict") {
+        const conflict = result.error.current;
+        setAnnotations((items) => {
+          const next = { ...items };
+          if (conflict) next[messageId] = conflict;
+          else delete next[messageId];
+          return next;
+        });
+      }
+      throw new Error(`注记未保存：${result.error.code}`);
+    }
+    setAnnotations((items) => ({ ...items, [messageId]: result.value }));
+  }
+
+  async function deleteAnnotation(messageId: string) {
+    const sessionId = activeSessionRef.current;
+    const current = annotations[messageId];
+    if (!sessionId || !current) return;
+    const result = await bridgeRequest<DshMessageAnnotationResult<{ absent: true }>>("messageAnnotations.delete", {
+      sessionId,
+      messageId,
+      ifVersion: current.version,
+    });
+    if (!result.ok) {
+      if (result.error.code === "version-conflict") {
+        const conflict = result.error.current;
+        setAnnotations((items) => {
+          const next = { ...items };
+          if (conflict) next[messageId] = conflict;
+          else delete next[messageId];
+          return next;
+        });
+      }
+      throw new Error(`注记未删除：${result.error.code}`);
+    }
+    setAnnotations((items) => {
+      const next = { ...items };
+      delete next[messageId];
+      return next;
+    });
+  }
+
+  async function editMessageAnnotation(messageId: string) {
+    const current = annotations[messageId];
+    const draft = window.prompt("消息注记", current?.note ?? "");
+    if (draft === null) return;
+    try {
+      if (draft.trim()) {
+        await putAnnotation(messageId, draft.trim());
+        setNotice(current ? "消息注记已更新" : "消息注记已添加");
+      } else if (current) {
+        await deleteAnnotation(messageId);
+        setNotice("消息注记已清除");
+      }
+    } catch (error) {
+      setNotice(errorText(error));
+    }
   }
 
   async function deleteFeedback(messageId: string) {
@@ -1790,12 +2070,11 @@ function App() {
   }
 
   function openSettings() {
-    if (showInspector && surfaceTab === "settings") {
+    if (showInspector) {
       setShowInspector(false);
       return;
     }
     setSettingsSection("appearance");
-    setSurfaceTab("settings");
     setShowInspector(true);
     void loadSurface("settings");
   }
@@ -1817,11 +2096,8 @@ function App() {
   return (
     <main className={`app-shell${appearance.backgroundImage ? " has-custom-background" : ""}`} style={appearanceStyle}>
       <WindowChrome
-        status={status}
-        workspace={workspace}
-        activeSessionCwd={activeSession?.cwd}
         windowMaximized={windowMaximized}
-        settingsOpen={showInspector && surfaceTab === "settings"}
+        settingsOpen={showInspector}
         onDrag={(event) => void startWindowDrag(event)}
         onMinimize={() => void minimizeWindow()}
         onToggleMaximize={() => void toggleWindowMaximize()}
@@ -1835,20 +2111,21 @@ function App() {
 
       <div className={`workspace-layout ${todoVisible ? "todo-visible" : ""} ${todoVisible && todoCollapsed ? "todo-collapsed" : ""}`} style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
         <SessionSidebar
-          status={status}
           search={search}
           onSearchChange={setSearch}
           onSearch={() => void searchSessions()}
           onClearSearch={() => setSearch("")}
           onNewSession={startNewSession}
+          settingsOpen={showInspector}
+          onOpenSettings={openSettings}
           onAddWorkspace={() => void addWorkspace()}
-          visibleSessions={visibleSessions}
-          workspaceViewMode={workspaceViewMode}
-          onWorkspaceViewModeChange={setWorkspaceViewMode}
-          workspaceGroups={workspaceGroups}
+          visibleSessions={selectedWorkspaceSessions}
+          archivedSessions={archivedSessions}
+          onRestoreSession={restoreSession}
+          onDeleteArchivedSession={setDeleteArchivedTarget}
+          workspaceGroup={selectedWorkspaceGroup}
           collapsedWorkspaces={collapsedWorkspaces}
           onToggleWorkspace={toggleWorkspace}
-          onMoveWorkspace={moveWorkspace}
           onRenameWorkspace={renameWorkspace}
           onDeleteWorkspace={deleteWorkspace}
           sessionContextMenu={sessionContextMenu}
@@ -1868,6 +2145,7 @@ function App() {
           onOpenSession={openSession}
           onMoveSessionBefore={moveSessionBefore}
           onDragOverSessionChange={(sessionId) => setDragOverSessionId(sessionId)}
+          onSessionDragEnd={() => setDragOverSessionId(null)}
           onSessionContextMenu={(session, x, y) => setSessionContextMenu({ session, x, y })}
         />
 
@@ -1875,7 +2153,7 @@ function App() {
           className="sidebar-resizer"
           role="separator"
           aria-label="调整会话侧栏宽度"
-          aria-valuemin={220}
+          aria-valuemin={300}
           aria-valuemax={440}
           aria-valuenow={sidebarWidth}
           onPointerDown={(event) => {
@@ -1895,11 +2173,6 @@ function App() {
             jobsOpen={jobsOpen}
             jobNow={jobNow}
             trajectoryOpen={trajectoryOpen}
-            renaming={renaming}
-            renameValue={renameValue}
-            onRenameValueChange={setRenameValue}
-            onRenameSubmit={renameSession}
-            onStartRename={() => { if (activeSession) { setRenameValue(displayTitle(activeSession)); setRenaming(true); } }}
             onToggleJobs={() => { setJobsOpen((open) => !open); setJobNow(Date.now()); }}
             onToggleTrajectory={() => setTrajectoryOpen((open) => !open)}
             onExport={exportSession}
@@ -1907,37 +2180,61 @@ function App() {
             onFork={forkSession}
           />
 
-          <ConversationTranscript
-            scrollRef={transcriptScroll}
-            endRef={transcriptEnd}
-            history={history}
-            transcript={transcript}
-            activeSession={activeSession ?? null}
-            activeSessionId={activeSessionId}
-            activeRunning={activeRunning}
-            loading={loading}
-            historyHasMore={historyHasMore}
-            historyLoadingOlder={historyLoadingOlder}
-            transcriptFollowing={transcriptFollowing}
-            trajectoryOpen={trajectoryOpen}
-            workspace={workspace}
-            runtimeDirectory={status.runtimeDirectory}
-            modelName={models?.current.model ?? "默认模型"}
-            presets={presets}
-            feedback={feedback}
-            nextPreset={nextPreset}
-            presetMenuOpen={presetMenuOpen}
-            onLoadOlder={loadOlderHistory}
-            onFollowingChange={setTranscriptFollowing}
-            onJumpToLatest={() => setTranscriptFollowing(true)}
-            onTogglePresetMenu={() => setPresetMenuOpen((open) => !open)}
-            onStagePreset={stagePresetForNextSession}
-            onCopyMessage={copyMessage}
-            onFeedback={rateMessage}
-            onEditFeedback={editMessageFeedback}
-            onForkSession={forkSession}
-            onOpenSessionPath={openSessionPath}
-          />
+          <div className="conversation-transcript-stage">
+            <ConversationTranscript
+              scrollRef={transcriptScroll}
+              endRef={transcriptEnd}
+              history={history}
+              transcript={transcript}
+              activeSession={activeSession ?? null}
+              activeSessionId={activeSessionId}
+              activeRunning={activeRunning}
+              loading={loading}
+              historyHasMore={historyHasMore}
+              historyLoadingOlder={historyLoadingOlder}
+              transcriptFollowing={transcriptFollowing}
+              trajectoryOpen={trajectoryOpen}
+              workspace={workspace}
+              runtimeDirectory={status.runtimeDirectory}
+              modelName={models?.current.model ?? defaultModelName}
+              presets={presets}
+              feedback={feedback}
+              annotations={annotations}
+              nextPreset={nextPreset}
+              presetMenuOpen={presetMenuOpen}
+              onLoadOlder={loadOlderHistory}
+              onFollowingChange={setTranscriptFollowing}
+              onJumpToLatest={() => setTranscriptFollowing(true)}
+              onTogglePresetMenu={() => setPresetMenuOpen((open) => !open)}
+              onStagePreset={stagePresetForNextSession}
+              onCopyMessage={copyMessage}
+              onFeedback={rateMessage}
+              onEditFeedback={editMessageFeedback}
+              onEditAnnotation={editMessageAnnotation}
+              onForkSession={forkSession}
+              onOpenSessionPath={openSessionPath}
+            />
+
+            {todoVisible && <TodoPanel todos={todos ?? []} collapsed={todoCollapsed} counts={todoCounts} onToggle={() => setTodoCollapsed((value) => !value)} />}
+
+            <SubagentPanel
+              entries={childSubagents}
+              panelOpen={subagentPanelOpen}
+              selectedId={selectedSubagentId}
+              selectedIndex={selectedSubagentIndex}
+              selectedEntry={selectedSubagent}
+              loadingId={subagentLoadingId}
+              loadError={subagentLoadError}
+              session={subagentSession}
+              transcript={subagentTranscript}
+              composer={subagentComposer}
+              onToggle={toggleSubagent}
+              onClose={() => setSubagentPanelOpen(false)}
+              onComposerChange={setSubagentComposer}
+              onPrompt={promptSubagent}
+              onInterrupt={interruptSubagent}
+            />
+          </div>
 
           <InteractionPanel
             approval={approval}
@@ -1973,7 +2270,7 @@ function App() {
             runtimeAvailable={status.runtimeAvailable}
             activeRunning={activeRunning}
             activeSessionId={activeSessionId}
-            hasActiveSession={Boolean(activeSession)}
+            defaultModelName={defaultModelName}
             loading={loading}
             composer={composer}
             attachments={attachments}
@@ -1982,7 +2279,7 @@ function App() {
             triggerKind={composerTrigger?.kind}
             candidatesDismissed={composerMenuDismissed}
             activeCandidateIndex={activeComposerCandidateIndex}
-            models={models}
+            models={composerModels}
             modelMenuRef={modelMenuRef}
             selectedModelValue={selectedModelValue}
             selectedModelName={selectedModel?.name}
@@ -1993,7 +2290,6 @@ function App() {
             modelMenuOpen={modelMenuOpen}
             modelMenuPane={modelMenuPane}
             sessionStats={sessionStats}
-            workspaceLabel={presetDisplayName(activeSession?.agentPreset, presets) + " · " + (workspace || status.runtimeDirectory || "运行目录")}
             onComposerChange={(value) => {
               setComposer(value);
               setComposerMenuDismissed(false);
@@ -2001,6 +2297,8 @@ function App() {
             onPaste={handleComposerPaste}
             onAddFiles={addComposerFiles}
             onRemoveAttachment={(attachmentId) => setAttachments((current) => current.filter((item) => item.id !== attachmentId))}
+            permissions={permissionSelect}
+            onSetPermission={setPermissionPreset}
             onSetPromptMode={setPromptMode}
             onChooseCandidate={chooseComposerCandidate}
             onSetCandidateIndex={setComposerCandidateIndex}
@@ -2021,101 +2319,14 @@ function App() {
           />
         </section>
 
-        {todoVisible && <TodoPanel todos={todos ?? []} collapsed={todoCollapsed} counts={todoCounts} onToggle={() => setTodoCollapsed((value) => !value)} />}
-
-        <SubagentPanel
-          entries={childSubagents}
-          panelOpen={subagentPanelOpen}
-          selectedId={selectedSubagentId}
-          selectedIndex={selectedSubagentIndex}
-          selectedEntry={selectedSubagent}
-          loadingId={subagentLoadingId}
-          loadError={subagentLoadError}
-          session={subagentSession}
-          transcript={subagentTranscript}
-          composer={subagentComposer}
-          onToggle={toggleSubagent}
-          onClose={() => setSubagentPanelOpen(false)}
-          onComposerChange={setSubagentComposer}
-          onPrompt={promptSubagent}
-          onInterrupt={interruptSubagent}
-        />
-
         {showInspector && (
-          <div className="inspector-modal" role="dialog" aria-modal="true" aria-labelledby="inspector-title">
-            <button className="inspector-backdrop" onClick={() => setShowInspector(false)} aria-label={surfaceTab === "settings" ? "关闭设置" : "关闭运行台"} />
+          <div className="inspector-modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="inspector-title">
+            <button className="inspector-backdrop" onClick={() => setShowInspector(false)} aria-label="关闭设置" />
             <aside className="inspector-panel">
-            <div className="inspector-header"><strong id="inspector-title">{surfaceTab === "settings" ? "设置" : "DSH 运行台"}</strong><button onClick={() => setShowInspector(false)} title={surfaceTab === "settings" ? "关闭设置" : "关闭运行台"}>×</button></div>
-            <nav className="surface-tabs" aria-label="DSH 功能面板">
-              {(["runtime", "presets", "skills", "subagents", "goal", "settings"] as SurfaceTab[]).map((tab) => (
-                <button className={surfaceTab === tab ? "selected" : ""} key={tab} onClick={() => void loadSurface(tab)} disabled={["skills", "subagents", "goal"].includes(tab) && !activeSessionId}>
-                  {{ runtime: "运行时", presets: "Preset", skills: "Skills", subagents: "Subagent", goal: "Goal", settings: "设置" }[tab]}
-                </button>
-              ))}
-            </nav>
+            <div className="inspector-header"><strong id="inspector-title">设置</strong><button onClick={() => setShowInspector(false)} title="关闭设置">×</button></div>
             {surfaceLoading && <div className="surface-loading">正在读取 DSH 状态…</div>}
 
-            {surfaceTab === "runtime" && <RuntimeSurfacePanel
-              status={status}
-              runtimeDetails={runtimeDetails}
-              sessionStats={sessionStats}
-              workspaceCount={workspaces.length}
-              commands={commands}
-              permissions={permissionSelect}
-              plan={plan}
-              onAddWorkspace={addWorkspace}
-              onRunCommand={runCommand}
-              onInsertCommand={insertCommand}
-              onSetPermission={setPermissionPreset}
-              onTogglePlan={togglePlan}
-            />}
-
-            {surfaceTab === "presets" && <PresetSurfacePanel
-              presets={presets}
-              writable={settings?.writable}
-              authorable={presetAuthorable}
-              copy={presetCopy}
-              view={presetView}
-              onSetDefault={setDefaultPreset}
-              onRead={readPreset}
-              onOpenDocument={openPresetDocument}
-              onBeginCopy={(id) => setPresetCopy({ from: id, id: "", name: "" })}
-              onCopyChange={(patch) => setPresetCopy((current) => current ? { ...current, ...patch } : current)}
-              onCopy={copyPreset}
-              onCancelCopy={() => setPresetCopy(null)}
-              onCloseView={() => setPresetView(null)}
-              onRemove={removePreset}
-            />}
-
-            {surfaceTab === "skills" && <SkillsSurfacePanel
-              skills={skills}
-              onInsert={(skillName) => {
-                setComposer(`/${skillName} `);
-                setShowInspector(false);
-              }}
-            />}
-
-            {surfaceTab === "subagents" && <SubagentsSurfacePanel
-              subagents={subagents}
-              session={subagentSession}
-              composer={subagentComposer}
-              onOpen={(entry) => openSubagent({ parentSessionId: activeSessionId!, childSessionId: entry.id, mode: entry.mode })}
-              onCloseSession={() => setSubagentSession(null)}
-              onComposerChange={setSubagentComposer}
-              onPrompt={promptSubagent}
-              onInterrupt={interruptSubagent}
-            />}
-
-            {surfaceTab === "goal" && <GoalSurfacePanel
-              activeGoal={activeGoal}
-              draft={goalDraft}
-              onDraftChange={setGoalDraft}
-              onMutate={mutateGoal}
-              onCreate={createGoal}
-            />}
-
-            {surfaceTab === "settings" && (
-              <div className="settings-layout">
+            <div className="settings-layout">
                 <nav className="settings-navigation" aria-label="设置分区">
                   <div className="settings-navigation-title">DSH 设置</div>
                   <button className={settingsSection === "appearance" ? "selected" : ""} onClick={() => setSettingsSection("appearance")}>
@@ -2138,12 +2349,14 @@ function App() {
                 <section className="settings-main">
                   {settingsSection === "appearance" && <SettingsAppearancePanel
                     appearance={appearance}
+                    themeMode={themeMode}
                     fontPreset={appearanceFontPreset}
                     codeFontPreset={appearanceCodeFontPreset}
                     fontPresets={appearanceFontPresets}
                     codeFontPresets={appearanceCodeFontPresets}
                     fileInputRef={appearanceFileInputRef}
                     onUpdate={updateAppearance}
+                    onThemeChange={setThemeMode}
                     onBackgroundFile={handleBackgroundFile}
                     onThemeFile={handleThemeFile}
                     onReset={resetAppearance}
@@ -2155,13 +2368,11 @@ function App() {
                     workspace={workspace}
                     runtimeDirectory={status.runtimeDirectory}
                     sidebarWidth={sidebarWidth}
-                    themeMode={themeMode}
                     pluginSettings={pluginSettings}
                     onOpenDocument={() => bridgeRequest("settings.openDocument").then(() => setNotice("已打开 DSH 配置文件")).catch((error) => setNotice(errorText(error)))}
                     onSetDefaultPreset={setDefaultPreset}
                     onAddWorkspace={addWorkspace}
-                    onResetSidebar={() => setSidebarWidth(274)}
-                    onThemeChange={setThemeMode}
+                    onResetSidebar={() => setSidebarWidth(320)}
                     onOpenNamespace={openSettingsNamespace}
                   />}
 
@@ -2200,11 +2411,12 @@ function App() {
                 {presetCopy && <div className="surface-dialog"><strong>复制 {presetCopy.from}</strong><input placeholder="新 Preset id" value={presetCopy.id} onChange={(event) => setPresetCopy({ ...presetCopy, id: event.target.value })} /><input placeholder="显示名称（可选）" value={presetCopy.name} onChange={(event) => setPresetCopy({ ...presetCopy, name: event.target.value })} /><div className="surface-dialog-actions"><button onClick={() => setPresetCopy(null)}>取消</button><button className="confirm" disabled={!presetCopy.id.trim()} onClick={() => void copyPreset()}>创建</button></div></div>}
                 {presetView && <div className="surface-dialog"><strong>{presetView.id} / agent.cordis.yml</strong><pre className="surface-code">{presetView.content}</pre><button onClick={() => setPresetView(null)}>关闭</button></div>}
               </div>
-            )}
             </aside>
           </div>
         )}
-      {confirmAction && <div className="confirm-backdrop" onMouseDown={() => setConfirmAction(null)}><div className="confirm-dialog" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><strong>归档会话？</strong><p>“{displayTitle(confirmAction.session)}”将从会话列表中隐藏，历史记录会保留；当前桌面端不会显示归档会话。</p><div className="surface-dialog-actions"><button onClick={() => setConfirmAction(null)}>取消</button><button className="confirm danger-button" onClick={() => void archiveSession(confirmAction.session)}>确认归档</button></div></div></div>}
+      {confirmAction && <div className="confirm-backdrop" onMouseDown={() => setConfirmAction(null)}><div className="confirm-dialog" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><strong>归档会话？</strong><p>“{displayTitle(confirmAction.session)}”将从会话列表中隐藏，历史记录会保留；可在归档页查看、恢复或永久删除。</p><div className="surface-dialog-actions"><button onClick={() => setConfirmAction(null)}>取消</button><button className="confirm danger-button" onClick={() => void archiveSession(confirmAction.session)}>确认归档</button></div></div></div>}
+      {deleteArchivedTarget && <div className="confirm-backdrop" onMouseDown={() => setDeleteArchivedTarget(null)}><div className="confirm-dialog" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><strong>永久删除归档会话？</strong><p>“{displayTitle(deleteArchivedTarget)}”的历史记录将被永久删除，无法恢复。</p><div className="surface-dialog-actions"><button onClick={() => setDeleteArchivedTarget(null)}>取消</button><button className="confirm danger-button" onClick={() => void deleteArchivedSession()}>永久删除</button></div></div></div>}
+      {renameTarget && <div className="confirm-backdrop" onMouseDown={() => setRenameTarget(null)}><form className="confirm-dialog rename-dialog" role="dialog" aria-modal="true" onSubmit={(event) => { event.preventDefault(); void renameSession(); }} onMouseDown={(event) => event.stopPropagation()}><strong>重命名会话</strong><p>修改“{displayTitle(renameTarget)}”在左侧会话列表中的显示名称。</p><input className="rename-dialog-input" value={renameValue} onChange={(event) => setRenameValue(event.target.value)} autoFocus aria-label="会话名称" /><div className="surface-dialog-actions"><button type="button" onClick={() => setRenameTarget(null)}>取消</button><button className="confirm" type="submit" disabled={!renameValue.trim()}>保存</button></div></form></div>}
       </div>
     </main>
   );

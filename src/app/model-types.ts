@@ -68,8 +68,19 @@ export type TranscriptItem = {
   contextSummary?: string;
   injected?: boolean;
   images?: TranscriptImage[];
+  stats?: MessageStats;
   workflow?: WorkflowView;
   files?: string[];
+};
+
+export type MessageStats = {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cacheHitRate?: number;
+  runMs?: number;
+  ttftMs?: number;
+  tokensPerSecond?: number;
 };
 
 export type SubagentSession = {

@@ -113,7 +113,7 @@ function durationMs(startedAt?: number, completedAt?: number): number | null {
 }
 
 export function durationLabel(value?: number | null): string {
-  if (value === undefined || value === null) return "—";
+  if (value === undefined || value === null) return "未提供";
   if (value < 1000) return `${Math.round(value)} ms`;
   return `${(value / 1000).toFixed(value >= 10000 ? 1 : 2)} s`;
 }
