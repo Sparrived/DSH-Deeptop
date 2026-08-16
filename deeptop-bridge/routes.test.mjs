@@ -23,6 +23,35 @@ test('routes an allowlisted API method with a generated RPC id', async () => {
   assert.deepEqual(result.payload, { cwd: 'D:/repo' })
 })
 
+test('forwards image prompt content without changing the DSH wire shape', async () => {
+  let received
+  const ctx = {
+    apiProxy: {
+      sessions: {
+        prompt: async request => {
+          received = request
+          return { ok: true, value: { accepted: true } }
+        },
+      },
+    },
+  }
+  const payload = {
+    sessionId: 'session-image',
+    mode: 'queue',
+    content: [
+      { type: 'text', text: '描述这张图' },
+      { type: 'image', mediaType: 'image/png', data: 'QUJD', name: '画面.png' },
+    ],
+    clientTimeZone: 'Asia/Shanghai',
+  }
+
+  const result = await routeDesktopRequest(ctx, 'session.prompt', payload, signal)
+
+  assert.deepEqual(result, { ok: true, value: { accepted: true } })
+  assert.match(received.rpcId, /^[0-9a-f-]{36}$/)
+  assert.deepEqual(received.payload, payload)
+})
+
 test('attaches an existing session through the official workspace entity', async () => {
   const workspace = {
     id: 'workspace-1',

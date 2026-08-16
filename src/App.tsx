@@ -55,7 +55,9 @@ import {
   type DshSettingsNamespace,
   type DshProvider,
   type DshSkill,
+  type DshPromptContentPart,
   type DshSessionModels,
+  type DshSessionPromptPayload,
   type DshSessionSummary,
   type DshStatus,
   type DshRuntimeLog,
@@ -69,6 +71,8 @@ import {
   subagentActivityLabel,
   subagentModeLabel,
   detectComposerTrigger,
+  modelSupportsImages,
+  promptContentParts,
   imageMediaType,
   readImageFile,
   formatDate,
@@ -634,10 +638,9 @@ function App() {
       routable: true,
     } satisfies DshSessionModels
     : models;
-  const selectedModelSupportsImages = composerModels?.groups
+  const selectedModelSupportsImages = modelSupportsImages(composerModels?.groups
     .find((group) => group.id === composerModels.current.provider)
-    ?.models.find((model) => model.id === composerModels.current.model)
-    ?.inputModalities?.includes("image") ?? false;
+    ?.models.find((model) => model.id === composerModels.current.model));
   const modelOptions = useMemo(() => {
     if (!composerModels) return [];
     return composerModels.groups.flatMap((group) => group.models.map((model) => ({
@@ -1715,15 +1718,13 @@ function App() {
         }
         return;
       }
-      await bridgeRequest("session.prompt", {
+      const promptPayload: DshSessionPromptPayload = {
         sessionId,
         mode: promptMode,
-        content: [
-          ...(text ? [{ type: "text", text }] : []),
-          ...attachments.map((attachment) => ({ type: "image", mediaType: attachment.mediaType, data: attachment.data, name: attachment.name })),
-        ],
+        content: promptContentParts(text, attachments),
         clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      });
+      };
+      await bridgeRequest("session.prompt", { ...promptPayload });
       setComposer("");
       setAttachments([]);
       void refreshSessionStats(sessionId);
@@ -1815,7 +1816,7 @@ function App() {
       const sourceParts = retryPromptSourceParts(target.data.content);
       if (sourceParts.length === 0) throw new Error("这条消息没有可重发的提示词");
 
-      const hydratedContent = await Promise.all(sourceParts.map(async (part) => {
+      const hydratedContent: DshPromptContentPart[] = await Promise.all(sourceParts.map(async (part) => {
         if (part.type === "text" || part.data) return part.type === "image" ? {
           type: "image" as const,
           mediaType: part.mediaType,

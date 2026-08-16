@@ -1,4 +1,4 @@
-import type { DshPluginInventoryEntry, DshPreset, DshSessionSummary, DshStatus } from "../lib/desktop";
+import type { DshModel, DshPluginInventoryEntry, DshPreset, DshPromptContentPart, DshSessionSummary, DshStatus } from "../lib/desktop";
 import type { ChildSubagentEntry, ComposerAttachment, ComposerCandidate, ComposerTrigger } from "./model-types";
 
 export function projectName(path: string | undefined) {
@@ -33,6 +33,25 @@ export function detectComposerTrigger(value: string): ComposerTrigger | null {
     query: match[3].toLocaleLowerCase(),
     start: (match.index ?? 0) + match[1].length,
   };
+}
+
+export function modelSupportsImages(model: DshModel | undefined) {
+  // DSH omits inputModalities when a provider cannot describe the model's
+  // capabilities. That is not the same as declaring text-only input: the Host
+  // remains the authority and will validate the prompt at admission time.
+  return model?.inputModalities === undefined || model.inputModalities.includes("image");
+}
+
+export function promptContentParts(text: string, attachments: ComposerAttachment[]): DshPromptContentPart[] {
+  return [
+    ...(text ? [{ type: "text" as const, text }] : []),
+    ...attachments.map((attachment) => ({
+      type: "image" as const,
+      mediaType: attachment.mediaType,
+      data: attachment.data,
+      name: attachment.name,
+    })),
+  ];
 }
 
 export function imageMediaType(file: File): ComposerAttachment["mediaType"] | null {

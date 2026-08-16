@@ -71,6 +71,19 @@ export interface DshSessionSummary {
 }
 
 export type DshInputModality = "text" | "image";
+export type DshImageMediaType = "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+
+/** The prompt content shape accepted by the DSH session.prompt API. */
+export type DshPromptContentPart =
+  | { type: "text"; text: string }
+  | { type: "image"; mediaType: DshImageMediaType; data: string; name?: string };
+
+export interface DshSessionPromptPayload {
+  sessionId: string;
+  mode: "queue" | "steer";
+  content: DshPromptContentPart[];
+  clientTimeZone?: string;
+}
 
 export interface DshModel {
   id: string;
