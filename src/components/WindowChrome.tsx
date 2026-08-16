@@ -100,7 +100,7 @@ export function WindowChrome({
       </nav>
       <div className="window-drag-space" />
       <div className="window-actions">
-        <button className={`settings-button window-settings-button ${settingsOpen ? "selected" : ""}`} onClick={onOpenSettings} title="打开设置" aria-label="打开设置">⚙</button>
+        <button className={`settings-button window-settings-button ${settingsOpen ? "selected" : ""}`} onClick={onOpenSettings} title="打开设置" aria-label="打开设置"><span className="settings-button-glyph" aria-hidden="true">⚙</span><span className="settings-button-label">设置</span></button>
         <WindowControls
           windowMaximized={windowMaximized}
           onMinimize={onMinimize}

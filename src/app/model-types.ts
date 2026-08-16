@@ -11,7 +11,7 @@ export type PromptMode = "queue" | "steer";
 export type ModelMenuPane = "root" | "model" | "effort";
 export type ModelSelection = { provider: string; model: string; reasoningEffort?: string };
 export type WindowMenu = "project" | "edit";
-export type SessionAction = "rename" | "fork" | "archive";
+export type SessionAction = "rename" | "fork" | "archive" | "export" | "exportZip";
 export type WorkspaceViewMode = "grouped" | "flat";
 export type ThemeMode = "system" | "light" | "dark";
 
@@ -123,7 +123,7 @@ export type TodoItem = {
 };
 
 export type SurfaceTab = "runtime" | "presets" | "skills" | "subagents" | "goal" | "settings";
-export type SettingsSection = "appearance" | "general" | "keyboard" | "models" | "plugins" | "presets";
+export type SettingsSection = "appearance" | "general" | "keyboard" | "models" | "plugins" | "presets" | "logs";
 
 export type SettingsDraft = {
   ns: string;

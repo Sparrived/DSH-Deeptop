@@ -7,7 +7,6 @@ import {
   formatClock,
   formatTokens,
   imageSource,
-  pathBasename,
   presetDescription,
   presetDisplayName,
   workflowStatusLabel,
@@ -123,21 +122,6 @@ function sameItemFields(left: TranscriptItem, right: TranscriptItem) {
     && left.workflow === right.workflow
     && sameImages(left.images, right.images)
     && sameStats(left.stats, right.stats);
-}
-
-function fileTypeLabel(path: string) {
-  const name = pathBasename(path);
-  const dot = name.lastIndexOf(".");
-  if (dot <= 0 || dot === name.length - 1) return "FILE";
-  return name.slice(dot + 1).toUpperCase().slice(0, 6);
-}
-
-function fileDirectory(path: string) {
-  const normalized = path.replace(/[\\/]+$/, "");
-  const separator = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
-  if (separator < 0) return "工作目录";
-  const directory = normalized.slice(0, separator);
-  return directory || "工作目录";
 }
 
 function DiffResult({ diff }: { diff: DiffSummary }) {
@@ -453,35 +437,6 @@ const TranscriptArticle = memo(TranscriptArticleView, (prev, next) => {
     && prev.activeSessionId === next.activeSessionId;
 });
 
-function DeliverablesDock({
-  item,
-  activeSession,
-  onOpenSessionPath,
-}: {
-  item: TranscriptItem;
-  activeSession: DshSessionSummary | null;
-  onOpenSessionPath: (path: string) => void | Promise<void>;
-}) {
-  const files = item.files ?? [];
-  const fileDiffs = item.fileDiffs ?? {};
-  return (
-    <aside className="deliverables-dock" aria-label="生成文件">
-      <details className="deliverables-entry" key={item.key}>
-        <summary className="deliverables-heading">
-          <span className="deliverables-title"><span className="deliverables-mark" aria-hidden="true" /><span><strong>生成文件</strong><small>本回合写入工作区</small></span></span>
-          <span className="deliverables-summary-meta"><span className="deliverables-count">{files.length} 个文件</span><span className="deliverables-toggle" aria-hidden="true" /></span>
-        </summary>
-        <div className="deliverables-body">
-          <div className="deliverables-files">
-            {files.map((path) => { const diff = fileDiffs[path]; return <button className="deliverable-file" type="button" key={`${item.key}-${path}`} onClick={() => void onOpenSessionPath(path)} title={path} aria-label={`打开 ${path}${diff ? `，新增 ${diff.added} 行，删除 ${diff.removed} 行` : ""}`}><span className="deliverable-file-type" aria-hidden="true">{fileTypeLabel(path)}</span><span className="deliverable-file-copy"><strong>{pathBasename(path)}</strong><small>{fileDirectory(path)}</small></span>{diff && <span className="deliverable-file-diff" aria-label={`新增 ${diff.added} 行，删除 ${diff.removed} 行`}><b>+{diff.added}</b><b>−{diff.removed}</b></span>}<span className="deliverable-file-open" aria-hidden="true" /></button>; })}
-          </div>
-          {activeSession?.cwd && <div className="deliverables-actions"><button type="button" className="deliverables-folder" onClick={() => void onOpenSessionPath(".")}><span className="folder-icon" aria-hidden="true" />在文件夹中显示</button></div>}
-        </div>
-      </details>
-    </aside>
-  );
-}
-
 export function ConversationTranscript({
   scrollRef,
   endRef,
@@ -527,23 +482,10 @@ export function ConversationTranscript({
 
   const selectablePresets = presets.filter((preset) => !preset.broken);
   const selectedPresetId = nextPreset || selectablePresets.find((preset) => preset.isDefault)?.id || selectablePresets[0]?.id || "";
-  const deliverableItems = transcript.filter((item) => item.kind === "deliverables");
-  const deliverables = deliverableItems.length > 0
-    ? {
-        ...deliverableItems[deliverableItems.length - 1],
-        files: [...new Set(deliverableItems.flatMap((item) => item.files ?? []))],
-        fileDiffs: Object.fromEntries(deliverableItems.flatMap((item) => Object.entries(item.fileDiffs ?? {})).reduce((entries, [path, diff]) => {
-          const current = entries.get(path) ?? { added: 0, removed: 0 };
-          entries.set(path, { added: current.added + diff.added, removed: current.removed + diff.removed });
-          return entries;
-        }, new Map<string, { added: number; removed: number }>())),
-      }
-    : null;
-  const showDeliverablesDock = !trajectoryOpen && deliverables !== null;
 
   return (
     <>
-    <div className={`transcript${showDeliverablesDock ? " has-deliverables" : ""}`} ref={scrollRef} aria-live={trajectoryOpen ? undefined : "polite"} onScroll={handleScroll}>
+    <div className="transcript" ref={scrollRef} aria-live={trajectoryOpen ? undefined : "polite"} onScroll={handleScroll}>
       {!trajectoryOpen && historyHasMore && (
         <button className="history-load-more" type="button" disabled={historyLoadingOlder} onClick={() => void onLoadOlder()}>
           {historyLoadingOlder ? "正在读取更早消息" : "读取更早消息"}
@@ -604,7 +546,6 @@ export function ConversationTranscript({
         </div>
       )}
     </div>
-    {showDeliverablesDock && <DeliverablesDock item={deliverables} activeSession={activeSession} onOpenSessionPath={onOpenSessionPath} />}
     {previewImage && <PopupDialog
       title="图片预览"
       eyebrow="MESSAGE / IMAGE"
