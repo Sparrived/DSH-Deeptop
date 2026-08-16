@@ -41,6 +41,27 @@ export function markSessionError(
   return { ...indicators, [sessionId]: "error" };
 }
 
+/**
+ * Reconcile indicators after DSH restarts: any session the runtime reports as
+ * NOT running but that we still show as "running" is stale (the crash never
+ * delivered the running=false flip). Reset those to "idle" so the sidebar does
+ * not look stuck on a crashed session. Leaves "error"/"completed" and any
+ * genuinely running session untouched.
+ */
+export function reconcileSessionIndicators(
+  indicators: Record<string, SessionIndicator>,
+  sessions: ReadonlyArray<{ sessionId: string; running: boolean }>,
+): Record<string, SessionIndicator> {
+  let next = indicators;
+  for (const session of sessions) {
+    if (session.running) continue;
+    if (next[session.sessionId] === "running") {
+      next = { ...next, [session.sessionId]: "idle" };
+    }
+  }
+  return next;
+}
+
 export function removeSessionRecordEntry<T>(
   entries: Record<string, T>,
   sessionId: string,

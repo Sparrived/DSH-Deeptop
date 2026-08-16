@@ -263,6 +263,12 @@ const DSH_PACKAGE: &str = "@deepseek-ai/dsh@latest";
 const NODEJS_DOWNLOAD_URL: &str = "https://nodejs.org/en/download";
 const BRIDGE_TIMEOUT: Duration = Duration::from_secs(45);
 const DSH_INSTALL_TIMEOUT: Duration = Duration::from_secs(300);
+/// Max consecutive unexpected DSH exits we auto-restart before requiring manual
+/// action. Guards against a crash loop (e.g. a corrupted profile) that would
+/// otherwise restart DSH forever.
+const MAX_AUTO_RESTARTS: u32 = 3;
+/// Base delay for the first auto-restart; each consecutive crash doubles it.
+const AUTO_RESTART_BASE_DELAY: Duration = Duration::from_millis(1000);
 const DSH_PACKAGE_JSON: &str = "{\n  \"name\": \"deeptop-dsh\",\n  \"private\": true\n}\n";
 const BRIDGE_PACKAGE_JSON: &str = include_str!("../../deeptop-bridge/package.json");
 const BRIDGE_PATCH: &str = include_str!("../../deeptop-bridge/cordis.patch.yml");
@@ -280,6 +286,10 @@ const PROFILE_PNPM_WORKSPACE: &str =
     "packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n";
 const MAX_PENDING_OPEN_SESSIONS: usize = 16;
 const DSH_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(8);
+/// Max in-memory runtime log entries kept for the log viewer and export.
+const MAX_LOG_ENTRIES: usize = 3000;
+/// Rotate the persistent log file after it grows past this size.
+const MAX_LOG_FILE_BYTES: u64 = 4 * 1024 * 1024;
 
 #[cfg(windows)]
 #[link(name = "kernel32")]
@@ -429,6 +439,25 @@ struct DshLaunch {
     label: String,
 }
 
+#[derive(Default)]
+struct LogStore {
+    entries: VecDeque<DshRuntimeLog>,
+}
+
+impl LogStore {
+    fn push(&mut self, entry: DshRuntimeLog) {
+        append_log_file(&persistent_log_path(), &format_log_line(&entry));
+        self.entries.push_back(entry);
+        while self.entries.len() > MAX_LOG_ENTRIES {
+            self.entries.pop_front();
+        }
+    }
+
+    fn snapshot(&self) -> Vec<DshRuntimeLog> {
+        self.entries.iter().cloned().collect()
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum RuntimePhase {
     Idle,
@@ -450,6 +479,11 @@ struct BridgeState {
     install_pid: Option<u32>,
     stdin: Option<Arc<Mutex<std::process::ChildStdin>>>,
     pending: HashMap<String, mpsc::Sender<Result<Value, String>>>,
+    /// Consecutive unexpected DSH exits not yet recovered by a successful boot.
+    crash_count: u32,
+    /// An auto-restart has been scheduled for the current crash; prevents double
+    /// scheduling while the delayed restart thread is still waiting.
+    auto_restart_pending: bool,
 }
 
 impl Default for BridgeState {
@@ -465,6 +499,8 @@ impl Default for BridgeState {
             install_pid: None,
             stdin: None,
             pending: HashMap::new(),
+            crash_count: 0,
+            auto_restart_pending: false,
         }
     }
 }
@@ -474,6 +510,7 @@ struct BridgeManager {
     state: Arc<Mutex<BridgeState>>,
     next_request_id: Arc<AtomicU64>,
     pending_open_sessions: Arc<Mutex<VecDeque<String>>>,
+    logs: Arc<Mutex<LogStore>>,
 }
 
 impl BridgeManager {
@@ -526,6 +563,7 @@ struct DshStatus {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DshRuntimeLog {
+    time: u64,
     phase: String,
     stream: String,
     text: String,
@@ -555,6 +593,65 @@ fn dsh_home() -> PathBuf {
             .or_else(|| home.map(PathBuf::from).map(|path| path.join(".dsh")))
             .unwrap_or_else(|| PathBuf::from(".dsh")),
     )
+}
+
+fn logs_directory() -> PathBuf {
+    dsh_home().join("logs")
+}
+
+fn persistent_log_path() -> PathBuf {
+    logs_directory().join("deeptop.log")
+}
+
+fn now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Convert epoch seconds (UTC) into a `YYYY-MM-DD HH:MM:SS` string using the
+/// civil-from-days algorithm so log files stay readable without a date crate.
+fn format_utc_datetime(epoch_seconds: i64) -> String {
+    let days = epoch_seconds.div_euclid(86_400);
+    let seconds_of_day = epoch_seconds.rem_euclid(86_400);
+    let hour = seconds_of_day / 3600;
+    let minute = (seconds_of_day % 3600) / 60;
+    let second = seconds_of_day % 60;
+    let z = days + 719_468;
+    let era = (if z >= 0 { z } else { z - 146_096 }) / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if month <= 2 { y + 1 } else { y };
+    format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}")
+}
+
+fn format_log_line(entry: &DshRuntimeLog) -> String {
+    format!(
+        "[{}.{:03}] [{}/{}] {}",
+        format_utc_datetime((entry.time / 1000) as i64),
+        entry.time % 1000,
+        entry.phase,
+        entry.stream,
+        entry.text
+    )
+}
+
+/// Best-effort append of one formatted line to the persistent log file.
+/// Logging must never break the runtime, so every failure is ignored.
+fn append_log_file(path: &Path, line: &str) {
+    if fs::metadata(path).map(|meta| meta.len()).unwrap_or(0) > MAX_LOG_FILE_BYTES {
+        let rotated = path.with_extension("log.1");
+        let _ = fs::rename(path, rotated);
+    }
+    if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{line}");
+    }
 }
 
 fn write_text(path: &Path, content: &str) -> Result<(), String> {
@@ -1320,6 +1417,7 @@ impl BridgeManager {
             state.generation += 1;
             state.phase = RuntimePhase::Checking;
             state.message = "正在检查 DSH 安装...".to_string();
+            state.auto_restart_pending = false;
             state.generation
         };
         self.emit_status(&app);
@@ -1337,6 +1435,8 @@ impl BridgeManager {
             state.message = message.to_string();
             state.registry_testing = false;
             state.stdin = None;
+            state.crash_count = 0;
+            state.auto_restart_pending = false;
             let pid = state.pid.take();
             let install_pid = state.install_pid.take();
             pending_error(&mut state, "DSH 桌面宿主已停止".to_string());
@@ -1605,18 +1705,20 @@ impl BridgeManager {
         stream: &str,
         text: impl Into<String>,
     ) {
+        let text = text.into();
+        let entry = DshRuntimeLog {
+            time: now_millis(),
+            phase: phase.to_string(),
+            stream: stream.to_string(),
+            text: text.clone(),
+        };
+        if let Ok(mut logs) = self.logs.lock() {
+            logs.push(entry.clone());
+        }
         if !self.is_current(generation) {
             return;
         }
-        let text = text.into();
-        let _ = app.emit(
-            "dsh-runtime-log",
-            DshRuntimeLog {
-                phase: phase.to_string(),
-                stream: stream.to_string(),
-                text: text.clone(),
-            },
-        );
+        let _ = app.emit("dsh-runtime-log", entry);
         if stream == "diagnostic" || stream == "stderr" {
             let _ = app.emit("dsh-diagnostic", text);
         }
@@ -1624,6 +1726,44 @@ impl BridgeManager {
 
     fn emit_diagnostic(&self, app: &AppHandle, generation: u64, message: String) {
         self.emit_runtime_log(app, generation, "runtime", "diagnostic", message);
+    }
+
+    fn log_snapshot(&self) -> Vec<DshRuntimeLog> {
+        self.logs
+            .lock()
+            .map(|logs| logs.snapshot())
+            .unwrap_or_default()
+    }
+
+    /// Record a frontend-originated event (window error, unhandled rejection or
+    /// console.error with its stack trace) into the shared log store.
+    fn log_frontend(&self, stream: String, text: String) {
+        let entry = DshRuntimeLog {
+            time: now_millis(),
+            phase: "frontend".to_string(),
+            stream,
+            text,
+        };
+        if let Ok(mut logs) = self.logs.lock() {
+            logs.push(entry);
+        }
+    }
+
+    /// 生成格式化后的日志导出文本（不再写盘；由前端通过原生“另存为”对话框落盘）。
+    fn log_export_content(&self) -> String {
+        let entries = self.log_snapshot();
+        let mut content = format!(
+            "Deeptop log export\nTime: {}\nDSH home: {}\nPlatform: {}\nEntries: {}\n\n",
+            format_utc_datetime((now_millis() / 1000) as i64),
+            dsh_home().display(),
+            env::consts::OS,
+            entries.len(),
+        );
+        for entry in &entries {
+            content.push_str(&format_log_line(entry));
+            content.push('\n');
+        }
+        content
     }
 
     fn handle_stdout(&self, app: &AppHandle, generation: u64, line: String) {
@@ -1649,6 +1789,7 @@ impl BridgeManager {
                         }
                         state.phase = RuntimePhase::Ready;
                         state.message = "DSH 已就绪".to_string();
+                        state.crash_count = 0;
                         true
                     })
                     .unwrap_or(false);
@@ -1722,12 +1863,12 @@ impl BridgeManager {
         pid: u32,
         result: std::io::Result<std::process::ExitStatus>,
     ) {
-        let changed = self
+        let (changed, restart_delay) = self
             .state
             .lock()
             .map(|mut state| {
                 if state.generation != generation || state.pid != Some(pid) {
-                    return false;
+                    return (false, None);
                 }
                 state.pid = None;
                 state.stdin = None;
@@ -1742,11 +1883,40 @@ impl BridgeManager {
                 }
                 let message = state.message.clone();
                 pending_error(&mut state, message);
-                true
+                // Auto-recover from an unexpected exit: schedule a bounded restart
+                // with a short backoff. `stop()` (manual restart) and a successful
+                // boot reset the counter, so this only loops when DSH keeps dying
+                // without reaching Ready (guards against a crash loop).
+                let restart_delay = if !state.auto_restart_pending && state.crash_count < MAX_AUTO_RESTARTS {
+                    state.crash_count += 1;
+                    state.auto_restart_pending = true;
+                    let count = state.crash_count;
+                    let delay = AUTO_RESTART_BASE_DELAY.saturating_mul(1u32 << count.saturating_sub(1).min(8));
+                    Some(delay)
+                } else {
+                    None
+                };
+                (true, restart_delay)
             })
-            .unwrap_or(false);
+            .unwrap_or((false, None));
         if changed {
             self.emit_status(app);
+        }
+        if let Some(delay) = restart_delay {
+            let manager = self.clone();
+            let app = app.clone();
+            let message = format!(
+                "检测到 DSH 意外退出，将在 {} 秒后自动重启",
+                delay.as_secs_f32().round().max(1.0)
+            );
+            self.emit_runtime_log(&app, generation, "runtime", "diagnostic", message);
+            thread::spawn(move || {
+                thread::sleep(delay);
+                if let Ok(mut state) = manager.state.lock() {
+                    state.auto_restart_pending = false;
+                }
+                manager.ensure_started(&app);
+            });
         }
     }
 
@@ -1911,9 +2081,70 @@ fn bridge_request(
     runtime.request(method, payload)
 }
 
+#[tauri::command]
+fn get_runtime_logs(runtime: State<'_, BridgeManager>) -> Vec<DshRuntimeLog> {
+    runtime.log_snapshot()
+}
+
+#[tauri::command]
+fn log_frontend_event(runtime: State<'_, BridgeManager>, stream: String, text: String) {
+    runtime.log_frontend(stream, text);
+}
+
+#[tauri::command]
+fn export_runtime_logs(runtime: State<'_, BridgeManager>) -> String {
+    runtime.log_export_content()
+}
+
+#[tauri::command]
+fn open_logs_directory() -> Result<(), String> {
+    let directory = logs_directory();
+    fs::create_dir_all(&directory)
+        .map_err(|error| format!("无法创建日志目录 {}：{error}", directory.display()))?;
+    let mut command = if cfg!(windows) {
+        let mut command = Command::new("explorer");
+        command.arg(&directory);
+        command
+    } else if cfg!(target_os = "macos") {
+        let mut command = Command::new("open");
+        command.arg(&directory);
+        command
+    } else {
+        let mut command = Command::new("xdg-open");
+        command.arg(&directory);
+        command
+    };
+    #[cfg(windows)]
+    configure_hidden_process(&mut command);
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("无法打开日志目录：{error}"))
+}
+
+/// 弹出原生“另存为”对话框，把导出内容（JSON 或 ZIP 字节）直接写入用户选择的
+/// 位置，返回保存后的完整路径；用户取消时返回 None。对话框在后台线程打开，
+/// 避免阻塞主窗口事件循环，也不走 WebView 的下载流程。
+#[tauri::command]
+async fn save_export_file(default_name: String, data: Vec<u8>) -> Result<Option<String>, String> {
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        rfd::FileDialog::new()
+            .set_title("导出会话")
+            .set_file_name(&default_name)
+            .save_file()
+    })
+    .await
+    .map_err(|error| format!("打开保存对话框失败：{error}"))?;
+    let Some(path) = picked else {
+        return Ok(None);
+    };
+    fs::write(&path, &data).map_err(|error| format!("写入 {} 失败：{error}", path.display()))?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::is_dsh_package_manifest;
+    use super::{format_log_line, format_utc_datetime, is_dsh_package_manifest, DshRuntimeLog};
 
     #[test]
     fn accepts_the_dsh_package_manifest() {
@@ -1924,6 +2155,27 @@ mod tests {
     fn rejects_missing_or_invalid_dsh_package_manifests() {
         assert!(!is_dsh_package_manifest(r#"{"name":"other-package"}"#));
         assert!(!is_dsh_package_manifest("not json"));
+    }
+
+    #[test]
+    fn formats_utc_timestamps_for_logs() {
+        assert_eq!(format_utc_datetime(0), "1970-01-01 00:00:00");
+        assert_eq!(format_utc_datetime(1_700_000_000), "2023-11-14 22:13:20");
+        assert_eq!(format_utc_datetime(1_725_260_400), "2024-09-02 07:00:00");
+    }
+
+    #[test]
+    fn formats_log_lines_with_millis_and_stream() {
+        let entry = DshRuntimeLog {
+            time: 1_700_000_000_123,
+            phase: "runtime".to_string(),
+            stream: "stderr".to_string(),
+            text: "boom".to_string(),
+        };
+        assert_eq!(
+            format_log_line(&entry),
+            "[2023-11-14 22:13:20.123] [runtime/stderr] boom"
+        );
     }
 }
 
@@ -1949,6 +2201,11 @@ fn main() {
             acknowledge_pending_open_session,
             send_system_notification,
             bridge_request,
+            get_runtime_logs,
+            log_frontend_event,
+            export_runtime_logs,
+            open_logs_directory,
+            save_export_file,
         ])
         .run(tauri::generate_context!())
         .expect("启动 Deeptop 失败");

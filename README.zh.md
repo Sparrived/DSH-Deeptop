@@ -29,6 +29,7 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 | 模型与 Provider | 有边界地支持 | Provider/模型目录、每会话模型选择、思考程度、上下文窗口和输入模态元数据、Provider 发现及自定义连接设置。Schema 驱动的 Provider 表单尚未完整实现。 |
 | 工具与交互 | 已支持 | 工具调用/结果、Workflow、Job、Todo、轨迹视图、单选/多选/自定义问题响应，以及审批响应。 |
 | 反馈与导出 | 部分支持 | 消息赞/踩和带版本的备注可用；会话 JSON/ZIP 导出可用，但 ZIP 当前通过 JSONL Bridge 以 Base64 传输，尚未采用原生流式下载。 |
+| 诊断与日志 | 支持 | DSH 运行时、Bridge 与前端错误堆栈按时间戳记录，持续写入 `$DSH_HOME/logs`，并可在 设置 → 日志 中查看、筛选和导出。 |
 | DSH 运行台 | 依赖 Profile 的能力 | Profile/插件清单、运行时检查器、Host 设置、Skill 目录、Agent Preset、Subagent 历史/追问/中断和 Goal 生命周期。可选域缺失时保持不可用，不伪造成功。 |
 | Skill 安装 | 已支持 | 输入框 `/skill` 候选，以及受审批保护的 GitHub 安装，支持直接下载和 sparse-git fallback。 |
 | Remote 与事件 | 已支持 | Typert Remote loopback 调用和官方 Host 事件转发；原生界面适配契约，不加载 WebUI Client Bundle。 |
@@ -229,6 +230,10 @@ Deeptop 的目标是“功能和契约兼容，界面和生命周期原生化”
 ### 修改了插件但没有生效
 
 确认修改的是 `$DSH_HOME/profiles/desktop/cordis.patch.yml`，而不是生成的 `profiles/node_modules/deeptop-bridge/cordis.patch.yml`；然后刷新 DSH 运行时。插件依赖、Profile 注入顺序和 Host 错误可在 Inspector/诊断信息中检查。
+
+### 排查崩溃或请求失败
+
+打开 设置 → 日志。运行时、Bridge 与前端错误的堆栈会带时间戳显示；点击「刷新」可从桌面宿主回填历史日志，「打开日志目录」可查看 `$DSH_HOME/logs/deeptop.log`，「导出日志」可生成带时间戳的日志快照文件用于分享。
 
 ## 项目结构
 

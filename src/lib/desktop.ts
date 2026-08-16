@@ -18,9 +18,17 @@ export interface DshStatus {
   message: string;
 }
 
-export type DshRuntimeLogStream = "command" | "stdout" | "stderr" | "diagnostic";
+export type DshRuntimeLogStream =
+  | "command"
+  | "stdout"
+  | "stderr"
+  | "diagnostic"
+  | "frontend"
+  | "console";
 
 export interface DshRuntimeLog {
+  /** Epoch milliseconds at which the entry was recorded by the desktop host. */
+  time: number;
   phase: string;
   stream: DshRuntimeLogStream;
   text: string;
@@ -443,6 +451,15 @@ export async function openNodejsDownload(): Promise<void> {
   await invoke("open_nodejs_download");
 }
 
+/**
+ * 弹出原生“另存为”对话框，把字节内容直接写入用户选择的位置（不经过 WebView
+ * 的下载确认弹窗）。返回保存后的完整路径；用户取消或处于浏览器预览模式时返回 null。
+ */
+export async function saveExportFile(defaultName: string, data: Uint8Array): Promise<string | null> {
+  if (!isTauri()) return null;
+  return invoke<string | null>("save_export_file", { defaultName, data });
+}
+
 export async function listenToBridgeEvent(handler: (event: DshBridgeEvent) => void): Promise<UnlistenFn> {
   return listen<DshBridgeEvent>("deeptop-bridge-event", (event) => handler(event.payload));
 }
@@ -457,4 +474,32 @@ export async function listenToDiagnostic(handler: (message: string) => void): Pr
 
 export async function listenToRuntimeLog(handler: (log: DshRuntimeLog) => void): Promise<UnlistenFn> {
   return listen<DshRuntimeLog>("dsh-runtime-log", (event) => handler(event.payload));
+}
+
+/** Fetch the desktop host's buffered runtime log (survives frontend reloads). */
+export async function getRuntimeLogs(): Promise<DshRuntimeLog[]> {
+  if (!isTauri()) return [];
+  const logs = await invoke<unknown>("get_runtime_logs");
+  return Array.isArray(logs) ? (logs as DshRuntimeLog[]) : [];
+}
+
+/** Forward a frontend-originated event (window error, unhandled rejection or console.error) with its stack trace into the desktop log store. */
+export async function logFrontendEvent(stream: "error" | "console", text: string): Promise<void> {
+  if (!isTauri()) return;
+  try {
+    await invoke("log_frontend_event", { stream, text });
+  } catch {
+    // Logging must never interrupt the app.
+  }
+}
+
+/** Return the formatted buffered runtime log content for export. */
+export async function exportRuntimeLogs(): Promise<string> {
+  return invoke<string>("export_runtime_logs");
+}
+
+/** Reveal the persistent log directory in the OS file manager. */
+export async function openLogsDirectory(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("open_logs_directory");
 }

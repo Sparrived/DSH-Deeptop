@@ -30,6 +30,7 @@ The desktop workbench currently provides the core conversation surface and a nat
 | Models and providers | Supported with boundaries | Provider/model catalogs, per-session model selection, reasoning effort, context-window and input-modality metadata, provider discovery and custom connection settings. Schema-driven provider forms are not complete. |
 | Tools and interaction | Supported | Tool call/result rows, Workflow, Job, Todo, trajectory views, user questions with single/multi-select and custom answers, plus approval responses. |
 | Feedback and export | Partial | Message Like/Dislike and versioned notes are available; session JSON/ZIP export is available, while ZIP currently crosses the JSONL Bridge as Base64 and is not yet a native streaming transfer. |
+| Diagnostics and logs | Supported | Runtime, Bridge and frontend stack traces are captured with timestamps, persisted under `$DSH_HOME/logs`, and can be viewed, filtered and exported from the Settings → 日志 panel. |
 | DSH workbench | Supported where the Profile provides the domain | Profile/plugin inventory, runtime inspector, Host settings, Skill catalog, Agent Presets, Subagent history/follow-up/interruption and Goal lifecycle. Missing optional domains remain unavailable instead of being faked. |
 | Skill installation | Supported | `/skill` input candidates and approval-gated GitHub installation with direct-download and sparse-git fallback. |
 | Remote and events | Supported | Typert Remote loopback calls and forwarded official Host events; native UI adapts the contracts rather than loading WebUI Client bundles. |
@@ -210,6 +211,7 @@ WEBUI_PARITY.md            WebUI alignment status and gaps
 - **DSH does not become ready:** inspect the runtime panel and diagnostics; check npm access, a writable `DSH_HOME`, and valid JSON/YAML in the desktop Profile. Refreshing the runtime restarts the child process.
 - **No sessions in the browser preview:** expected; only `npm run tauri:dev` owns the Rust Bridge and DSH child.
 - **A Profile change has no effect:** edit `$DSH_HOME/profiles/desktop/cordis.patch.yml`, not the generated Bridge package, then refresh DSH.
+- **Troubleshooting a crash or failed request:** open Settings → 日志. Runtime, Bridge and frontend error stack traces are shown with timestamps; use 刷新 to backfill from the desktop host, 打开日志目录 to inspect `$DSH_HOME/logs/deeptop.log`, or 导出日志 to write a timestamped snapshot file to share.
 
 ## Contribution checklist
 

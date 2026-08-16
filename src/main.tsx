@@ -1,7 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { installFrontendLogCapture } from "./lib/frontend-log";
 import "./styles.css";
+
+installFrontendLogCapture();
 
 document.addEventListener("contextmenu", (event) => {
   // Session rows and workspace headers own contextual action menus.

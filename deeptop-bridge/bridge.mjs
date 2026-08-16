@@ -12,6 +12,13 @@ function errorMessage(error) {
   return error instanceof Error ? error.message : String(error)
 }
 
+// Stack traces are forwarded as diagnostics (not as the user-facing error) so
+// developers can troubleshoot failed desktop requests from the log viewer.
+function errorDetail(error) {
+  if (error instanceof Error && error.stack) return error.stack
+  return errorMessage(error)
+}
+
 export class DesktopBridge {
   constructor(ctx) {
     this.ctx = ctx
@@ -61,6 +68,11 @@ export class DesktopBridge {
       this.write({ type: 'response', id: request.id, response })
     } catch (error) {
       this.write({ type: 'response', id: request.id, error: errorMessage(error) })
+      this.write({
+        type: 'diagnostic',
+        level: 'error',
+        message: `desktop request ${request.method} failed: ${errorDetail(error)}`,
+      })
     }
   }
 
@@ -77,7 +89,7 @@ export class DesktopBridge {
       }
     } catch (error) {
       if (!this.closed && !this.abort.signal.aborted) {
-        this.write({ type: 'diagnostic', level: 'error', message: `${channel} event stream ended: ${errorMessage(error)}` })
+        this.write({ type: 'diagnostic', level: 'error', message: `${channel} event stream ended: ${errorDetail(error)}` })
       }
     }
   }
@@ -87,7 +99,7 @@ export class DesktopBridge {
   }
 
   writeFatal(error) {
-    this.write({ type: 'fatal', message: errorMessage(error) })
+    this.write({ type: 'fatal', message: errorDetail(error) })
   }
 
   dispose() {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   markSessionError,
+  reconcileSessionIndicators,
   removeSessionRecordEntry,
   updateSessionIndicator,
   updateSessionRunning,
@@ -38,4 +39,38 @@ test("removes only stale interaction state for the failed session", () => {
     "session-2": { rpcId: "rpc-2" },
   });
   assert.equal(removeSessionRecordEntry(current, "missing"), current);
+});
+
+test("resets stale running indicators after DSH restarts", () => {
+  const indicators = {
+    "session-1": "running", // crashed mid-turn, never received running=false
+    "session-2": "running", // still genuinely running
+    "session-3": "error",
+    "session-4": "completed",
+  };
+  const sessions = [
+    { sessionId: "session-1", running: false },
+    { sessionId: "session-2", running: true },
+    { sessionId: "session-3", running: false },
+    { sessionId: "session-4", running: false },
+  ];
+
+  const reconciled = reconcileSessionIndicators(indicators, sessions);
+
+  assert.deepEqual(reconciled, {
+    "session-1": "idle",
+    "session-2": "running",
+    "session-3": "error",
+    "session-4": "completed",
+  });
+});
+
+test("leaves indicators untouched when nothing is stale", () => {
+  const indicators = { "session-1": "idle", "session-2": "running" };
+  const sessions = [
+    { sessionId: "session-1", running: false },
+    { sessionId: "session-2", running: true },
+  ];
+
+  assert.equal(reconcileSessionIndicators(indicators, sessions), indicators);
 });

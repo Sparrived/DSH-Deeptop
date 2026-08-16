@@ -1,4 +1,4 @@
-import type { DshModel, DshPluginInventoryEntry, DshPreset, DshPromptContentPart, DshSessionSummary, DshStatus } from "../lib/desktop";
+import type { DshModel, DshPluginInventoryEntry, DshPreset, DshPromptContentPart, DshRuntimeLog, DshSessionSummary, DshStatus } from "../lib/desktop";
 import type { ChildSubagentEntry, ComposerAttachment, ComposerCandidate, ComposerTrigger } from "./model-types";
 
 export function projectName(path: string | undefined) {
@@ -176,4 +176,38 @@ export function sessionIsVisible(session: DshSessionSummary, workspace: string, 
   if (!query) return true;
   const haystack = `${displayTitle(session)} ${session.cwd ?? ""}`.toLowerCase();
   return haystack.includes(query.toLowerCase());
+}
+
+export function formatRuntimeLogTime(time?: number) {
+  if (typeof time !== "number" || Number.isNaN(time)) return "";
+  const date = new Date(time);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}.${String(date.getUTCMilliseconds()).padStart(3, "0")}`;
+}
+
+export function formatRuntimeLog(log: DshRuntimeLog) {
+  return `[${formatRuntimeLogTime(log.time)}] [${log.phase}/${log.stream}] ${log.text}`;
+}
+
+export function formatRuntimeLogs(logs: DshRuntimeLog[]) {
+  return logs.map(formatRuntimeLog).join("\n");
+}
+
+export function runtimeLogStreamLabel(stream: DshRuntimeLog["stream"]) {
+  switch (stream) {
+    case "command": return "命令";
+    case "stdout": return "输出";
+    case "stderr": return "错误";
+    case "diagnostic": return "诊断";
+    case "frontend": return "前端错误";
+    case "console": return "控制台";
+  }
+}
+
+export function runtimeLogMatches(log: DshRuntimeLog, query: string) {
+  if (!query.trim()) return true;
+  const q = query.trim().toLowerCase();
+  return log.text.toLowerCase().includes(q)
+    || log.phase.toLowerCase().includes(q)
+    || log.stream.toLowerCase().includes(q);
 }
