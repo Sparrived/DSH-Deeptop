@@ -30,8 +30,10 @@ mod registry {
 
     const DEFAULT: &str = "https://registry.npmjs.org";
     const MIRROR: &str = "https://registry.npmmirror.com";
+    const TENCENT_MIRROR: &str = "https://mirrors.cloud.tencent.com/npm";
+    const HUAWEI_MIRROR: &str = "https://repo.huaweicloud.com/repository/npm";
     const PACKAGE: &str = "@deepseek-ai/dsh@latest";
-    const TIMEOUT: Duration = Duration::from_secs(20);
+    const TIMEOUT: Duration = Duration::from_secs(8);
 
     #[derive(Clone)]
     pub struct Probe {
@@ -70,13 +72,16 @@ mod registry {
     }
 
     fn candidates() -> Vec<String> {
-        let configured = env::var("npm_config_registry")
+        let configured = env::var("DSH_REGISTRY")
+            .or_else(|_| env::var("npm_config_registry"))
             .or_else(|_| env::var("NPM_CONFIG_REGISTRY"))
             .ok()
             .and_then(|value| normalize(&value));
         [
             configured,
             Some(MIRROR.to_string()),
+            Some(TENCENT_MIRROR.to_string()),
+            Some(HUAWEI_MIRROR.to_string()),
             Some(DEFAULT.to_string()),
         ]
         .into_iter()
@@ -168,7 +173,7 @@ mod registry {
                 "--registry",
                 &registry,
                 "--fetch-timeout",
-                "20000",
+                "15000",
                 "--fetch-retries",
                 "0",
                 "--prefer-online",
@@ -216,7 +221,7 @@ mod registry {
                     .flatten()
                     .filter_map(|entry| {
                         let path = entry.path();
-                        if path.extension().and_then(|v| v.to_str()) != Some("tgz")
+                        if path.extension().and_then(|value| value.to_str()) != Some("tgz")
                             || !entry.file_type().ok()?.is_file()
                         {
                             return None;
@@ -226,7 +231,7 @@ mod registry {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        let bytes = if status.map(|status| status.success()).unwrap_or(false)
+        let bytes = if status.map(|value| value.success()).unwrap_or(false)
             && tarballs.len() == 1
             && tarballs[0] > 0
         {
@@ -308,10 +313,10 @@ mod registry {
         let selected = probes
             .iter()
             .filter(|probe| probe.ok)
-            .max_by(|a, b| {
-                a.speed_kib
-                    .total_cmp(&b.speed_kib)
-                    .then_with(|| b.elapsed_ms.cmp(&a.elapsed_ms))
+            .max_by(|left, right| {
+                left.speed_kib
+                    .total_cmp(&right.speed_kib)
+                    .then_with(|| right.elapsed_ms.cmp(&left.elapsed_ms))
             })
             .map(|probe| probe.registry.clone())
             .unwrap_or_else(|| DEFAULT.to_string());
@@ -643,7 +648,10 @@ fn npm_command() -> Result<Command, String> {
         .env("NPM_CONFIG_YES", "true")
         .env("NPM_CONFIG_AUDIT", "false")
         .env("NPM_CONFIG_FUND", "false")
-        .env("NPM_CONFIG_UPDATE_NOTIFIER", "false");
+        .env("NPM_CONFIG_UPDATE_NOTIFIER", "false")
+        .env("NPM_CONFIG_CACHE", dsh_home().join("npm-cache"))
+        .env("NPM_CONFIG_MAXSOCKETS", "50")
+        .env("NPM_CONFIG_PROGRESS", "false");
     #[cfg(windows)]
     configure_hidden_process(&mut command);
     #[cfg(unix)]
@@ -712,7 +720,12 @@ fn install_dsh(
             "--no-audit",
             "--no-fund",
             "--no-update-notifier",
-            "--force",
+            "--prefer-offline",
+            "--fetch-retries=1",
+            "--fetch-retry-mintimeout=1000",
+            "--fetch-retry-maxtimeout=5000",
+            "--fetch-timeout=30000",
+            "--progress=false",
             DSH_PACKAGE,
         ])
         .current_dir(&home)
