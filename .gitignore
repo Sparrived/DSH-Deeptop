@@ -10,8 +10,5 @@ src-tauri/gen/
 .DS_Store
 *.log
 
-# Local DSH profile/session probes
-work/desktop-profile-probe/
-work/desktop-session-probe*/
-work/desktop-session-probe*.mjs
-work/dsh-warmup-home/
+# Local DSH profile/session probes and repro artifacts
+work/
