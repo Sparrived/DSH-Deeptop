@@ -1283,7 +1283,8 @@ function App() {
         try {
           const repair = await repairCorruptSession(session.sessionId);
           if (repair.repaired) {
-            setNotice(`已自动修复崩溃损坏的会话日志（保留 ${repair.recoveredEvents} 条已提交记录）`);
+            const dropped = [repair.droppedTorn > 0 ? `${repair.droppedTorn} 条未完成记录` : null, repair.droppedSeqGap > 0 ? `${repair.droppedSeqGap} 条重叠记录` : null].filter(Boolean).join("、");
+            setNotice(`已自动修复崩溃损坏的会话日志（保留 ${repair.recoveredEvents} 条已提交记录${dropped ? `，丢弃 ${dropped}` : ""}）`);
           } else {
             setNotice("会话日志已恢复可读，正在重新打开");
           }
@@ -1313,7 +1314,8 @@ function App() {
     try {
       const repair = await repairCorruptSession(target.sessionId);
       if (repair.repaired) {
-        setNotice(`已修复会话日志（保留 ${repair.recoveredEvents} 条已提交记录，丢弃 ${repair.droppedTorn} 条未完成记录）`);
+        const dropped = [repair.droppedTorn > 0 ? `${repair.droppedTorn} 条未完成记录` : null, repair.droppedSeqGap > 0 ? `${repair.droppedSeqGap} 条重叠记录` : null].filter(Boolean).join("、");
+        setNotice(`已修复会话日志（保留 ${repair.recoveredEvents} 条已提交记录${dropped ? `，丢弃 ${dropped}` : ""}）`);
       } else {
         setNotice("会话日志当前可读，正在重新打开");
       }

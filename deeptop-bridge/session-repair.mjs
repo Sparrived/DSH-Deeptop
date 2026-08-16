@@ -126,10 +126,106 @@ export function encodeLog(header, events) {
   return Buffer.concat(frames);
 }
 
+// Session event rows whose seqs are packed as a delta run beginning at seq0.
+const CHUNK_TAGS = new Set(["text-chunks", "reasoning-chunks", "tool-call-chunks"]);
+
+function hasExactKeys(value, keys) {
+  const present = Object.keys(value);
+  return present.length === keys.length && keys.every((key) => present.includes(key));
+}
+
+/**
+ * The sequence numbers a decoded storage record contributes, replicating
+ * `decodeStorageRecord` in @deepseek-ai/dsh-session: a packed chunk row expands
+ * to one seq per member (`seq0 + k`), any other record is a single event with
+ * `seq`. Returns `null` when the record is not a decodable event row — the
+ * header, a malformed packed row, or a record with no usable seq — matching the
+ * malformations `decodeStorageRecord`/`validateRow` throw on.
+ * @param parsed - the JSON-parsed storage record.
+ * @returns the record's seqs in order, or `null` when not decodable.
+ */
+export function rowSeqs(parsed) {
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const tag = parsed.type;
+  if (CHUNK_TAGS.has(tag)) {
+    if (!hasExactKeys(parsed, ["type", "seq0", "time0", "data"])) return null;
+    if (!Number.isSafeInteger(parsed.seq0) || parsed.seq0 < 0) return null;
+    if (!Number.isSafeInteger(parsed.time0)) return null;
+    const data = parsed.data;
+    if (data === null || typeof data !== "object" || Array.isArray(data)) return null;
+    if (typeof data.turn !== "number" || typeof data.step !== "number" || typeof data.index !== "number") return null;
+    let payload;
+    if (tag === "tool-call-chunks") {
+      const withName = hasExactKeys(data, ["turn", "step", "index", "id", "name", "dt", "args"]);
+      if (!withName && !hasExactKeys(data, ["turn", "step", "index", "id", "dt", "args"])) return null;
+      if (typeof data.id !== "string" || (withName && typeof data.name !== "string")) return null;
+      payload = data.args;
+    } else {
+      if (!hasExactKeys(data, ["turn", "step", "index", "dt", "texts"])) return null;
+      payload = data.texts;
+    }
+    if (!Array.isArray(payload) || payload.length === 0 || payload.some((entry) => typeof entry !== "string")) return null;
+    if (!Array.isArray(data.dt) || data.dt.some((gap) => !Number.isSafeInteger(gap))) return null;
+    if (data.dt.length !== payload.length - 1) return null;
+    if (!Number.isSafeInteger(parsed.seq0 + payload.length - 1)) return null;
+    return payload.map((_, k) => parsed.seq0 + k);
+  }
+  if (typeof parsed.seq !== "number" || !Number.isSafeInteger(parsed.seq)) return null;
+  return [parsed.seq];
+}
+
+/**
+ * Reconstruct the longest contiguous event stream from committed records by
+ * keeping every record whose decoded seqs continue the running counter and
+ * dropping the rest. Concurrent or restarted writers can interleave overlapping
+ * seq branches in the committed region (each writer carries its own stale seq
+ * counter); keeping only the records that continue the counter yields one
+ * coherent, DSH-readable stream. Always terminates with a valid prefix, so a
+ * clean log is returned unchanged.
+ * @param records - committed event records, in file order.
+ * @returns the kept records, how many were dropped, and the final seq count.
+ */
+export function reconstructContiguous(records) {
+  const kept = [];
+  let counter = 0;
+  let dropped = 0;
+  for (const record of records) {
+    let parsed;
+    try {
+      parsed = JSON.parse(record);
+    } catch {
+      dropped += 1;
+      continue;
+    }
+    const seqs = rowSeqs(parsed);
+    if (seqs === null) {
+      dropped += 1;
+      continue;
+    }
+    let fits = seqs[0] === counter;
+    if (fits) {
+      for (let k = 1; k < seqs.length; k++) {
+        if (seqs[k] !== seqs[k - 1] + 1) {
+          fits = false;
+          break;
+        }
+      }
+    }
+    if (fits) {
+      kept.push(record);
+      counter += seqs.length;
+    } else {
+      dropped += 1;
+    }
+  }
+  return { kept, dropped, count: counter };
+}
+
 /**
  * Validate that a rebuilt log is readable by the same rules DSH applies to a
- * complete artifact: every complete frame decodes, the first frame is exactly
- * one header line, every event record is valid JSON, and no torn tail remains.
+ * complete artifact: every complete frame decodes, the first line is a session
+ * header, every event record is valid JSON and decodes to a session event, the
+ * decoded seqs are exactly contiguous from 0, and no torn tail remains.
  * @param bytes - the artifact bytes to validate.
  * @returns `null` when readable, otherwise a human-readable failure reason.
  */
@@ -141,8 +237,7 @@ export function verifyReadable(bytes) {
     return error instanceof Error ? error.message : String(error);
   }
   if (frames.length === 0) return "no readable header frame";
-  let committed = 0;
-  let input = 0;
+  const plains = [];
   for (let i = 0; i < frames.length; i++) {
     let plain;
     try {
@@ -150,36 +245,53 @@ export function verifyReadable(bytes) {
     } catch (error) {
       return `frame ${i} failed to decode: ${error instanceof Error ? error.message : String(error)}`;
     }
-    input += plain.length;
-    if (i === 0) {
-      if (plain.length === 0 || plain.indexOf(10) !== plain.length - 1) {
-        return "header frame is not exactly one header line";
-      }
-      committed += plain.length;
-      continue;
+    plains.push(plain);
+  }
+  const text = Buffer.concat(plains).toString("utf8");
+  if (!text.endsWith("\n")) return "a torn JSONL record remains";
+  const lines = text.split("\n");
+  if (lines.length < 2) return "no event records after the header";
+  let parsedHeader;
+  try {
+    parsedHeader = JSON.parse(lines[0]);
+  } catch {
+    return "header line is not valid JSON";
+  }
+  if (!parsedHeader || typeof parsedHeader !== "object" || parsedHeader.type !== "session") {
+    return "first line is not a session header";
+  }
+  let counter = 0;
+  let eventLine = 0;
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (line === "") continue;
+    eventLine += 1;
+    let parsed;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      return `event record at line ${eventLine} is not valid JSON`;
     }
-    let lineStart = 0;
-    for (let nl = plain.indexOf(10); nl !== -1; nl = plain.indexOf(10, lineStart)) {
-      try {
-        JSON.parse(plain.subarray(lineStart, nl).toString("utf8"));
-      } catch {
-        return `event record at byte ${frames[i].start + lineStart} is not valid JSON`;
+    const seqs = rowSeqs(parsed);
+    if (seqs === null) return `event record at line ${eventLine} is not a decodable session event`;
+    for (const seq of seqs) {
+      if (seq !== counter) {
+        return `seq gap in committed region at line ${eventLine} (expected ${counter}, got ${seq})`;
       }
-      committed += nl - lineStart + 1;
-      lineStart = nl + 1;
+      counter += 1;
     }
   }
-  if (committed !== input) return "a torn JSONL record remains";
   return null;
 }
 
 /**
- * Repair a session log artifact in memory. The committed prefix is preserved,
- * the uncommitted torn tail (and any undecodable trailing frames) is dropped,
- * and the log is rebuilt and validated. A log that is already readable is
- * reported as an unchanged no-op.
+ * Repair a session log artifact in memory. The committed prefix is preserved;
+ * the uncommitted torn tail (and any undecodable trailing frames) is dropped;
+ * and overlapping seq branches left by concurrent or restarted writers are
+ * resolved to the longest contiguous stream. The log is then rebuilt and
+ * validated. A log that is already readable is reported as an unchanged no-op.
  * @param buffer - the raw artifact bytes.
- * @returns `{ bytes, header, recoveredEvents, droppedTorn, changed }`.
+ * @returns `{ bytes, header, recoveredEvents, droppedTorn, droppedSeqGap, changed }`.
  * @throws when the log has no readable header and cannot be repaired at all.
  */
 export function repairCorruptLog(buffer) {
@@ -229,17 +341,22 @@ export function repairCorruptLog(buffer) {
       // The torn frame did not decode to usable plaintext; drop it entirely.
     }
   }
-  const bytes = encodeLog(header, events);
+  // Concurrent or restarted writers can interleave overlapping seq branches in
+  // the committed region. Keep the longest contiguous stream: preserve every
+  // record that continues the seq counter, drop the overlapping duplicates.
+  const { kept, dropped: droppedSeqGap, count } = reconstructContiguous(events);
+  const bytes = encodeLog(header, kept);
   const validationError = verifyReadable(bytes);
   if (validationError !== null) {
     throw new Error(`修复后的会话日志未通过校验，已放弃写入：${validationError}`);
   }
-  const changed = droppedTorn > 0 || tornStart !== undefined || goodFrames < frames.length;
+  const changed = droppedTorn > 0 || droppedSeqGap > 0 || tornStart !== undefined || goodFrames < frames.length;
   return {
     bytes,
     header,
-    recoveredEvents: events.length,
+    recoveredEvents: count,
     droppedTorn,
+    droppedSeqGap,
     changed,
   };
 }

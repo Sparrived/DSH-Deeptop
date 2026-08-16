@@ -434,6 +434,8 @@ export interface DshSessionRepairResult {
   repaired: boolean;
   recoveredEvents: number;
   droppedTorn: number;
+  /** Committed records dropped to resolve overlapping seq branches (concurrent writers). */
+  droppedSeqGap: number;
 }
 
 /** Repair a session log that DSH refuses to open after a crash. */

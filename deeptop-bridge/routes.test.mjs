@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { constants, zstdCompressSync, zstdDecompressSync } from 'node:zlib'
 import { routeDesktopRequest } from './routes.mjs'
 import { parseGitHubSource, validateRelativeRepoPath } from './skill-installer.mjs'
-import { scanZstdFrames } from './session-repair.mjs'
+import { reconstructContiguous, rowSeqs, scanZstdFrames, verifyReadable } from './session-repair.mjs'
 
 const signal = new AbortController().signal
 
@@ -345,6 +345,15 @@ function buildRepairFixture(kind) {
     const torn = JSON.stringify({ type: 'user/message', seq: 5, time: 1786888612040, data: { role: 'user', content: [{ type: 'text', text: 'partial' }] } }).slice(0, -7)
     return Buffer.concat([headerFrame, eventFrame, compressZstdFrame(torn)])
   }
+  if (kind === 'seq-gap') {
+    // A stale writer's overlapping branch (seqs 2-3 replay step 1) interleaved
+    // before the surviving writer's continuation (seq 5, turn 2), mirroring two
+    // DSH instances appending to one log after a crash restarted one of them.
+    const stale = repairEventLine('assistant/message', 2, { step: 1, message: { role: 'assistant', content: 'stale' } }) +
+      repairEventLine('assistant/message', 3, { step: 1, message: { role: 'assistant', content: 'stale2' } })
+    const resume = repairEventLine('user/message', 5, { role: 'user', content: [{ type: 'text', text: '继续' }] })
+    return Buffer.concat([headerFrame, eventFrame, compressZstdFrame(stale), compressZstdFrame(resume)])
+  }
   throw new Error(`unknown fixture kind ${kind}`)
 }
 
@@ -387,7 +396,7 @@ test('session.repairCorrupt drops a torn record from a complete frame and rewrit
   await writeFile(artifact, buildRepairFixture('torn-record'))
   try {
     const result = await routeDesktopRequest(repairCtx(artifact), 'session.repairCorrupt', { sessionId: 'session-repair-test' }, signal)
-    assert.deepEqual(result, { repaired: true, recoveredEvents: 5, droppedTorn: 1 })
+    assert.deepEqual(result, { repaired: true, recoveredEvents: 5, droppedTorn: 1, droppedSeqGap: 0 })
     const after = await readFile(artifact)
     assert.equal(committedBytesEqual(after), true, 'repaired log reads clean')
     const text = scanZstdFrames(after).frames
@@ -408,7 +417,7 @@ test('session.repairCorrupt leaves an already-readable log untouched', async () 
   await writeFile(artifact, clean)
   try {
     const result = await routeDesktopRequest(repairCtx(artifact), 'session.repairCorrupt', { sessionId: 'session-repair-test' }, signal)
-    assert.deepEqual(result, { repaired: false, recoveredEvents: 5, droppedTorn: 0 })
+    assert.deepEqual(result, { repaired: false, recoveredEvents: 5, droppedTorn: 0, droppedSeqGap: 0 })
     const after = await readFile(artifact)
     assert.equal(after.equals(clean), true, 'clean log bytes are not rewritten')
   } finally {
@@ -446,6 +455,54 @@ test('session.repairCorrupt reports an unrecoverable artifact instead of writing
       /frame magic|无法修复/,
     )
     assert.equal(await readFile(artifact, 'utf8'), 'this is not a zstd session log', 'artifact is left unchanged')
+  } finally {
+    await removePath(root, { recursive: true, force: true })
+  }
+})
+
+test('rowSeqs expands packed chunk rows and rejects malformed or seq-less rows', () => {
+  assert.deepEqual(rowSeqs({ type: 'reasoning-chunks', seq0: 10, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [1, 1], texts: ['a', 'b', 'c'] } }), [10, 11, 12])
+  assert.deepEqual(rowSeqs({ type: 'text-chunks', seq0: 20, time0: 1, data: { turn: 1, step: 2, index: 0, dt: [3], texts: ['x', 'y'] } }), [20, 21])
+  assert.deepEqual(rowSeqs({ type: 'tool-call-chunks', seq0: 30, time0: 1, data: { turn: 1, step: 3, index: 0, id: 'call-1', name: 'pwsh', dt: [], args: ['{}'] } }), [30])
+  assert.deepEqual(rowSeqs({ type: 'user/message', seq: 3 }), [3])
+  assert.equal(rowSeqs({ type: 'user/message' }), null)
+  assert.equal(rowSeqs({ type: 'reasoning-chunks', seq0: 10, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [1, 1], texts: ['a', 'b'] } }), null)
+  assert.equal(rowSeqs({ type: 'reasoning-chunks', seq0: 10, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [1, 1], texts: ['a', 'b', 3] } }), null)
+  assert.equal(rowSeqs({ type: 'text-chunks', seq0: -1, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [], texts: ['a'] } }), null)
+})
+
+test('reconstructContiguous keeps the longest contiguous stream across overlapping branches', () => {
+  const line = seq => repairEventLine('user/message', seq, { role: 'user' })
+  const { kept, dropped, count } = reconstructContiguous([line(0), line(1), line(2), line(3), line(4), line(2), line(3), line(5)])
+  assert.equal(dropped, 2)
+  assert.equal(count, 6)
+  assert.deepEqual(kept.map(record => JSON.parse(record).seq), [0, 1, 2, 3, 4, 5])
+})
+
+test('verifyReadable detects a seq gap that the old JSON-only check missed', () => {
+  assert.equal(verifyReadable(buildRepairFixture('clean')), null)
+  const corrupt = buildRepairFixture('seq-gap')
+  assert.match(verifyReadable(corrupt), /seq gap/)
+  assert.match(verifyReadable(corrupt), /expected 5, got 2/)
+})
+
+test('session.repairCorrupt resolves overlapping seq branches and keeps the later turn', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-repair-'))
+  const artifact = join(root, 'session.jsonl.zstd')
+  await writeFile(artifact, buildRepairFixture('seq-gap'))
+  try {
+    const result = await routeDesktopRequest(repairCtx(artifact), 'session.repairCorrupt', { sessionId: 'session-repair-test' }, signal)
+    assert.deepEqual(result, { repaired: true, recoveredEvents: 6, droppedTorn: 0, droppedSeqGap: 2 })
+    const after = await readFile(artifact)
+    assert.equal(committedBytesEqual(after), true, 'repaired log reads clean')
+    assert.equal(verifyReadable(after), null, 'repaired log passes the seq-continuity check')
+    const text = scanZstdFrames(after).frames
+      .map(f => zstdDecompressSync(after.subarray(f.start, f.end)).toString('utf8'))
+      .join('')
+    const records = text.split('\n').filter(Boolean).slice(1).map(record => JSON.parse(record))
+    assert.equal(records.length, 6, 'five committed records plus the turn-2 user message')
+    assert.deepEqual(records.map(record => record.seq), [0, 1, 2, 3, 4, 5])
+    assert.equal(records.at(-1).data.content[0].text, '继续', 'the surviving branch (turn 2) is preserved')
   } finally {
     await removePath(root, { recursive: true, force: true })
   }

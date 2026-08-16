@@ -228,10 +228,10 @@ async function repairCorruptSession(ctx, payload, signal) {
   const buffer = await readStableArtifact(location.path, signal)
   const repair = repairCorruptLog(buffer)
   if (!repair.changed) {
-    return { repaired: false, recoveredEvents: repair.recoveredEvents, droppedTorn: repair.droppedTorn }
+    return { repaired: false, recoveredEvents: repair.recoveredEvents, droppedTorn: repair.droppedTorn, droppedSeqGap: repair.droppedSeqGap }
   }
   await writeArtifactAtomically(location.path, repair.bytes)
-  return { repaired: true, recoveredEvents: repair.recoveredEvents, droppedTorn: repair.droppedTorn }
+  return { repaired: true, recoveredEvents: repair.recoveredEvents, droppedTorn: repair.droppedTorn, droppedSeqGap: repair.droppedSeqGap }
 }
 
 function messageAnnotations(ctx) {

@@ -103,6 +103,20 @@ their Host/Remote contracts may still be reused through a native adapter. A
 future full WebUI compatibility mode, if ever required, must be designed as a
 separate runtime rather than mixed into this desktop boundary.
 
+A second corruption class comes from two DSH instances sharing one
+`DSH_HOME` and appending to the same session concurrently (for example a
+crash-restart that leaves a stale daemon alive). Each writer carries its own
+seq counter, so their frames interleave overlapping seq branches in the
+committed region; DSH rejects the result with `corrupt session log: seq gap in
+committed region at line N (expected X, got Y)`. The same repair path handles
+it: `reconstructContiguous` in `session-repair.mjs` decodes every committed
+record (expanding packed `*-chunks` rows exactly like `decodeStorageRecord`)
+and keeps only the records that continue the running seq counter — the longest
+contiguous stream, which preserves every later turn. `verifyReadable` now also
+checks seq continuity, so a rebuilt log is validated by the same rule DSH
+enforces, and the repair reports `droppedSeqGap` alongside `droppedTorn`. To
+prevent recurrence, exactly one DSH instance should run per `DSH_HOME`.
+
 The disposer aborts event streams and closes stdin. This follows the Harness
 plugin lifecycle: resources registered by a plugin must stop when the plugin is
 unloaded.

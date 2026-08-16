@@ -275,6 +275,8 @@ const BRIDGE_PATCH: &str = include_str!("../../deeptop-bridge/cordis.patch.yml")
 const BRIDGE_ENTRY: &str = include_str!("../../deeptop-bridge/index.mjs");
 const BRIDGE_RUNTIME: &str = include_str!("../../deeptop-bridge/bridge.mjs");
 const BRIDGE_ROUTES: &str = include_str!("../../deeptop-bridge/routes.mjs");
+const BRIDGE_SESSION_REPAIR: &str =
+    include_str!("../../deeptop-bridge/session-repair.mjs");
 const BRIDGE_MESSAGE_ANNOTATIONS: &str =
     include_str!("../../deeptop-bridge/message-annotations.mjs");
 const BRIDGE_SKILL_INSTALLER: &str = include_str!("../../deeptop-bridge/skill-installer.mjs");
@@ -753,6 +755,10 @@ fn materialize_desktop_profile() -> Result<(), String> {
     write_text(&bridge_dir.join("index.mjs"), BRIDGE_ENTRY)?;
     write_text(&bridge_dir.join("bridge.mjs"), BRIDGE_RUNTIME)?;
     write_text(&bridge_dir.join("routes.mjs"), BRIDGE_ROUTES)?;
+    write_text(
+        &bridge_dir.join("session-repair.mjs"),
+        BRIDGE_SESSION_REPAIR,
+    )?;
     write_text(
         &bridge_dir.join("message-annotations.mjs"),
         BRIDGE_MESSAGE_ANNOTATIONS,
