@@ -292,7 +292,7 @@ export function ConversationTranscript({
                   </details>
                 ) : item.kind === "reasoning" ? (
                   <details className="reasoning-entry" data-state={item.streaming ? "running" : "ok"}>
-                    <summary><span className="reasoning-marker" /><em>{(item.streaming ? item.text.split("\n").filter(Boolean).at(-1) : item.text.split("\n").filter(Boolean)[0]) || "思考过程"}</em></summary>
+                    <summary><span className="reasoning-marker" aria-hidden="true">💡</span><em>{(item.streaming ? item.text.split("\n").filter(Boolean).at(-1) : item.text.split("\n").filter(Boolean)[0]) || "思考过程"}</em></summary>
                     <div className="reasoning-body"><pre>{item.text}</pre></div>
                   </details>
                 ) : item.kind === "workflow" ? (
@@ -339,7 +339,9 @@ export function ConversationTranscript({
                       <button className={feedback[item.messageId]?.rating === "positive" ? "selected" : ""} type="button" onClick={() => void onFeedback(item.messageId!, "positive")} title="标记为有帮助">赞</button>
                       <button className={feedback[item.messageId]?.rating === "negative" ? "selected" : ""} type="button" onClick={() => void onFeedback(item.messageId!, "negative")} title="标记为需要改进">踩</button>
                       <button type="button" onClick={() => void onEditFeedback(item.messageId!)} title="编辑反馈备注">{feedback[item.messageId]?.note ? "备注" : "加备注"}</button>
-                    </>}
+                    
+     
+     </>}
                     {item.kind === "assistant" && item.seq !== undefined && activeSessionId && (
                       <button type="button" onClick={() => void onForkSession(activeSessionId, item.seq)} title="从此消息分叉">分叉</button>
                     )}
@@ -350,11 +352,12 @@ export function ConversationTranscript({
             );
           })}
           {(loading || activeRunning) && <div className="agent-working" role="status" aria-live="polite">Deep diving...</div>}
-          <div ref={endRef} />
+           <div ref={endRef} />
+     
         </div>
       )}
     </div>
-    {showDeliverablesDock && <DeliverablesDock item={deliverables} activeSession={activeSession} onOpenSessionPath={onOpenSessionPath} />}
+
     </>
   );
 }

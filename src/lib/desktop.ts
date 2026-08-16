@@ -10,6 +10,8 @@ export interface DshStatus {
   runtimeAvailable: boolean;
   runtimeStarting: boolean;
   installing: boolean;
+  registryTesting: boolean;
+  selectedRegistry?: string | null;
   nodeAvailable: boolean;
   npmAvailable: boolean;
   packageAvailable: boolean;

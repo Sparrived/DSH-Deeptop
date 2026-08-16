@@ -3,21 +3,325 @@
 use std::{
     collections::{HashMap, VecDeque},
     env, fs,
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
-    process::{Command, Output, Stdio},
+    process::{Command, Stdio},
     sync::{
         atomic::{AtomicU64, Ordering},
         mpsc, Arc, Mutex,
     },
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use notify_rust::{Notification as DesktopNotification, NotificationResponse};
 use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
+
+mod registry {
+    use std::{
+        env, fs,
+        path::PathBuf,
+        process::{Command, Stdio},
+        thread,
+        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    };
+
+    const DEFAULT: &str = "https://registry.npmjs.org";
+    const MIRROR: &str = "https://registry.npmmirror.com";
+    const PACKAGE: &str = "@deepseek-ai/dsh@latest";
+    const TIMEOUT: Duration = Duration::from_secs(20);
+
+    #[derive(Clone)]
+    pub struct Probe {
+        pub registry: String,
+        pub bytes: u64,
+        pub elapsed_ms: u128,
+        pub speed_kib: f64,
+        pub ok: bool,
+    }
+    pub struct Selection {
+        pub registry: String,
+        pub probes: Vec<Probe>,
+        pub all_failed: bool,
+    }
+
+    fn normalize(value: &str) -> Option<String> {
+        let value = value.trim().trim_end_matches('/');
+        let offset = if value.starts_with("https://") {
+            8
+        } else if value.starts_with("http://") {
+            7
+        } else {
+            return None;
+        };
+        if value.is_empty()
+            || value.chars().any(char::is_whitespace)
+            || value.contains(['@', '?', '#', '\\'])
+        {
+            return None;
+        }
+        let authority = value[offset..].split('/').next().unwrap_or_default();
+        if authority.is_empty() || authority.starts_with(':') || authority.ends_with(':') {
+            return None;
+        }
+        Some(value.to_string())
+    }
+
+    fn candidates() -> Vec<String> {
+        let configured = env::var("npm_config_registry")
+            .or_else(|_| env::var("NPM_CONFIG_REGISTRY"))
+            .ok()
+            .and_then(|value| normalize(&value));
+        [
+            configured,
+            Some(MIRROR.to_string()),
+            Some(DEFAULT.to_string()),
+        ]
+        .into_iter()
+        .flatten()
+        .fold(Vec::new(), |mut values, value| {
+            if !values.contains(&value) {
+                values.push(value);
+            }
+            values
+        })
+    }
+
+    fn workspace(registry: &str) -> Option<PathBuf> {
+        let safe: String = registry
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect();
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .ok()?
+            .as_nanos();
+        (0..8).find_map(|attempt| {
+            let path = env::temp_dir().join(format!("deeptop-registry-{safe}-{stamp}-{attempt}"));
+            fs::create_dir(&path).ok().map(|_| path)
+        })
+    }
+
+    fn kill(pid: u32) {
+        #[cfg(windows)]
+        {
+            let mut command = Command::new("taskkill");
+            command.args(["/PID", &pid.to_string(), "/T", "/F"]);
+            let _ = command.status();
+        }
+        #[cfg(unix)]
+        {
+            for signal in ["-TERM", "-KILL"] {
+                let mut command = Command::new("kill");
+                command.args([signal, &format!("-{pid}")]);
+                let _ = command.status();
+            }
+        }
+    }
+
+    fn probe(factory: fn() -> Result<Command, String>, registry: String) -> Probe {
+        let started = Instant::now();
+        let Some(directory) = workspace(&registry) else {
+            return Probe {
+                registry,
+                bytes: 0,
+                elapsed_ms: 0,
+                speed_kib: 0.0,
+                ok: false,
+            };
+        };
+        let cache = directory.join("cache");
+        if fs::create_dir(&cache).is_err() {
+            let _ = fs::remove_dir_all(&directory);
+            return Probe {
+                registry,
+                bytes: 0,
+                elapsed_ms: started.elapsed().as_millis(),
+                speed_kib: 0.0,
+                ok: false,
+            };
+        }
+        let destination = directory.to_string_lossy().into_owned();
+        let cache_value = cache.to_string_lossy().into_owned();
+        let mut command = match factory() {
+            Ok(command) => command,
+            Err(_) => {
+                let _ = fs::remove_dir_all(&directory);
+                return Probe {
+                    registry,
+                    bytes: 0,
+                    elapsed_ms: started.elapsed().as_millis(),
+                    speed_kib: 0.0,
+                    ok: false,
+                };
+            }
+        };
+        command
+            .args([
+                "pack",
+                PACKAGE,
+                "--pack-destination",
+                &destination,
+                "--ignore-scripts",
+                "--registry",
+                &registry,
+                "--fetch-timeout",
+                "20000",
+                "--fetch-retries",
+                "0",
+                "--prefer-online",
+                "--loglevel",
+                "error",
+            ])
+            .env("NPM_CONFIG_CACHE", cache_value)
+            .current_dir(&directory)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(_) => {
+                let _ = fs::remove_dir_all(&directory);
+                return Probe {
+                    registry,
+                    bytes: 0,
+                    elapsed_ms: started.elapsed().as_millis(),
+                    speed_kib: 0.0,
+                    ok: false,
+                };
+            }
+        };
+        let pid = child.id();
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break Some(status),
+                Ok(None) if started.elapsed() >= TIMEOUT => {
+                    kill(pid);
+                    let _ = child.wait();
+                    break None;
+                }
+                Ok(None) => thread::sleep(Duration::from_millis(50)),
+                Err(_) => {
+                    kill(pid);
+                    let _ = child.wait();
+                    break None;
+                }
+            }
+        };
+        let tarballs = fs::read_dir(&directory)
+            .ok()
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .filter_map(|entry| {
+                        let path = entry.path();
+                        if path.extension().and_then(|v| v.to_str()) != Some("tgz")
+                            || !entry.file_type().ok()?.is_file()
+                        {
+                            return None;
+                        }
+                        fs::metadata(path).ok().map(|metadata| metadata.len())
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let bytes = if status.map(|status| status.success()).unwrap_or(false)
+            && tarballs.len() == 1
+            && tarballs[0] > 0
+        {
+            tarballs[0]
+        } else {
+            0
+        };
+        let elapsed_ms = started.elapsed().as_millis();
+        let result = Probe {
+            registry,
+            bytes,
+            elapsed_ms,
+            speed_kib: bytes as f64 / 1024.0 / (elapsed_ms.max(1) as f64 / 1000.0),
+            ok: bytes > 0,
+        };
+        let _ = fs::remove_dir_all(&directory);
+        result
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::normalize;
+
+        #[test]
+        fn accepts_safe_registry_urls() {
+            assert_eq!(
+                normalize(" https://registry.example.test/ "),
+                Some("https://registry.example.test".to_string())
+            );
+            assert_eq!(
+                normalize("https://registry.example.test/npm/"),
+                Some("https://registry.example.test/npm".to_string())
+            );
+        }
+
+        #[test]
+        fn rejects_credentials_and_controls() {
+            for value in [
+                "https://user:password@registry.example.test",
+                "https://registry.example.test?token=secret",
+                "https://registry.example.test#fragment",
+                "https://",
+                "file:///tmp/npm",
+            ] {
+                assert_eq!(normalize(value), None, "{value}");
+            }
+        }
+    }
+
+    pub fn select(factory: fn() -> Result<Command, String>) -> Selection {
+        let mut probes = thread::scope(|scope| {
+            candidates()
+                .into_iter()
+                .enumerate()
+                .map(|(index, registry)| scope.spawn(move || (index, probe(factory, registry))))
+                .collect::<Vec<_>>()
+                .into_iter()
+                .map(|handle| {
+                    handle.join().unwrap_or_else(|_| {
+                        (
+                            usize::MAX,
+                            Probe {
+                                registry: DEFAULT.to_string(),
+                                bytes: 0,
+                                elapsed_ms: 0,
+                                speed_kib: 0.0,
+                                ok: false,
+                            },
+                        )
+                    })
+                })
+                .collect::<Vec<_>>()
+        });
+        probes.sort_by_key(|(index, _)| *index);
+        let probes = probes
+            .into_iter()
+            .map(|(_, probe)| probe)
+            .collect::<Vec<_>>();
+        let selected = probes
+            .iter()
+            .filter(|probe| probe.ok)
+            .max_by(|a, b| {
+                a.speed_kib
+                    .total_cmp(&b.speed_kib)
+                    .then_with(|| b.elapsed_ms.cmp(&a.elapsed_ms))
+            })
+            .map(|probe| probe.registry.clone())
+            .unwrap_or_else(|| DEFAULT.to_string());
+        Selection {
+            all_failed: !probes.iter().any(|probe| probe.ok),
+            registry: selected,
+            probes,
+        }
+    }
+}
 
 const DSH_PROFILE: &str = "desktop";
 const DSH_PACKAGE: &str = "@deepseek-ai/dsh@latest";
@@ -55,6 +359,8 @@ struct BridgeState {
     phase: RuntimePhase,
     message: String,
     package_available: bool,
+    registry_testing: bool,
+    selected_registry: Option<String>,
     generation: u64,
     pid: Option<u32>,
     install_pid: Option<u32>,
@@ -68,6 +374,8 @@ impl Default for BridgeState {
             phase: RuntimePhase::Idle,
             message: "等待 DSH 启动".to_string(),
             package_available: false,
+            registry_testing: false,
+            selected_registry: None,
             generation: 0,
             pid: None,
             install_pid: None,
@@ -123,6 +431,8 @@ struct DshStatus {
     runtime_available: bool,
     runtime_starting: bool,
     installing: bool,
+    registry_testing: bool,
+    selected_registry: Option<String>,
     node_available: bool,
     npm_available: bool,
     package_available: bool,
@@ -341,116 +651,55 @@ fn npm_command() -> Result<Command, String> {
     Ok(command)
 }
 
-fn run_command_with_timeout(mut command: Command, timeout: Duration) -> Result<Output, String> {
-    command.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = command
-        .spawn()
-        .map_err(|error| format!("无法执行 npm：{error}"))?;
-    let pid = child.id();
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "无法获取 npm 标准输出".to_string())?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| "无法获取 npm 错误输出".to_string())?;
-    let (output_sender, output_receiver) = mpsc::channel();
-    let stdout_sender = output_sender.clone();
-    thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let _ = BufReader::new(stdout).read_to_end(&mut bytes);
-        let _ = stdout_sender.send((true, bytes));
-    });
-    let stderr_sender = output_sender.clone();
-    thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let _ = BufReader::new(stderr).read_to_end(&mut bytes);
-        let _ = stderr_sender.send((false, bytes));
-    });
-    drop(output_sender);
-    let deadline = Instant::now() + timeout;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if Instant::now() >= deadline => {
-                terminate_process_tree(pid);
-                let _ = child.wait();
-                return Err("npm 命令超时".to_string());
-            }
-            Ok(None) => thread::sleep(Duration::from_millis(50)),
-            Err(error) => {
-                terminate_process_tree(pid);
-                let _ = child.wait();
-                return Err(format!("等待 npm 命令结束失败：{error}"));
-            }
-        }
-    };
-    let mut stdout = Vec::new();
-    let mut stderr = Vec::new();
-    let mut streams_received = 0;
-    while streams_received < 2 {
-        match output_receiver.recv_timeout(Duration::from_millis(250)) {
-            Ok((is_stdout, bytes)) => {
-                if is_stdout {
-                    stdout = bytes;
-                } else {
-                    stderr = bytes;
-                }
-                streams_received += 1;
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => break,
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
-        }
-    }
-    Ok(Output {
-        status,
-        stdout,
-        stderr,
-    })
+fn dsh_package_manifest() -> PathBuf {
+    dsh_home()
+        .join("node_modules")
+        .join("@deepseek-ai")
+        .join("dsh")
+        .join("package.json")
 }
 
-fn verify_dsh_with_npm() -> Result<(), String> {
-    let home = dsh_home();
-    let prefix = home.to_string_lossy().into_owned();
-    let mut command = npm_command()?;
-    command
-        .args([
-            "exec",
-            "--prefix",
-            &prefix,
-            "--offline",
-            "--package=@deepseek-ai/dsh",
-            "--",
-            "dsh",
-            "--version",
-        ])
-        .current_dir(&home);
-    let output = run_command_with_timeout(command, Duration::from_secs(30))?;
-    if output.status.success() {
+fn is_dsh_package_manifest(content: &str) -> bool {
+    serde_json::from_str::<Value>(content)
+        .ok()
+        .and_then(|package| package.get("name").and_then(Value::as_str).map(str::to_owned))
+        .as_deref()
+        == Some("@deepseek-ai/dsh")
+}
+
+fn dsh_package_available() -> bool {
+    let manifest = dsh_package_manifest();
+    let Ok(content) = fs::read_to_string(manifest) else {
+        return false;
+    };
+    is_dsh_package_manifest(&content)
+}
+
+fn verify_dsh() -> Result<(), String> {
+    if dsh_package_available() {
         Ok(())
     } else {
-        let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        Err(if detail.is_empty() {
-            format!(
-                "npm 无法验证 DSH（退出码 {}）",
-                output.status.code().unwrap_or(-1)
-            )
-        } else {
-            format!("npm 无法验证 DSH：{detail}")
-        })
+        Err(format!(
+            "未找到本地 DSH 包：{}",
+            dsh_package_manifest().display()
+        ))
     }
 }
 
-fn install_dsh(manager: &BridgeManager, app: &AppHandle, generation: u64) -> Result<(), String> {
+fn install_dsh(
+    manager: &BridgeManager,
+    app: &AppHandle,
+    generation: u64,
+    registry: &str,
+) -> Result<(), String> {
     let home = dsh_home();
     fs::create_dir_all(&home).map_err(|error| format!("无法创建 DSH 目录：{error}"))?;
     write_if_missing(&home.join("package.json"), DSH_PACKAGE_JSON)?;
     let prefix = home.to_string_lossy().into_owned();
     let mut command = npm_command()?;
     let command_label = format!(
-        "npm install --prefix {} --no-audit --no-fund {}",
-        prefix, DSH_PACKAGE
+        "npm install --prefix {} --registry {} --no-audit --no-fund {}",
+        prefix, registry, DSH_PACKAGE
     );
     manager.emit_runtime_log(app, generation, "install", "command", command_label);
     command
@@ -458,6 +707,8 @@ fn install_dsh(manager: &BridgeManager, app: &AppHandle, generation: u64) -> Res
             "install",
             "--prefix",
             &prefix,
+            "--registry",
+            registry,
             "--no-audit",
             "--no-fund",
             "--no-update-notifier",
@@ -593,7 +844,7 @@ fn install_dsh(manager: &BridgeManager, app: &AppHandle, generation: u64) -> Res
     if !manager.is_current(generation) {
         return Err("DSH 安装已取消".to_string());
     }
-    verify_dsh_with_npm().map_err(|error| format!("DSH 安装校验失败：{error}"))
+    verify_dsh().map_err(|error| format!("DSH 安装校验失败：{error}"))
 }
 
 #[cfg(windows)]
@@ -647,6 +898,11 @@ impl BridgeManager {
             ),
             Err(_) => (false, false, false, "DSH 启动状态不可用".to_string()),
         };
+        let (registry_testing, selected_registry) = self
+            .state
+            .lock()
+            .map(|state| (state.registry_testing, state.selected_registry.clone()))
+            .unwrap_or((false, None));
         DshStatus {
             dsh_home: dsh_home().to_string_lossy().into_owned(),
             runtime_directory: dsh_home().to_string_lossy().into_owned(),
@@ -654,6 +910,8 @@ impl BridgeManager {
             runtime_available,
             runtime_starting,
             installing,
+            registry_testing,
+            selected_registry,
             node_available: node_executable().is_ok(),
             npm_available: npm_available(),
             package_available: self
@@ -712,6 +970,7 @@ impl BridgeManager {
             state.generation += 1;
             state.phase = RuntimePhase::Idle;
             state.message = message.to_string();
+            state.registry_testing = false;
             state.stdin = None;
             let pid = state.pid.take();
             let install_pid = state.install_pid.take();
@@ -734,7 +993,7 @@ impl BridgeManager {
             materialize_desktop_profile()?;
             node_executable()?;
             npm_executable()?;
-            if verify_dsh_with_npm().is_err() {
+            if verify_dsh().is_err() {
                 let changed = self
                     .state
                     .lock()
@@ -743,19 +1002,61 @@ impl BridgeManager {
                             return false;
                         }
                         state.phase = RuntimePhase::Installing;
-                        state.message = "未检测到可用的 DSH，正在通过 npm 安装...".to_string();
+                        state.registry_testing = true;
+                        state.message = "未检测到可用的 DSH，正在测试 npm 下载速度...".to_string();
                         true
                     })
                     .unwrap_or(false);
                 if changed {
                     self.emit_status(&app);
                 }
-                install_dsh(self, &app, generation)?;
+                let selection = registry::select(npm_command);
+                for probe in &selection.probes {
+                    self.emit_runtime_log(
+                        &app,
+                        generation,
+                        "registry",
+                        "diagnostic",
+                        if probe.ok {
+                            format!(
+                                "registry {} 下载 {} KiB，速度 {:.1} KiB/s，耗时 {} ms",
+                                probe.registry,
+                                probe.bytes / 1024,
+                                probe.speed_kib,
+                                probe.elapsed_ms
+                            )
+                        } else {
+                            format!(
+                                "registry {} 下载测速失败（{} ms）",
+                                probe.registry, probe.elapsed_ms
+                            )
+                        },
+                    );
+                }
+                if selection.all_failed {
+                    self.emit_runtime_log(
+                        &app,
+                        generation,
+                        "registry",
+                        "diagnostic",
+                        "所有 npm registry 测速均失败，回退到 npm 官方源安装 DSH".to_string(),
+                    );
+                }
+                if let Ok(mut state) = self.state.lock() {
+                    if state.generation == generation {
+                        state.registry_testing = false;
+                        state.selected_registry = Some(selection.registry.clone());
+                        state.message = format!("使用 {} 安装 DSH...", selection.registry);
+                    }
+                }
+                self.emit_status(&app);
+                install_dsh(self, &app, generation, &selection.registry)?;
             }
             if !self.is_current(generation) {
                 return Err("DSH 启动已取消".to_string());
             }
             if let Ok(mut state) = self.state.lock() {
+                state.registry_testing = false;
                 state.package_available = true;
             }
             Ok(())
@@ -1243,6 +1544,22 @@ fn bridge_request(
     payload: Value,
 ) -> Result<Value, String> {
     runtime.request(method, payload)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_dsh_package_manifest;
+
+    #[test]
+    fn accepts_the_dsh_package_manifest() {
+        assert!(is_dsh_package_manifest(r#"{"name":"@deepseek-ai/dsh"}"#));
+    }
+
+    #[test]
+    fn rejects_missing_or_invalid_dsh_package_manifests() {
+        assert!(!is_dsh_package_manifest(r#"{"name":"other-package"}"#));
+        assert!(!is_dsh_package_manifest("not json"));
+    }
 }
 
 fn main() {

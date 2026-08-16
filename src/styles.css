@@ -9312,17 +9312,20 @@ textarea:focus-visible {
   font-size: 13px;
 }
 
-.injected-state,
-.reasoning-marker {
+.injected-state {
   width: 8px;
   height: 8px;
   flex: 0 0 auto;
   border: 1px solid var(--accent);
   border-radius: 50%;
+  background: var(--accent-soft);
 }
 
-.injected-state { background: var(--accent-soft); }
-.reasoning-marker { border-color: var(--good); background: color-mix(in srgb, var(--good) 22%, transparent); }
+.reasoning-marker {
+  flex: 0 0 auto;
+  font-size: 15px;
+  line-height: 1;
+}
 
 .injected-entry summary em,
 .tool-entry summary em,
@@ -13404,14 +13407,10 @@ textarea:focus-visible {
   }
 }
 
-/* Generated files stay available without interrupting the conversation flow. */
-.conversation-transcript-stage > .deliverables-dock {
-  position: absolute;
-  z-index: 18;
-  right: max(16px, calc((100% - 980px) / 2));
-  bottom: 16px;
-  left: max(16px, calc((100% - 980px) / 2));
-  pointer-events: none;
+/* Generated files follow the Deep diving status instead of floating beside it. */
+.transcript-inner > .deliverables-dock {
+  width: min(560px, 100%);
+  margin: 12px 0 0;
 }
 
 .deliverables-dock .deliverables-entry {
@@ -13524,27 +13523,18 @@ textarea:focus-visible {
   padding-bottom: 8px;
 }
 
-.transcript.has-deliverables .transcript-inner {
-  padding-bottom: 112px;
-}
-
 @media (max-width: 760px) {
-  .conversation-transcript-stage > .deliverables-dock {
-    right: 10px;
-    bottom: 10px;
-    left: 10px;
+  .transcript-inner > .deliverables-dock {
+    width: 100%;
+    margin-left: 0;
   }
 
   .deliverables-dock .deliverables-entry {
     width: 100%;
   }
-
-  .transcript.has-deliverables .transcript-inner {
-    padding-bottom: 100px;
-  }
 }
 
-/* Reasoning is a card, not a second message with a Think gutter label. */
+/* Think is a self-contained card, like the tool cards. */
 .message-row.reasoning {
   display: block;
 }

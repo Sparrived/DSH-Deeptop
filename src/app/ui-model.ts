@@ -23,7 +23,10 @@ export function shortSubagentId(id: string) {
 }
 
 export function detectComposerTrigger(value: string): ComposerTrigger | null {
-  const match = /(^|\s)([\/@])([^\s]*)$/.exec(value);
+  // Only the token immediately before the caret can drive completion. Keep the
+  // trigger at a word boundary, but do not let a slash in a URL/path or an @
+  // in an email address open the menu.
+  const match = /(^|\s)([\/@])([^\s\/@]*)$/.exec(value);
   if (!match) return null;
   return {
     kind: match[2] === "/" ? "skill" : "subagent",
