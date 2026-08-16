@@ -102,6 +102,7 @@ mod registry {
         {
             let mut command = Command::new("taskkill");
             command.args(["/PID", &pid.to_string(), "/T", "/F"]);
+            super::configure_hidden_process(&mut command);
             let _ = command.status();
         }
         #[cfg(unix)]
@@ -973,6 +974,8 @@ fn path_dsh_launch(executable: PathBuf) -> DshLaunch {
         command.args(["--profile", DSH_PROFILE]);
         command
     };
+    #[cfg(windows)]
+    configure_hidden_process(&mut command);
     command
         .current_dir(dsh_home())
         .env("DSH_HOME", dsh_home())
