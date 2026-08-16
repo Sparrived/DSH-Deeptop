@@ -2721,12 +2721,6 @@ textarea:focus-visible {
   color: var(--accent-deep);
 }
 
-.message-actions button.selected {
-  border-color: var(--accent);
-  color: var(--accent-deep);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-}
-
 .reasoning-entry {
   margin: 0;
   border-left: 2px solid #b5b7ad;
@@ -9197,7 +9191,6 @@ textarea:focus-visible {
 }
 
 .message-actions button:hover,
-.message-actions button.selected,
 .deliverables-files button:hover,
 .deliverables-folder:hover {
   border-color: var(--accent);

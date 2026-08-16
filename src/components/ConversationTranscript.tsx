@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState, type RefObject, type UIEvent } from "react";
-import type { DshHistoryEntry, DshMessageAnnotationItem, DshMessageFeedbackItem, DshPreset, DshSessionSummary } from "../lib/desktop";
+import type { DshHistoryEntry, DshMessageAnnotationItem, DshPreset, DshSessionSummary } from "../lib/desktop";
 import { MarkdownContent } from "../lib/markdown";
 import { PopupDialog } from "./PopupDialog";
 import { TrajectoryView } from "./TrajectoryView";
@@ -32,7 +32,6 @@ type ConversationTranscriptProps = {
   runtimeDirectory: string;
   modelName: string;
   presets: DshPreset[];
-  feedback: Record<string, DshMessageFeedbackItem>;
   annotations: Record<string, DshMessageAnnotationItem>;
   nextPreset: string | null;
   presetMenuOpen: boolean;
@@ -44,8 +43,6 @@ type ConversationTranscriptProps = {
   onTogglePresetMenu: () => void;
   onStagePreset: (id: string) => void;
   onCopyMessage: (text: string) => void | Promise<void>;
-  onFeedback: (messageId: string, rating: "positive" | "negative") => void | Promise<void>;
-  onEditFeedback: (messageId: string) => void | Promise<void>;
   onEditAnnotation: (messageId: string) => void | Promise<void>;
   onRetryMessage?: (seq: number) => void | Promise<void>;
   onForkSession: (sessionId: string, seq?: number) => void | Promise<void>;
@@ -313,8 +310,6 @@ const MessageImages = memo(function MessageImages({
 type TranscriptArticleProps = {
   item: TranscriptItem;
   note: string | undefined;
-  rating: string | undefined;
-  feedbackNote: boolean;
   retryingMessageSeq: number | null;
   activeRunning: boolean;
   loading: boolean;
@@ -323,8 +318,6 @@ type TranscriptArticleProps = {
   onLoadImageAttachment?: (attachmentId: string) => Promise<string>;
   onCopyMessage: (text: string) => void | Promise<void>;
   onEditAnnotation: (messageId: string) => void | Promise<void>;
-  onFeedback: (messageId: string, rating: "positive" | "negative") => void | Promise<void>;
-  onEditFeedback: (messageId: string) => void | Promise<void>;
   onRetryMessage?: (seq: number) => void | Promise<void>;
   onForkSession: (sessionId: string, seq?: number) => void | Promise<void>;
 };
@@ -332,8 +325,6 @@ type TranscriptArticleProps = {
 function TranscriptArticleView({
   item,
   note,
-  rating,
-  feedbackNote,
   retryingMessageSeq,
   activeRunning,
   loading,
@@ -342,8 +333,6 @@ function TranscriptArticleView({
   onLoadImageAttachment,
   onCopyMessage,
   onEditAnnotation,
-  onFeedback,
-  onEditFeedback,
   onRetryMessage,
   onForkSession,
 }: TranscriptArticleProps) {
@@ -406,11 +395,6 @@ function TranscriptArticleView({
              )}
             <button type="button" onClick={() => void onCopyMessage(item.text)} title="复制消息">复制</button>
             {item.messageId && <button type="button" onClick={() => void onEditAnnotation(item.messageId!)} title={annotation ? "编辑消息注记" : "添加消息注记"}>{annotation ? "改注记" : "加注记"}</button>}
-            {item.kind === "assistant" && item.messageId && <>
-              <button className={rating === "positive" ? "selected" : ""} type="button" onClick={() => void onFeedback(item.messageId!, "positive")} title="标记为有帮助">赞</button>
-              <button className={rating === "negative" ? "selected" : ""} type="button" onClick={() => void onFeedback(item.messageId!, "negative")} title="标记为需要改进">踩</button>
-              <button type="button" onClick={() => void onEditFeedback(item.messageId!)} title="编辑反馈备注">{feedbackNote ? "备注" : "加备注"}</button>
-             </>}
              {item.kind === "assistant" && item.seq !== undefined && activeSessionId && (
               <button type="button" onClick={() => void onForkSession(activeSessionId, item.seq)} title="从此消息分叉">分叉</button>
             )}
@@ -424,13 +408,11 @@ function TranscriptArticleView({
 // Callbacks are intentionally not compared: they are either stable
 // (onPreviewImage / onLoadImageAttachment) or safe to hold as stale closures
 // because every value they read is either a ref or is covered by the compared
-// props (note / rating / feedbackNote / activeRunning / loading), so the article
+// props (note / activeRunning / loading), so the article
 // re-renders (and receives a fresh handler) whenever that value changes.
 const TranscriptArticle = memo(TranscriptArticleView, (prev, next) => {
   if (!sameItemFields(prev.item, next.item)) return false;
   return prev.note === next.note
-    && prev.rating === next.rating
-    && prev.feedbackNote === next.feedbackNote
     && prev.retryingMessageSeq === next.retryingMessageSeq
     && prev.activeRunning === next.activeRunning
     && prev.loading === next.loading
@@ -454,7 +436,6 @@ export function ConversationTranscript({
   runtimeDirectory,
   modelName,
   presets,
-  feedback,
   annotations,
   nextPreset,
   presetMenuOpen,
@@ -466,8 +447,6 @@ export function ConversationTranscript({
   onTogglePresetMenu,
   onStagePreset,
   onCopyMessage,
-  onFeedback,
-  onEditFeedback,
   onEditAnnotation,
   onRetryMessage,
   onForkSession,
@@ -525,8 +504,6 @@ export function ConversationTranscript({
               key={item.key}
               item={item}
               note={item.messageId ? annotations[item.messageId]?.note : undefined}
-              rating={item.messageId ? feedback[item.messageId]?.rating : undefined}
-              feedbackNote={Boolean(item.messageId && feedback[item.messageId]?.note)}
               retryingMessageSeq={retryingMessageSeq}
               activeRunning={activeRunning}
               loading={loading}
@@ -535,8 +512,6 @@ export function ConversationTranscript({
               onLoadImageAttachment={onLoadImageAttachment}
               onCopyMessage={onCopyMessage}
               onEditAnnotation={onEditAnnotation}
-              onFeedback={onFeedback}
-              onEditFeedback={onEditFeedback}
               onRetryMessage={onRetryMessage}
               onForkSession={onForkSession}
             />

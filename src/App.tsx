@@ -52,7 +52,6 @@ import {
   type DshCommandExecution,
   type DshMessageAnnotationItem,
   type DshMessageAnnotationResult,
-  type DshMessageFeedbackItem,
   type DshPluginInventoryEntry,
   type DshPluginInventorySnapshot,
   type DshPermissionSelect,
@@ -159,10 +158,6 @@ const demoStatus: DshStatus = {
   message: "浏览器预览模式",
 };
 
-type FeedbackOperationResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; error: { code: string; current?: DshMessageFeedbackItem | null } };
-
 type PopupRequest =
   | {
       kind: "confirm";
@@ -259,7 +254,6 @@ function App() {
   const [storedDefaultPermission, setStoredDefaultPermission] = useState<DefaultPermission | null>(readStoredDefaultPermission);
   const [draftPermission, setDraftPermission] = useState<DefaultPermission | null>(null);
   const [commands, setCommands] = useState<DshCommandDescriptor[]>([]);
-  const [feedback, setFeedback] = useState<Record<string, DshMessageFeedbackItem>>({});
   const [annotations, setAnnotations] = useState<Record<string, DshMessageAnnotationItem>>({});
   const [permissionSelect, setPermissionSelect] = useState<DshPermissionSelect | null>(null);
   const [pendingPermissionValue, setPendingPermissionValue] = useState<DefaultPermission | null>(null);
@@ -956,25 +950,6 @@ function App() {
     }
   }
 
-  async function loadFeedback(sessionId = activeSessionRef.current) {
-    if (!desktop || !sessionId) {
-      setFeedback({});
-      return;
-    }
-    try {
-      const result = await desktopClientRuntime.remote.invoke<{
-        ok: true;
-        value: { items: DshMessageFeedbackItem[] };
-      } | { ok: false; error: { code: string } }>("messageFeedback", "list", { sessionId });
-      if (activeSessionRef.current !== sessionId) return;
-      if (!result.ok) throw new Error(result.error.code);
-      setFeedback(Object.fromEntries(result.value.items.map((item) => [item.messageId, item])));
-    } catch {
-      if (activeSessionRef.current !== sessionId) return;
-      setFeedback({});
-    }
-  }
-
   async function loadAnnotations(sessionId = activeSessionRef.current) {
     if (!desktop || !sessionId) {
       setAnnotations({});
@@ -999,14 +974,12 @@ function App() {
     setSubagentDockOpen(false);
     setSkills([]);
     setCommands([]);
-    setFeedback({});
     setAnnotations({});
     setPermissionSelect(null);
     setPlan(null);
     void loadSubagents();
     if (activeSessionId) {
       void loadCommands(activeSessionId);
-      void loadFeedback(activeSessionId);
       void loadAnnotations(activeSessionId);
       void bridgeRequest<{ skills: DshSkill[] }>("skill.list", { sessionId: activeSessionId })
         .then((result) => setSkills(result.skills))
@@ -1031,7 +1004,7 @@ function App() {
         setSubagents(await bridgeRequest<DshSubagentCatalog>("subagent.list", { parentSessionId: activeSessionId }));
       }
       if (tab === "runtime" && activeSessionId) {
-        await Promise.all([loadCommands(activeSessionId), loadFeedback(activeSessionId), loadAnnotations(activeSessionId)]);
+        await Promise.all([loadCommands(activeSessionId), loadAnnotations(activeSessionId)]);
       }
       if (tab === "goal" && activeSessionId) {
         const historyResult = await bridgeRequest<{ events: DshHistoryEntry[]; projections?: { values: Record<string, unknown> } }>("session.history", { sessionId: activeSessionId, maxMessages: 100 });
@@ -1807,7 +1780,6 @@ function App() {
     setDraftPermission(null);
     setSessionStats({ inputTokens: 0, outputTokens: 0, totalTokens: 0, contextTokens: 0, contextLimit: 0, cacheHitRate: 0, firstTokenMs: 0, messages: 0 });
     setCommands([]);
-    setFeedback({});
     setAnnotations({});
     setPermissionSelect(null);
     setPlan(null);
@@ -2294,31 +2266,6 @@ function App() {
     }
   }
 
-  async function putFeedback(messageId: string, rating: "positive" | "negative", note?: string) {
-    const sessionId = activeSessionRef.current;
-    if (!sessionId) return;
-    const current = feedback[messageId];
-    const result = await desktopClientRuntime.remote.invoke<FeedbackOperationResult<DshMessageFeedbackItem>>("messageFeedback", "put", {
-      sessionId,
-      messageId,
-      rating,
-      ...(note === undefined ? {} : { note }),
-      ifVersion: current?.version ?? null,
-    });
-    if (!result.ok) {
-      if (result.error.code === "version-conflict") {
-        setFeedback((items) => {
-          const next = { ...items };
-          if (result.error.current) next[messageId] = result.error.current;
-          else delete next[messageId];
-          return next;
-        });
-      }
-      throw new Error(`反馈未保存：${result.error.code}`);
-    }
-    setFeedback((items) => ({ ...items, [messageId]: result.value }));
-  }
-
   async function putAnnotation(messageId: string, note: string) {
     const sessionId = activeSessionRef.current;
     if (!sessionId) return;
@@ -2384,59 +2331,6 @@ function App() {
         await deleteAnnotation(messageId);
         setNotice("消息注记已清除");
       }
-    } catch (error) {
-      setErrorNotice(errorText(error));
-    }
-  }
-
-  async function deleteFeedback(messageId: string) {
-    const sessionId = activeSessionRef.current;
-    const current = feedback[messageId];
-    if (!sessionId || !current) return;
-    const result = await desktopClientRuntime.remote.invoke<FeedbackOperationResult<{ absent: true }>>("messageFeedback", "delete", {
-      sessionId,
-      messageId,
-      ifVersion: current.version,
-    });
-    if (!result.ok) {
-      if (result.error.code === "version-conflict") {
-        setFeedback((items) => {
-          const next = { ...items };
-          if (result.error.current) next[messageId] = result.error.current;
-          else delete next[messageId];
-          return next;
-        });
-      }
-      throw new Error(`反馈未删除：${result.error.code}`);
-    }
-    setFeedback((items) => {
-      const next = { ...items };
-      delete next[messageId];
-      return next;
-    });
-  }
-
-  async function rateMessage(messageId: string, rating: "positive" | "negative") {
-    try {
-      if (feedback[messageId]?.rating === rating) await deleteFeedback(messageId);
-      else await putFeedback(messageId, rating, feedback[messageId]?.note);
-      setNotice("反馈已更新");
-    } catch (error) {
-      setErrorNotice(errorText(error));
-    }
-  }
-
-  async function editMessageFeedback(messageId: string) {
-    const current = feedback[messageId];
-    if (!current) {
-      setNotice("请先选择赞或踩");
-      return;
-    }
-    const draft = await requestPrompt("反馈备注", current.note ?? "", "为这条反馈添加一段备注。");
-    if (draft === null) return;
-    try {
-      await putFeedback(messageId, current.rating, draft.trim() || undefined);
-      setNotice(draft.trim() ? "反馈备注已更新" : "反馈备注已清除");
     } catch (error) {
       setErrorNotice(errorText(error));
     }
@@ -3004,7 +2898,6 @@ function App() {
               runtimeDirectory={status.runtimeDirectory}
               modelName={models?.current.model ?? defaultModelName}
               presets={presets}
-              feedback={feedback}
               annotations={annotations}
               nextPreset={nextPreset}
               presetMenuOpen={presetMenuOpen}
@@ -3015,8 +2908,6 @@ function App() {
               onTogglePresetMenu={() => setPresetMenuOpen((open) => !open)}
               onStagePreset={stagePresetForNextSession}
               onCopyMessage={copyMessage}
-              onFeedback={rateMessage}
-              onEditFeedback={editMessageFeedback}
               onEditAnnotation={editMessageAnnotation}
                onRetryMessage={retryMessage}
                retryingMessageSeq={retryingMessageSeq}
