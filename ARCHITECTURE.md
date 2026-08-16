@@ -81,6 +81,21 @@ catalog refresh to the official skill filesystem watcher. Adding an exposed API
 should therefore touch the route map and the TypeScript contract together,
 instead of growing the plugin lifecycle code.
 
+### Crash recovery for session logs
+
+When Deeptop is force-killed, DSH may leave a session artifact whose last
+structurally complete zstd frame ends in a torn JSONL record. Upstream DSH
+(`dsh-session-persistence-jsonl`) rejects such logs with `corrupt Zstandard
+session log: complete frame contains a torn JSONL record` and never
+auto-recovers them, so the session becomes unopenable. Deeptop fixes this on
+the desktop side: the `session.repairCorrupt` bridge route (implemented in
+`session-repair.mjs`, surfaced through `routes.mjs`) scans the artifact,
+preserves the committed prefix, drops the torn tail, verifies the result is
+readable, and rewrites it atomically (temp file + rename). It refuses to touch
+a session that is still running or an artifact that cannot be repaired. The
+frontend calls it automatically once when `session.history` reports the
+corruption error, and offers a manual "修复并重新打开" button as a fallback.
+
 This is a loopback adapter, not a second WebUI module loader. Official `dsh.client`
 bundles still require `window.__ModuleLoader__`, Cordis client contexts and the
 WebUI slot assembly. They are intentionally not loaded by the desktop shell;

@@ -1,7 +1,8 @@
-import { randomUUID } from 'node:crypto'
-import { rm } from 'node:fs/promises'
+import { randomBytes, randomUUID } from 'node:crypto'
+import { open, readFile, rename, rm, stat } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
 import { installSkillFromSource } from './skill-installer.mjs'
+import { repairCorruptLog } from './session-repair.mjs'
 
 function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -170,6 +171,69 @@ async function deleteArchivedSession(ctx, payload, signal) {
   })
 }
 
+/** Read one session artifact under a revision-stable loop, like DSH's own reader. */
+async function readStableArtifact(path, signal) {
+  for (;;) {
+    signal?.throwIfAborted()
+    const before = await stat(path, { bigint: true })
+    const buffer = await readFile(path, { signal })
+    signal?.throwIfAborted()
+    const after = await stat(path, { bigint: true })
+    if (before.size === after.size && before.mtimeNs === after.mtimeNs && before.ino === after.ino) {
+      return buffer
+    }
+  }
+}
+
+/** Durable replace of a session artifact: fsync a sibling temp file, then rename. */
+async function writeArtifactAtomically(path, bytes) {
+  const tmp = `${path}.${randomBytes(6).toString('hex')}.repair.tmp`
+  const handle = await open(tmp, 'wx', 0o600)
+  try {
+    await handle.writeFile(bytes)
+    await handle.sync()
+  } finally {
+    await handle.close()
+  }
+  try {
+    await rename(tmp, path)
+  } catch (error) {
+    await rm(tmp, { force: true })
+    throw error
+  }
+}
+
+/**
+ * Repair a session log that DSH refuses to open after a crash left a torn
+ * JSONL tail inside the last complete Zstandard frame. Committed records are
+ * preserved; the uncommitted torn tail is dropped. When the log is already
+ * readable it is left untouched and `repaired` is false.
+ */
+async function repairCorruptSession(ctx, payload, signal) {
+  const sessionId = sessionIdFromPayload(payload, 'session.repairCorrupt')
+  const persistence = ctx.get?.('sessionPersistence')
+  if (!persistence || typeof persistence.list !== 'function' || typeof persistence.locate !== 'function') {
+    throw new Error('session.repairCorrupt requires a persistence backend with artifact locations')
+  }
+  if (ctx.get?.('sessions')?.get?.(sessionId) !== undefined || ctx.get?.('agents')?.get?.(sessionId) !== undefined) {
+    throw new Error(`session "${sessionId}" 仍在运行，请先停止它再修复日志`)
+  }
+  const header = (await persistence.list(signal)).find((item) => item?.id === sessionId)
+  signal?.throwIfAborted()
+  if (!header) throw new Error(`session "${sessionId}" 在持久化存储中不存在`)
+  const location = persistence.locate(header)
+  if (!location || typeof location.path !== 'string' || !isAbsolute(location.path)) {
+    throw new Error('当前持久化后端不暴露可修复的会话日志文件')
+  }
+  const buffer = await readStableArtifact(location.path, signal)
+  const repair = repairCorruptLog(buffer)
+  if (!repair.changed) {
+    return { repaired: false, recoveredEvents: repair.recoveredEvents, droppedTorn: repair.droppedTorn }
+  }
+  await writeArtifactAtomically(location.path, repair.bytes)
+  return { repaired: true, recoveredEvents: repair.recoveredEvents, droppedTorn: repair.droppedTorn }
+}
+
 function messageAnnotations(ctx) {
   const service = ctx.get?.('messageAnnotations')
   if (!service || typeof service.list !== 'function' || typeof service.put !== 'function' || typeof service.delete !== 'function') {
@@ -248,6 +312,7 @@ export async function routeDesktopRequest(ctx, method, payload, signal) {
     case 'session.exportZip': return exportSessionZip(ctx, payload, signal)
     case 'session.updateQueue': return api.sessions.updateQueue(request)
     case 'session.cancel': return api.sessions.cancel(request)
+    case 'session.repairCorrupt': return repairCorruptSession(ctx, payload, signal)
     case 'subagent.list': return api.subagents.list(request, signal)
     case 'subagent.history': return api.subagents.history(request, signal)
     case 'subagent.prompt': return api.subagents.prompt(request, signal)

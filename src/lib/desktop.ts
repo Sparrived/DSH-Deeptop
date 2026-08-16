@@ -430,6 +430,23 @@ export async function bridgeRequest<T>(method: string, payload: Record<string, u
   return rpcResponse.result.value;
 }
 
+export interface DshSessionRepairResult {
+  repaired: boolean;
+  recoveredEvents: number;
+  droppedTorn: number;
+}
+
+/** Repair a session log that DSH refuses to open after a crash. */
+export async function repairCorruptSession(sessionId: string): Promise<DshSessionRepairResult> {
+  return bridgeRequest<DshSessionRepairResult>("session.repairCorrupt", { sessionId });
+}
+
+/** Whether an error is the session-log corruption class DSH reports after a crash. */
+export function isSessionLogCorruption(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /corrupt Zstandard session log|corrupt session log|torn JSONL|failed validation/.test(message);
+}
+
 export async function pickWorkspace(): Promise<string | null> {
   const result = await bridgeRequest<{ path: string | null }>("host.pickDirectory");
   return result.path;

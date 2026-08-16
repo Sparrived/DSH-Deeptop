@@ -13446,6 +13446,56 @@ textarea:focus-visible {
   scrollbar-gutter: stable;
 }
 
+.session-repair-banner {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(600px, calc(100% - 32px));
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--warning) 50%, var(--line));
+  border-left: 3px solid var(--warning);
+  border-radius: var(--radius-panel);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-soft);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-strong);
+}
+
+.session-repair-banner-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.session-repair-button {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.session-repair-button:hover:not(:disabled) {
+  background: var(--accent-deep);
+}
+
+.session-repair-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+
 @media (min-width: 761px) {
   .workspace-layout.todo-visible > .conversation-panel,
   .workspace-layout.todo-visible.todo-collapsed > .conversation-panel {

@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm as removePath, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm as removePath, stat, writeFile } from 'node:fs/promises'
 import test from 'node:test'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { constants, zstdCompressSync, zstdDecompressSync } from 'node:zlib'
 import { routeDesktopRequest } from './routes.mjs'
 import { parseGitHubSource, validateRelativeRepoPath } from './skill-installer.mjs'
+import { scanZstdFrames } from './session-repair.mjs'
 
 const signal = new AbortController().signal
 
@@ -310,4 +312,141 @@ test('routes message annotation operations through the Cordis service', async ()
     ['put', { sessionId: 'session-1', messageId: 'message-1', note: '重点', ifVersion: null }],
     ['delete', { sessionId: 'session-1', messageId: 'message-1', ifVersion: 'version-1' }],
   ])
+})
+
+// --- session.repairCorrupt ---
+
+const repairHeader = {
+  type: 'session',
+  version: 0,
+  id: 'session-repair-test',
+  createdAt: 1786888612035,
+  cwd: 'D:\\repo',
+  delegationDepth: 0,
+  agentPreset: 'standard',
+}
+const repairHeaderLine = JSON.stringify(repairHeader) + '\n'
+const repairEventLine = (type, seq, extra = {}) => JSON.stringify({ type, seq, time: 1786888612035 + seq, data: { ...extra } }) + '\n'
+
+function compressZstdFrame(text) {
+  return zstdCompressSync(Buffer.from(text, 'utf8'), { params: { [constants.ZSTD_c_checksumFlag]: 1 } })
+}
+
+function buildRepairFixture(kind) {
+  const events = repairEventLine('user/message', 0, { role: 'user', content: [{ type: 'text', text: 'hi' }] }) +
+    repairEventLine('turn/start', 1, { turn: 1 }) +
+    repairEventLine('step/start', 2, { turn: 1, step: 1 }) +
+    repairEventLine('assistant/message', 3, { step: 1, message: { role: 'assistant', content: 'hello' } }) +
+    repairEventLine('turn/end', 4, { turn: 1 })
+  const headerFrame = compressZstdFrame(repairHeaderLine)
+  const eventFrame = compressZstdFrame(events)
+  if (kind === 'clean') return Buffer.concat([headerFrame, eventFrame])
+  if (kind === 'torn-record') {
+    const torn = JSON.stringify({ type: 'user/message', seq: 5, time: 1786888612040, data: { role: 'user', content: [{ type: 'text', text: 'partial' }] } }).slice(0, -7)
+    return Buffer.concat([headerFrame, eventFrame, compressZstdFrame(torn)])
+  }
+  throw new Error(`unknown fixture kind ${kind}`)
+}
+
+function committedBytesEqual(buffer) {
+  const { frames } = scanZstdFrames(buffer)
+  let committed = 0
+  let input = 0
+  for (let i = 0; i < frames.length; i++) {
+    const plain = zstdDecompressSync(buffer.subarray(frames[i].start, frames[i].end))
+    input += plain.length
+    if (i === 0) {
+      committed += plain.length
+      continue
+    }
+    let lineStart = 0
+    for (let nl = plain.indexOf(10); nl !== -1; nl = plain.indexOf(10, lineStart)) {
+      committed += nl - lineStart + 1
+      lineStart = nl + 1
+    }
+  }
+  return committed === input
+}
+
+function repairCtx(path, running = false) {
+  return {
+    get: key => ({
+      sessionPersistence: {
+        list: async () => [{ id: 'session-repair-test' }],
+        locate: () => ({ path }),
+      },
+      sessions: running ? { get: () => ({}) } : undefined,
+      agents: undefined,
+    })[key],
+  }
+}
+
+test('session.repairCorrupt drops a torn record from a complete frame and rewrites the log', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-repair-'))
+  const artifact = join(root, 'session.jsonl.zstd')
+  await writeFile(artifact, buildRepairFixture('torn-record'))
+  try {
+    const result = await routeDesktopRequest(repairCtx(artifact), 'session.repairCorrupt', { sessionId: 'session-repair-test' }, signal)
+    assert.deepEqual(result, { repaired: true, recoveredEvents: 5, droppedTorn: 1 })
+    const after = await readFile(artifact)
+    assert.equal(committedBytesEqual(after), true, 'repaired log reads clean')
+    const text = scanZstdFrames(after).frames
+      .map(f => zstdDecompressSync(after.subarray(f.start, f.end)).toString('utf8'))
+      .join('')
+    const lines = text.split('\n').filter(Boolean)
+    assert.equal(lines.length, 6, 'header plus five committed records')
+    assert.equal(JSON.parse(lines.at(-1)).type, 'turn/end')
+  } finally {
+    await removePath(root, { recursive: true, force: true })
+  }
+})
+
+test('session.repairCorrupt leaves an already-readable log untouched', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-repair-'))
+  const artifact = join(root, 'session.jsonl.zstd')
+  const clean = buildRepairFixture('clean')
+  await writeFile(artifact, clean)
+  try {
+    const result = await routeDesktopRequest(repairCtx(artifact), 'session.repairCorrupt', { sessionId: 'session-repair-test' }, signal)
+    assert.deepEqual(result, { repaired: false, recoveredEvents: 5, droppedTorn: 0 })
+    const after = await readFile(artifact)
+    assert.equal(after.equals(clean), true, 'clean log bytes are not rewritten')
+  } finally {
+    await removePath(root, { recursive: true, force: true })
+  }
+})
+
+test('session.repairCorrupt refuses a running session and an absent artifact', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-repair-'))
+  const artifact = join(root, 'session.jsonl.zstd')
+  await writeFile(artifact, buildRepairFixture('clean'))
+  try {
+    await assert.rejects(
+      routeDesktopRequest(repairCtx(artifact, true), 'session.repairCorrupt', { sessionId: 'session-repair-test' }, signal),
+      /仍在运行/,
+    )
+    const absent = repairCtx(artifact)
+    absent.get = key => key === 'sessionPersistence' ? { list: async () => [], locate: () => ({ path: artifact }) } : undefined
+    await assert.rejects(
+      routeDesktopRequest(absent, 'session.repairCorrupt', { sessionId: 'session-repair-test' }, signal),
+      /不存在/,
+    )
+  } finally {
+    await removePath(root, { recursive: true, force: true })
+  }
+})
+
+test('session.repairCorrupt reports an unrecoverable artifact instead of writing it', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-repair-'))
+  const artifact = join(root, 'session.jsonl.zstd')
+  await writeFile(artifact, Buffer.from('this is not a zstd session log'))
+  try {
+    await assert.rejects(
+      routeDesktopRequest(repairCtx(artifact), 'session.repairCorrupt', { sessionId: 'session-repair-test' }, signal),
+      /frame magic|无法修复/,
+    )
+    assert.equal(await readFile(artifact, 'utf8'), 'this is not a zstd session log', 'artifact is left unchanged')
+  } finally {
+    await removePath(root, { recursive: true, force: true })
+  }
 })

@@ -40,6 +40,8 @@ import {
   listPendingOpenSessions,
   acknowledgePendingOpenSession,
   refreshDsh,
+  isSessionLogCorruption,
+  repairCorruptSession,
   type DshBridgeEvent,
   type DshGoalProjection,
   type DshHistoryEntry,
@@ -242,6 +244,9 @@ function App() {
   const [logExporting, setLogExporting] = useState(false);
   const [loading, setLoading] = useState(false);
   const [retryingMessageSeq, setRetryingMessageSeq] = useState<number | null>(null);
+  // 会话日志损坏（崩溃导致）时，记录当前无法打开的会话，用于展示“修复并重新打开”按钮。
+  const [corruptSession, setCorruptSession] = useState<DshSessionSummary | null>(null);
+  const [repairingSession, setRepairingSession] = useState(false);
   const [search, setSearch] = useState("");
   const [remoteSearchResults, setRemoteSearchResults] = useState<SessionSearchResult[] | null>(null);
   const [models, setModels] = useState<DshSessionModels | null>(null);
@@ -1215,11 +1220,12 @@ function App() {
     }
   }
 
-  async function openSession(session: DshSessionSummary): Promise<boolean> {
+  async function openSession(session: DshSessionSummary, allowAutoRepair = true): Promise<boolean> {
     if (!desktop) return false;
     const loadRequest = ++sessionLoadRequestRef.current;
     activeSessionRef.current = session.sessionId;
     contextProjectionRef.current = false;
+    setCorruptSession(null);
     setSessionIndicators((current) => ({ ...current, [session.sessionId]: "idle" }));
     setActiveSessionId(session.sessionId);
     setWorkspace(workspaces.find((item) => item.sessionIds.includes(session.sessionId))?.path ?? session.cwd ?? "");
@@ -1282,6 +1288,24 @@ function App() {
       else setErrorNotice("当前模型路由不可用");
       return true;
     } catch (error) {
+      if (allowAutoRepair && isSessionLogCorruption(error)) {
+        // 崩溃损坏了会话日志（末尾写入不完整）：自动修复一次后重试打开。
+        try {
+          const repair = await repairCorruptSession(session.sessionId);
+          if (repair.repaired) {
+            setNotice(`已自动修复崩溃损坏的会话日志（保留 ${repair.recoveredEvents} 条已提交记录）`);
+          } else {
+            setNotice("会话日志已恢复可读，正在重新打开");
+          }
+        } catch (repairError) {
+          setCorruptSession(session);
+          setErrorNotice(`自动修复会话日志失败：${errorText(repairError)}`);
+          return false;
+        }
+        // 重试一次；loadRequest 守卫保证此次的 loading 状态由重试自身管理。
+        return openSession(session, false);
+      }
+      if (isSessionLogCorruption(error)) setCorruptSession(session);
       setErrorNotice(errorText(error));
       return false;
     } finally {
@@ -1290,6 +1314,27 @@ function App() {
   }
 
   openSessionRef.current = (session) => openSession(session);
+
+  // 手动修复当前会话的损坏日志并重新打开（自动修复失败时的兜底）。
+  async function repairActiveSession() {
+    const target = corruptSession ?? activeSession ?? null;
+    if (!target || repairingSession) return;
+    setRepairingSession(true);
+    try {
+      const repair = await repairCorruptSession(target.sessionId);
+      if (repair.repaired) {
+        setNotice(`已修复会话日志（保留 ${repair.recoveredEvents} 条已提交记录，丢弃 ${repair.droppedTorn} 条未完成记录）`);
+      } else {
+        setNotice("会话日志当前可读，正在重新打开");
+      }
+      setCorruptSession(null);
+      void openSessionRef.current(target);
+    } catch (error) {
+      setErrorNotice(`修复会话日志失败：${errorText(error)}`);
+    } finally {
+      setRepairingSession(false);
+    }
+  }
 
   async function openNotificationSession(sessionId: string) {
     if (!runtimeAvailableRef.current || openingNotificationSessionsRef.current.has(sessionId)) return;
@@ -2912,6 +2957,16 @@ function App() {
           />
 
           <div className="conversation-transcript-stage">
+            {corruptSession && corruptSession.sessionId === activeSessionId && (
+              <div className="session-repair-banner" role="alert">
+                <div className="session-repair-banner-text">
+                  该会话日志在 Deeptop 上次崩溃时受损，DSH 无法读取。可尝试修复：保留已提交的历史记录，丢弃崩溃时未写完的内容。
+                </div>
+                <button type="button" className="session-repair-button" disabled={repairingSession} onClick={() => void repairActiveSession()}>
+                  {repairingSession ? "正在修复…" : "修复并重新打开"}
+                </button>
+              </div>
+            )}
             <ConversationTranscript
               scrollRef={transcriptScroll}
               endRef={transcriptEnd}
