@@ -37,7 +37,7 @@
 - [~] 历史分页：`load older`、尾部跟随暂停和完整导出已完成；未做长会话虚拟化。
 - [x] 消息操作：复制、按 `atSeq` 分叉、assistant Like/Dislike/反馈备注，以及用户消息“重试”（从最近已完成回合分支后重发当前提示词）已完成。
 - [~] 工具视图：通用 call/result、Workflow 和 Produced Files 已完成；终端、文件、Diff、搜索、Web、Todo、Skill 专用卡片仍未全部复刻。
-- [~] Markdown/媒体：GFM、图片展示、粘贴/拖放上传已完成；缺少数学公式、附件画廊和 Lightbox（图片可新窗口打开）。
+- [~] Markdown/媒体：GFM、图片展示、粘贴/拖放上传和图片点击放大已完成；缺少数学公式和更完整的附件画廊。
 
 ### P1：输入和运行交互
 

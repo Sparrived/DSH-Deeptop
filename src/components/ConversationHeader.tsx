@@ -5,6 +5,7 @@ type ConversationHeaderProps = {
   activeSession: DshSessionSummary | null | undefined;
   presets: DshPreset[];
   runtimeDirectory: string;
+  notice: string;
   queueCount: number;
   activeJobs: DshJob[];
   jobsOpen: boolean;
@@ -20,6 +21,7 @@ export function ConversationHeader({
   activeSession,
   presets,
   runtimeDirectory,
+  notice,
   queueCount,
   activeJobs,
   jobsOpen,
@@ -39,6 +41,7 @@ export function ConversationHeader({
         <span className="conversation-subtitle">{presetDisplayName(activeSession?.agentPreset, presets)} · {activeSession?.cwd || runtimeDirectory || "等待运行目录"}</span>
       </div>
       <div className="conversation-actions">
+        {notice && <span className="header-notice" role="status" aria-live="polite" title={notice}>{notice}</span>}
         {queueCount > 0 && <span className="queue-count">排队 {queueCount}</span>}
         {activeJobs.length > 0 && <button className={`header-action jobs-button${jobsOpen ? " selected" : ""}`} onClick={onToggleJobs} aria-expanded={jobsOpen} aria-controls="task-panel-content" title={jobsOpen ? "收起右侧任务" : "展开右侧任务"}>任务 <span>{activeJobs.filter((job) => job.status === "running" || job.status === "stopping").length || activeJobs.length}</span></button>}
         {activeSession && <button className={`header-action trajectory-toggle${trajectoryOpen ? " selected" : ""}`} onClick={onToggleTrajectory} title="查看当前会话轨迹" aria-pressed={trajectoryOpen}>轨迹</button>}

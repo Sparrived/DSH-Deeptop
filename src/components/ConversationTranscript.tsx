@@ -1,6 +1,7 @@
-import type { RefObject, UIEvent } from "react";
+import { useEffect, useState, type RefObject, type UIEvent } from "react";
 import type { DshHistoryEntry, DshMessageAnnotationItem, DshMessageFeedbackItem, DshPreset, DshSessionSummary } from "../lib/desktop";
 import { MarkdownContent } from "../lib/markdown";
+import { PopupDialog } from "./PopupDialog";
 import { TrajectoryView } from "./TrajectoryView";
 import {
   formatClock,
@@ -13,7 +14,7 @@ import {
   type DiffSummary,
   type TranscriptItem,
 } from "../app/model";
-import type { MessageStats } from "../app/model";
+import type { MessageStats, TranscriptImage } from "../app/model";
 
 type ConversationTranscriptProps = {
   scrollRef: RefObject<HTMLDivElement | null>;
@@ -36,6 +37,7 @@ type ConversationTranscriptProps = {
   annotations: Record<string, DshMessageAnnotationItem>;
   nextPreset: string | null;
   presetMenuOpen: boolean;
+  onLoadImageAttachment?: (attachmentId: string) => Promise<string>;
   retryingMessageSeq?: number | null;
   onLoadOlder: () => void | Promise<void>;
   onFollowingChange: (following: boolean) => void;
@@ -142,6 +144,84 @@ function MessageStatsLine({ stats }: { stats?: MessageStats }) {
   return values.length > 0 ? <div className="message-stats" aria-label="消息统计">{values}</div> : null;
 }
 
+type PreviewImage = { src: string; alt: string };
+
+function MessageImage({
+  image,
+  index,
+  onLoadAttachment,
+  onOpen,
+}: {
+  image: TranscriptImage;
+  index: number;
+  onLoadAttachment?: (attachmentId: string) => Promise<string>;
+  onOpen: (image: PreviewImage) => void;
+}) {
+  const [src, setSrc] = useState(() => imageSource(image));
+  const [state, setState] = useState<"loading" | "ready" | "error">(() => src ? "ready" : "loading");
+  const [attempt, setAttempt] = useState(0);
+  const alt = image.name || `消息图片 ${index + 1}`;
+
+  useEffect(() => {
+    let active = true;
+    const inlineSource = imageSource(image);
+    if (inlineSource) {
+      setSrc(inlineSource);
+      setState("ready");
+      return () => { active = false; };
+    }
+    if (!image.attachmentId || !onLoadAttachment) {
+      setSrc("");
+      setState("error");
+      return () => { active = false; };
+    }
+    setSrc("");
+    setState("loading");
+    void onLoadAttachment(image.attachmentId).then((loadedSource) => {
+      if (!active) return;
+      setSrc(loadedSource);
+      setState("ready");
+    }).catch(() => {
+      if (active) setState("error");
+    });
+    return () => { active = false; };
+  }, [attempt, image, onLoadAttachment]);
+
+  if (state === "loading") return <span className="message-image-placeholder" role="status">正在读取图片</span>;
+  if (state === "error" || !src) {
+    return <button className="message-image-placeholder error" type="button" onClick={() => setAttempt((value) => value + 1)} title="重新读取图片">图片读取失败，点击重试</button>;
+  }
+  return <button
+    className="message-image-link"
+    type="button"
+    onClick={() => onOpen({ src, alt })}
+    title="点击放大图片"
+    aria-label={`放大 ${alt}`}
+  >
+    <img src={src} alt={alt} loading="lazy" onError={() => setState("error")} />
+  </button>;
+}
+
+function MessageImages({
+  images,
+  onLoadAttachment,
+  onOpen,
+}: {
+  images: TranscriptImage[];
+  onLoadAttachment?: (attachmentId: string) => Promise<string>;
+  onOpen: (image: PreviewImage) => void;
+}) {
+  return <div className="message-images">
+    {images.map((image, index) => <MessageImage
+      image={image}
+      index={index}
+      onLoadAttachment={onLoadAttachment}
+      onOpen={onOpen}
+      key={`${image.attachmentId ?? image.name ?? "inline"}-${index}`}
+    />)}
+  </div>;
+}
+
 function DeliverablesDock({
   item,
   activeSession,
@@ -192,6 +272,7 @@ export function ConversationTranscript({
   annotations,
   nextPreset,
   presetMenuOpen,
+  onLoadImageAttachment,
   retryingMessageSeq = null,
   onLoadOlder,
   onFollowingChange,
@@ -206,6 +287,8 @@ export function ConversationTranscript({
   onForkSession,
   onOpenSessionPath,
 }: ConversationTranscriptProps) {
+  const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null);
+
   function handleScroll(event: UIEvent<HTMLDivElement>) {
     const target = event.currentTarget;
     onFollowingChange(target.scrollHeight - target.scrollTop - target.clientHeight < 64);
@@ -274,9 +357,7 @@ export function ConversationTranscript({
             <article className={`message-row ${item.kind}${item.injected ? " context-row" : ""}${item.kind === "tool" ? " tool-row" : ""}${annotation ? " has-annotation" : ""}`} key={item.key}>
               {item.kind !== "tool" && item.kind !== "reasoning" && <div className="message-gutter"><span>{item.label}</span><time>{formatClock(item.time)}</time>{annotation && <aside className="message-annotation" title="消息注记"><i aria-hidden="true" />{annotation}</aside>}</div>}
               <div className="message-content">
-                {item.images && item.images.length > 0 && <div className="message-images">
-                  {item.images.map((image, index) => <a className="message-image-link" href={imageSource(image)} target="_blank" rel="noreferrer" key={`${item.key}-image-${index}`} title={image.name || "打开图片"}><img src={imageSource(image)} alt={image.name || `消息图片 ${index + 1}`} loading="lazy" /></a>)}
-                </div>}
+                {item.images && item.images.length > 0 && <MessageImages images={item.images} onLoadAttachment={onLoadImageAttachment} onOpen={setPreviewImage} />}
                 {item.kind === "tool" ? (
                   <details className={`tool-entry ${hasToolResult ? "tool-paired" : ""} ${item.toolResultError ? "tool-error" : ""}`} open={item.toolResultError || undefined}>
                     <summary>
@@ -355,6 +436,15 @@ export function ConversationTranscript({
       )}
     </div>
     {showDeliverablesDock && <DeliverablesDock item={deliverables} activeSession={activeSession} onOpenSessionPath={onOpenSessionPath} />}
+    {previewImage && <PopupDialog
+      title="图片预览"
+      eyebrow="MESSAGE / IMAGE"
+      description={previewImage.alt}
+      className="image-preview-dialog"
+      onClose={() => setPreviewImage(null)}
+    >
+      <img className="image-preview" src={previewImage.src} alt={previewImage.alt} />
+    </PopupDialog>}
     </>
   );
 }

@@ -14,12 +14,24 @@ export function contentSegments(content: unknown): ContentSegments {
     const value = block as Record<string, unknown>;
     if (value.type === "text" && typeof value.text === "string") text.push(value.text);
     else if (value.type === "reasoning" && typeof value.text === "string") reasoning.push(value.text);
-    else if (value.type === "image" && typeof value.data === "string") {
-      images.push({
-        mediaType: typeof value.mediaType === "string" ? value.mediaType : "image/png",
-        data: value.data,
-        name: typeof value.name === "string" ? value.name : undefined,
-      });
+    else if (value.type === "image") {
+      const attachment = recordValue(value.attachment);
+      const data = typeof value.data === "string" ? value.data : undefined;
+      const attachmentId = typeof value.attachmentId === "string"
+        ? value.attachmentId
+        : typeof attachment?.attachmentId === "string" ? attachment.attachmentId : undefined;
+      if (data || attachmentId) {
+        images.push({
+          mediaType: typeof value.mediaType === "string"
+            ? value.mediaType
+            : typeof attachment?.mediaType === "string" ? attachment.mediaType : "image/png",
+          ...(data ? { data } : {}),
+          ...(attachmentId ? { attachmentId } : {}),
+          name: typeof value.name === "string"
+            ? value.name
+            : typeof attachment?.name === "string" ? attachment.name : undefined,
+        });
+      }
     }
     else if (value.type === "tool-result") {
       const nested = contentSegments(value.content);
@@ -67,6 +79,7 @@ export function eventContent(event: DshSessionEvent) {
 }
 
 export function imageSource(image: TranscriptImage) {
+  if (!image.data) return "";
   return image.data.startsWith("data:") ? image.data : `data:${image.mediaType};base64,${image.data}`;
 }
 

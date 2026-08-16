@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties } from "react";
 import { type UnlistenFn } from "@tauri-apps/api/event";
 import { StartupSplash } from "./components/StartupSplash";
 import { ConversationTranscript } from "./components/ConversationTranscript";
@@ -340,6 +340,24 @@ function App() {
   const sessionLoadRequestRef = useRef(0);
   const retryingMessageRef = useRef<number | null>(null);
   const retryingSessionRef = useRef<string | null>(null);
+  const imageAttachmentCacheRef = useRef(new Map<string, Promise<string>>());
+
+  const loadImageAttachment = useCallback((attachmentId: string) => {
+    const sessionId = activeSessionRef.current;
+    if (!sessionId) return Promise.reject(new Error("当前没有打开的会话"));
+    const key = `${sessionId}:${attachmentId}`;
+    const cached = imageAttachmentCacheRef.current.get(key);
+    if (cached) return cached;
+    const request = bridgeRequest<{ attachment: { mediaType: string }; data: string }>("session.attachment", {
+      sessionId,
+      attachmentId,
+    }).then((result) => `data:${result.attachment.mediaType};base64,${result.data}`);
+    imageAttachmentCacheRef.current.set(key, request);
+    void request.catch(() => {
+      if (imageAttachmentCacheRef.current.get(key) === request) imageAttachmentCacheRef.current.delete(key);
+    });
+    return request;
+  }, []);
 
   function enqueuePopupRequest(request: PopupRequest) {
     if (activePopupRequestRef.current) {
@@ -1698,7 +1716,7 @@ function App() {
     if ((!text && attachments.length === 0) || loading || !status.runtimeAvailable) return;
     if (attachments.length > 0) {
       if (!selectedModelSupportsImages) {
-        setNotice("当前模型不支持图片输入，请切换到支持图片的模型后再发送");
+        setNotice("当前模型仅支持文本输入，图片未发送。请切换到支持图片输入的模型后重试");
         return;
       }
     }
@@ -2701,6 +2719,7 @@ function App() {
             activeSession={activeSession}
             presets={presets}
             runtimeDirectory={status.runtimeDirectory}
+            notice={notice}
             queueCount={queue.length}
             activeJobs={activeJobs}
             jobsOpen={activeJobs.length > 0 && !jobsCollapsed}
@@ -2735,6 +2754,7 @@ function App() {
               nextPreset={nextPreset}
               presetMenuOpen={presetMenuOpen}
               onLoadOlder={loadOlderHistory}
+              onLoadImageAttachment={loadImageAttachment}
               onFollowingChange={setTranscriptFollowing}
               onJumpToLatest={() => setTranscriptFollowing(true)}
               onTogglePresetMenu={() => setPresetMenuOpen((open) => !open)}

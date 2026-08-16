@@ -96,7 +96,8 @@ export type SubagentSession = {
 
 export type TranscriptImage = {
   mediaType: string;
-  data: string;
+  data?: string;
+  attachmentId?: string;
   name?: string;
 };
 
