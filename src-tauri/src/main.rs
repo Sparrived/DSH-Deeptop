@@ -14,6 +14,9 @@ use std::{
     time::Duration,
 };
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 use notify_rust::{Notification as DesktopNotification, NotificationResponse};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -277,7 +280,74 @@ const PROFILE_PNPM_WORKSPACE: &str =
 const MAX_PENDING_OPEN_SESSIONS: usize = 16;
 const DSH_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(8);
 
-// Child-process output may contain bytes that are not valid UTF-8.
+#[cfg(windows)]
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    #[link_name = "GetACP"]
+    fn get_acp() -> u32;
+    #[link_name = "GetOEMCP"]
+    fn get_oem_cp() -> u32;
+    #[link_name = "MultiByteToWideChar"]
+    fn multi_byte_to_wide_char(
+        code_page: u32,
+        flags: u32,
+        input: *const u8,
+        input_len: i32,
+        output: *mut u16,
+        output_len: i32,
+    ) -> i32;
+}
+
+#[cfg(windows)]
+fn decode_windows_code_page(bytes: &[u8], code_page: u32) -> Option<String> {
+    let input_len = i32::try_from(bytes.len()).ok()?;
+    if input_len == 0 {
+        return Some(String::new());
+    }
+    let output_len = unsafe {
+        multi_byte_to_wide_char(
+            code_page,
+            0,
+            bytes.as_ptr(),
+            input_len,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if output_len <= 0 {
+        return None;
+    }
+    let mut wide = vec![0u16; output_len as usize];
+    let written = unsafe {
+        multi_byte_to_wide_char(
+            code_page,
+            0,
+            bytes.as_ptr(),
+            input_len,
+            wide.as_mut_ptr(),
+            output_len,
+        )
+    };
+    (written > 0).then(|| String::from_utf16_lossy(&wide[..written as usize]))
+}
+
+fn decode_process_line(bytes: &[u8]) -> String {
+    if let Ok(line) = std::str::from_utf8(bytes) {
+        return line.to_owned();
+    }
+    #[cfg(windows)]
+    {
+        let code_pages = unsafe { [get_acp(), get_oem_cp()] };
+        for code_page in code_pages {
+            if let Some(line) = decode_windows_code_page(bytes, code_page) {
+                return line;
+            }
+        }
+    }
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+// Child-process output may use the Windows ANSI code page instead of UTF-8.
 fn lossy_lines<R: Read>(reader: R) -> impl Iterator<Item = std::io::Result<String>> {
     let mut reader = BufReader::new(reader);
     let mut finished = false;
@@ -298,7 +368,7 @@ fn lossy_lines<R: Read>(reader: R) -> impl Iterator<Item = std::io::Result<Strin
                 if bytes.last() == Some(&b'\r') {
                     bytes.pop();
                 }
-                Some(Ok(String::from_utf8_lossy(&bytes).into_owned()))
+                Some(Ok(decode_process_line(&bytes)))
             }
             Err(error) => {
                 finished = true;
@@ -318,13 +388,17 @@ mod output_tests {
             .map(Result::unwrap)
             .collect::<Vec<_>>();
 
+        assert_eq!(lines[0], "ready");
+        assert!(lines[1].starts_with("bad "));
+        assert_eq!(lines[2], "partial");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn decodes_cp936_process_output() {
         assert_eq!(
-            lines,
-            vec![
-                "ready".to_string(),
-                "bad \u{FFFD}".to_string(),
-                "partial".to_string()
-            ]
+            super::decode_windows_code_page(&[0xB2, 0xBB], 936),
+            Some("不".to_string())
         );
     }
 }
@@ -885,7 +959,14 @@ fn path_dsh_launch(executable: PathBuf) -> DshLaunch {
     {
         let command_line = format!("\"{}\" --profile {}", executable.display(), DSH_PROFILE);
         let mut command = Command::new("cmd");
-        command.args(["/D", "/S", "/C", &command_line]);
+        command.args(["/D", "/S", "/C"]);
+        #[cfg(windows)]
+        {
+            // cmd /C needs an outer quote pair around a quoted .cmd path.
+            command.raw_arg(format!("\"{command_line}\""));
+        }
+        #[cfg(not(windows))]
+        command.arg(command_line);
         command
     } else {
         let mut command = Command::new(&executable);
