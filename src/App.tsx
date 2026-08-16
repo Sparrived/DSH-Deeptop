@@ -1420,6 +1420,45 @@ function App() {
     transcriptEnd.current?.scrollIntoView({ behavior: "auto" });
   }, [history, loading, transcriptFollowing]);
 
+  function firstConversationForWorkspace(workspacePath: string, workspaceItem: DshWorkspace | null): DshSessionSummary | null {
+    // Mirrors selectedWorkspaceSessions so the conversation page always opens a
+    // session that the sidebar can highlight for the newly selected workspace.
+    const visibleById = new Map(visibleSessions.map((session) => [session.sessionId, session]));
+    if (workspaceItem) {
+      for (const sessionId of workspaceItem.sessionIds) {
+        const session = visibleById.get(sessionId);
+        if (session) return session;
+      }
+      return null;
+    }
+    if (!workspacePath) {
+      // 未分组：不属于任何工作区的第一个会话。
+      return visibleSessions.find((session) => !workspaceBySessionId.has(session.sessionId)) ?? null;
+    }
+    return null;
+  }
+
+  async function syncConversationToWorkspace(workspacePath: string) {
+    if (!desktop) return;
+    // Read the authoritative workspace projection so sessions attached during
+    // add/choose are included when selecting the first conversation.
+    let workspaceItem = workspaces.find((item) => sameWorkspacePath(item.path, workspacePath)) ?? null;
+    if (workspacePath) {
+      try {
+        const refreshed = await bridgeRequest<{ items: DshWorkspace[] }>("workspace.list");
+        workspaceItem = refreshed.items.find((item) => sameWorkspacePath(item.path, workspacePath)) ?? workspaceItem;
+      } catch {
+        // Fall back to the local projection.
+      }
+    }
+    const first = firstConversationForWorkspace(workspacePath, workspaceItem);
+    if (first) {
+      if (activeSessionRef.current !== first.sessionId) await openSession(first);
+    } else {
+      startNewSession();
+    }
+  }
+
   async function addWorkspace() {
     if (!desktop) {
       setNotice("请在 Tauri 桌面端选择本地目录");
@@ -1441,6 +1480,8 @@ function App() {
         const attachedCount = await attachUnregisteredSessions(result.workspace);
         await loadRuntimeDetails();
         if (attachedCount > 0) setNotice(`已将 ${attachedCount} 个同目录会话登记到工作区`);
+        // 保持对话页面与工作区选择同步：打开新工作区的第一个会话，没有会话则显示新会话页面。
+        await syncConversationToWorkspace(result.workspace.path);
       } catch {
         // A session can use a directory even when workspace registration is unavailable.
       }
@@ -1455,16 +1496,19 @@ function App() {
     setWorkspaceMenuOpen(false);
     setNotice(path ? "新会话将使用此工作目录" : "新会话将使用 DSH 运行目录");
     const selected = workspaces.find((item) => item.path === path);
-    if (!selected) return;
-    try {
-      const attachedCount = await attachUnregisteredSessions(selected);
-      if (attachedCount > 0) {
-        await loadRuntimeDetails();
-        setNotice(`已将 ${attachedCount} 个同目录会话登记到工作区`);
+    if (selected) {
+      try {
+        const attachedCount = await attachUnregisteredSessions(selected);
+        if (attachedCount > 0) {
+          await loadRuntimeDetails();
+          setNotice(`已将 ${attachedCount} 个同目录会话登记到工作区`);
+        }
+      } catch (error) {
+        setNotice(errorText(error));
       }
-    } catch (error) {
-      setNotice(errorText(error));
     }
+    // 保持对话页面与工作区选择同步：打开新工作区的第一个会话，没有会话则显示新会话页面。
+    await syncConversationToWorkspace(path);
   }
 
   async function repairWorkspaceMembership(
