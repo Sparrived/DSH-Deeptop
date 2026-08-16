@@ -125,7 +125,7 @@ import {
   useAppearanceSettings,
 } from "./app/useAppearanceSettings";
 import { SEND_SHORTCUT_STORAGE_KEY, readSendShortcut } from "./app/keyboard-shortcut";
-import { readStoredDefaultModel, readStoredDefaultPermission, writeStoredDefaultModel, writeStoredDefaultPermission, type DefaultPermission } from "./app/session-defaults";
+import { DEFAULT_PERMISSION_OPTIONS, isDefaultPermission, readStoredDefaultModel, readStoredDefaultPermission, writeStoredDefaultModel, writeStoredDefaultPermission, type DefaultPermission } from "./app/session-defaults";
 
 const demoStatus: DshStatus = {
   dshHome: "",
@@ -231,11 +231,12 @@ function App() {
   const [draftModelSelection, setDraftModelSelection] = useState<ModelSelection | null>(null);
   const [storedDefaultModel, setStoredDefaultModel] = useState<ModelSelection | null>(readStoredDefaultModel);
   const [storedDefaultPermission, setStoredDefaultPermission] = useState<DefaultPermission | null>(readStoredDefaultPermission);
+  const [draftPermission, setDraftPermission] = useState<DefaultPermission | null>(null);
   const [commands, setCommands] = useState<DshCommandDescriptor[]>([]);
   const [feedback, setFeedback] = useState<Record<string, DshMessageFeedbackItem>>({});
   const [annotations, setAnnotations] = useState<Record<string, DshMessageAnnotationItem>>({});
   const [permissionSelect, setPermissionSelect] = useState<DshPermissionSelect | null>(null);
-  const [pendingPermissionValue, setPendingPermissionValue] = useState<string | null>(null);
+  const [pendingPermissionValue, setPendingPermissionValue] = useState<DefaultPermission | null>(null);
   const [pendingDefaultPermission, setPendingDefaultPermission] = useState<DefaultPermission | null>(null);
   const [plan, setPlan] = useState<DshPlanProjection | null>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
@@ -611,8 +612,15 @@ function App() {
   const defaultPermission = useMemo<DefaultPermission | null>(() => {
     const configured = settings?.namespaces.find((namespace) => namespace.ns === "permission")?.value;
     const value = valueAtPath(configured, ["defaultPreset"]);
-    return value === "read-only" || value === "workspace-write" || value === "danger-full-access" ? value : storedDefaultPermission;
+    return isDefaultPermission(value) ? value : storedDefaultPermission;
   }, [settings, storedDefaultPermission]);
+  const newSessionPermissionSelect = useMemo<DshPermissionSelect | null>(() => {
+    const currentValue = draftPermission ?? defaultPermission;
+    return currentValue
+      ? { options: DEFAULT_PERMISSION_OPTIONS, currentValue }
+      : null;
+  }, [defaultPermission, draftPermission]);
+  const composerPermissions = activeSessionId ? permissionSelect : newSessionPermissionSelect;
   const defaultModelName = useMemo(() => {
     if (!defaultModelSelection) return "默认模型";
     return hostModels?.groups.find((group) => group.id === defaultModelSelection.provider)?.models.find((model) => model.id === defaultModelSelection.model)?.name ?? defaultModelSelection.model;
@@ -1160,6 +1168,8 @@ function App() {
     setPresetView(null);
     setModels(null);
     setDraftModelSelection(null);
+    setDraftPermission(null);
+    setPermissionSelect(null);
     setAnnotations({});
     setLoading(true);
     try {
@@ -1582,6 +1592,7 @@ function App() {
     setAttachments([]);
     setModels(null);
     setDraftModelSelection(null);
+    setDraftPermission(null);
     setSessionStats({ inputTokens: 0, outputTokens: 0, totalTokens: 0, contextTokens: 0, contextLimit: 0, cacheHitRate: 0, firstTokenMs: 0, messages: 0 });
     setCommands([]);
     setFeedback({});
@@ -1610,6 +1621,8 @@ function App() {
     const presetId = nextPreset || presets.find((preset) => preset.isDefault)?.id;
     const selectedWorkspace = workspaces.find((item) => sameWorkspacePath(item.path, workspace));
     const requestedModel = draftModelSelection ?? defaultModelSelection;
+    const requestedPermission = draftPermission ?? defaultPermission;
+    const hasHostPermissionNamespace = settings?.namespaces.some((item) => item.ns === "permission") ?? false;
     const created = await bridgeRequest<{ sessionId: string; agentPreset?: string }>("session.create", {
       ...(selectedWorkspace ? { workspaceId: selectedWorkspace.workspaceId } : workspace ? { cwd: workspace } : {}),
       ...(presetId ? { agentPreset: presetId } : {}),
@@ -1627,8 +1640,8 @@ function App() {
     // Profiles without the official permission namespace still get the desktop
     // fallback applied to the new session. A Host-owned namespace applies its
     // value during session creation, so it remains the source of truth there.
-    if (defaultPermission && !settings?.namespaces.some((item) => item.ns === "permission")) {
-      await executeCommandLine(created.sessionId, `/permission ${defaultPermission}`);
+    if (requestedPermission && (!hasHostPermissionNamespace || draftPermission !== null)) {
+      await executeCommandLine(created.sessionId, `/permission ${requestedPermission}`);
     }
     // session.create also emits host/session-added. Do not prepend an optimistic
     // row here: the event and the next list refresh are the source of truth and
@@ -1648,6 +1661,7 @@ function App() {
     const nextSessions = await loadSessions();
     await loadRuntimeDetails(nextSessions ?? []);
     setDraftModelSelection(null);
+    setDraftPermission(null);
     setNextPreset("");
     setPresetMenuOpen(false);
     void bridgeRequest<DshSessionModels>("session.models", { sessionId: created.sessionId })
@@ -2261,20 +2275,38 @@ function App() {
     await persistDefaultPermission(value);
   }
 
-  async function setPermissionPreset(value: string) {
-    if (value === "custom") return;
-    if (value === "danger-full-access") {
-      setPendingPermissionValue(value);
+  async function applyPermissionPreset(value: string) {
+    if (!activeSessionRef.current) {
+      if (isDefaultPermission(value)) setDraftPermission(value);
       return;
     }
     await runCommand(`/permission ${value}`);
+  }
+
+  async function setPermissionPreset(value: string) {
+    const normalized = value.trim().toLowerCase().replace(/_/g, "-");
+    if (!normalized || normalized === "custom") return;
+    if (!activeSessionRef.current) {
+      if (!isDefaultPermission(normalized)) return;
+      if (normalized === "danger-full-access") {
+        setPendingPermissionValue(normalized);
+        return;
+      }
+      await applyPermissionPreset(normalized);
+      return;
+    }
+    if (normalized === "danger-full-access") {
+      setPendingPermissionValue("danger-full-access");
+      return;
+    }
+    await applyPermissionPreset(normalized);
   }
 
   async function confirmPermissionPreset() {
     const value = pendingPermissionValue;
     if (!value) return;
     setPendingPermissionValue(null);
-    await runCommand(`/permission ${value}`);
+    await applyPermissionPreset(value);
   }
 
   async function togglePlan() {
@@ -2812,7 +2844,7 @@ function App() {
             onPaste={handleComposerPaste}
             onAddFiles={addComposerFiles}
             onRemoveAttachment={(attachmentId) => setAttachments((current) => current.filter((item) => item.id !== attachmentId))}
-            permissions={permissionSelect}
+            permissions={composerPermissions}
             onSetPermission={setPermissionPreset}
             onSetPromptMode={setPromptMode}
             onChooseCandidate={chooseComposerCandidate}

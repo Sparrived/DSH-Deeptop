@@ -1391,18 +1391,20 @@ textarea:focus-visible {
 .subagent-rail {
   position: absolute;
   top: 50%;
-  right: 0;
+  left: 0;
+  right: auto;
   width: 172px;
   display: grid;
   gap: 6px;
-  padding: 7px 0 7px 7px;
+  padding: 7px 7px 7px 0;
   transform: translateY(-50%);
   pointer-events: auto;
-  transition: right 180ms ease;
+  transition: left 180ms ease;
 }
 
 .subagent-layer.open .subagent-rail {
-  right: var(--subagent-drawer-width);
+  left: var(--subagent-drawer-width);
+  right: auto;
 }
 
 .subagent-rail-label {
@@ -1423,10 +1425,11 @@ textarea:focus-visible {
   grid-template-columns: 6px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  padding: 7px 10px 7px 0;
+  padding: 7px 0 7px 10px;
   border: 1px solid #c4c3ba;
-  border-right: 0;
-  border-left: 3px solid var(--subagent-tone);
+  border-left: 0;
+  border-right: 3px solid var(--subagent-tone);
+  border-radius: 0 6px 6px 0;
   background: rgba(241, 240, 235, 0.96);
   color: var(--ink);
   text-align: left;
@@ -1442,8 +1445,8 @@ textarea:focus-visible {
 .subagent-bookmark.selected {
   background: #fffdf7;
   border-color: var(--subagent-tone);
-  border-right: 0;
-  transform: translateX(-5px);
+  border-left: 0;
+  transform: translateX(5px);
 }
 
 .subagent-bookmark-status {
@@ -1507,7 +1510,7 @@ textarea:focus-visible {
 
 .subagent-drawer {
   position: absolute;
-  inset: 16px 0 16px auto;
+  inset: 16px auto 16px 0;
   width: var(--subagent-drawer-width);
   min-width: 0;
   display: flex;
@@ -1516,7 +1519,7 @@ textarea:focus-visible {
   border: 1px solid #c4c1b8;
   background: #e8e6df;
   color: var(--ink);
-  box-shadow: -16px 18px 42px rgba(25, 28, 24, 0.24);
+  box-shadow: 16px 18px 42px rgba(25, 28, 24, 0.24);
   pointer-events: auto;
 }
 
@@ -6739,8 +6742,9 @@ textarea:focus-visible {
 
 .subagent-bookmark {
   border-color: var(--line-strong);
-  border-right: 0;
-  border-radius: 8px 0 0 8px;
+  border-left: 0;
+  border-right: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0;
   background: var(--paper);
   box-shadow: 0 10px 24px rgba(7, 15, 24, 0.15);
 }
@@ -6754,7 +6758,8 @@ textarea:focus-visible {
 .subagent-bookmark:hover,
 .subagent-bookmark.selected {
   border-color: var(--accent);
-  border-right: 0;
+  border-left: 0;
+  border-right: 3px solid var(--accent);
   background: color-mix(in srgb, var(--accent) 8%, var(--paper));
 }
 
@@ -6952,11 +6957,13 @@ textarea:focus-visible {
   }
 
   .workspace-layout.todo-visible .subagent-rail {
-    right: calc(var(--todo-panel-width) + 18px);
+    left: 10px;
+    right: auto;
   }
 
   .workspace-layout.todo-visible.todo-collapsed .subagent-rail {
-    right: calc(var(--todo-collapsed-width) + 18px);
+    left: 10px;
+    right: auto;
   }
 
   .subagent-layer {
@@ -6968,8 +6975,9 @@ textarea:focus-visible {
 
   .subagent-rail {
     top: auto;
-    right: 10px;
+    right: auto;
     bottom: 20%;
+    left: 10px;
     width: min(158px, calc(100vw - 20px));
     transform: none;
   }
@@ -6979,7 +6987,7 @@ textarea:focus-visible {
   }
 
   .subagent-drawer {
-    inset: 10px 8px 10px auto;
+    inset: 10px auto 10px 8px;
   }
 
   .session-sidebar {
@@ -7207,8 +7215,9 @@ textarea:focus-visible {
 
   .workspace-layout.todo-visible .subagent-rail {
     top: 10px;
-    right: 10px;
+    right: auto;
     bottom: auto;
+    left: 10px;
   }
 }
 
@@ -9323,7 +9332,10 @@ textarea:focus-visible {
 
 .reasoning-marker {
   flex: 0 0 auto;
-  font-size: 15px;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
   line-height: 1;
 }
 
@@ -11230,7 +11242,8 @@ textarea:focus-visible {
 .subagent-rail {
   position: absolute;
   top: 50%;
-  right: 16px;
+  left: 0;
+  right: auto;
   width: 194px;
   display: grid;
   gap: 6px;
@@ -11239,7 +11252,8 @@ textarea:focus-visible {
 }
 
 .subagent-layer.open .subagent-rail {
-  right: calc(var(--subagent-drawer-width, 500px) + 24px);
+  left: calc(var(--subagent-drawer-width, 500px) + 24px);
+  right: auto;
 }
 
 .subagent-rail-label {
@@ -11257,8 +11271,9 @@ textarea:focus-visible {
   gap: 9px;
   padding: 10px 11px;
   border: 1px solid var(--line-strong);
-  border-right: 0;
-  border-radius: var(--radius-control) 0 0 var(--radius-control);
+  border-left: 0;
+  border-right: 3px solid var(--accent);
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
   background: var(--surface-raised);
   color: var(--ink);
   text-align: left;
@@ -11302,8 +11317,9 @@ textarea:focus-visible {
 .subagent-drawer {
   position: absolute;
   top: 16px;
-  right: 16px;
+  right: auto;
   bottom: 16px;
+  left: 0;
   width: var(--subagent-drawer-width, 500px);
   min-width: 0;
   display: grid;
@@ -13099,8 +13115,9 @@ textarea:focus-visible {
 
   .subagent-rail {
     top: auto;
-    right: 10px;
+    right: auto;
     bottom: 18%;
+    left: 0;
     width: min(170px, calc(100vw - 20px));
     transform: none;
   }
@@ -13109,8 +13126,9 @@ textarea:focus-visible {
 
   .subagent-drawer {
     top: 10px;
-    right: 8px;
+    right: auto;
     bottom: 10px;
+    left: 8px;
     width: min(430px, calc(100vw - 16px));
   }
 
@@ -13350,8 +13368,9 @@ textarea:focus-visible {
 
   .conversation-transcript-stage > .subagent-layer > .subagent-drawer {
     top: 0;
-    right: var(--surface-scrollbar-gap);
+    right: auto;
     bottom: 0;
+    left: 0;
   }
 }
 
@@ -13675,8 +13694,9 @@ textarea:focus-visible {
 
   .conversation-transcript-stage > .subagent-layer.open > .subagent-drawer {
     top: calc(var(--conversation-header-height) + 10px);
-    right: 8px;
+    right: auto;
     bottom: 10px;
+    left: 8px;
   }
 }
 

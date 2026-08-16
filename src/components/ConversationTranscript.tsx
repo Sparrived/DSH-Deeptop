@@ -292,7 +292,7 @@ export function ConversationTranscript({
                   </details>
                 ) : item.kind === "reasoning" ? (
                   <details className="reasoning-entry" data-state={item.streaming ? "running" : "ok"}>
-                    <summary><span className="reasoning-marker" aria-hidden="true">💡</span><em>{(item.streaming ? item.text.split("\n").filter(Boolean).at(-1) : item.text.split("\n").filter(Boolean)[0]) || "思考过程"}</em></summary>
+                    <summary><span className="reasoning-marker">Think</span><em>{(item.streaming ? item.text.split("\n").filter(Boolean).at(-1) : item.text.split("\n").filter(Boolean)[0]) || "思考过程"}</em></summary>
                     <div className="reasoning-body"><pre>{item.text}</pre></div>
                   </details>
                 ) : item.kind === "workflow" ? (
