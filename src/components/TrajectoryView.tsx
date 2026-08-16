@@ -51,12 +51,26 @@ export function TrajectoryView({ entries, active }: { entries: DshHistoryEntry[]
   const [query, setQuery] = useState("");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const records = useMemo(() => buildTrajectoryRecords(entries), [entries]);
+  // History is rebuilt on every stream flush, so the whole view re-renders
+  // frequently while a turn runs. `records.indexOf` is O(n^2) across the
+  // ledger and overview for large sessions, so precompute a key -> position
+  // map once per records change.
+  const recordIndex = useMemo(() => {
+    const index = new Map<string, number>();
+    records.forEach((record, position) => index.set(record.key, position));
+    return index;
+  }, [records]);
+  const lanes = useMemo(() => {
+    const byLane: Record<TrajectoryLane, TrajectoryRecord[]> = { input: [], model: [], tools: [] };
+    for (const record of records) byLane[trajectoryLane(record.kind)].push(record);
+    return byLane;
+  }, [records]);
   const filteredRecords = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     if (!needle) return records;
     return records.filter((record) => `${record.title} ${record.summary} ${record.detail}`.toLocaleLowerCase().includes(needle));
   }, [query, records]);
-  const selected = records.find((record) => record.key === selectedKey) ?? null;
+  const selected = selectedKey === null ? null : (records[recordIndex.get(selectedKey) ?? -1] ?? null);
   const groups = useMemo(() => groupByTurn(filteredRecords), [filteredRecords]);
   const timed = records.filter((record) => Number.isFinite(record.time));
   const firstTime = timed[0]?.time ?? 0;
@@ -92,8 +106,8 @@ export function TrajectoryView({ entries, active }: { entries: DshHistoryEntry[]
             <div className="trajectory-overview-track" aria-label="轨迹三条时间轨道">
               {TRAJECTORY_LANES.map((lane) => (
                 <div className={`trajectory-overview-lane ${lane.key}`} key={lane.key}>
-                  {records.filter((record) => trajectoryLane(record.kind) === lane.key).map((record) => {
-                    const index = records.indexOf(record);
+                  {lanes[lane.key].map((record) => {
+                    const index = recordIndex.get(record.key) ?? 0;
                     const left = ((record.time - firstTime) / timeRange) * 100;
                     const width = Math.max(0.7, ((record.durationMs ?? 0) / timeRange) * 100);
                     const style: CSSProperties = { left: `${Math.min(99.3, Math.max(0, left))}%`, width: `${Math.min(100, width)}%` };
@@ -121,7 +135,7 @@ export function TrajectoryView({ entries, active }: { entries: DshHistoryEntry[]
               </div>
               <div className="trajectory-records">
                 {group.records.map((record) => {
-                  const index = records.indexOf(record) + 1;
+                  const index = (recordIndex.get(record.key) ?? 0) + 1;
                   const selectedRow = selectedKey === record.key;
                   return (
                     <button className={`trajectory-record ${record.kind} ${record.status} ${selectedRow ? "selected" : ""}`} key={record.key} onClick={() => setSelectedKey(record.key)} role="listitem" aria-pressed={selectedRow}>
@@ -140,7 +154,7 @@ export function TrajectoryView({ entries, active }: { entries: DshHistoryEntry[]
         {selected && (
           <aside className="trajectory-inspector" aria-label="轨迹记录详情">
             <div className="trajectory-inspector-header">
-              <div><span>#{records.indexOf(selected) + 1} · {kindLabel(selected.kind)}</span><strong>{selected.title}</strong></div>
+              <div><span>#{(recordIndex.get(selected.key) ?? 0) + 1} · {kindLabel(selected.kind)}</span><strong>{selected.title}</strong></div>
               <button onClick={() => setSelectedKey(null)} title="关闭详情" aria-label="关闭详情">×</button>
             </div>
             <dl className="trajectory-meta-list">

@@ -31,10 +31,19 @@ type AssistantState = {
   startedAt?: number;
   completedAt?: number;
   blocks: Record<string, unknown>;
+  liveText?: string;
   usage?: unknown;
   final: boolean;
   error?: string;
 };
+
+// While a stream runs, `assistant/chunk` fires once or more per frame and the
+// history is rebuilt on every flush. Re-pretty-printing the whole accumulated
+// text on each chunk turns a long reasoning/text stream into O(total^2) work
+// (a 78k-entry session took ~3s to open). The running record therefore keeps a
+// cheap capped tail as its live summary and only materializes the full detail
+// string once the step is finalized.
+const TRAJECTORY_LIVE_PREVIEW = 240;
 
 type CompactionState = {
   key: string;
@@ -193,6 +202,10 @@ function applyAssistantChunk(state: AssistantState, chunk: Record<string, unknow
       type: type === "text-delta" ? "text" : "reasoning",
       text: `${typeof previous?.text === "string" ? previous.text : ""}${String(chunk.text ?? "")}`,
     };
+    const delta = String(chunk.text ?? "");
+    if (delta) {
+      state.liveText = `${state.liveText ?? ""}${delta}`.slice(-TRAJECTORY_LIVE_PREVIEW);
+    }
   } else if (type === "tool-call-delta") {
     const previous = recordValue(state.blocks[key]);
     state.blocks[key] = {
@@ -208,9 +221,20 @@ function applyAssistantChunk(state: AssistantState, chunk: Record<string, unknow
 }
 
 function buildAssistantRecord(state: AssistantState, status: TrajectoryStatus): TrajectoryRecord {
-  const blocks = blockList(state.blocks);
+  // A running record only needs a cheap live summary; the full blocks text and
+  // its pretty-printed detail are O(accumulated length) to derive, so they are
+  // computed once the step actually finishes (assistant/message or step/end).
+  const final = state.final || status !== "running";
+  const blocks = final ? blockList(state.blocks) : [];
   const usage = usageLabel(state.usage);
   const statusText = state.error ? ` · ${state.error}` : usage ? ` · ${usage}` : "";
+  const live = (state.liveText ?? "").trim();
+  const summary = final ? `${blockSummary(blocks)}${statusText}` : `${live ? preview(live) : "生成中"}${statusText}`;
+  const detail = final
+    ? pretty({ blocks, usage: state.usage, error: state.error })
+    : live
+      ? `流式生成中，等待最终消息。\n\n${preview(live, 2000)}`
+      : "流式生成中，等待最终消息。";
   return {
     key: `assistant-${state.key}`,
     seq: state.recordSeq,
@@ -218,8 +242,8 @@ function buildAssistantRecord(state: AssistantState, status: TrajectoryStatus): 
     kind: "assistant",
     status,
     title: "助手",
-    summary: `${blockSummary(blocks)}${statusText}`,
-    detail: pretty({ blocks, usage: state.usage, error: state.error }),
+    summary,
+    detail,
     turn: state.turn,
     step: state.step,
     startedAt: state.startedAt,
