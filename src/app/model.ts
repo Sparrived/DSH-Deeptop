@@ -5,6 +5,10 @@ export * from "./ui-model";
 
 export type {
   AppearanceSettings,
+  AppTheme,
+  BackgroundConfig,
+  BackgroundSettings,
+  BackgroundZone,
   ChildSubagentEntry,
   ComposerAttachment,
   ComposerCandidate,

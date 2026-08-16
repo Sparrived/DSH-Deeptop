@@ -1,0 +1,92 @@
+/* Deeptop 主题 · One Dark
+   本文件是主题的外部 CSS 源文件，同时定义浅色（:root）与深色
+   （[data-theme="dark"]）两套配色。首次启动时会被写入
+   <DSH 主目录>/themes/one-dark.css（并随应用版本同步更新）。
+   如需自定义，请复制本文件为另一个 .css 文件，并在外观设置的
+   「主题 → 自定义路径」中指向它。 */
+
+:root {
+  color-scheme: light;
+  --chrome: #f7f9fc;
+  --chrome-soft: #edf1f6;
+  --chrome-line: #d9e0e8;
+  --rail: #edf1f6;
+  --rail-surface: #e2e8f0;
+  --rail-line: #d2dae5;
+  --rail-inset: #e7ecf2;
+  --rail-text: #282c34;
+  --rail-muted: #5f6672;
+  --surface: #f6f8fb;
+  --surface-raised: #ffffff;
+  --surface-soft: #eef2f6;
+  --surface-muted: #e2e8f0;
+  --ink: #282c34;
+  --ink-strong: #171b21;
+  --ink-muted: #5f6672;
+  --ink-faint: #8b93a1;
+  --line: #d9e0e8;
+  --line-strong: #c3cedb;
+  --accent: #4078c0;
+  --accent-deep: #2f6ba8;
+  --accent-soft: #e4eef9;
+  --good: #22863a;
+  --warning: #b08800;
+  --danger: #d73a49;
+  --info: #005cc5;
+  --on-accent: #ffffff;
+  --on-danger: #ffffff;
+  --overlay: rgba(22, 27, 34, 0.44);
+  --code-surface: #282c34;
+  --code-border: #3e4451;
+  --code-ink: #abb2bf;
+  --code-muted: #7f848e;
+  --paper: var(--surface);
+  --paper-deep: var(--surface-soft);
+  --muted: var(--ink-muted);
+  --faint: var(--ink-faint);
+  --shadow-panel: 0 18px 48px rgba(22, 27, 34, 0.16);
+  --shadow-soft: 0 8px 22px rgba(22, 27, 34, 0.08);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --chrome: #21252b;
+  --chrome-soft: #2c313a;
+  --chrome-line: #3e4451;
+  --rail: #21252b;
+  --rail-surface: #2c313a;
+  --rail-line: #3e4451;
+  --rail-inset: #1e2127;
+  --rail-text: #abb2bf;
+  --rail-muted: #7f848e;
+  --surface: #282c34;
+  --surface-raised: #2c313a;
+  --surface-soft: #323842;
+  --surface-muted: #3a404c;
+  --ink: #abb2bf;
+  --ink-strong: #e6e6e6;
+  --ink-muted: #9da5b4;
+  --ink-faint: #5c6370;
+  --line: #3a404c;
+  --line-strong: #4b5263;
+  --accent: #61afef;
+  --accent-deep: #528bcc;
+  --accent-soft: #263b52;
+  --good: #98c379;
+  --warning: #e5c07b;
+  --danger: #e06c75;
+  --info: #56b6c2;
+  --on-accent: #1e2127;
+  --on-danger: #1e2127;
+  --overlay: rgba(10, 12, 16, 0.66);
+  --code-surface: #21252b;
+  --code-border: #3e4451;
+  --code-ink: #abb2bf;
+  --code-muted: #7f848e;
+  --paper: var(--surface);
+  --paper-deep: var(--surface-soft);
+  --muted: var(--ink-muted);
+  --faint: var(--ink-faint);
+  --shadow-panel: 0 18px 48px rgba(0, 0, 0, 0.35);
+  --shadow-soft: 0 8px 22px rgba(0, 0, 0, 0.22);
+}

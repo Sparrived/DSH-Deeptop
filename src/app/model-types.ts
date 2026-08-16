@@ -14,21 +14,36 @@ export type WindowMenu = "project" | "edit";
 export type SessionAction = "rename" | "fork" | "archive" | "export" | "exportZip";
 export type WorkspaceViewMode = "grouped" | "flat";
 export type ThemeMode = "system" | "light" | "dark";
+/** 主题选择器：内置 Monokai Pro / One Dark（每个主题文件同时含浅色与深色两套配色），或使用自定义外部 CSS 路径。 */
+export type AppTheme = "monokai-pro" | "one-dark" | "custom";
+
+/** 背景图作用区域：全局 / 标题栏 / 侧栏 / 对话栏 / 对话框 / 工具面板。 */
+export type BackgroundZone = "global" | "windowbar" | "sidebar" | "conversation" | "composer" | "dock";
+
+/** 单个背景区域的配置。image 为空字符串表示该区域不设置背景图。 */
+export type BackgroundConfig = {
+  image: string;
+  name: string;
+  opacity: number;
+  blur: number;
+  size: "cover" | "contain";
+  position: "center" | "top" | "bottom" | "left" | "right";
+};
+
+/** 按区域组织的背景图设置集合。 */
+export type BackgroundSettings = Record<BackgroundZone, BackgroundConfig>;
 
 export type AppearanceSettings = {
   fontFamily: string;
   codeFontFamily: string;
   messageFontSize: number;
   messageLineHeight: number;
-  backgroundImage: string;
-  backgroundName: string;
-  backgroundOpacity: number;
-  backgroundBlur: number;
-  backgroundSize: "cover" | "contain";
-  backgroundPosition: "center" | "top" | "bottom" | "left" | "right";
+  backgrounds: BackgroundSettings;
   customCss: string;
   customCssName: string;
   customCssEnabled: boolean;
+  /** 外部主题 CSS 文件的绝对路径；为空时不加载外部主题（使用内置兜底配色）。 */
+  themeCssPath: string;
 };
 
 export type SessionContextMenu = { session: DshSessionSummary; x: number; y: number };
@@ -123,7 +138,7 @@ export type TodoItem = {
 };
 
 export type SurfaceTab = "runtime" | "presets" | "skills" | "subagents" | "goal" | "settings";
-export type SettingsSection = "appearance" | "general" | "keyboard" | "models" | "plugins" | "presets" | "logs";
+export type SettingsSection = "appearance" | "background" | "general" | "keyboard" | "models" | "plugins" | "presets" | "logs";
 
 export type SettingsDraft = {
   ns: string;

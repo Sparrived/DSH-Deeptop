@@ -6,6 +6,7 @@ import { ConversationHeader } from "./components/ConversationHeader";
 import { ComposerShell } from "./components/ComposerShell";
 import { InteractionPanel } from "./components/InteractionPanel";
 import { SettingsAppearancePanel } from "./components/SettingsAppearancePanel";
+import { SettingsBackgroundPanel } from "./components/SettingsBackgroundPanel";
 import { SettingsGeneralPanel } from "./components/SettingsGeneralPanel";
 import { SettingsKeyboardPanel } from "./components/SettingsKeyboardPanel";
 import { SettingsLogsPanel } from "./components/SettingsLogsPanel";
@@ -16,6 +17,7 @@ import { QueueDock } from "./components/QueueDock";
 import { SessionSidebar } from "./components/SessionSidebar";
 import { SubagentPanel } from "./components/SubagentPanel";
 import { TaskPanel, TodoPanel } from "./components/TodoPanel";
+import { WorkspaceFilesPanel } from "./components/WorkspaceFilesPanel";
 import { DeliverablesPanel } from "./components/DeliverablesPanel";
 import { WindowChrome } from "./components/WindowChrome";
 import { PopupDialog } from "./components/PopupDialog";
@@ -134,6 +136,7 @@ import {
   type SubagentSession,
 } from "./app/model";
 import {
+  hasAnyBackground,
   useAppearanceSettings,
 } from "./app/useAppearanceSettings";
 import { SEND_SHORTCUT_STORAGE_KEY, readSendShortcut, type SendShortcut } from "./app/keyboard-shortcut";
@@ -322,6 +325,7 @@ function App() {
   const [sessionJobs, setSessionJobs] = useState<Record<string, DshJob[]>>({});
   const [openPanel, setOpenPanel] = useState<"tasks" | "todo" | "deliverables" | null>("tasks");
   const [jobNow, setJobNow] = useState(() => Date.now());
+  const [filesOpen, setFilesOpen] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState<Record<string, PendingApproval>>({});
   const [pendingQuestions, setPendingQuestions] = useState<Record<string, PendingQuestion>>({});
   const [questionAnswersBySession, setQuestionAnswersBySession] = useState<Record<string, Record<string, string[]>>>({});
@@ -335,7 +339,6 @@ function App() {
   const activePopupRequestRef = useRef<PopupRequest | null>(null);
   const transcriptEnd = useRef<HTMLDivElement | null>(null);
   const transcriptScroll = useRef<HTMLDivElement | null>(null);
-  const appearanceFileInputRef = useRef<HTMLInputElement | null>(null);
   const draggedSessionRef = useRef<string | null>(null);
   const sidebarResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const historyLoadingOlderRef = useRef(false);
@@ -431,9 +434,19 @@ function App() {
     appearanceCodeFontPreset,
     appearanceFontPresets,
     appearanceCodeFontPresets,
+    appTheme,
+    themeFilesInfo,
+    themePathError,
+    themePathLoading,
     updateAppearance,
+    updateBackground,
+    clearBackground,
     handleBackgroundFile,
     handleThemeFile,
+    setAppTheme,
+    handlePickThemeCss,
+    reloadThemeCss,
+    openThemesDirectory,
     resetAppearance,
   } = useAppearanceSettings({ onNotice: setNotice, onError: setErrorNotice });
   const providerSettings = useProviderSettings({
@@ -608,6 +621,7 @@ function App() {
   const jobsCollapsed = openPanel !== "tasks";
   const todoCollapsed = openPanel !== "todo";
   const deliverablesCollapsed = openPanel !== "deliverables";
+  const filesCollapsed = !filesOpen;
   function togglePanel(panel: "tasks" | "todo" | "deliverables") {
     setOpenPanel((current) => current === panel ? null : panel);
     setJobNow(Date.now());
@@ -2875,7 +2889,7 @@ function App() {
   }
 
   return (
-    <main className={`app-shell${appearance.backgroundImage ? " has-custom-background" : ""}`} style={appearanceStyle}>
+    <main className={`app-shell${hasAnyBackground(appearance.backgrounds) ? " has-custom-background" : ""}`} style={appearanceStyle}>
       <WindowChrome
         windowMaximized={windowMaximized}
         settingsOpen={showInspector}
@@ -3002,6 +3016,13 @@ function App() {
                retryingMessageSeq={retryingMessageSeq}
               onForkSession={forkSession}
               onOpenSessionPath={openSessionPath}
+            />
+
+            <WorkspaceFilesPanel
+              workspace={workspace}
+              collapsed={filesCollapsed}
+              onToggle={() => setFilesOpen((open) => !open)}
+              onError={setErrorNotice}
             />
 
 
@@ -3144,7 +3165,10 @@ function App() {
                 <nav className="settings-navigation" aria-label="设置分区">
                   <div className="settings-navigation-title">DSH 设置</div>
                   <button className={settingsSection === "appearance" ? "selected" : ""} onClick={() => setSettingsSection("appearance")}>
-                    <strong>外观</strong><small>字体与背景</small>
+                    <strong>外观</strong><small>字体与主题</small>
+                  </button>
+                  <button className={settingsSection === "background" ? "selected" : ""} onClick={() => setSettingsSection("background")}>
+                    <strong>背景工作台</strong><small>分区背景图</small>
                   </button>
                   <button className={settingsSection === "general" ? "selected" : ""} onClick={() => setSettingsSection("general")}>
                     <strong>通用</strong><small>会话与 Host</small>
@@ -3170,16 +3194,30 @@ function App() {
                   {settingsSection === "appearance" && <SettingsAppearancePanel
                     appearance={appearance}
                     themeMode={themeMode}
+                    appTheme={appTheme}
+                    themesDir={themeFilesInfo?.themesDir ?? null}
+                    themePathError={themePathError}
+                    themePathLoading={themePathLoading}
                     fontPreset={appearanceFontPreset}
                     codeFontPreset={appearanceCodeFontPreset}
                     fontPresets={appearanceFontPresets}
                     codeFontPresets={appearanceCodeFontPresets}
-                    fileInputRef={appearanceFileInputRef}
                     onUpdate={updateAppearance}
                     onThemeChange={setThemeMode}
-                    onBackgroundFile={handleBackgroundFile}
+                    onAppThemeChange={setAppTheme}
+                    onPickThemeCss={handlePickThemeCss}
+                    onReloadThemeCss={reloadThemeCss}
+                    onOpenThemesDirectory={openThemesDirectory}
+                    onOpenBackgrounds={() => setSettingsSection("background")}
                     onThemeFile={handleThemeFile}
                     onReset={resetAppearance}
+                  />}
+
+                  {settingsSection === "background" && <SettingsBackgroundPanel
+                    backgrounds={appearance.backgrounds}
+                    onUpdateBackground={updateBackground}
+                    onBackgroundFile={handleBackgroundFile}
+                    onClearBackground={clearBackground}
                   />}
 
                   {settingsSection === "general" && <SettingsGeneralPanel

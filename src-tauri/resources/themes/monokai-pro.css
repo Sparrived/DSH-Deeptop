@@ -1,0 +1,92 @@
+/* Deeptop 主题 · Monokai Pro
+   本文件是主题的外部 CSS 源文件，同时定义浅色（:root）与深色
+   （[data-theme="dark"]）两套配色。首次启动时会被写入
+   <DSH 主目录>/themes/monokai-pro.css（并随应用版本同步更新）。
+   如需自定义，请复制本文件为另一个 .css 文件，并在外观设置的
+   「主题 → 自定义路径」中指向它。 */
+
+:root {
+  color-scheme: light;
+  --chrome: #f6f4f3;
+  --chrome-soft: #ece9e8;
+  --chrome-line: #dcd8d6;
+  --rail: #efedeb;
+  --rail-surface: #e5e2e0;
+  --rail-line: #d8d3d1;
+  --rail-inset: #eae7e5;
+  --rail-text: #2d2a2e;
+  --rail-muted: #6d696e;
+  --surface: #fbfaf9;
+  --surface-raised: #ffffff;
+  --surface-soft: #f1efed;
+  --surface-muted: #e4e0de;
+  --ink: #2d2a2e;
+  --ink-strong: #171519;
+  --ink-muted: #5e5a60;
+  --ink-faint: #8a868b;
+  --line: #ddd9d7;
+  --line-strong: #cbc6c4;
+  --accent: #2d9bb3;
+  --accent-deep: #217f94;
+  --accent-soft: #e2f2f5;
+  --good: #3f9d5c;
+  --warning: #b37a1e;
+  --danger: #d6455f;
+  --info: #7b5cd6;
+  --on-accent: #ffffff;
+  --on-danger: #ffffff;
+  --overlay: rgba(45, 42, 46, 0.42);
+  --code-surface: #2d2a2e;
+  --code-border: #3a373b;
+  --code-ink: #fcfcfa;
+  --code-muted: #9a979d;
+  --paper: var(--surface);
+  --paper-deep: var(--surface-soft);
+  --muted: var(--ink-muted);
+  --faint: var(--ink-faint);
+  --shadow-panel: 0 18px 48px rgba(45, 42, 46, 0.14);
+  --shadow-soft: 0 8px 22px rgba(45, 42, 46, 0.08);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --chrome: #221f22;
+  --chrome-soft: #2d2a2e;
+  --chrome-line: #3a373b;
+  --rail: #262326;
+  --rail-surface: #2d2a2e;
+  --rail-line: #3a373b;
+  --rail-inset: #201e21;
+  --rail-text: #fcfcfa;
+  --rail-muted: #a39fa5;
+  --surface: #2d2a2e;
+  --surface-raised: #373438;
+  --surface-soft: #3f3c41;
+  --surface-muted: #474448;
+  --ink: #fcfcfa;
+  --ink-strong: #ffffff;
+  --ink-muted: #c5c2c7;
+  --ink-faint: #9a979d;
+  --line: #3a373b;
+  --line-strong: #4d4a4f;
+  --accent: #78dce8;
+  --accent-deep: #a5e6ee;
+  --accent-soft: #203539;
+  --good: #a9dc76;
+  --warning: #ffd866;
+  --danger: #ff6188;
+  --info: #ab9df2;
+  --on-accent: #1a181a;
+  --on-danger: #1a181a;
+  --overlay: rgba(8, 7, 9, 0.66);
+  --code-surface: #221f22;
+  --code-border: #3a373b;
+  --code-ink: #fcfcfa;
+  --code-muted: #9a979d;
+  --paper: var(--surface);
+  --paper-deep: var(--surface-soft);
+  --muted: var(--ink-muted);
+  --faint: var(--ink-faint);
+  --shadow-panel: 0 18px 48px rgba(0, 0, 0, 0.42);
+  --shadow-soft: 0 8px 22px rgba(0, 0, 0, 0.28);
+}

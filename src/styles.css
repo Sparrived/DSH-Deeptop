@@ -73,7 +73,11 @@
 :root[data-theme="dark"] .tool-entry,
 :root[data-theme="dark"] .todo-panel,
 :root[data-theme="dark"] .todo-panel-header,
-:root[data-theme="dark"] .todo-panel-body {
+:root[data-theme="dark"] .todo-panel-body,
+:root[data-theme="dark"] .workspace-files-panel,
+:root[data-theme="dark"] .workspace-files-card,
+:root[data-theme="dark"] .workspace-files-header,
+:root[data-theme="dark"] .workspace-files-body {
   background: var(--paper-deep);
   color: var(--ink);
 }
@@ -622,6 +626,8 @@ textarea:focus-visible {
   --todo-collapsed-width: 44px;
   --deliverables-panel-width: 286px;
   --deliverables-collapsed-width: 44px;
+  --workspace-files-panel-width: 300px;
+  --workspace-files-collapsed-width: 44px;
   position: relative;
   min-width: 0;
   min-height: 0;
@@ -7310,47 +7316,50 @@ textarea:focus-visible {
   --shadow-soft: 0 8px 22px rgba(15, 23, 42, 0.08);
 }
 
+/* 深色主题兜底配色（中性）。实际深色主题由外部 CSS 文件加载
+   （<DSH 主目录>/themes/*.css，见外观设置「主题 CSS 路径」），
+   此处仅保证未加载任何外部主题时深色模式依然可读。 */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --chrome: #21252b;
-  --chrome-soft: #2c313a;
-  --chrome-line: #3e4451;
-  --rail: #21252b;
-  --rail-surface: #2c313a;
-  --rail-line: #3e4451;
-  --rail-inset: #1e2127;
-  --rail-text: #abb2bf;
-  --rail-muted: #7f848e;
-  --surface: #282c34;
-  --surface-raised: #2c313a;
-  --surface-soft: #323842;
-  --surface-muted: #3a404c;
-  --ink: #abb2bf;
-  --ink-strong: #e6e6e6;
-  --ink-muted: #9da5b4;
-  --ink-faint: #5c6370;
-  --line: #3a404c;
-  --line-strong: #4b5263;
-  --accent: #61afef;
-  --accent-deep: #528bcc;
-  --accent-soft: #263b52;
-  --good: #98c379;
-  --warning: #e5c07b;
-  --danger: #e06c75;
-  --info: #56b6c2;
-  --on-accent: #1e2127;
-  --on-danger: #1e2127;
-  --overlay: rgba(10, 12, 16, 0.66);
-  --code-surface: #21252b;
-  --code-border: #3e4451;
-  --code-ink: #abb2bf;
-  --code-muted: #7f848e;
+  --chrome: #17181a;
+  --chrome-soft: #1f2124;
+  --chrome-line: #2c2f33;
+  --rail: #1b1d1f;
+  --rail-surface: #222427;
+  --rail-line: #2c2f33;
+  --rail-inset: #17181a;
+  --rail-text: #e6e7e9;
+  --rail-muted: #8f9399;
+  --surface: #1e2023;
+  --surface-raised: #26282c;
+  --surface-soft: #2c2f33;
+  --surface-muted: #33363b;
+  --ink: #e6e7e9;
+  --ink-strong: #ffffff;
+  --ink-muted: #b0b3b8;
+  --ink-faint: #7d8188;
+  --line: #2c2f33;
+  --line-strong: #3d4147;
+  --accent: #5b9bd5;
+  --accent-deep: #7fb3e0;
+  --accent-soft: #1d2b3a;
+  --good: #6fbf83;
+  --warning: #d9a95c;
+  --danger: #d96a7a;
+  --info: #6fa8b8;
+  --on-accent: #101317;
+  --on-danger: #101317;
+  --overlay: rgba(6, 7, 9, 0.66);
+  --code-surface: #17181a;
+  --code-border: #2c2f33;
+  --code-ink: #e6e7e9;
+  --code-muted: #7d8188;
   --paper: var(--surface);
   --paper-deep: var(--surface-soft);
   --muted: var(--ink-muted);
   --faint: var(--ink-faint);
-  --shadow-panel: 0 18px 48px rgba(0, 0, 0, 0.35);
-  --shadow-soft: 0 8px 22px rgba(0, 0, 0, 0.22);
+  --shadow-panel: 0 18px 48px rgba(0, 0, 0, 0.4);
+  --shadow-soft: 0 8px 22px rgba(0, 0, 0, 0.26);
 }
 
 html,
@@ -12096,6 +12105,34 @@ textarea:focus-visible {
 
 .settings-preference-row > button:hover { border-color: var(--accent); color: var(--accent-deep); }
 
+/* 外部主题 CSS 路径行：放宽右列并让输入框 + 浏览按钮并排排布。 */
+.settings-preference-row.appearance-path-row {
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 420px);
+}
+.appearance-theme-path-control {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.appearance-theme-path-control input {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.appearance-theme-path-control .settings-header-action {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 0 9px;
+  font-size: 12px;
+}
+
 .keyboard-shortcut-row { align-items: start; }
 .settings-hint { margin: 14px 0 0; color: var(--ink-faint); font-size: 12px; line-height: 1.5; }
 .keyboard-tips-block { margin-top: 14px; }
@@ -12932,6 +12969,235 @@ textarea:focus-visible {
   backdrop-filter: blur(14px);
 }
 
+/* 自定义背景图模式下，主工作区与消息区必须透明，背景图才能透过半透明面板显示。 */
+.app-shell.has-custom-background .workspace-layout {
+  background: transparent;
+}
+
+.app-shell.has-custom-background .transcript {
+  background: transparent;
+}
+
+.app-shell.has-custom-background .todo-panel,
+.app-shell.has-custom-background .deliverables-panel,
+.app-shell.has-custom-background .task-panel,
+.app-shell.has-custom-background .workspace-files-panel,
+.app-shell.has-custom-background .subagent-dock {
+  background: color-mix(in srgb, var(--surface-raised) 92%, transparent);
+  backdrop-filter: blur(14px);
+}
+
+.app-shell.has-custom-background .composer-shell {
+  background: color-mix(in srgb, var(--surface-raised) 88%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+/* ===== 分区背景图图层 =====
+   标题栏 / 侧栏 / 对话栏 / 对话框 / 工具面板各自通过 ::before 渲染独立背景图，
+   位于面板半透明背景之上、内容之下。面板建立定位与层叠上下文，
+   背景层按 z-index:-1 定位到面板内部，互不越界。 */
+.app-shell.has-custom-background .window-bar,
+.app-shell.has-custom-background .session-sidebar,
+.app-shell.has-custom-background .conversation-panel,
+.app-shell.has-custom-background .composer-area,
+.app-shell.has-custom-background .todo-panel,
+.app-shell.has-custom-background .deliverables-panel,
+.app-shell.has-custom-background .task-panel,
+.app-shell.has-custom-background .workspace-files-panel,
+.app-shell.has-custom-background .subagent-dock {
+  isolation: isolate;
+}
+
+.app-shell.has-custom-background .session-sidebar,
+.app-shell.has-custom-background .conversation-panel {
+  position: relative;
+}
+
+.app-shell.has-custom-background .window-bar::before,
+.app-shell.has-custom-background .session-sidebar::before,
+.app-shell.has-custom-background .conversation-panel::before,
+.app-shell.has-custom-background .composer-area::before,
+.app-shell.has-custom-background .todo-panel::before,
+.app-shell.has-custom-background .deliverables-panel::before,
+.app-shell.has-custom-background .task-panel::before,
+.app-shell.has-custom-background .workspace-files-panel::before,
+.app-shell.has-custom-background .subagent-dock::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  content: "";
+  background-repeat: no-repeat;
+  pointer-events: none;
+}
+
+.app-shell.has-custom-background .window-bar::before {
+  background-image: var(--bg-windowbar-image, none);
+  background-size: var(--bg-windowbar-size, cover);
+  background-position: var(--bg-windowbar-position, center);
+  filter: blur(var(--bg-windowbar-blur, 0px));
+  opacity: var(--bg-windowbar-opacity, 0);
+}
+
+.app-shell.has-custom-background .session-sidebar::before {
+  background-image: var(--bg-sidebar-image, none);
+  background-size: var(--bg-sidebar-size, cover);
+  background-position: var(--bg-sidebar-position, center);
+  filter: blur(var(--bg-sidebar-blur, 0px));
+  opacity: var(--bg-sidebar-opacity, 0);
+}
+
+.app-shell.has-custom-background .conversation-panel::before {
+  background-image: var(--bg-conversation-image, none);
+  background-size: var(--bg-conversation-size, cover);
+  background-position: var(--bg-conversation-position, center);
+  filter: blur(var(--bg-conversation-blur, 0px));
+  opacity: var(--bg-conversation-opacity, 0);
+}
+
+.app-shell.has-custom-background .composer-area::before {
+  background-image: var(--bg-composer-image, none);
+  background-size: var(--bg-composer-size, cover);
+  background-position: var(--bg-composer-position, center);
+  filter: blur(var(--bg-composer-blur, 0px));
+  opacity: var(--bg-composer-opacity, 0);
+}
+
+.app-shell.has-custom-background .todo-panel::before,
+.app-shell.has-custom-background .deliverables-panel::before,
+.app-shell.has-custom-background .task-panel::before,
+.app-shell.has-custom-background .workspace-files-panel::before,
+.app-shell.has-custom-background .subagent-dock::before {
+  background-image: var(--bg-dock-image, none);
+  background-size: var(--bg-dock-size, cover);
+  background-position: var(--bg-dock-position, center);
+  filter: blur(var(--bg-dock-blur, 0px));
+  opacity: var(--bg-dock-opacity, 0);
+}
+
+/* ===== 背景工作台页面 ===== */
+.background-zone-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.background-zone-tab {
+  position: relative;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 10px 26px 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface-raised);
+  color: var(--ink-muted);
+  text-align: left;
+}
+
+.background-zone-tab:hover { border-color: var(--line-strong); color: var(--ink); }
+.background-zone-tab.selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface-raised));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+.background-zone-tab strong { font-size: 13px; }
+.background-zone-tab small { overflow: hidden; color: var(--ink-faint); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.background-zone-tab.has-image::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 11px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent);
+  transform: translateY(-50%);
+}
+
+/* 工作台示意图：全局为底层虚线层，各区域按钮浮于其上。 */
+.background-schematic {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) 132px;
+  grid-template-rows: 34px minmax(0, 1fr);
+  grid-template-areas:
+    "windowbar windowbar windowbar"
+    "sidebar main dock";
+  gap: 6px;
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: color-mix(in srgb, var(--surface-soft) 55%, transparent);
+}
+
+.background-schematic button {
+  min-width: 0;
+  display: grid;
+  place-items: center;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface-raised) 88%, transparent);
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+.background-schematic button:hover { border-color: var(--line-strong); color: var(--ink-muted); }
+.background-schematic button.selected { border-color: var(--accent); color: var(--accent-deep); background: color-mix(in srgb, var(--accent) 10%, var(--surface-raised)); }
+.background-schematic button.has-image { border-color: color-mix(in srgb, var(--accent) 55%, var(--line-strong)); }
+.background-schematic button.has-image::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-right: 5px;
+}
+
+.bg-schematic-global {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  justify-items: end;
+  align-items: start;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-panel);
+  background: transparent;
+  padding: 8px 10px;
+}
+.bg-schematic-global.has-image { border-style: solid; }
+.bg-schematic-global.selected { border-color: var(--accent); color: var(--accent-deep); }
+
+.bg-schematic-windowbar { grid-area: windowbar; z-index: 1; position: relative; }
+.bg-schematic-sidebar { grid-area: sidebar; z-index: 1; position: relative; }
+.bg-schematic-main { grid-area: main; z-index: 1; position: relative; display: grid; grid-template-rows: 26px minmax(0, 1fr) 30px; gap: 4px; }
+.bg-schematic-header,
+.bg-schematic-transcript,
+.bg-schematic-composer { position: relative; }
+.bg-schematic-dock { grid-area: dock; z-index: 1; position: relative; }
+
+/* 当前分区预览缩略图 */
+.background-source-preview {
+  width: 96px;
+  height: 54px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background-position: center;
+  background-size: cover;
+  box-shadow: var(--shadow-panel);
+}
+
+.background-zone-note,
+.background-quick-note {
+  margin: 14px 0 0;
+  color: var(--ink-faint);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 @media (max-width: 1120px) {
   .workspace-layout {
     grid-template-columns: 280px minmax(0, 1fr);
@@ -12983,8 +13249,18 @@ textarea:focus-visible {
 
   .settings-provider-grid,
   .settings-plugin-grid,
-  .appearance-background-grid {
+  .appearance-background-grid,
+  .background-zone-tabs {
     grid-template-columns: 1fr;
+  }
+
+  .background-schematic {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 34px minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      "windowbar windowbar"
+      "sidebar dock"
+      "main main";
   }
 
   .trajectory-body {
@@ -14286,6 +14562,346 @@ textarea:focus-visible {
   .startup-log-line { grid-template-columns: 10px 50px minmax(0, 1fr); font-size: 9px; }
   .startup-status-item:last-child { border-bottom: 0; }
   .startup-signal { margin-top: 13px; }
+}
+
+/* Left-side workspace file dock. */
+.workspace-files-panel {
+  position: absolute;
+  top: 0;
+  left: var(--surface-scrollbar-gap);
+  z-index: 21;
+  width: var(--workspace-files-collapsed-width, 44px);
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-panel);
+  background: var(--surface-raised);
+  color: var(--ink);
+  box-shadow: none;
+}
+
+.workspace-files-rail {
+  width: 100%;
+  min-height: 48px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.workspace-files-rail:hover { background: var(--surface-soft); }
+.workspace-files-rail:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.workspace-files-rail-mark { font-size: 16px; line-height: 1; }
+
+.workspace-files-card {
+  position: absolute;
+  top: 0;
+  left: calc(100% + var(--right-surface-gap, 12px));
+  width: var(--workspace-files-panel-width, 300px);
+  min-width: 0;
+  max-height: min(70svh, 560px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-panel);
+  background: var(--surface-raised);
+  color: var(--ink);
+  box-shadow: var(--shadow-panel);
+}
+
+.workspace-files-header {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.workspace-files-heading {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.workspace-files-mark {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--line));
+  border-radius: 8px;
+  color: var(--accent-deep);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.workspace-files-kicker {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+.workspace-files-header h2 {
+  margin: 0;
+  color: var(--ink-strong);
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.workspace-files-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workspace-files-total {
+  color: var(--accent-deep);
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.workspace-files-toggle {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.workspace-files-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent-deep);
+}
+
+.workspace-files-body {
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface-raised);
+}
+
+.workspace-files-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 13px 16px 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.workspace-files-live.loading { color: var(--warning); }
+
+.workspace-files-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-faint);
+}
+
+.workspace-files-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.workspace-files-toolbar button {
+  padding: 4px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.workspace-files-toolbar button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-deep);
+}
+
+.workspace-files-toolbar button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.workspace-files-tree {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 6px 0 12px;
+}
+
+.workspace-file-row {
+  min-width: 0;
+}
+
+.workspace-file-main {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 16px 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px calc(8px + var(--file-depth, 0) * 14px);
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-file-main:hover { background: var(--surface-soft); }
+.workspace-file-main:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.workspace-file-chevron {
+  color: var(--ink-faint);
+  font-size: 11px;
+  text-align: center;
+}
+
+.workspace-file-icon {
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 13px;
+  text-align: center;
+}
+
+.workspace-file-row.is-dir > .workspace-file-main .workspace-file-icon { color: var(--accent-deep); }
+
+.workspace-file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.workspace-file-size {
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.workspace-file-children {
+  min-width: 0;
+}
+
+.workspace-file-loading {
+  padding: 4px 10px 4px 38px;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.workspace-files-empty {
+  padding: 18px 16px;
+  color: var(--ink-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.workspace-file-new-folder {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 24px;
+}
+
+.workspace-file-new-folder .workspace-file-icon { color: var(--accent-deep); }
+
+.workspace-file-new-folder input {
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink-strong);
+  font-size: 13px;
+  outline: none;
+}
+
+.workspace-file-new-folder input:focus {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.workspace-files-context-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 184px;
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+}
+
+.workspace-files-context-menu button {
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-files-context-menu button:hover:not(:disabled) {
+  background: var(--surface-soft);
+  color: var(--accent-deep);
+}
+
+.workspace-files-context-menu button.danger { color: var(--danger); }
+.workspace-files-context-menu button.danger:hover:not(:disabled) { color: var(--danger); }
+
+.workspace-files-context-menu button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+@media (max-width: 760px) {
+  .workspace-files-panel {
+    position: fixed;
+    top: calc(var(--window-bar-height) + var(--conversation-header-height) + 10px);
+    left: 8px;
+    z-index: 35;
+    width: var(--workspace-files-collapsed-width, 56px);
+  }
+
+  .workspace-files-panel:not(.collapsed) {
+    width: min(320px, calc(100vw - 16px));
+  }
+
+  .workspace-files-panel:not(.collapsed) .workspace-files-card {
+    position: static;
+    top: auto;
+    left: auto;
+    width: 100%;
+    max-height: min(50svh, 420px);
+  }
 }
 
 /* Keep the Todo and Task surfaces in one vertical utility shelf. */

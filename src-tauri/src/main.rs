@@ -2142,6 +2142,344 @@ async fn save_export_file(default_name: String, data: Vec<u8>) -> Result<Option<
     Ok(Some(path.to_string_lossy().into_owned()))
 }
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceFileEntry {
+    name: String,
+    path: String,
+    is_dir: bool,
+    size: u64,
+    modified: u64,
+}
+
+/// 列出工作区目录下的条目（文件夹优先，其余按名称排序），供左侧文件看板使用。
+#[tauri::command]
+fn list_workspace_files(dir: String) -> Result<Vec<WorkspaceFileEntry>, String> {
+    let directory = PathBuf::from(&dir);
+    let entries = fs::read_dir(&directory)
+        .map_err(|error| format!("无法读取目录 {}：{error}", directory.display()))?;
+    let mut result = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("读取目录项失败：{error}"))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|error| format!("读取文件类型失败：{error}"))?;
+        let is_dir = file_type.is_dir();
+        let metadata = entry.metadata().ok();
+        let size = if is_dir {
+            0
+        } else {
+            metadata.as_ref().map(|meta| meta.len()).unwrap_or(0)
+        };
+        let modified = metadata
+            .as_ref()
+            .and_then(|meta| meta.modified().ok())
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|duration| duration.as_millis() as u64)
+            .unwrap_or(0);
+        result.push(WorkspaceFileEntry {
+            name: entry.file_name().to_string_lossy().into_owned(),
+            path: entry.path().to_string_lossy().into_owned(),
+            is_dir,
+            size,
+            modified,
+        });
+    }
+    result.sort_by(|left, right| {
+        right
+            .is_dir
+            .cmp(&left.is_dir)
+            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+    });
+    Ok(result)
+}
+
+/// 用系统默认方式打开路径（Windows 上为资源管理器/默认应用，macOS 为 open，Linux 为 xdg-open）。
+fn open_with_system_default(path: &Path) -> Result<(), String> {
+    let mut command = if cfg!(windows) {
+        let mut command = Command::new("explorer");
+        command.arg(path);
+        command
+    } else if cfg!(target_os = "macos") {
+        let mut command = Command::new("open");
+        command.arg(path);
+        command
+    } else {
+        let mut command = Command::new("xdg-open");
+        command.arg(path);
+        command
+    };
+    #[cfg(windows)]
+    configure_hidden_process(&mut command);
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("无法打开 {}：{error}", path.display()))
+}
+
+/// 各平台上 VSCode `code` CLI 的常见安装位置，作为 PATH 解析失败的兜底。
+fn known_vscode_cli_paths() -> Vec<PathBuf> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    #[cfg(windows)]
+    {
+        if let Some(local) = env::var_os("LOCALAPPDATA") {
+            candidates.push(PathBuf::from(local).join("Programs/Microsoft VS Code/bin/code.cmd"));
+        }
+        if let Some(program_files) = env::var_os("ProgramFiles") {
+            candidates.push(PathBuf::from(program_files).join("Microsoft VS Code/bin/code.cmd"));
+        }
+        if let Some(program_files_x86) = env::var_os("ProgramFiles(x86)") {
+            candidates.push(PathBuf::from(program_files_x86).join("Microsoft VS Code/bin/code.cmd"));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        candidates.push(PathBuf::from(
+            "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code",
+        ));
+        candidates.push(PathBuf::from("/usr/local/bin/code"));
+        candidates.push(PathBuf::from("/opt/homebrew/bin/code"));
+    }
+    #[cfg(target_os = "linux")]
+    {
+        candidates.push(PathBuf::from("/usr/bin/code"));
+        candidates.push(PathBuf::from("/usr/local/bin/code"));
+        candidates.push(PathBuf::from("/snap/bin/code"));
+    }
+    candidates
+}
+
+/// 尝试用 VSCode CLI 打开路径；成功返回 true。
+fn try_launch_vscode(target: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        // Windows 上 `code` 是 .cmd 脚本，CreateProcess 无法直接执行，需经 cmd /C；
+        // 通过退出码判断是否真的找到了 code。
+        let mut command = Command::new("cmd");
+        command.args(["/C", "code"]);
+        command.arg(target);
+        configure_hidden_process(&mut command);
+        if command.status().map(|status| status.success()).unwrap_or(false) {
+            return true;
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let mut command = Command::new("code");
+        command.arg(target);
+        if command.status().map(|status| status.success()).unwrap_or(false) {
+            return true;
+        }
+    }
+    for candidate in known_vscode_cli_paths() {
+        if candidate.exists() {
+            let mut command = if cfg!(windows) {
+                let mut command = Command::new("cmd");
+                command.args(["/C", &candidate.to_string_lossy().into_owned()]);
+                command
+            } else {
+                Command::new(&candidate)
+            };
+            command.arg(target);
+            #[cfg(windows)]
+            configure_hidden_process(&mut command);
+            if command.status().map(|status| status.success()).unwrap_or(false) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// 在 VSCode 中打开文件或文件夹；找不到 VSCode 时回退到系统默认打开方式。
+#[tauri::command]
+fn open_in_vscode(path: String) -> Result<(), String> {
+    let target = PathBuf::from(&path);
+    if !target.exists() {
+        return Err(format!("路径不存在：{path}"));
+    }
+    if try_launch_vscode(&target) {
+        return Ok(());
+    }
+    open_with_system_default(&target)
+        .map_err(|error| format!("未找到 VSCode，改用系统打开也失败：{error}"))
+}
+
+/// 在系统文件管理器中显示该路径（选中状态）。
+#[tauri::command]
+fn reveal_in_explorer(path: String) -> Result<(), String> {
+    let target = PathBuf::from(&path);
+    let mut command = if cfg!(windows) {
+        let mut command = Command::new("explorer");
+        command.arg(format!("/select,{}", target.to_string_lossy()));
+        command
+    } else if cfg!(target_os = "macos") {
+        let mut command = Command::new("open");
+        command.arg("-R");
+        command.arg(&target);
+        command
+    } else {
+        let parent = target.parent().unwrap_or(&target);
+        let mut command = Command::new("xdg-open");
+        command.arg(parent);
+        command
+    };
+    #[cfg(windows)]
+    configure_hidden_process(&mut command);
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("无法在文件管理器中显示 {}：{error}", target.display()))
+}
+
+/// 删除工作区内的文件或文件夹（递归）。
+#[tauri::command]
+fn delete_workspace_path(path: String) -> Result<(), String> {
+    let target = PathBuf::from(&path);
+    let metadata = fs::symlink_metadata(&target)
+        .map_err(|error| format!("无法访问 {}：{error}", target.display()))?;
+    if metadata.is_dir() {
+        fs::remove_dir_all(&target)
+            .map_err(|error| format!("删除文件夹 {} 失败：{error}", target.display()))?;
+    } else {
+        fs::remove_file(&target)
+            .map_err(|error| format!("删除文件 {} 失败：{error}", target.display()))?;
+    }
+    Ok(())
+}
+
+/// 在工作区目录下创建新文件夹，返回完整路径。
+#[tauri::command]
+fn create_workspace_folder(parent: String, name: String) -> Result<String, String> {
+    const INVALID_CHARS: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("文件夹名称不能为空".to_string());
+    }
+    if name.chars().any(|ch| INVALID_CHARS.contains(&ch)) {
+        return Err("文件夹名称包含非法字符".to_string());
+    }
+    let path = PathBuf::from(&parent).join(name);
+    fs::create_dir_all(&path)
+        .map_err(|error| format!("创建文件夹 {} 失败：{error}", path.display()))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// 深色主题的默认外部 CSS（随应用分发，首次启动写入主题目录）。
+const MONOKAI_PRO_THEME_CSS: &str = include_str!("../resources/themes/monokai-pro.css");
+const ONE_DARK_THEME_CSS: &str = include_str!("../resources/themes/one-dark.css");
+
+/// 内置主题文件版本：内容变更时递增，已有安装会在下次启动时同步到新版本。
+const THEME_FILES_VERSION: u32 = 2;
+
+const MAX_THEME_CSS_BYTES: u64 = 512 * 1024;
+
+fn themes_directory() -> PathBuf {
+    dsh_home().join("themes")
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ThemeFilesInfo {
+    themes_dir: String,
+    monokai_pro: String,
+    one_dark: String,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ThemeCssContent {
+    path: String,
+    content: String,
+}
+
+/// 确保 <DSH 主目录>/themes 存在并写入默认主题文件。仅在文件缺失或内置版本
+/// 更新（THEME_FILES_VERSION 递增）时覆盖，平时尊重用户对文件的编辑。
+/// 返回各主题文件的完整路径，供前端作为「主题 CSS 路径」的默认值。
+#[tauri::command]
+fn ensure_theme_files() -> Result<ThemeFilesInfo, String> {
+    let directory = themes_directory();
+    fs::create_dir_all(&directory)
+        .map_err(|error| format!("无法创建主题目录 {}：{error}", directory.display()))?;
+    let version_path = directory.join(".version");
+    let current_version = fs::read_to_string(&version_path)
+        .ok()
+        .and_then(|value| value.trim().parse::<u32>().ok())
+        .unwrap_or(0);
+    if current_version < THEME_FILES_VERSION {
+        let write = |name: &str, content: &str| -> Result<(), String> {
+            let path = directory.join(name);
+            fs::write(&path, content).map_err(|error| format!("无法写入 {}：{error}", path.display()))
+        };
+        write("monokai-pro.css", MONOKAI_PRO_THEME_CSS)?;
+        write("one-dark.css", ONE_DARK_THEME_CSS)?;
+        let _ = fs::write(&version_path, THEME_FILES_VERSION.to_string());
+    }
+    Ok(ThemeFilesInfo {
+        themes_dir: directory.to_string_lossy().into_owned(),
+        monokai_pro: directory.join("monokai-pro.css").to_string_lossy().into_owned(),
+        one_dark: directory.join("one-dark.css").to_string_lossy().into_owned(),
+    })
+}
+
+/// 读取主题 CSS 文件内容（限制为 512 KB 以内的 .css 文本文件）。
+#[tauri::command]
+fn read_theme_css(path: String) -> Result<ThemeCssContent, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("主题 CSS 路径为空".to_string());
+    }
+    let file_path = PathBuf::from(trimmed);
+    let is_css = file_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("css"))
+        == Some(true);
+    if !is_css {
+        return Err("主题文件必须是 .css 文件".to_string());
+    }
+    let metadata = fs::metadata(&file_path)
+        .map_err(|error| format!("无法读取 {}：{error}", file_path.display()))?;
+    if !metadata.is_file() {
+        return Err(format!("{} 不是文件", file_path.display()));
+    }
+    if metadata.len() > MAX_THEME_CSS_BYTES {
+        return Err("主题 CSS 过大，请选择 512 KB 以内的文件".to_string());
+    }
+    let content = fs::read_to_string(&file_path)
+        .map_err(|error| format!("无法读取 {}：{error}", file_path.display()))?;
+    if content.len() > 500_000 {
+        return Err("主题 CSS 过大，请选择 512 KB 以内的文件".to_string());
+    }
+    Ok(ThemeCssContent {
+        path: file_path.to_string_lossy().into_owned(),
+        content,
+    })
+}
+
+/// 弹出原生文件选择对话框，选择主题 CSS 文件；取消时返回 None。
+#[tauri::command]
+async fn pick_theme_css() -> Result<Option<String>, String> {
+    let picked = tauri::async_runtime::spawn_blocking(|| {
+        rfd::FileDialog::new()
+            .set_title("选择主题 CSS 文件")
+            .add_filter("CSS 样式表", &["css"])
+            .pick_file()
+    })
+    .await
+    .map_err(|error| format!("打开文件选择对话框失败：{error}"))?;
+    Ok(picked.map(|path| path.to_string_lossy().into_owned()))
+}
+
+/// 在系统文件管理器中打开主题目录，方便用户直接编辑外部主题文件。
+#[tauri::command]
+fn open_themes_directory() -> Result<(), String> {
+    let directory = themes_directory();
+    fs::create_dir_all(&directory)
+        .map_err(|error| format!("无法创建主题目录 {}：{error}", directory.display()))?;
+    open_with_system_default(&directory)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{format_log_line, format_utc_datetime, is_dsh_package_manifest, DshRuntimeLog};
@@ -2206,6 +2544,15 @@ fn main() {
             export_runtime_logs,
             open_logs_directory,
             save_export_file,
+            list_workspace_files,
+            open_in_vscode,
+            reveal_in_explorer,
+            delete_workspace_path,
+            create_workspace_folder,
+            ensure_theme_files,
+            read_theme_css,
+            pick_theme_css,
+            open_themes_directory,
         ])
         .run(tauri::generate_context!())
         .expect("启动 Deeptop 失败");

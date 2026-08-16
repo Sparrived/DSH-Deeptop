@@ -520,3 +520,79 @@ export async function openLogsDirectory(): Promise<void> {
   if (!isTauri()) return;
   await invoke("open_logs_directory");
 }
+
+/** One entry in the workspace file board. */
+export interface WorkspaceFileEntry {
+  name: string;
+  path: string;
+  isDir: boolean;
+  size: number;
+  modified: number;
+}
+
+/** List the entries under a workspace directory (folders first, then by name). */
+export async function listWorkspaceFiles(dir: string): Promise<WorkspaceFileEntry[]> {
+  if (!isTauri()) return [];
+  const entries = await invoke<unknown>("list_workspace_files", { dir });
+  return Array.isArray(entries) ? (entries as WorkspaceFileEntry[]) : [];
+}
+
+/** Open a file or folder in VSCode (falls back to the OS default opener). */
+export async function openInVscode(path: string): Promise<void> {
+  await invoke("open_in_vscode", { path });
+}
+
+/** Reveal a path in the OS file manager. */
+export async function revealInExplorer(path: string): Promise<void> {
+  await invoke("reveal_in_explorer", { path });
+}
+
+/** Permanently delete a file or folder (recursively for folders). */
+export async function deleteWorkspacePath(path: string): Promise<void> {
+  await invoke("delete_workspace_path", { path });
+}
+
+/** Create a new folder under a parent directory; returns its full path. */
+export async function createWorkspaceFolder(parent: string, name: string): Promise<string> {
+  return invoke<string>("create_workspace_folder", { parent, name });
+}
+
+/** Locations of the default external dark-theme CSS files (seeded under the DSH home). */
+export interface ThemeFilesInfo {
+  themesDir: string;
+  monokaiPro: string;
+  oneDark: string;
+}
+
+/** Content of a theme CSS file read from disk. */
+export interface ThemeCssContent {
+  path: string;
+  content: string;
+}
+
+/**
+ * Ensure the DSH home themes directory exists with the default theme files.
+ * Returns the default theme paths (used as the default "theme CSS path");
+ * falls back to null in the browser preview where no native layer is available.
+ */
+export async function ensureThemeFiles(): Promise<ThemeFilesInfo | null> {
+  if (!isTauri()) return null;
+  return invoke<ThemeFilesInfo>("ensure_theme_files");
+}
+
+/** Read a theme CSS file by its absolute path. */
+export async function readThemeCss(path: string): Promise<ThemeCssContent> {
+  return invoke<ThemeCssContent>("read_theme_css", { path });
+}
+
+/** Open the native file picker for a theme CSS file; returns null when cancelled. */
+export async function pickThemeCss(): Promise<string | null> {
+  if (!isTauri()) return null;
+  return invoke<string | null>("pick_theme_css");
+}
+
+/** Reveal the themes directory in the OS file manager. */
+export async function openThemesDirectory(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("open_themes_directory");
+}
