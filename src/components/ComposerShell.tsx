@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type RefObject } from "react";
-import { shortcutMatches } from "../app/keyboard-shortcut";
+import { shortcutMatches, type SendShortcut } from "../app/keyboard-shortcut";
 import { ComposerCandidates } from "./ComposerCandidates";
 import { ModelPicker } from "./ModelPicker";
 import { PermissionPicker } from "./PermissionPicker";
@@ -38,7 +38,7 @@ interface ComposerShellProps {
   modelMenuOpen: boolean;
   modelMenuPane: ModelMenuPane;
   sessionStats: SessionStats;
-  sendShortcut: string;
+  sendShortcut: SendShortcut;
   onComposerChange: (value: string) => void;
   onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
   onAddFiles: (files: FileList | File[]) => void | Promise<unknown>;
@@ -126,11 +126,7 @@ export function ComposerShell({
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (shortcutMatches(event, sendShortcut)) {
-      event.preventDefault();
-      onAction();
-      return;
-    }
+    if (event.nativeEvent.isComposing) return;
     if (candidates.length > 0 && !candidatesDismissed) {
       if (event.key === "ArrowDown") {
         event.preventDefault();
@@ -152,6 +148,10 @@ export function ComposerShell({
         onChooseCandidate(candidates[activeCandidateIndex]);
         return;
       }
+    }
+    if (shortcutMatches(event, sendShortcut)) {
+      event.preventDefault();
+      onAction();
     }
   }
 

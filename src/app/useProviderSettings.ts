@@ -7,6 +7,7 @@ type UseProviderSettingsOptions = {
   settings: DshSettingsDescription | null;
   providers: DshProvider[];
   onNotice: (message: string) => void;
+  onError: (message: string) => void;
   onConfirm: (message: string) => Promise<boolean>;
   loadRuntimeDetails: () => Promise<void>;
 };
@@ -16,6 +17,7 @@ export function useProviderSettings({
   settings,
   providers,
   onNotice,
+  onError,
   onConfirm,
   loadRuntimeDetails,
 }: UseProviderSettingsOptions) {
@@ -24,12 +26,15 @@ export function useProviderSettings({
     settings,
     providers,
     onNotice,
+    onError,
+    loadRuntimeDetails,
   });
   const modelCatalog = useProviderModelCatalog({
     settings,
     credentials: credentials.credentials,
     credentialDrafts: credentials.credentialDrafts,
     onNotice,
+    onError,
     onConfirm,
     loadRuntimeDetails,
   });

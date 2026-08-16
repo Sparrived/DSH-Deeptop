@@ -67,9 +67,10 @@ function readAppearanceSettings(): AppearanceSettings {
 
 type UseAppearanceSettingsOptions = {
   onNotice: (message: string) => void;
+  onError: (message: string) => void;
 };
 
-export function useAppearanceSettings({ onNotice }: UseAppearanceSettingsOptions) {
+export function useAppearanceSettings({ onNotice, onError }: UseAppearanceSettingsOptions) {
   const [appearance, setAppearance] = useState<AppearanceSettings>(readAppearanceSettings);
 
   function updateAppearance(patch: Partial<AppearanceSettings>) {
@@ -86,13 +87,13 @@ export function useAppearanceSettings({ onNotice }: UseAppearanceSettingsOptions
     reader.addEventListener("load", () => {
       const value = typeof reader.result === "string" ? reader.result : "";
       if (!value || value.length > 4_000_000) {
-        onNotice("背景图过大，请选择 3 MB 以内的图片");
+        onError("背景图过大，请选择 3 MB 以内的图片");
         return;
       }
       updateAppearance({ backgroundImage: value, backgroundName: file.name });
       onNotice(`已应用背景图：${file.name}`);
     });
-    reader.addEventListener("error", () => onNotice("读取背景图失败"));
+    reader.addEventListener("error", () => onError("读取背景图失败"));
     reader.readAsDataURL(file);
   }
 
@@ -103,24 +104,24 @@ export function useAppearanceSettings({ onNotice }: UseAppearanceSettingsOptions
       return;
     }
     if (file.size > 512_000) {
-      onNotice("CSS 主题过大，请选择 512 KB 以内的文件");
+      onError("CSS 主题过大，请选择 512 KB 以内的文件");
       return;
     }
     const reader = new FileReader();
     reader.addEventListener("load", () => {
       const value = typeof reader.result === "string" ? reader.result : "";
       if (!value) {
-        onNotice("CSS 主题为空");
+        onError("CSS 主题为空");
         return;
       }
       if (value.length > 500_000) {
-        onNotice("CSS 主题过大，请选择 500 KB 以内的文件");
+        onError("CSS 主题过大，请选择 500 KB 以内的文件");
         return;
       }
       updateAppearance({ customCss: value, customCssName: file.name, customCssEnabled: true });
       onNotice(`已导入 CSS 主题：${file.name}`);
     });
-    reader.addEventListener("error", () => onNotice("读取 CSS 主题失败"));
+    reader.addEventListener("error", () => onError("读取 CSS 主题失败"));
     reader.readAsText(file);
   }
 
@@ -133,9 +134,9 @@ export function useAppearanceSettings({ onNotice }: UseAppearanceSettingsOptions
     try {
       localStorage.setItem("deeptop.appearance", JSON.stringify(appearance));
     } catch {
-      onNotice("外观已应用，但背景图或 CSS 主题过大，重启后可能无法保留");
+      onError("外观已应用，但背景图或 CSS 主题过大，重启后可能无法保留");
     }
-  }, [appearance, onNotice]);
+  }, [appearance, onNotice, onError]);
 
   useEffect(() => {
     const styleId = "deeptop-imported-theme";
