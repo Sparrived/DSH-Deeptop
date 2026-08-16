@@ -1,5 +1,5 @@
 import ReactMarkdown, { type Components } from "react-markdown";
-import { isValidElement, useState, type HTMLAttributes, type ReactNode } from "react";
+import { isValidElement, memo, useState, type HTMLAttributes, type ReactNode } from "react";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 
@@ -66,7 +66,10 @@ const markdownComponents: Components = {
   ),
 };
 
-export function MarkdownContent({ text, className = "message-text", reveal = false }: { text: string; className?: string; reveal?: boolean }) {
+// Memoized: while a stream advances, the transcript re-renders on every frame
+// but only the actively streaming message's `text` changes. Skipping the
+// others avoids re-parsing every previous message's markdown on each token.
+export const MarkdownContent = memo(function MarkdownContent({ text, className = "message-text", reveal = false }: { text: string; className?: string; reveal?: boolean }) {
   const contentClassName = reveal ? `${className} model-text-reveal` : className;
   return (
     <div className={contentClassName}>
@@ -79,4 +82,4 @@ export function MarkdownContent({ text, className = "message-text", reveal = fal
       </ReactMarkdown>
     </div>
   );
-}
+});

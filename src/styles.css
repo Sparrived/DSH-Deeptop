@@ -13425,13 +13425,11 @@ textarea:focus-visible {
 @keyframes model-text-reveal {
   from {
     opacity: 0;
-    filter: blur(5px);
     transform: translateY(0.35em);
   }
   65% { opacity: 0.82; }
   to {
     opacity: 1;
-    filter: blur(0);
     transform: translateY(0);
   }
 }

@@ -74,6 +74,73 @@ type BridgeEventHandlerContext = {
   promoteSessionOnMessage: (sessionId: string) => void | Promise<void>;
 };
 
+// Token chunks (`assistant/chunk`) can arrive several times per animation frame
+// while a thinking/text stream runs. Every event used to trigger a full
+// `setHistory` -> `transcriptFromHistory` -> transcript re-render synchronously,
+// which starves the window when content refreshes quickly (notably the "Think"
+// reasoning block). Coalesce session events into a single history update per
+// ~frame so the transcript recomputes at most once per screen refresh.
+const HISTORY_FLUSH_WINDOW_MS = 16;
+
+type QueuedSessionEvent = {
+  sessionId: string;
+  event: DshSessionEvent;
+  view: unknown;
+};
+
+let queuedSessionEvents: QueuedSessionEvent[] | null = null;
+let queuedSessionFlushTimer: ReturnType<typeof setTimeout> | undefined;
+
+function flushQueuedSessionEvents(context: BridgeEventHandlerContext) {
+  queuedSessionFlushTimer = undefined;
+  const batch = queuedSessionEvents;
+  queuedSessionEvents = null;
+  if (!batch || batch.length === 0) return;
+  const activeSessionId = context.activeSessionRef.current;
+  context.setHistory((current) => {
+    const known = new Set<number>();
+    for (const entry of current) known.add(entry.event.seq);
+    const additions: DshHistoryEntry[] = [];
+    for (const item of batch) {
+      // Only append events that still belong to the active session (a session
+      // switch may have happened while the batch was queued) and that are not
+      // already present (a reload may have included them).
+      if (item.sessionId !== activeSessionId || known.has(item.event.seq)) continue;
+      known.add(item.event.seq);
+      additions.push({ event: item.event, view: item.view });
+    }
+    if (additions.length === 0) return current;
+    const next = [...current, ...additions];
+    const nextStats = readSessionStats(next);
+    context.setSessionStats((currentStats) => {
+      const hasUsageInBatch = batch.some((item) => eventHasUsage(item.event));
+      return {
+        ...currentStats,
+        ...nextStats,
+        inputTokens: nextStats.inputTokens > 0 ? nextStats.inputTokens : currentStats.inputTokens,
+        outputTokens: nextStats.outputTokens > 0 ? nextStats.outputTokens : currentStats.outputTokens,
+        totalTokens: nextStats.totalTokens > 0 ? nextStats.totalTokens : currentStats.totalTokens,
+        // Keep the latest projected context value while the stream advances;
+        // the history scan is only a fallback for runtimes that do not publish
+        // contextPressure frames.
+        contextTokens: (!context.contextProjectionRef.current || hasUsageInBatch) && nextStats.contextTokens > 0
+          ? nextStats.contextTokens
+          : currentStats.contextTokens,
+        contextLimit: nextStats.contextLimit > 0 ? nextStats.contextLimit : currentStats.contextLimit,
+        messages: nextStats.messages > 0 ? nextStats.messages : currentStats.messages,
+      };
+    });
+    return next;
+  });
+}
+
+function queueSessionEvent(event: DshSessionEvent, view: unknown, sessionId: string, context: BridgeEventHandlerContext) {
+  (queuedSessionEvents ??= []).push({ sessionId, event, view });
+  if (queuedSessionFlushTimer === undefined) {
+    queuedSessionFlushTimer = setTimeout(() => flushQueuedSessionEvents(context), HISTORY_FLUSH_WINDOW_MS);
+  }
+}
+
 export function routeBridgeEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext) {
   const payload = event.frame.payload;
   const type = payload.type;
@@ -90,7 +157,6 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
     contextProjectionRef,
     selectedSubagentRef,
     setTodos,
-    setHistory,
     setSessionStats,
     setSessions,
     setSubagentSession,
@@ -117,32 +183,7 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
       if (nextEvent.type === "todo/write") {
         setTodos((current) => applyTodoSnapshot(current, nextEvent.data.todos, nextEvent.time) ?? current);
       }
-      setHistory((current) => {
-        const next = current.some((entry) => entry.event.seq === nextEvent.seq)
-          ? current
-          : [...current, { event: nextEvent, view: payload.view }];
-        if (next.length !== current.length) {
-          setSessionStats((currentStats) => {
-            const nextStats = readSessionStats(next);
-            return {
-              ...currentStats,
-              ...nextStats,
-              inputTokens: nextStats.inputTokens > 0 ? nextStats.inputTokens : currentStats.inputTokens,
-              outputTokens: nextStats.outputTokens > 0 ? nextStats.outputTokens : currentStats.outputTokens,
-              totalTokens: nextStats.totalTokens > 0 ? nextStats.totalTokens : currentStats.totalTokens,
-              // Keep the latest projected context value while the stream
-              // advances; the history scan is only a fallback for runtimes that
-              // do not publish contextPressure frames.
-              contextTokens: (!contextProjectionRef.current || eventHasUsage(nextEvent)) && nextStats.contextTokens > 0
-                ? nextStats.contextTokens
-                : currentStats.contextTokens,
-              contextLimit: nextStats.contextLimit > 0 ? nextStats.contextLimit : currentStats.contextLimit,
-              messages: nextStats.messages > 0 ? nextStats.messages : currentStats.messages,
-            };
-          });
-        }
-        return next;
-      });
+      queueSessionEvent(nextEvent, payload.view, sessionId, context);
     }
     if (nextEvent.type === "user/message") {
       setSessions((current) => current.map((session) => session.sessionId === sessionId
