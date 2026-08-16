@@ -90,10 +90,9 @@ npm run version:check
 ```text
 Tauri setup
   -> materialize_desktop_profile()
-  -> ensure $DSH_HOME/package.json exists
-  -> npm exec --prefix $DSH_HOME --offline --package=@deepseek-ai/dsh -- dsh --version
-  -> npm install --prefix $DSH_HOME (when missing)
-  -> npm exec --prefix $DSH_HOME --offline --package=@deepseek-ai/dsh -- dsh --profile desktop
+  -> discover dsh on PATH, npm global, $DSH_HOME, or npx cache
+  -> npm install --prefix $DSH_HOME (only when every existing source is unavailable)
+  -> launch dsh or npm exec --offline -- dsh --profile desktop
   -> pipe stdin/stdout/stderr
   -> receive { type: "ready", protocol: "deeptop/1" }
   -> emit dsh-runtime-status

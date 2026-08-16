@@ -50,14 +50,17 @@ Rust 启动器在 `src-tauri/src/main.rs` 中内嵌以下资源：
 5. 只在用户文件不存在时创建 `cordis.patch.yml`；
 6. 将 Bridge 内容写到 `$DSH_HOME/profiles/node_modules/deeptop-bridge`。
 
-这样桌面端可以按 Profile 解析 Bridge，同时又不会覆盖用户的 desktop Profile 扩展。启动前会直接让 npm 在 `$DSH_HOME` prefix 下离线执行 `@deepseek-ai/dsh` 的版本校验；校验失败时使用本机 npm 将 `@deepseek-ai/dsh@latest` 安装到同一 prefix，然后再次校验。
+这样桌面端可以按 Profile 解析 Bridge，同时又不会覆盖用户的 desktop Profile 扩展。启动前会按优先级复用 PATH 中的 `dsh` 命令、npm 全局安装、`$DSH_HOME` prefix 或 npm/npx 缓存；只有这些来源都不可用时，才使用本机 npm 将 `@deepseek-ai/dsh@latest` 安装到 `$DSH_HOME`。自动安装是兼容性回退，不是运行 DSH 的前置要求。
 
 ### 2.2 DSH 子进程
 
-Rust 使用本机 npm 在同一 prefix 下启动已经校验过的 DSH：
+Rust 最终通过正常的 `dsh` 命令或 npm exec 启动 DSH。实际命令根据发现到的来源选择：
 
 ```text
-npm exec --prefix $DSH_HOME --offline --package=@deepseek-ai/dsh -- dsh --profile desktop
+dsh --profile desktop
+npm exec --global --offline -- dsh --profile desktop
+npm exec --prefix $DSH_HOME --offline -- dsh --profile desktop
+npm exec --prefix <npx-cache-entry> --offline -- dsh --profile desktop
 ```
 
 进程环境包括：

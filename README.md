@@ -86,9 +86,9 @@ On startup Deeptop:
 1. creates or completes `$DSH_HOME/profiles/desktop`;
 2. preserves user desktop Profile bundles and `cordis.patch.yml` edits;
 3. materializes the embedded Bridge at `$DSH_HOME/profiles/node_modules/deeptop-bridge`;
-4. asks npm to validate `@deepseek-ai/dsh` under the `$DSH_HOME` prefix with offline `npm exec`;
-5. installs `@deepseek-ai/dsh@latest` into the same `$DSH_HOME` prefix through the local npm when validation fails;
-6. launches DSH with offline `npm exec` from that prefix and waits for `deeptop/1` readiness.
+4. reuses an existing DSH in this order: a `dsh` command on `PATH`, an npm global install, the local `$DSH_HOME` prefix, or an npm/npx cache;
+5. only when none of those sources is available, installs `@deepseek-ai/dsh@latest` into `$DSH_HOME` through the local npm; automatic installation is a compatibility fallback, not a requirement;
+6. launches DSH through the normal `dsh` command or npm exec and waits for `deeptop/1` readiness.
 
 A selected workspace is passed to DSH as `session.create({ cwd })`, so the desktop project directory is not silently used as every session's working directory. DSH owns storage, persistence and Profile data according to its own configuration.
 
