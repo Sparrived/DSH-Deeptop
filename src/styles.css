@@ -12435,6 +12435,10 @@ textarea:focus-visible {
 .popup-confirm-dialog .popup-window,
 .popup-prompt-dialog .popup-window { width: min(520px, 100%); }
 
+.popup-provider-dialog .popup-window { width: min(680px, 100%); }
+.popup-provider-dialog .popup-body { padding: 0; }
+.popup-provider-dialog .settings-provider-details { gap: 18px; padding: 22px 24px; border-top: 0; }
+
 .popup-confirm-message {
   margin: 0;
   color: var(--ink-muted, var(--muted));
@@ -12556,6 +12560,7 @@ textarea:focus-visible {
   .popup-header { padding: 18px 18px 15px; }
   .popup-body { padding: 18px; }
   .popup-footer { padding: 12px 18px; }
+  .popup-provider-dialog .settings-provider-details { padding: 18px; }
   .popup-code-input,
   .popup-code-preview { min-height: min(460px, 56svh); }
 }
