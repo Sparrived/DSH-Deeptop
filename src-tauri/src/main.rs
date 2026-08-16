@@ -21,11 +21,10 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 mod registry {
     use std::{
-        env, fs,
-        path::PathBuf,
+        env,
         process::{Command, Stdio},
         thread,
-        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+        time::{Duration, Instant},
     };
 
     const DEFAULT: &str = "https://registry.npmjs.org";
@@ -33,14 +32,15 @@ mod registry {
     const TENCENT_MIRROR: &str = "https://mirrors.cloud.tencent.com/npm";
     const HUAWEI_MIRROR: &str = "https://repo.huaweicloud.com/repository/npm";
     const PACKAGE: &str = "@deepseek-ai/dsh@latest";
-    const TIMEOUT: Duration = Duration::from_secs(8);
+    // npm may spend a few seconds initializing its cache on a fresh machine.
+    // Keep this separate from the install timeout, but do not reject a usable
+    // registry merely because the first npm process is cold.
+    const TIMEOUT: Duration = Duration::from_secs(20);
 
     #[derive(Clone)]
     pub struct Probe {
         pub registry: String,
-        pub bytes: u64,
         pub elapsed_ms: u128,
-        pub speed_kib: f64,
         pub ok: bool,
     }
     pub struct Selection {
@@ -94,21 +94,6 @@ mod registry {
         })
     }
 
-    fn workspace(registry: &str) -> Option<PathBuf> {
-        let safe: String = registry
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-            .collect();
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .ok()?
-            .as_nanos();
-        (0..8).find_map(|attempt| {
-            let path = env::temp_dir().join(format!("deeptop-registry-{safe}-{stamp}-{attempt}"));
-            fs::create_dir(&path).ok().map(|_| path)
-        })
-    }
-
     fn kill(pid: u32) {
         #[cfg(windows)]
         {
@@ -128,71 +113,40 @@ mod registry {
 
     fn probe(factory: fn() -> Result<Command, String>, registry: String) -> Probe {
         let started = Instant::now();
-        let Some(directory) = workspace(&registry) else {
-            return Probe {
-                registry,
-                bytes: 0,
-                elapsed_ms: 0,
-                speed_kib: 0.0,
-                ok: false,
-            };
-        };
-        let cache = directory.join("cache");
-        if fs::create_dir(&cache).is_err() {
-            let _ = fs::remove_dir_all(&directory);
-            return Probe {
-                registry,
-                bytes: 0,
-                elapsed_ms: started.elapsed().as_millis(),
-                speed_kib: 0.0,
-                ok: false,
-            };
-        }
-        let destination = directory.to_string_lossy().into_owned();
-        let cache_value = cache.to_string_lossy().into_owned();
         let mut command = match factory() {
             Ok(command) => command,
             Err(_) => {
-                let _ = fs::remove_dir_all(&directory);
                 return Probe {
                     registry,
-                    bytes: 0,
-                    elapsed_ms: started.elapsed().as_millis(),
-                    speed_kib: 0.0,
+                    elapsed_ms: 0,
                     ok: false,
                 };
             }
         };
         command
             .args([
-                "pack",
+                "view",
                 PACKAGE,
-                "--pack-destination",
-                &destination,
-                "--ignore-scripts",
+                "version",
                 "--registry",
                 &registry,
                 "--fetch-timeout",
-                "15000",
+                "8000",
                 "--fetch-retries",
                 "0",
                 "--prefer-online",
+                "--offline=false",
                 "--loglevel",
                 "error",
             ])
-            .env("NPM_CONFIG_CACHE", cache_value)
-            .current_dir(&directory)
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         let mut child = match command.spawn() {
             Ok(child) => child,
             Err(_) => {
-                let _ = fs::remove_dir_all(&directory);
                 return Probe {
                     registry,
-                    bytes: 0,
                     elapsed_ms: started.elapsed().as_millis(),
-                    speed_kib: 0.0,
                     ok: false,
                 };
             }
@@ -200,55 +154,33 @@ mod registry {
         let pid = child.id();
         let status = loop {
             match child.try_wait() {
-                Ok(Some(status)) => break Some(status),
+                Ok(Some(status)) => break status,
                 Ok(None) if started.elapsed() >= TIMEOUT => {
                     kill(pid);
                     let _ = child.wait();
-                    break None;
+                    return Probe {
+                        registry,
+                        elapsed_ms: started.elapsed().as_millis(),
+                        ok: false,
+                    };
                 }
                 Ok(None) => thread::sleep(Duration::from_millis(50)),
                 Err(_) => {
                     kill(pid);
                     let _ = child.wait();
-                    break None;
+                    return Probe {
+                        registry,
+                        elapsed_ms: started.elapsed().as_millis(),
+                        ok: false,
+                    };
                 }
             }
         };
-        let tarballs = fs::read_dir(&directory)
-            .ok()
-            .map(|entries| {
-                entries
-                    .flatten()
-                    .filter_map(|entry| {
-                        let path = entry.path();
-                        if path.extension().and_then(|value| value.to_str()) != Some("tgz")
-                            || !entry.file_type().ok()?.is_file()
-                        {
-                            return None;
-                        }
-                        fs::metadata(path).ok().map(|metadata| metadata.len())
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        let bytes = if status.map(|value| value.success()).unwrap_or(false)
-            && tarballs.len() == 1
-            && tarballs[0] > 0
-        {
-            tarballs[0]
-        } else {
-            0
-        };
-        let elapsed_ms = started.elapsed().as_millis();
-        let result = Probe {
+        Probe {
             registry,
-            bytes,
-            elapsed_ms,
-            speed_kib: bytes as f64 / 1024.0 / (elapsed_ms.max(1) as f64 / 1000.0),
-            ok: bytes > 0,
-        };
-        let _ = fs::remove_dir_all(&directory);
-        result
+            elapsed_ms: started.elapsed().as_millis(),
+            ok: status.success(),
+        }
     }
 
     #[cfg(test)]
@@ -295,9 +227,7 @@ mod registry {
                             usize::MAX,
                             Probe {
                                 registry: DEFAULT.to_string(),
-                                bytes: 0,
                                 elapsed_ms: 0,
-                                speed_kib: 0.0,
                                 ok: false,
                             },
                         )
@@ -313,11 +243,7 @@ mod registry {
         let selected = probes
             .iter()
             .filter(|probe| probe.ok)
-            .max_by(|left, right| {
-                left.speed_kib
-                    .total_cmp(&right.speed_kib)
-                    .then_with(|| right.elapsed_ms.cmp(&left.elapsed_ms))
-            })
+            .min_by_key(|probe| probe.elapsed_ms)
             .map(|probe| probe.registry.clone())
             .unwrap_or_else(|| DEFAULT.to_string());
         Selection {
@@ -650,6 +576,12 @@ fn npm_command() -> Result<Command, String> {
         .env("NPM_CONFIG_FUND", "false")
         .env("NPM_CONFIG_UPDATE_NOTIFIER", "false")
         .env("NPM_CONFIG_CACHE", dsh_home().join("npm-cache"))
+        // A user's .npmrc may set offline=true. Network phases must override it;
+        // the launch command below still passes an explicit --offline flag.
+        .env("NPM_CONFIG_OFFLINE", "false")
+        .env("npm_config_offline", "false")
+        .env("NPM_CONFIG_PREFER_OFFLINE", "false")
+        .env("npm_config_prefer_offline", "false")
         .env("NPM_CONFIG_MAXSOCKETS", "50")
         .env("NPM_CONFIG_PROGRESS", "false");
     #[cfg(windows)]
@@ -720,7 +652,8 @@ fn install_dsh(
             "--no-audit",
             "--no-fund",
             "--no-update-notifier",
-            "--prefer-offline",
+            "--prefer-online",
+            "--offline=false",
             "--fetch-retries=1",
             "--fetch-retry-mintimeout=1000",
             "--fetch-retry-maxtimeout=5000",
@@ -1032,15 +965,12 @@ impl BridgeManager {
                         "diagnostic",
                         if probe.ok {
                             format!(
-                                "registry {} 下载 {} KiB，速度 {:.1} KiB/s，耗时 {} ms",
-                                probe.registry,
-                                probe.bytes / 1024,
-                                probe.speed_kib,
-                                probe.elapsed_ms
+                                "registry {} 可用，响应耗时 {} ms",
+                                probe.registry, probe.elapsed_ms
                             )
                         } else {
                             format!(
-                                "registry {} 下载测速失败（{} ms）",
+                                "registry {} 不可用或响应超时（{} ms）",
                                 probe.registry, probe.elapsed_ms
                             )
                         },
