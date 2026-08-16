@@ -13,7 +13,7 @@ import type { DshSubagentAddress } from "../lib/desktop";
 
 type SubagentPanelProps = {
   entries: ChildSubagentEntry[];
-  /** Whether the left-hand bookmark dock is expanded (default collapsed). */
+  /** Whether the right-hand bookmark dock is expanded (default collapsed). */
   dockOpen: boolean;
   /** Whether the subagent execution drawer is open. */
   panelOpen: boolean;
@@ -57,9 +57,7 @@ export function SubagentPanel({
 
   return (
     <div className={`subagent-layer ${panelOpen ? "open" : ""}`}>
-      {panelOpen && <button className="subagent-panel-backdrop" type="button" onClick={onClose} aria-label="关闭 Subagent 执行面板" />}
-
-      {/* Left-hand dock: a collapsed rail by default, expanding into a bookmark card like Todo/Task. */}
+      {/* Right-hand dock: a collapsed rail by default, expanding into a bookmark card like Todo/Task. */}
       <aside className={`subagent-dock ${dockOpen ? "expanded" : "collapsed"}`} aria-label="子 Agent 书签">
         <button
           className="subagent-dock-rail"

@@ -1518,7 +1518,7 @@ textarea:focus-visible {
 
 .subagent-drawer {
   position: absolute;
-  inset: 16px auto 16px 0;
+  inset: 16px 0 16px auto;
   width: var(--subagent-drawer-width);
   min-width: 0;
   display: flex;
@@ -6959,7 +6959,7 @@ textarea:focus-visible {
   }
 
   .subagent-drawer {
-    inset: 10px auto 10px 8px;
+    inset: 10px 8px 10px auto;
   }
 
   .session-sidebar {
@@ -11241,17 +11241,12 @@ textarea:focus-visible {
 }
 
 .subagent-panel-backdrop {
-  position: absolute;
-  inset: 0;
-  pointer-events: auto;
-  border: 0;
-  border-radius: 0;
-  background: var(--overlay);
+  display: none;
 }
 
-/* 左侧子 Agent dock：仿照 todo 等 dock，收起时只有一条窄栏，展开时卡片向右弹出。 */
+/* 右侧子 Agent dock：仿照 todo 等 dock，收起时只有一条窄栏，展开时卡片向左弹出。 */
 .subagent-layer {
-  --subagent-dock-left: 8px;
+  --subagent-dock-right: 16px;
   --subagent-collapsed-width: 44px;
   --subagent-dock-width: 286px;
 }
@@ -11259,7 +11254,8 @@ textarea:focus-visible {
 .subagent-dock {
   position: absolute;
   top: 50%;
-  left: var(--subagent-dock-left);
+  left: auto;
+  right: var(--subagent-dock-right);
   width: var(--subagent-collapsed-width);
   min-width: 0;
   display: flex;
@@ -11311,7 +11307,8 @@ textarea:focus-visible {
 .subagent-dock-card {
   position: absolute;
   top: 0;
-  left: calc(100% + var(--right-surface-gap, 12px));
+  left: auto;
+  right: calc(100% + var(--right-surface-gap, 12px));
   width: var(--subagent-dock-width, 286px);
   min-width: 0;
   max-height: min(60svh, 560px);
@@ -11462,9 +11459,9 @@ textarea:focus-visible {
 .subagent-drawer {
   position: absolute;
   top: 16px;
-  right: auto;
+  left: auto;
   bottom: 16px;
-  left: calc(var(--subagent-dock-left, 8px) + var(--subagent-collapsed-width, 44px) + var(--right-surface-gap, 12px));
+  right: calc(var(--subagent-dock-right, 16px) + var(--subagent-collapsed-width, 44px) + var(--right-surface-gap, 12px));
   width: var(--subagent-drawer-width, 500px);
   min-width: 0;
   display: grid;
@@ -13524,9 +13521,9 @@ textarea:focus-visible {
 
   .subagent-dock {
     top: auto;
-    right: auto;
+    left: auto;
     bottom: 18%;
-    left: 8px;
+    right: 8px;
     width: var(--subagent-collapsed-width, 44px);
     transform: none;
   }
@@ -13535,9 +13532,9 @@ textarea:focus-visible {
 
   .subagent-drawer {
     top: 10px;
-    right: auto;
+    left: auto;
     bottom: 10px;
-    left: 8px;
+    right: 8px;
     width: min(430px, calc(100vw - 16px));
   }
 
@@ -13827,9 +13824,9 @@ textarea:focus-visible {
 
   .conversation-transcript-stage > .subagent-layer > .subagent-drawer {
     top: 0;
-    right: auto;
+    left: auto;
     bottom: 0;
-    left: calc(var(--subagent-dock-left, 8px) + var(--subagent-collapsed-width, 44px) + var(--right-surface-gap, 12px));
+    right: calc(var(--subagent-dock-right, 16px) + var(--subagent-collapsed-width, 44px) + var(--right-surface-gap, 12px));
   }
 }
 
@@ -14110,7 +14107,7 @@ textarea:focus-visible {
     top: auto;
     left: auto;
     width: auto;
-    align-self: flex-start;
+    align-self: flex-end;
     margin: 10px 10px 0;
     transform: none;
     pointer-events: auto;
@@ -14173,9 +14170,9 @@ textarea:focus-visible {
 
   .conversation-transcript-stage > .subagent-layer.open > .subagent-drawer {
     top: calc(var(--conversation-header-height) + 10px);
-    right: auto;
+    left: auto;
     bottom: 10px;
-    left: 8px;
+    right: 8px;
   }
 }
 

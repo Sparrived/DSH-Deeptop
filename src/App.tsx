@@ -319,7 +319,7 @@ function App() {
   const [queueEditingId, setQueueEditingId] = useState<string | null>(null);
   const [queueEditingText, setQueueEditingText] = useState("");
   const [sessionJobs, setSessionJobs] = useState<Record<string, DshJob[]>>({});
-  const [openPanel, setOpenPanel] = useState<"tasks" | "todo" | "deliverables" | null>("tasks");
+  const [openPanel, setOpenPanel] = useState<"tasks" | "todo" | "deliverables" | null>(null);
   const [jobNow, setJobNow] = useState(() => Date.now());
   const [filesOpen, setFilesOpen] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState<Record<string, PendingApproval>>({});
@@ -481,10 +481,6 @@ function App() {
     setModelMenuOpen(false);
     setModelMenuPane("root");
     setPresetMenuOpen(false);
-  }, [activeSessionId]);
-
-  useEffect(() => {
-    setOpenPanel("tasks");
   }, [activeSessionId]);
 
   useEffect(() => {
