@@ -339,10 +339,8 @@ export function ConversationTranscript({
                       <button className={feedback[item.messageId]?.rating === "positive" ? "selected" : ""} type="button" onClick={() => void onFeedback(item.messageId!, "positive")} title="标记为有帮助">赞</button>
                       <button className={feedback[item.messageId]?.rating === "negative" ? "selected" : ""} type="button" onClick={() => void onFeedback(item.messageId!, "negative")} title="标记为需要改进">踩</button>
                       <button type="button" onClick={() => void onEditFeedback(item.messageId!)} title="编辑反馈备注">{feedback[item.messageId]?.note ? "备注" : "加备注"}</button>
-                    
-     
-     </>}
-                    {item.kind === "assistant" && item.seq !== undefined && activeSessionId && (
+                     </>}
+                     {item.kind === "assistant" && item.seq !== undefined && activeSessionId && (
                       <button type="button" onClick={() => void onForkSession(activeSessionId, item.seq)} title="从此消息分叉">分叉</button>
                     )}
                   </div>
@@ -353,11 +351,10 @@ export function ConversationTranscript({
           })}
           {(loading || activeRunning) && <div className="agent-working" role="status" aria-live="polite">Deep diving...</div>}
            <div ref={endRef} />
-     
         </div>
       )}
     </div>
-
+    {showDeliverablesDock && <DeliverablesDock item={deliverables} activeSession={activeSession} onOpenSessionPath={onOpenSessionPath} />}
     </>
   );
 }

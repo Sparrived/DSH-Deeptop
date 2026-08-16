@@ -146,6 +146,20 @@ type FeedbackOperationResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: { code: string; current?: DshMessageFeedbackItem | null } };
 
+type PopupRequest =
+  | {
+      kind: "confirm";
+      message: string;
+      resolve: (value: boolean) => void;
+    }
+  | {
+      kind: "prompt";
+      title: string;
+      description?: string;
+      value: string;
+      resolve: (value: string | null) => void;
+    };
+
 const FRONTEND_VISUAL_RESET_VERSION = "workbench-v2";
 let frontendVisualResetChecked = false;
 
@@ -290,6 +304,10 @@ function App() {
   const [sessionContextMenu, setSessionContextMenu] = useState<SessionContextMenu | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ action: SessionAction; session: DshSessionSummary } | null>(null);
   const [deleteArchivedTarget, setDeleteArchivedTarget] = useState<DshSessionSummary | null>(null);
+  const [popupRequest, setPopupRequest] = useState<PopupRequest | null>(null);
+  const [popupValue, setPopupValue] = useState("");
+  const popupQueueRef = useRef<PopupRequest[]>([]);
+  const activePopupRequestRef = useRef<PopupRequest | null>(null);
   const transcriptEnd = useRef<HTMLDivElement | null>(null);
   const transcriptScroll = useRef<HTMLDivElement | null>(null);
   const appearanceFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -317,6 +335,40 @@ function App() {
   const sessionLoadRequestRef = useRef(0);
   const retryingMessageRef = useRef<number | null>(null);
   const retryingSessionRef = useRef<string | null>(null);
+
+  function enqueuePopupRequest(request: PopupRequest) {
+    if (activePopupRequestRef.current) {
+      popupQueueRef.current.push(request);
+      return;
+    }
+    activePopupRequestRef.current = request;
+    setPopupValue(request.kind === "prompt" ? request.value : "");
+    setPopupRequest(request);
+  }
+
+  function requestConfirm(message: string) {
+    return new Promise<boolean>((resolve) => {
+      enqueuePopupRequest({ kind: "confirm", message, resolve });
+    });
+  }
+
+  function requestPrompt(title: string, value = "", description?: string) {
+    return new Promise<string | null>((resolve) => {
+      enqueuePopupRequest({ kind: "prompt", title, value, description, resolve });
+    });
+  }
+
+  function settlePopup(value: boolean | string | null) {
+    const current = activePopupRequestRef.current;
+    if (!current) return;
+    if (current.kind === "confirm") current.resolve(value === true);
+    else current.resolve(typeof value === "string" ? value : null);
+    const next = popupQueueRef.current.shift() ?? null;
+    activePopupRequestRef.current = next;
+    setPopupValue(next?.kind === "prompt" ? next.value : "");
+    setPopupRequest(next);
+  }
+
   const {
     windowMaximized,
     startWindowDrag,
@@ -341,6 +393,7 @@ function App() {
     settings,
     providers,
     onNotice: setNotice,
+    onConfirm: requestConfirm,
     loadRuntimeDetails,
   });
   const activeSession = sessions.find((session) => session.sessionId === activeSessionId);
@@ -1410,7 +1463,7 @@ function App() {
   }
 
   async function renameWorkspace(item: DshWorkspace) {
-    const title = window.prompt("重命名工作区", item.title);
+    const title = await requestPrompt("重命名工作区", item.title, "修改工作区在侧边栏中的显示名称。");
     if (!title?.trim() || title.trim() === item.title) return;
     try {
       const result = await bridgeRequest<{ workspace: DshWorkspace }>("workspace.rename", {
@@ -1427,7 +1480,7 @@ function App() {
   async function removePreset(id: string) {
     const preset = presets.find((item) => item.id === id);
     if (!preset || preset.trust !== "user") return;
-    if (!window.confirm(`删除 Agent Preset“${presetDisplayName(id, presets)}”？已在其上运行的会话不受影响。`)) return;
+    if (!await requestConfirm(`删除 Agent Preset“${presetDisplayName(id, presets)}”？已在其上运行的会话不受影响。`)) return;
     try {
       await bridgeRequest("agentPreset.remove", { agentPreset: id });
       if (nextPreset === id) setNextPreset("");
@@ -1440,7 +1493,7 @@ function App() {
   }
 
   async function deleteWorkspace(item: DshWorkspace) {
-    if (!window.confirm(`删除工作区“${item.title}”？不会删除目录和会话。`)) return;
+    if (!await requestConfirm(`删除工作区“${item.title}”？不会删除目录和会话。`)) return;
     try {
       await bridgeRequest("workspace.delete", { workspaceId: item.workspaceId });
       setWorkspaces((current) => current.filter((workspaceItem) => workspaceItem.workspaceId !== item.workspaceId));
@@ -1733,7 +1786,7 @@ function App() {
   async function retryMessage(targetSeq: number) {
     const sessionId = activeSessionRef.current;
     if (!sessionId || activeRunning || loading || retryingMessageRef.current !== null) return;
-    if (!window.confirm("将清除此消息之后的会话内容，并从这条提示词重新请求。原会话会保留为分支；已执行的文件或外部操作不会回滚。继续吗？")) return;
+    if (!await requestConfirm("将清除此消息之后的会话内容，并从这条提示词重新请求。原会话会保留为分支；已执行的文件或外部操作不会回滚。继续吗？")) return;
     retryingMessageRef.current = targetSeq;
     retryingSessionRef.current = sessionId;
     setRetryingMessageSeq(targetSeq);
@@ -2049,7 +2102,7 @@ function App() {
 
   async function editMessageAnnotation(messageId: string) {
     const current = annotations[messageId];
-    const draft = window.prompt("消息注记", current?.note ?? "");
+    const draft = await requestPrompt("消息注记", current?.note ?? "", "为这条消息添加仅自己可见的注记。");
     if (draft === null) return;
     try {
       if (draft.trim()) {
@@ -2107,7 +2160,7 @@ function App() {
       setNotice("请先选择赞或踩");
       return;
     }
-    const draft = window.prompt("反馈备注", current.note ?? "");
+    const draft = await requestPrompt("反馈备注", current.note ?? "", "为这条反馈添加一段备注。");
     if (draft === null) return;
     try {
       await putFeedback(messageId, current.rating, draft.trim() || undefined);
@@ -2664,7 +2717,8 @@ function App() {
             />
 
 
-             {activeJobs.length > 0 && <TaskPanel jobs={activeJobs} collapsed={jobsCollapsed} now={jobNow} onToggle={() => { setJobsCollapsed((collapsed) => !collapsed); setJobNow(Date.now()); }} />}
+             <div className={`utility-panel-shelf ${activeJobs.length > 0 ? "task-present" : ""} ${todoVisible ? "todo-present" : ""} ${activeJobs.length > 0 && jobsCollapsed ? "task-collapsed" : ""} ${todoVisible && todoCollapsed ? "todo-collapsed" : ""}`} aria-label="当前会话面板">
+              {activeJobs.length > 0 && <TaskPanel jobs={activeJobs} collapsed={jobsCollapsed} now={jobNow} onToggle={() => { setJobsCollapsed((collapsed) => !collapsed); setJobNow(Date.now()); }} />}
 
               {todoVisible && <TodoPanel
                 todos={todos ?? []}
@@ -2675,6 +2729,7 @@ function App() {
                 turnFinishedAt={turnTiming.finishedAt}
                 onToggle={() => { setTodoCollapsed((value) => !value); setJobNow(Date.now()); }}
               />}
+              </div>
 
             <SubagentPanel
               entries={childSubagents}
@@ -2889,6 +2944,29 @@ function App() {
             </aside>
           </div>
         )}
+      {popupRequest?.kind === "confirm" && <PopupDialog
+        title="请确认操作"
+        eyebrow="DSH / 确认操作"
+        description="请确认是否继续执行此操作。"
+        className="popup-confirm-dialog"
+        role="alertdialog"
+        onClose={() => settlePopup(false)}
+        footer={<><button type="button" onClick={() => settlePopup(false)}>取消</button><button type="button" className="confirm" onClick={() => settlePopup(true)}>确认</button></>}
+      >
+        <p className="popup-confirm-message">{popupRequest.message}</p>
+      </PopupDialog>}
+      {popupRequest?.kind === "prompt" && <PopupDialog
+        title={popupRequest.title}
+        eyebrow="DSH / 输入"
+        description={popupRequest.description}
+        className="popup-prompt-dialog"
+        onClose={() => settlePopup(null)}
+        footer={<><button type="button" onClick={() => settlePopup(null)}>取消</button><button type="button" className="confirm" onClick={() => settlePopup(popupValue)}>确定</button></>}
+      >
+        <form className="popup-prompt-form" onSubmit={(event) => { event.preventDefault(); settlePopup(popupValue); }}>
+          <input className="popup-prompt-input" value={popupValue} onChange={(event) => setPopupValue(event.target.value)} autoFocus aria-label={popupRequest.title} />
+        </form>
+      </PopupDialog>}
       {pendingDefaultPermission && <PopupDialog
         title="确认新会话默认权限"
         eyebrow="DSH / 默认设置"

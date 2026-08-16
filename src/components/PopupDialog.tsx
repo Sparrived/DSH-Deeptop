@@ -8,6 +8,7 @@ interface PopupDialogProps {
   children: ReactNode;
   footer?: ReactNode;
   className?: string;
+  role?: "dialog" | "alertdialog";
   onClose: () => void;
 }
 
@@ -18,6 +19,7 @@ export function PopupDialog({
   children,
   footer,
   className,
+  role = "dialog",
   onClose,
 }: PopupDialogProps) {
   useEffect(() => {
@@ -29,7 +31,7 @@ export function PopupDialog({
   }, [onClose]);
 
   return createPortal(
-    <div className={`popup-modal${className ? ` ${className}` : ""}`} role="dialog" aria-modal="true" aria-label={title}>
+    <div className={`popup-modal${className ? ` ${className}` : ""}`} role={role} aria-modal="true" aria-label={title}>
       <button className="popup-backdrop" type="button" onClick={onClose} aria-label={`关闭${title}`} />
       <section className="popup-window" onMouseDown={(event) => event.stopPropagation()}>
         <header className="popup-header">

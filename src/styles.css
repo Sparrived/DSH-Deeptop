@@ -12430,6 +12430,34 @@ textarea:focus-visible {
 .popup-preview-dialog .popup-window { width: min(820px, 100%); }
 .popup-form-dialog .popup-window { width: min(500px, 100%); }
 .popup-permission-dialog .popup-window { width: min(560px, 100%); }
+.popup-confirm-dialog .popup-window,
+.popup-prompt-dialog .popup-window { width: min(520px, 100%); }
+
+.popup-confirm-message {
+  margin: 0;
+  color: var(--ink-muted, var(--muted));
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.popup-prompt-form { display: grid; gap: 10px; }
+
+.popup-prompt-input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised, var(--paper-deep));
+  color: var(--ink);
+}
+
+.popup-prompt-input:focus {
+  border-color: var(--accent);
+  outline: 2px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  outline-offset: 1px;
+}
 
 .permission-confirm-content {
   display: grid;
@@ -13407,10 +13435,14 @@ textarea:focus-visible {
   }
 }
 
-/* Generated files follow the Deep diving status instead of floating beside it. */
-.transcript-inner > .deliverables-dock {
-  width: min(560px, 100%);
-  margin: 12px 0 0;
+/* Generated files stay available without interrupting the conversation flow. */
+.conversation-transcript-stage > .deliverables-dock {
+  position: absolute;
+  z-index: 18;
+  right: max(16px, calc((100% - 980px) / 2));
+  bottom: 16px;
+  left: max(16px, calc((100% - 980px) / 2));
+  pointer-events: none;
 }
 
 .deliverables-dock .deliverables-entry {
@@ -13523,14 +13555,23 @@ textarea:focus-visible {
   padding-bottom: 8px;
 }
 
+.transcript.has-deliverables .transcript-inner {
+  padding-bottom: 112px;
+}
+
 @media (max-width: 760px) {
-  .transcript-inner > .deliverables-dock {
-    width: 100%;
-    margin-left: 0;
+  .conversation-transcript-stage > .deliverables-dock {
+    right: 10px;
+    bottom: 10px;
+    left: 10px;
   }
 
   .deliverables-dock .deliverables-entry {
     width: 100%;
+  }
+
+  .transcript.has-deliverables .transcript-inner {
+    padding-bottom: 100px;
   }
 }
 
@@ -14029,4 +14070,147 @@ textarea:focus-visible {
   .startup-log-line { grid-template-columns: 10px 50px minmax(0, 1fr); font-size: 9px; }
   .startup-status-item:last-child { border-bottom: 0; }
   .startup-signal { margin-top: 13px; }
+}
+
+/* Keep the Todo and Task surfaces in one vertical utility shelf. */
+@media (min-width: 761px) {
+  .conversation-transcript-stage {
+    --utility-panel-width: max(var(--todo-panel-width, 286px), var(--task-panel-width, 286px));
+  }
+
+  .conversation-transcript-stage > .utility-panel-shelf {
+    position: absolute;
+    top: 0;
+    right: var(--surface-scrollbar-gap);
+    bottom: 0;
+    z-index: 22;
+    width: var(--utility-panel-width);
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--right-surface-gap);
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  .conversation-transcript-stage > .utility-panel-shelf > .task-panel,
+  .conversation-transcript-stage > .utility-panel-shelf > .todo-panel {
+    position: relative;
+    top: auto;
+    right: auto;
+    bottom: auto;
+    left: auto;
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    flex: 1 1 0;
+    pointer-events: auto;
+  }
+
+  .conversation-transcript-stage > .utility-panel-shelf > .task-panel.collapsed,
+  .conversation-transcript-stage > .utility-panel-shelf > .todo-panel.collapsed {
+    flex: 0 0 auto;
+    align-self: flex-end;
+  }
+
+  .conversation-transcript-stage > .utility-panel-shelf > .task-panel.collapsed {
+    width: var(--task-collapsed-width);
+  }
+
+  .conversation-transcript-stage > .utility-panel-shelf > .todo-panel.collapsed {
+    width: var(--todo-collapsed-width, 44px);
+  }
+
+  .workspace-layout.todo-visible .conversation-transcript-stage > .subagent-layer,
+  .workspace-layout.todo-visible.todo-collapsed .conversation-transcript-stage > .subagent-layer,
+  .workspace-layout.tasks-visible .conversation-transcript-stage > .subagent-layer,
+  .workspace-layout.tasks-visible.tasks-collapsed .conversation-transcript-stage > .subagent-layer,
+  .workspace-layout.todo-visible.tasks-visible .conversation-transcript-stage > .subagent-layer,
+  .workspace-layout.todo-visible.todo-collapsed.tasks-visible .conversation-transcript-stage > .subagent-layer,
+  .workspace-layout.todo-visible.tasks-collapsed .conversation-transcript-stage > .subagent-layer,
+  .workspace-layout.todo-visible.todo-collapsed.tasks-collapsed .conversation-transcript-stage > .subagent-layer {
+    right: calc(var(--utility-panel-width) + var(--surface-scrollbar-gap));
+  }
+}
+
+@media (max-width: 760px) {
+  .conversation-transcript-stage > .utility-panel-shelf {
+    position: static;
+    order: 1;
+    flex: 0 1 auto;
+    width: auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 10px 10px 0;
+    pointer-events: auto;
+  }
+
+  .conversation-transcript-stage > .utility-panel-shelf > .task-panel,
+  .conversation-transcript-stage > .utility-panel-shelf > .todo-panel {
+    position: static !important;
+    top: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    left: auto !important;
+    width: auto !important;
+    flex: 0 1 auto;
+    max-height: min(34svh, 300px);
+    margin: 0 !important;
+  }
+
+  .conversation-transcript-stage > .utility-panel-shelf > .task-panel.collapsed,
+  .conversation-transcript-stage > .utility-panel-shelf > .todo-panel.collapsed {
+    flex: 0 0 auto;
+    width: var(--task-collapsed-width, 44px) !important;
+    max-height: none;
+    align-self: flex-end;
+  }
+
+  .conversation-transcript-stage > .utility-panel-shelf > .todo-panel.collapsed {
+    width: var(--todo-collapsed-width, 44px) !important;
+  }
+
+  .conversation-transcript-stage > .utility-panel-shelf.task-collapsed:not(.todo-present),
+  .conversation-transcript-stage > .utility-panel-shelf.todo-collapsed:not(.task-present) {
+    width: var(--task-collapsed-width, 44px);
+  }
+
+  .conversation-transcript-stage > .utility-panel-shelf.todo-collapsed:not(.task-present) {
+    width: var(--todo-collapsed-width, 44px);
+  }
+
+  /* The transcript and subagent rail follow the shelf's actual width, including collapsed panels. */
+  .workspace-layout.todo-visible:not(.tasks-visible) .conversation-transcript-stage {
+    --utility-panel-width: var(--todo-panel-width, 286px);
+  }
+
+  .workspace-layout.todo-visible.todo-collapsed:not(.tasks-visible) .conversation-transcript-stage {
+    --utility-panel-width: var(--todo-collapsed-width, 44px);
+  }
+
+  .workspace-layout.tasks-visible:not(.todo-visible) .conversation-transcript-stage {
+    --utility-panel-width: var(--task-panel-width, 286px);
+  }
+
+  .workspace-layout.tasks-visible.tasks-collapsed:not(.todo-visible) .conversation-transcript-stage {
+    --utility-panel-width: var(--task-collapsed-width, 44px);
+  }
+
+  .workspace-layout.todo-visible.tasks-visible .conversation-transcript-stage {
+    --utility-panel-width: max(var(--todo-panel-width, 286px), var(--task-panel-width, 286px));
+  }
+
+  .workspace-layout.todo-visible.todo-collapsed.tasks-visible:not(.tasks-collapsed) .conversation-transcript-stage {
+    --utility-panel-width: var(--task-panel-width, 286px);
+  }
+
+  .workspace-layout.todo-visible:not(.todo-collapsed).tasks-visible.tasks-collapsed .conversation-transcript-stage {
+    --utility-panel-width: var(--todo-panel-width, 286px);
+  }
+
+  .workspace-layout.todo-visible.todo-collapsed.tasks-visible.tasks-collapsed .conversation-transcript-stage {
+    --utility-panel-width: max(var(--todo-collapsed-width, 44px), var(--task-collapsed-width, 44px));
+  }
 }

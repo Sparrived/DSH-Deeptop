@@ -13,6 +13,7 @@ type UseProviderModelCatalogOptions = {
   credentials: Record<string, DshCredential>;
   credentialDrafts: Record<string, string>;
   onNotice: (message: string) => void;
+  onConfirm: (message: string) => Promise<boolean>;
   loadRuntimeDetails: () => Promise<void>;
 };
 
@@ -26,7 +27,7 @@ const emptyCustomProviderDraft: CustomProviderDraft = {
   selectedModels: [],
 };
 
-export function useProviderModelCatalog({ settings, credentials, credentialDrafts, onNotice, loadRuntimeDetails }: UseProviderModelCatalogOptions) {
+export function useProviderModelCatalog({ settings, credentials, credentialDrafts, onNotice, onConfirm, loadRuntimeDetails }: UseProviderModelCatalogOptions) {
   const [providerDrafts, setProviderDrafts] = useState<Record<string, { baseURL: string; api: string }>>({});
   const [discoveredModels, setDiscoveredModels] = useState<Record<string, DiscoveredModel[]>>({});
   const [discoveredSelections, setDiscoveredSelections] = useState<Record<string, string[]>>({});
@@ -184,7 +185,7 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
   async function removeProviderConfiguration(provider: DshProvider) {
     const namespace = settings?.namespaces.find((item) => item.ns === provider.settingsNs);
     if (!namespace || provider.settingsPath.length === 0 || valueAtPath(namespace.user, provider.settingsPath) === undefined) return;
-    if (!window.confirm(`移除 Provider“${provider.displayName}”？`)) return;
+    if (!await onConfirm(`移除 Provider“${provider.displayName}”？`)) return;
     try {
       await bridgeRequest("settings.mutate", { ns: provider.settingsNs, ops: [{ op: "unset", path: provider.settingsPath }], expectedRevision: namespace.revision });
       const profile = providerProfile(provider, namespace);

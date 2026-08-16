@@ -7,6 +7,7 @@ type UseProviderSettingsOptions = {
   settings: DshSettingsDescription | null;
   providers: DshProvider[];
   onNotice: (message: string) => void;
+  onConfirm: (message: string) => Promise<boolean>;
   loadRuntimeDetails: () => Promise<void>;
 };
 
@@ -15,6 +16,7 @@ export function useProviderSettings({
   settings,
   providers,
   onNotice,
+  onConfirm,
   loadRuntimeDetails,
 }: UseProviderSettingsOptions) {
   const credentials = useProviderCredentials({
@@ -28,6 +30,7 @@ export function useProviderSettings({
     credentials: credentials.credentials,
     credentialDrafts: credentials.credentialDrafts,
     onNotice,
+    onConfirm,
     loadRuntimeDetails,
   });
 
