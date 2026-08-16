@@ -5,7 +5,7 @@ import {
   type DshProvider,
   type DshSettingsDescription,
 } from "../lib/desktop";
-import { errorText, providerModels, providerProfile, valueAtPath } from "./settings-model";
+import { errorText, providerModels, providerProfile, providerSettingsOps, valueAtPath } from "./settings-model";
 import type { CustomProviderDraft, DiscoveredModel, ProviderSettingsPatch } from "./model-types";
 
 type UseProviderModelCatalogOptions = {
@@ -13,6 +13,7 @@ type UseProviderModelCatalogOptions = {
   credentials: Record<string, DshCredential>;
   credentialDrafts: Record<string, string>;
   onNotice: (message: string) => void;
+  onError: (message: string) => void;
   onConfirm: (message: string) => Promise<boolean>;
   loadRuntimeDetails: () => Promise<void>;
 };
@@ -27,7 +28,7 @@ const emptyCustomProviderDraft: CustomProviderDraft = {
   selectedModels: [],
 };
 
-export function useProviderModelCatalog({ settings, credentials, credentialDrafts, onNotice, onConfirm, loadRuntimeDetails }: UseProviderModelCatalogOptions) {
+export function useProviderModelCatalog({ settings, credentials, credentialDrafts, onNotice, onError, onConfirm, loadRuntimeDetails }: UseProviderModelCatalogOptions) {
   const [providerDrafts, setProviderDrafts] = useState<Record<string, { baseURL: string; api: string }>>({});
   const [discoveredModels, setDiscoveredModels] = useState<Record<string, DiscoveredModel[]>>({});
   const [discoveredSelections, setDiscoveredSelections] = useState<Record<string, string[]>>({});
@@ -92,17 +93,7 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
       onNotice("当前 Provider 设置不可写");
       return false;
     }
-    const ops: Array<{ op: "set" | "unset"; path: string[]; value?: unknown }> = [];
-    for (const key of ["baseURL", "api"] as const) {
-      if (!(key in patch)) continue;
-      const value = patch[key];
-      if (value) ops.push({ op: "set", path: [...provider.settingsPath, key], value });
-      else ops.push({ op: "unset", path: [...provider.settingsPath, key] });
-    }
-    if ("models" in patch) {
-      if (patch.models && patch.models.length > 0) ops.push({ op: "set", path: [...provider.settingsPath, "models"], value: patch.models });
-      else ops.push({ op: "unset", path: [...provider.settingsPath, "models"] });
-    }
+    const ops = providerSettingsOps(provider.settingsPath, providerProfile(provider, namespace), patch);
     if (ops.length === 0) return true;
     try {
       await bridgeRequest("settings.mutate", { ns: provider.settingsNs, ops, expectedRevision: namespace.revision });
@@ -110,7 +101,7 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
       onNotice(`${provider.displayName} 设置已保存`);
       return true;
     } catch (error) {
-      onNotice(errorText(error));
+      onError(errorText(error));
       return false;
     }
   }
@@ -134,7 +125,7 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
       setDiscoveredSelections((current) => ({ ...current, [provider.provider]: models.filter((model) => !existing.has(model.id)).map((model) => model.id) }));
       onNotice(models.length > 0 ? `发现 ${models.length} 个候选模型` : "该端点没有返回模型");
     } catch (error) {
-      onNotice(`模型发现失败：${errorText(error)}`);
+      onError(`模型发现失败：${errorText(error)}`);
     } finally {
       setDiscoveryBusy(null);
     }
@@ -194,7 +185,7 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
       await loadRuntimeDetails();
       onNotice(`${provider.displayName} 已移除`);
     } catch (error) {
-      onNotice(`移除失败：${errorText(error)}`);
+      onError(`移除失败：${errorText(error)}`);
     }
   }
 
@@ -216,7 +207,7 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
       setCustomProviderDraft((current) => ({ ...current, models, selectedModels: models.map((model) => model.id) }));
       onNotice(models.length > 0 ? `发现 ${models.length} 个候选模型` : "该端点没有返回模型");
     } catch (error) {
-      onNotice(`模型发现失败：${errorText(error)}`);
+      onError(`模型发现失败：${errorText(error)}`);
     } finally {
       setCustomProviderBusy(false);
     }
@@ -234,7 +225,9 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
       return;
     }
     const namespace = settings?.namespaces.find((item) => item.ns === "llm-pi-ai");
-    if (!namespace || valueAtPath(namespace.value, ["providers", route]) !== undefined) {
+    const exists = valueAtPath(namespace?.value, ["providers", route]) !== undefined
+      || valueAtPath(namespace?.user, ["providers", route]) !== undefined;
+    if (!namespace || exists) {
       onNotice("Provider ID 已存在或当前 Host 不支持自定义 Provider");
       return;
     }
@@ -263,7 +256,7 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
       setCustomProviderOpen(false);
       onNotice("自定义 Provider 已添加");
     } catch (error) {
-      onNotice(`添加失败：${errorText(error)}`);
+      onError(`添加失败：${errorText(error)}`);
     } finally {
       setCustomProviderBusy(false);
     }

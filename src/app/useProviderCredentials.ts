@@ -4,17 +4,20 @@ import {
   type DshCredential,
   type DshProvider,
   type DshSettingsDescription,
+  type DshSettingsNamespace,
 } from "../lib/desktop";
-import { credentialRefForProvider, errorText } from "./settings-model";
+import { credentialRefForProvider, errorText, providerApiKeyEnvOp, providerProfile } from "./settings-model";
 
 type UseProviderCredentialsOptions = {
   desktop: boolean;
   settings: DshSettingsDescription | null;
   providers: DshProvider[];
   onNotice: (message: string) => void;
+  onError: (message: string) => void;
+  loadRuntimeDetails: () => Promise<void>;
 };
 
-export function useProviderCredentials({ desktop, settings, providers, onNotice }: UseProviderCredentialsOptions) {
+export function useProviderCredentials({ desktop, settings, providers, onNotice, onError, loadRuntimeDetails }: UseProviderCredentialsOptions) {
   const [credentials, setCredentials] = useState<Record<string, DshCredential>>({});
   const [credentialDrafts, setCredentialDrafts] = useState<Record<string, string>>({});
   const [credentialBusy, setCredentialBusy] = useState<string | null>(null);
@@ -42,6 +45,23 @@ export function useProviderCredentials({ desktop, settings, providers, onNotice 
     setCredentialDrafts((current) => ({ ...current, [providerId]: value }));
   }
 
+  async function persistApiKeyEnv(provider: DshProvider, namespace: DshSettingsNamespace | undefined, ref: string) {
+    const op = providerApiKeyEnvOp(provider.settingsPath, providerProfile(provider, namespace), ref);
+    if (!op || !namespace || !settings?.writable) return;
+    try {
+      await bridgeRequest("settings.mutate", {
+        ns: provider.settingsNs,
+        ops: [op],
+        expectedRevision: namespace.revision,
+      });
+      await loadRuntimeDetails();
+    } catch {
+      // The credential is already stored; recording `apiKeyEnv` in the profile
+      // is best-effort and may be rejected when the namespace schema has no
+      // such field — the derived reference still resolves the key.
+    }
+  }
+
   async function saveProviderCredential(provider: DshProvider, valueOverride?: string) {
     const namespace = settings?.namespaces.find((item) => item.ns === provider.settingsNs);
     const ref = credentialRefForProvider(provider, namespace);
@@ -59,6 +79,7 @@ export function useProviderCredentials({ desktop, settings, providers, onNotice 
       if (value) {
         await bridgeRequest("credentials.set", { ref, value });
         setCredentials((current) => ({ ...current, [ref]: { ...(current[ref] ?? { writable: true }), configured: true } }));
+        await persistApiKeyEnv(provider, namespace, ref);
         onNotice("Provider 密钥已更新");
       } else {
         await bridgeRequest("credentials.unset", { ref });
@@ -67,7 +88,7 @@ export function useProviderCredentials({ desktop, settings, providers, onNotice 
       }
       setCredentialDrafts((current) => ({ ...current, [provider.provider]: "" }));
     } catch (error) {
-      onNotice(errorText(error));
+      onError(errorText(error));
     } finally {
       setCredentialBusy(null);
     }
