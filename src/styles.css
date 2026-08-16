@@ -8441,6 +8441,36 @@ textarea:focus-visible {
   color: var(--accent-deep);
 }
 
+.workspace-menu-item {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.workspace-menu-item > button:first-child {
+  min-width: 0;
+}
+
+.workspace-menu .workspace-menu-delete {
+  min-width: 30px;
+  min-height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.workspace-menu .workspace-menu-delete:hover {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
+}
+
 .session-context-menu {
   position: fixed;
   z-index: 1000;

@@ -107,6 +107,7 @@ import {
   valueAtPath,
   sessionPath,
   presetDisplayName,
+  projectName,
   sessionIsVisible,
   isInjectedMessage,
   retryBoundarySeq,
@@ -1688,7 +1689,7 @@ function App() {
   }
 
   async function deleteWorkspace(item: DshWorkspace) {
-    if (!await requestConfirm(`删除工作区“${item.title}”？不会删除目录和会话。`)) return;
+    if (!await requestConfirm(`删除工作区“${item.title || projectName(item.path)}”？不会删除目录和会话。`)) return;
     try {
       await bridgeRequest("workspace.delete", { workspaceId: item.workspaceId });
       setWorkspaces((current) => current.filter((workspaceItem) => workspaceItem.workspaceId !== item.workspaceId));

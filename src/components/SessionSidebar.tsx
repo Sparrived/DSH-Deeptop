@@ -255,6 +255,7 @@ export function SessionSidebar({
           onToggle={onToggleWorkspaceMenu}
           onChoose={onChooseWorkspace}
           onAdd={onAddWorkspace}
+          onDelete={onDeleteWorkspace}
         />
       </div>
     </aside>
