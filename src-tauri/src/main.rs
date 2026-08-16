@@ -277,6 +277,58 @@ const PROFILE_PNPM_WORKSPACE: &str =
 const MAX_PENDING_OPEN_SESSIONS: usize = 16;
 const DSH_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(8);
 
+// Child-process output may contain bytes that are not valid UTF-8.
+fn lossy_lines<R: Read>(reader: R) -> impl Iterator<Item = std::io::Result<String>> {
+    let mut reader = BufReader::new(reader);
+    let mut finished = false;
+    std::iter::from_fn(move || {
+        if finished {
+            return None;
+        }
+        let mut bytes = Vec::new();
+        match reader.read_until(b'\n', &mut bytes) {
+            Ok(0) => {
+                finished = true;
+                None
+            }
+            Ok(_) => {
+                if bytes.last() == Some(&b'\n') {
+                    bytes.pop();
+                }
+                if bytes.last() == Some(&b'\r') {
+                    bytes.pop();
+                }
+                Some(Ok(String::from_utf8_lossy(&bytes).into_owned()))
+            }
+            Err(error) => {
+                finished = true;
+                Some(Err(error))
+            }
+        }
+    })
+}
+
+#[cfg(test)]
+mod output_tests {
+    use super::lossy_lines;
+
+    #[test]
+    fn reads_invalid_utf8_as_lossy_lines() {
+        let lines = lossy_lines(&b"ready\r\nbad \xFF\npartial"[..])
+            .map(Result::unwrap)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            lines,
+            vec![
+                "ready".to_string(),
+                "bad \u{FFFD}".to_string(),
+                "partial".to_string()
+            ]
+        );
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DshSource {
     LocalPrefix,
@@ -971,13 +1023,13 @@ fn install_dsh(
     let (line_sender, line_receiver) = mpsc::channel::<(String, String)>();
     let stdout_sender = line_sender.clone();
     thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().flatten() {
+        for line in lossy_lines(stdout).flatten() {
             let _ = stdout_sender.send(("stdout".to_string(), line));
         }
     });
     let stderr_sender = line_sender.clone();
     thread::spawn(move || {
-        for line in BufReader::new(stderr).lines().flatten() {
+        for line in lossy_lines(stderr).flatten() {
             let _ = stderr_sender.send(("stderr".to_string(), line));
         }
     });
@@ -1392,7 +1444,7 @@ impl BridgeManager {
         let stdout_manager = self.clone();
         let stdout_app = app.clone();
         thread::spawn(move || {
-            for line in BufReader::new(stdout).lines() {
+            for line in lossy_lines(stdout) {
                 match line {
                     Ok(line) => stdout_manager.handle_stdout(&stdout_app, generation, line),
                     Err(error) => stdout_manager.emit_diagnostic(
@@ -1407,7 +1459,7 @@ impl BridgeManager {
         let stderr_manager = self.clone();
         let stderr_app = app.clone();
         thread::spawn(move || {
-            for line in BufReader::new(stderr).lines() {
+            for line in lossy_lines(stderr) {
                 match line {
                     Ok(line) if !line.trim().is_empty() => stderr_manager.emit_runtime_log(
                         &stderr_app,
