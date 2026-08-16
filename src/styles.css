@@ -2748,14 +2748,6 @@ textarea:focus-visible {
   display: none;
 }
 
-.reasoning-marker {
-  width: 6px;
-  height: 6px;
-  flex: 0 0 auto;
-  border: 1px solid #96998d;
-  border-radius: 50%;
-}
-
 .reasoning-entry summary em {
   min-width: 0;
   overflow: hidden;
@@ -9232,17 +9224,13 @@ textarea:focus-visible {
   background: var(--surface-raised);
 }
 
-/* Match WebUI's running Think sweep, adapted to the card surface. */
+/* Think keeps a restrained sweep while its label stays on the left. */
 .reasoning-entry {
   position: relative;
   overflow: hidden;
   isolation: isolate;
-  transition: border-color 180ms ease, box-shadow 180ms ease;
-}
-
-.reasoning-entry[data-state="running"] {
-  border-color: color-mix(in srgb, var(--good) 46%, var(--line));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--good) 10%, transparent), var(--shadow-soft);
+  animation: none !important;
+  transition: none;
 }
 
 .reasoning-entry[data-state="running"] > summary {
@@ -9261,28 +9249,9 @@ textarea:focus-visible {
   animation: reasoning-card-sweep 2.6s ease-out infinite;
 }
 
-.reasoning-entry[data-state="running"] .reasoning-marker {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 10%, transparent);
-  animation: reasoning-marker-pulse 1.8s ease-in-out infinite;
-}
-
 @keyframes reasoning-card-sweep {
   0% { left: -300px; }
   90%, 100% { left: 100%; }
-}
-
-@keyframes reasoning-marker-pulse {
-  0%, 100% { opacity: .62; transform: scale(.9); }
-  50% { opacity: 1; transform: scale(1.08); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .reasoning-entry,
-  .reasoning-entry[data-state="running"] > summary::after,
-  .reasoning-entry[data-state="running"] .reasoning-marker {
-    animation: none;
-    transition: none;
-  }
 }
 
 .injected-entry summary,
@@ -9302,8 +9271,10 @@ textarea:focus-visible {
 .injected-entry summary::-webkit-details-marker,
 .tool-entry summary::-webkit-details-marker,
 .reasoning-entry summary::-webkit-details-marker,
-.workflow-entry summary::-webkit-details-marker {
+.workflow-entry summary::-webkit-details-marker,
+.reasoning-entry summary::marker {
   display: none;
+  content: "";
 }
 
 .injected-entry summary:hover,
@@ -9331,6 +9302,8 @@ textarea:focus-visible {
 }
 
 .reasoning-marker {
+  position: static;
+  z-index: 1;
   flex: 0 0 auto;
   color: var(--accent);
   font-family: var(--mono);
@@ -9351,6 +9324,19 @@ textarea:focus-visible {
   font-style: normal;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.reasoning-entry summary {
+  position: relative;
+}
+
+.reasoning-entry summary em {
+  position: absolute;
+  right: 14px;
+  z-index: 1;
+  max-width: calc(50% - 32px);
+  margin-left: 0;
+  text-align: right;
 }
 
 .injected-separator {
