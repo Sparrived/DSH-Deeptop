@@ -97,6 +97,7 @@ import {
   todoProjection,
   todosFromHistory,
   turnTimingFromHistory,
+  sessionElapsedMs,
   workflowViewsFromHistory,
   deliverablesFromHistory,
   transcriptFromHistory,
@@ -586,6 +587,11 @@ function App() {
   const transcript = useMemo(() => transcriptFromHistory(history), [history]);
   const subagentTranscript = useMemo(() => subagentSession ? transcriptFromHistory(subagentSession.history) : [], [subagentSession]);
   const turnTiming = useMemo(() => turnTimingFromHistory(history), [history]);
+  // 会话运行时间：首个事件到最后一个事件（会话运行中则以当前时间延伸，随 jobNow 每秒刷新）。
+  const sessionRunningMs = useMemo(
+    () => sessionElapsedMs(history, activeRunning ? jobNow : undefined),
+    [history, jobNow, activeRunning],
+  );
 
   useEffect(() => {
     const hasLiveJob = activeJobs.some((job) => job.status === "running" || job.status === "stopping");
@@ -3123,6 +3129,7 @@ function App() {
             modelMenuOpen={modelMenuOpen}
             modelMenuPane={modelMenuPane}
             sessionStats={sessionStats}
+            sessionRunningMs={sessionRunningMs}
              sendShortcut={sendShortcut}
             onComposerChange={(value) => {
               setComposer(value);

@@ -4,7 +4,7 @@ import { ComposerCandidates } from "./ComposerCandidates";
 import { ModelPicker } from "./ModelPicker";
 import { PermissionPicker } from "./PermissionPicker";
 import type { ComposerAttachment, ComposerCandidate, ComposerTrigger, ModelMenuPane, PromptMode, SessionStats } from "../app/model";
-import { contextPercent, formatTokens } from "../app/model";
+import { contextPercent, formatSessionElapsed, formatTokens } from "../app/model";
 import type { DshModel, DshPermissionSelect, DshSessionModels } from "../lib/desktop";
 
 type ReasoningChoice = {
@@ -38,6 +38,7 @@ interface ComposerShellProps {
   modelMenuOpen: boolean;
   modelMenuPane: ModelMenuPane;
   sessionStats: SessionStats;
+  sessionRunningMs: number;
   sendShortcut: SendShortcut;
   onComposerChange: (value: string) => void;
   onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
@@ -81,6 +82,7 @@ export function ComposerShell({
   modelMenuOpen,
   modelMenuPane,
   sessionStats,
+  sessionRunningMs,
   sendShortcut,
   onComposerChange,
   onPaste,
@@ -275,6 +277,7 @@ export function ComposerShell({
       <span title="输出 Token">↑ {formatTokens(sessionStats.outputTokens)}</span>
       <span title="缓存命中率">缓存 {sessionStats.cacheHitRate ? String(sessionStats.cacheHitRate.toFixed(0)) + "%" : "未提供"}</span>
       <span title="首个 Token 延迟">首 T {sessionStats.firstTokenMs ? String(Math.round(sessionStats.firstTokenMs)) + "ms" : "未提供"}</span>
+      <span title="会话运行时间">运行 {formatSessionElapsed(sessionRunningMs)}</span>
       <span>{sessionStats.messages} 条消息</span>
     </div>
   </footer>;

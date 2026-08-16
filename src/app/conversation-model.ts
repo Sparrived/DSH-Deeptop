@@ -15,8 +15,9 @@ import {
   messageSource,
   recordValue,
   streamKey,
-} from "./message-model";
-import { deliverablesFromHistory, workflowViewsFromHistory } from "./workflow-model";
+} from "./message-model.ts";
+import { deliverablesFromHistory, workflowViewsFromHistory } from "./workflow-model.ts";
+import { turnTimingItems } from "./session-events.ts";
 import type { TranscriptItem } from "./model-types";
 
 function turnEndText(reason: unknown, kind: string) {
@@ -133,6 +134,8 @@ export function transcriptFromHistory(entries: DshHistoryEntry[]): TranscriptIte
   for (const deliverable of deliverablesFromHistory(orderedEntries)) {
     items.push({ key: `deliverables-${deliverable.seq}`, kind: "deliverables", label: "生成文件", text: deliverable.paths.join("\n"), seq: deliverable.seq + 0.1, time: deliverable.time, files: deliverable.paths, fileDiffs: deliverable.fileDiffs });
   }
+  // 轮次时间在轮次结束后直接展示在会话里；final sort 会按 seq 放到本轮内容之后。
+  for (const timing of turnTimingItems(orderedEntries)) items.push(timing);
   items.sort((left, right) => (left.seq ?? Number.MAX_SAFE_INTEGER) - (right.seq ?? Number.MAX_SAFE_INTEGER));
   // Pair by the runtime call id; completion order is not guaranteed for parallel tools.
   const paired: TranscriptItem[] = [];

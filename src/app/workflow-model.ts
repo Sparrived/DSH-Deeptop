@@ -1,5 +1,5 @@
 import type { DshHistoryEntry } from "../lib/desktop";
-import { diffSummaryFromHistoryEntry, eventToolCallId, eventToolResultError, recordValue } from "./message-model";
+import { diffSummaryFromHistoryEntry, eventToolCallId, eventToolResultError, recordValue } from "./message-model.ts";
 import type { DeliverableFileDiff, TodoItem, TodoStatus, WorkflowView } from "./model-types";
 
 function diffLineCount(text: string) {

@@ -177,7 +177,7 @@ function MessageStatsLine({ stats }: { stats?: MessageStats }) {
     stats.inputTokens === undefined ? null : <span key="input">输入 {formatTokens(stats.inputTokens)} tok</span>,
     stats.outputTokens === undefined ? null : <span key="output">输出 {formatTokens(stats.outputTokens)} tok</span>,
     stats.cacheHitRate === undefined ? null : <span key="cache">缓存 {Math.round(stats.cacheHitRate)}%</span>,
-    stats.runMs === undefined ? null : <span key="run">运行 {formatDuration(stats.runMs)}</span>,
+    stats.runMs === undefined ? null : <span key="run">输出耗时 {formatDuration(stats.runMs)}</span>,
     stats.ttftMs === undefined ? null : <span key="ttft">首 T {formatDuration(stats.ttftMs)}</span>,
     stats.tokensPerSecond === undefined ? null : <span key="speed">{formatTokensPerSecond(stats.tokensPerSecond)} tok/s</span>,
   ].filter((value) => value !== null);
