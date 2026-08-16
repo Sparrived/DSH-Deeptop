@@ -8,6 +8,7 @@ import { InteractionPanel } from "./components/InteractionPanel";
 import { SettingsAppearancePanel } from "./components/SettingsAppearancePanel";
 import { SettingsGeneralPanel } from "./components/SettingsGeneralPanel";
 import { SettingsKeyboardPanel } from "./components/SettingsKeyboardPanel";
+import { SettingsLogsPanel } from "./components/SettingsLogsPanel";
 import { SettingsModelsPanel } from "./components/SettingsModelsPanel";
 import { SettingsPluginsPanel } from "./components/SettingsPluginsPanel";
 import { SettingsPresetPanel } from "./components/SettingsPresetPanel";
@@ -15,6 +16,7 @@ import { QueueDock } from "./components/QueueDock";
 import { SessionSidebar } from "./components/SessionSidebar";
 import { SubagentPanel } from "./components/SubagentPanel";
 import { TaskPanel, TodoPanel } from "./components/TodoPanel";
+import { DeliverablesPanel } from "./components/DeliverablesPanel";
 import { WindowChrome } from "./components/WindowChrome";
 import { PopupDialog } from "./components/PopupDialog";
 import { useProviderSettings } from "./app/useProviderSettings";
@@ -23,13 +25,17 @@ import { routeBridgeEvent } from "./app/bridge-event-handler";
 import {
   bridgeRequest,
   checkDsh,
+  exportRuntimeLogs,
+  getRuntimeLogs,
   isTauri,
   listenToDiagnostic,
   listenToNotificationClick,
   listenToRuntimeLog,
   listenToRuntimeStatus,
   listenToSingleInstance,
+  openLogsDirectory,
   openNodejsDownload,
+  saveExportFile,
   pickWorkspace,
   listPendingOpenSessions,
   acknowledgePendingOpenSession,
@@ -128,8 +134,9 @@ import {
 import {
   useAppearanceSettings,
 } from "./app/useAppearanceSettings";
-import { SEND_SHORTCUT_STORAGE_KEY, readSendShortcut } from "./app/keyboard-shortcut";
+import { SEND_SHORTCUT_STORAGE_KEY, readSendShortcut, type SendShortcut } from "./app/keyboard-shortcut";
 import { DEFAULT_PERMISSION_OPTIONS, isDefaultPermission, readStoredDefaultModel, readStoredDefaultPermission, writeStoredDefaultModel, writeStoredDefaultPermission, type DefaultPermission } from "./app/session-defaults";
+import { reconcileSessionIndicators } from "./app/session-runtime-state";
 
 const demoStatus: DshStatus = {
   dshHome: "",
@@ -216,7 +223,6 @@ function App() {
   const [historyHasMore, setHistoryHasMore] = useState(false);
   const [historyLoadingOlder, setHistoryLoadingOlder] = useState(false);
   const [todos, setTodos] = useState<TodoItem[] | null>(null);
-  const [todoCollapsed, setTodoCollapsed] = useState(false);
   const [trajectoryOpen, setTrajectoryOpen] = useState(false);
   const [workspace, setWorkspace] = useState("");
   const [composer, setComposer] = useState("");
@@ -225,8 +231,15 @@ function App() {
   const [composerMenuDismissed, setComposerMenuDismissed] = useState(false);
   const [promptMode, setPromptMode] = useState<PromptMode>("queue");
   const [sendShortcut, setSendShortcut] = useState(readSendShortcut);
-  const [notice, setNotice] = useState("准备连接 DSH");
+  const [notice, setNoticeState] = useState("");
+  const [noticeIsError, setNoticeIsError] = useState(false);
+  // 右上角提示：普通提示默认不显示；报错时以黄色显示，并支持点击复制。
+  const setNotice = useCallback((text: string) => { setNoticeState(text); setNoticeIsError(false); }, []);
+  const setErrorNotice = useCallback((text: string) => { setNoticeState(text); setNoticeIsError(true); }, []);
   const [startupLogs, setStartupLogs] = useState<DshRuntimeLog[]>([]);
+  const [appLogs, setAppLogs] = useState<DshRuntimeLog[]>([]);
+  const [logExportPath, setLogExportPath] = useState<string | null>(null);
+  const [logExporting, setLogExporting] = useState(false);
   const [loading, setLoading] = useState(false);
   const [retryingMessageSeq, setRetryingMessageSeq] = useState<number | null>(null);
   const [search, setSearch] = useState("");
@@ -282,6 +295,8 @@ function App() {
   const [skills, setSkills] = useState<DshSkill[]>([]);
   const [subagents, setSubagents] = useState<DshSubagentCatalog | null>(null);
   const [subagentPanelOpen, setSubagentPanelOpen] = useState(false);
+  // 左侧子 Agent dock 默认收起：展开时显示书签列表，选中后进入执行抽屉。
+  const [subagentDockOpen, setSubagentDockOpen] = useState(false);
   const [selectedSubagentId, setSelectedSubagentId] = useState<string | null>(null);
   const [subagentLoadingId, setSubagentLoadingId] = useState<string | null>(null);
   const [subagentLoadError, setSubagentLoadError] = useState<string | null>(null);
@@ -300,7 +315,7 @@ function App() {
   const [queueEditingId, setQueueEditingId] = useState<string | null>(null);
   const [queueEditingText, setQueueEditingText] = useState("");
   const [sessionJobs, setSessionJobs] = useState<Record<string, DshJob[]>>({});
-  const [jobsCollapsed, setJobsCollapsed] = useState(false);
+  const [openPanel, setOpenPanel] = useState<"tasks" | "todo" | "deliverables" | null>("tasks");
   const [jobNow, setJobNow] = useState(() => Date.now());
   const [pendingApprovals, setPendingApprovals] = useState<Record<string, PendingApproval>>({});
   const [pendingQuestions, setPendingQuestions] = useState<Record<string, PendingQuestion>>({});
@@ -326,6 +341,11 @@ function App() {
   const openSessionRef = useRef<(session: DshSessionSummary) => Promise<boolean>>(() => Promise.resolve(false));
   const openingNotificationSessionsRef = useRef(new Set<string>());
   const runtimeAvailableRef = useRef(desktop && status.runtimeAvailable);
+  // DSH crash recovery tracking: remembers that we observed a down period and
+  // which session was active at that moment, so once DSH comes back we can
+  // reconcile stale session state and re-open that session.
+  const runtimeDownRef = useRef(false);
+  const downActiveSessionRef = useRef<string | null>(null);
   const activeSessionRef = useRef<string | null>(null);
   const contextProjectionRef = useRef(false);
   const workspaceSelectionInitializedRef = useRef(false);
@@ -398,7 +418,7 @@ function App() {
     toggleWindowMaximize,
     minimizeWindow,
     closeWindow,
-  } = useWindowControls({ desktop, onError: setNotice });
+  } = useWindowControls({ desktop, onError: setErrorNotice });
   const {
     appearance,
     appearanceStyle,
@@ -410,12 +430,13 @@ function App() {
     handleBackgroundFile,
     handleThemeFile,
     resetAppearance,
-  } = useAppearanceSettings({ onNotice: setNotice });
+  } = useAppearanceSettings({ onNotice: setNotice, onError: setErrorNotice });
   const providerSettings = useProviderSettings({
     desktop,
     settings,
     providers,
     onNotice: setNotice,
+    onError: setErrorNotice,
     onConfirm: requestConfirm,
     loadRuntimeDetails,
   });
@@ -449,7 +470,7 @@ function App() {
   }, [activeSessionId]);
 
   useEffect(() => {
-    setJobsCollapsed(false);
+    setOpenPanel("tasks");
   }, [activeSessionId]);
 
   useEffect(() => {
@@ -499,13 +520,16 @@ function App() {
   }, [presetCopy, presetView, settingsDraft, showInspector]);
 
   useEffect(() => {
-    if (!subagentPanelOpen) return;
+    if (!subagentPanelOpen && !subagentDockOpen) return;
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") setSubagentPanelOpen(false);
+      if (event.key === "Escape") {
+        setSubagentPanelOpen(false);
+        setSubagentDockOpen(false);
+      }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [subagentPanelOpen]);
+  }, [subagentPanelOpen, subagentDockOpen]);
 
   useEffect(() => {
     if (!sessionContextMenu) return;
@@ -560,6 +584,29 @@ function App() {
     pending: todos?.filter((item) => item.status === "pending").length ?? 0,
   }), [todos]);
   const todoVisible = todos !== null && todos.length > 0;
+  const deliverables = useMemo(() => {
+    const deliverableItems = transcript.filter((item) => item.kind === "deliverables");
+    return deliverableItems.length > 0
+      ? {
+          ...deliverableItems[deliverableItems.length - 1],
+          files: [...new Set(deliverableItems.flatMap((item) => item.files ?? []))],
+          fileDiffs: Object.fromEntries(deliverableItems.flatMap((item) => Object.entries(item.fileDiffs ?? {})).reduce((entries, [path, diff]) => {
+            const current = entries.get(path) ?? { added: 0, removed: 0 };
+            entries.set(path, { added: current.added + diff.added, removed: current.removed + diff.removed });
+            return entries;
+          }, new Map<string, { added: number; removed: number }>())),
+        }
+      : null;
+  }, [transcript]);
+  const deliverablesVisible = deliverables !== null;
+  // Only one right-side panel (任务 / 任务清单 / 生成文件) is expanded at a time.
+  const jobsCollapsed = openPanel !== "tasks";
+  const todoCollapsed = openPanel !== "todo";
+  const deliverablesCollapsed = openPanel !== "deliverables";
+  function togglePanel(panel: "tasks" | "todo" | "deliverables") {
+    setOpenPanel((current) => current === panel ? null : panel);
+    setJobNow(Date.now());
+  }
   const visibleSessions = useMemo(() => {
     const remoteIds = remoteSearchResults ? new Set(remoteSearchResults.map((item) => item.sessionId)) : undefined;
     const filtered = sessions.filter((session) => {
@@ -865,7 +912,7 @@ function App() {
     try {
       setSubagents(await bridgeRequest<DshSubagentCatalog>("subagent.list", { parentSessionId }));
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -924,6 +971,7 @@ function App() {
     setSelectedSubagentId(null);
     setSubagentLoadError(null);
     setSubagentPanelOpen(false);
+    setSubagentDockOpen(false);
     setSkills([]);
     setCommands([]);
     setFeedback({});
@@ -973,7 +1021,7 @@ function App() {
         if (pluginResult.status === "fulfilled") setPluginInventory(pluginResult.value.entries);
       }
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     } finally {
       setSurfaceLoading(false);
     }
@@ -1002,7 +1050,7 @@ function App() {
       await loadRuntimeDetails();
       setNotice(`${presetDisplayName(id, presets)} 已设为新会话默认值`);
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -1011,7 +1059,7 @@ function App() {
       const result = await bridgeRequest<{ agentPreset: string; content: string }>("agentPreset.read", { agentPreset: id });
       setPresetView({ id: result.agentPreset, content: result.content });
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -1037,7 +1085,7 @@ function App() {
       await openPresetDocument(id);
       setNotice("Agent Preset 已复制");
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -1046,7 +1094,7 @@ function App() {
       const result = await bridgeRequest<{ opened: true } | { opened: false; path: string }>("agentPreset.openDocument", { agentPreset: id });
       setNotice(result.opened ? "已打开 Preset 文件夹" : `Preset 文件夹：${result.path}`);
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -1064,7 +1112,7 @@ function App() {
       if (requestId !== subagentRequestRef.current) return;
       const message = errorText(error);
       setSubagentLoadError(message);
-      setNotice(message);
+      setErrorNotice(message);
     } finally {
       if (requestId === subagentRequestRef.current) setSubagentLoadingId(null);
     }
@@ -1075,6 +1123,8 @@ function App() {
       setSubagentPanelOpen(false);
       return;
     }
+    // 选中书签时收起书签卡片，让执行抽屉完整展示，避免互相遮挡。
+    setSubagentDockOpen(false);
     setSubagentPanelOpen(true);
     void openSubagent({
       parentSessionId: activeSessionId!,
@@ -1082,6 +1132,11 @@ function App() {
       mode: entry.mode,
     });
     setNotice(`正在打开 ${subagentDisplayName(entry, index)}`);
+  }
+
+  function toggleSubagentDock() {
+    setSubagentPanelOpen(false);
+    setSubagentDockOpen((open) => !open);
   }
 
   async function promptSubagent() {
@@ -1094,7 +1149,7 @@ function App() {
       setSubagentComposer("");
       setNotice("已发送给子 Agent");
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -1104,7 +1159,7 @@ function App() {
       await bridgeRequest("subagent.interrupt", { ...address });
       setNotice("已请求停止子 Agent");
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -1116,7 +1171,7 @@ function App() {
       await loadSurface("goal");
       setNotice("Goal 已创建");
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -1134,7 +1189,7 @@ function App() {
       await loadSurface("goal");
       setNotice(`Goal 已${action === "clear" ? "清除" : "更新"}`);
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -1156,7 +1211,7 @@ function App() {
       await refreshSettings();
       setNotice(`${settingsDraft.ns} 已更新`);
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -1186,6 +1241,7 @@ function App() {
     setSubagentLoadingId(null);
     setSubagentLoadError(null);
     setSubagentPanelOpen(false);
+    setSubagentDockOpen(false);
     setPresetView(null);
     setModels(null);
     setDraftModelSelection(null);
@@ -1222,10 +1278,11 @@ function App() {
           : applyTodoSnapshot(historicalTodos, projectedTodos) ?? historicalTodos;
       setTodos(mergedTodos ?? null);
       setModels(modelsResult);
-      setNotice(modelsResult.routable ? "会话已打开" : "当前模型路由不可用");
+      if (modelsResult.routable) setNotice("会话已打开");
+      else setErrorNotice("当前模型路由不可用");
       return true;
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
       return false;
     } finally {
       if (loadRequest === sessionLoadRequestRef.current) setLoading(false);
@@ -1317,7 +1374,7 @@ function App() {
         nextScroll.scrollTop = nextScroll.scrollHeight - previousHeight + previousTop;
       });
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     } finally {
       historyLoadingOlderRef.current = false;
       setHistoryLoadingOlder(false);
@@ -1344,7 +1401,7 @@ function App() {
       const message = errorText(error);
       runtimeAvailableRef.current = false;
       setStatus((current) => ({ ...current, runtimeAvailable: false, runtimeStarting: false, message }));
-      setNotice(message);
+      setErrorNotice(message);
     }
   }
 
@@ -1385,26 +1442,51 @@ function App() {
     if (!desktop) return;
     const cleanups: Array<UnlistenFn | undefined> = [];
     void listenToRuntimeStatus((nextStatus) => {
+      const wasAvailable = runtimeAvailableRef.current;
       runtimeAvailableRef.current = nextStatus.runtimeAvailable;
       setStatus(nextStatus);
       setNotice(nextStatus.message);
       if (nextStatus.runtimeAvailable) {
+        // Came back from an observed down period (DSH crashed or was stopped):
+        // the active session may be stuck mid-turn with a frozen transcript and
+        // the sidebar may show stale "running" rows. Reconcile both.
+        const recovered = runtimeDownRef.current;
+        const reopenSessionId = recovered ? downActiveSessionRef.current : null;
+        runtimeDownRef.current = false;
+        downActiveSessionRef.current = null;
         void (async () => {
           const loadedSessions = await loadSessions(true);
           await loadRuntimeDetails(loadedSessions);
+          if (recovered) {
+            setLoading(false);
+            if (loadedSessions) {
+              setSessionIndicators((current) => reconcileSessionIndicators(current, loadedSessions));
+            }
+            const reopenItem = reopenSessionId
+              ? loadedSessions?.find((item) => item.sessionId === reopenSessionId)
+              : undefined;
+            if (reopenItem) await openSession(reopenItem);
+          }
           await flushPendingOpenSessions();
-        })().catch((error) => setNotice(errorText(error)));
+        })().catch((error) => setErrorNotice(errorText(error)));
+      } else if (wasAvailable) {
+        // Transitioned from available to unavailable: DSH crashed or was stopped.
+        // Remember we must recover, and snapshot the active session so it can be
+        // reopened once DSH returns.
+        runtimeDownRef.current = true;
+        downActiveSessionRef.current = activeSessionRef.current;
       }
     }).then((unlisten) => { cleanups.push(unlisten); });
     void listenToDiagnostic((message) => {
-      setNotice(message);
+      setErrorNotice(message);
       setStatus((current) => current.runtimeAvailable ? current : { ...current, message });
     }).then((unlisten) => { cleanups.push(unlisten); });
     void listenToRuntimeLog((log) => {
       setStartupLogs((current) => [...current, log].slice(-160));
+      setAppLogs((current) => [...current, log].slice(-2000));
     }).then((unlisten) => { cleanups.push(unlisten); });
     void listenToNotificationClick((sessionId) => {
-      void openNotificationSession(sessionId).catch((error) => setNotice(errorText(error)));
+      void openNotificationSession(sessionId).catch((error) => setErrorNotice(errorText(error)));
     }).then((unlisten) => { cleanups.push(unlisten); });
     void listenToSingleInstance(() => {
       setNotice("已切换到正在运行的 Deeptop");
@@ -1486,7 +1568,7 @@ function App() {
         // A session can use a directory even when workspace registration is unavailable.
       }
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -1504,7 +1586,7 @@ function App() {
           setNotice(`已将 ${attachedCount} 个同目录会话登记到工作区`);
         }
       } catch (error) {
-        setNotice(errorText(error));
+        setErrorNotice(errorText(error));
       }
     }
     // 保持对话页面与工作区选择同步：打开新工作区的第一个会话，没有会话则显示新会话页面。
@@ -1548,7 +1630,7 @@ function App() {
       setWorkspaces((current) => current.map((workspaceItem) => workspaceItem.workspaceId === item.workspaceId ? result.workspace : workspaceItem));
       setNotice("工作区已重命名");
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -1563,7 +1645,7 @@ function App() {
       await loadRuntimeDetails();
       setNotice("Agent Preset 已删除");
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -1575,7 +1657,7 @@ function App() {
       if (workspace === item.path) setWorkspace("");
       setNotice("工作区已移除");
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -1624,7 +1706,7 @@ function App() {
       if (refreshed.archivedSessionIds) setArchivedSessionIds(new Set(refreshed.archivedSessionIds));
       if (announce) setNotice("会话顺序已更新");
     } catch (error) {
-      if (announce) setNotice(errorText(error));
+      if (announce) setErrorNotice(errorText(error));
     }
   }
 
@@ -1675,6 +1757,7 @@ function App() {
     setSubagentLoadingId(null);
     setSubagentLoadError(null);
     setSubagentPanelOpen(false);
+    setSubagentDockOpen(false);
     setPresetMenuOpen(false);
     setNotice("输入消息后创建会话");
   }
@@ -1748,10 +1831,10 @@ function App() {
   async function executeCommandLine(sessionId: string, line: string) {
     const execution = await desktopClientRuntime.remote.invoke<DshCommandExecution | undefined>("commands", "execute", { agentId: sessionId, line });
     if (!execution) {
-      setNotice(`未知命令：${line}`);
+      setErrorNotice(`未知命令：${line}`);
       return undefined;
     }
-    if (execution.result.kind === "error") setNotice(execution.result.text);
+    if (execution.result.kind === "error") setErrorNotice(execution.result.text);
     return execution;
   }
 
@@ -1760,7 +1843,7 @@ function App() {
     if ((!text && attachments.length === 0) || loading || !status.runtimeAvailable) return;
     if (attachments.length > 0) {
       if (!selectedModelSupportsImages) {
-        setNotice("当前模型仅支持文本输入，图片未发送。请切换到支持图片输入的模型后重试");
+        setErrorNotice("当前模型仅支持文本输入，图片未发送。请切换到支持图片输入的模型后重试");
         return;
       }
     }
@@ -1792,7 +1875,7 @@ function App() {
       void refreshSessionStats(sessionId);
       setNotice(promptMode === "steer" ? "已插入当前回合" : "已发送");
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     } finally {
       setLoading(false);
     }
@@ -1805,7 +1888,7 @@ function App() {
       await bridgeRequest("session.cancel", { sessionId });
       setNotice("已请求停止当前回合");
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -1813,7 +1896,7 @@ function App() {
     void sendPrompt();
   }
 
-  function updateSendShortcut(shortcut: string) {
+  function updateSendShortcut(shortcut: SendShortcut) {
     setSendShortcut(shortcut);
     try {
       localStorage.setItem(SEND_SHORTCUT_STORAGE_KEY, shortcut);
@@ -1834,7 +1917,7 @@ function App() {
       if (forked) await openSession(forked);
       else setNotice("已创建分叉会话");
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -1954,7 +2037,7 @@ function App() {
       void refreshSessionStats(retrySessionId);
     } catch (error) {
       if (activeSessionRef.current === sessionId) {
-        setNotice(errorText(error));
+        setErrorNotice(errorText(error));
         setLoading(false);
       }
     } finally {
@@ -1969,7 +2052,7 @@ function App() {
       await navigator.clipboard.writeText(text);
       setNotice("消息已复制");
     } catch (error) {
-      setNotice(`复制失败：${errorText(error)}`);
+      setErrorNotice(`复制失败：${errorText(error)}`);
     }
   }
 
@@ -1981,7 +2064,7 @@ function App() {
       await loadSessions();
       if (session.sessionId === activeSessionRef.current) startNewSession();
       setNotice("会话已归档");
-    } catch (error) { setNotice(errorText(error)); }
+    } catch (error) { setErrorNotice(errorText(error)); }
   }
 
   async function restoreSession(session: DshSessionSummary) {
@@ -1990,7 +2073,7 @@ function App() {
       setArchivedSessionIds(new Set(result.archivedSessionIds));
       await loadSessions();
       setNotice("会话已恢复");
-    } catch (error) { setNotice(errorText(error)); }
+    } catch (error) { setErrorNotice(errorText(error)); }
   }
 
   async function deleteArchivedSession() {
@@ -2002,13 +2085,15 @@ function App() {
       await loadSessions();
       if (session.sessionId === activeSessionRef.current) startNewSession();
       setNotice("归档会话已永久删除");
-    } catch (error) { setNotice(errorText(error)); }
+    } catch (error) { setErrorNotice(errorText(error)); }
   }
 
   function requestSessionAction(action: SessionAction, session: DshSessionSummary) {
     setSessionContextMenu(null);
     if (action === "archive") { setConfirmAction({ action, session }); return; }
     if (action === "fork") { void forkSession(session.sessionId); return; }
+    if (action === "export") { void exportSession(session.sessionId); return; }
+    if (action === "exportZip") { void exportSessionZip(session.sessionId); return; }
     setRenameValue(displayTitle(session));
     setRenameTarget(session);
   }
@@ -2024,7 +2109,7 @@ function App() {
       await loadSessions();
       setNotice("会话已重命名");
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -2053,7 +2138,7 @@ function App() {
       setModelMenuOpen(false);
       setModelMenuPane("root");
       setNotice("思考程度已更新");
-    } catch (error) { setNotice(errorText(error)); }
+    } catch (error) { setErrorNotice(errorText(error)); }
   }
 
   async function changeModel(value: string) {
@@ -2081,7 +2166,7 @@ function App() {
       setModelMenuPane("root");
       setNotice("模型已切换");
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -2095,7 +2180,52 @@ function App() {
     } catch (error) {
       const message = errorText(error);
       setStatus((current) => ({ ...current, runtimeAvailable: false, runtimeStarting: false, message }));
-      setNotice(message);
+      setErrorNotice(message);
+    }
+  }
+
+  async function loadRuntimeLogs() {
+    if (!desktop) return;
+    try {
+      const logs = await getRuntimeLogs();
+      setAppLogs(logs.slice(-2000));
+    } catch (error) {
+      setErrorNotice(errorText(error));
+    }
+  }
+
+  async function exportLogs() {
+    if (!desktop) {
+      setErrorNotice("导出日志只在 Tauri 桌面端可用");
+      return;
+    }
+    setLogExporting(true);
+    try {
+      const content = await exportRuntimeLogs();
+      const now = new Date();
+      const pad = (value: number) => String(value).padStart(2, "0");
+      const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+      const savedPath = await saveExportFile(`deeptop-logs-${stamp}.log`, new TextEncoder().encode(content));
+      if (savedPath) {
+        setLogExportPath(savedPath);
+        setNotice(`日志已导出：${savedPath}`);
+      }
+    } catch (error) {
+      setErrorNotice(errorText(error));
+    } finally {
+      setLogExporting(false);
+    }
+  }
+
+  async function openLogsDirectoryHandle() {
+    if (!desktop) {
+      setErrorNotice("打开日志目录只在 Tauri 桌面端可用");
+      return;
+    }
+    try {
+      await openLogsDirectory();
+    } catch (error) {
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -2190,7 +2320,7 @@ function App() {
         setNotice("消息注记已清除");
       }
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -2227,7 +2357,7 @@ function App() {
       else await putFeedback(messageId, rating, feedback[messageId]?.note);
       setNotice("反馈已更新");
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -2243,7 +2373,7 @@ function App() {
       await putFeedback(messageId, current.rating, draft.trim() || undefined);
       setNotice(draft.trim() ? "反馈备注已更新" : "反馈备注已清除");
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -2254,7 +2384,7 @@ function App() {
       const execution = await executeCommandLine(sessionId, line);
       if (execution?.result.kind === "success" && execution.result.text) setNotice(execution.result.text);
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -2268,7 +2398,7 @@ function App() {
     const group = hostModels?.groups.find((item) => item.id === selection.provider);
     const model = group?.models.find((item) => item.id === selection.model);
     if (!model) {
-      setNotice("该模型当前不可用，请刷新模型目录后重试");
+      setErrorNotice("该模型当前不可用，请刷新模型目录后重试");
       return;
     }
     const next = {
@@ -2301,7 +2431,7 @@ function App() {
       setDraftModelSelection(next);
       setNotice(`${model.name} 已设为新会话默认模型`);
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -2317,7 +2447,7 @@ function App() {
       }
       setNotice("新会话默认权限已更新");
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -2376,8 +2506,7 @@ function App() {
     await runCommand(plan?.active ? "/plan off" : "/plan");
   }
 
-  async function exportSession() {
-    const sessionId = activeSessionRef.current;
+  async function exportSession(sessionId = activeSessionRef.current) {
     if (!sessionId) return;
     setNotice("正在导出会话");
     try {
@@ -2397,16 +2526,23 @@ function App() {
         beforeSeq = nextBeforeSeq;
       }
       const session = sessions.find((item) => item.sessionId === sessionId);
-      const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), session, events: exported }, null, 2)], { type: "application/json" });
+      const content = JSON.stringify({ exportedAt: new Date().toISOString(), session, events: exported }, null, 2);
+      const fileName = `dsh-${sessionId.slice(0, 8)}.json`;
+      if (desktop) {
+        const savedPath = await saveExportFile(fileName, new TextEncoder().encode(content));
+        if (savedPath) setNotice(`已导出 ${exported.length} 条事件`);
+        return;
+      }
+      const blob = new Blob([content], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `dsh-${sessionId.slice(0, 8)}.json`;
+      link.download = fileName;
       link.click();
       URL.revokeObjectURL(url);
       setNotice(`已导出 ${exported.length} 条事件`);
     } catch (error) {
-      setNotice(`导出失败：${errorText(error)}`);
+      setErrorNotice(`导出失败：${errorText(error)}`);
     }
   }
 
@@ -2421,6 +2557,11 @@ function App() {
       const binary = atob(result.base64);
       const bytes = new Uint8Array(binary.length);
       for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+      if (desktop) {
+        const savedPath = await saveExportFile(result.filename, bytes);
+        if (savedPath) setNotice(`已导出 ZIP（${result.size} 字节）`);
+        return;
+      }
       const url = URL.createObjectURL(new Blob([bytes], { type: result.contentType }));
       const link = document.createElement("a");
       link.href = url;
@@ -2431,7 +2572,7 @@ function App() {
       URL.revokeObjectURL(url);
       setNotice(`已导出 ZIP（${result.size} 字节）`);
     } catch (error) {
-      setNotice(`ZIP 导出失败：${errorText(error)}`);
+      setErrorNotice(`ZIP 导出失败：${errorText(error)}`);
     }
   }
 
@@ -2442,14 +2583,14 @@ function App() {
       await bridgeRequest("host.openPath", { path: sessionPath(session.cwd, path) });
       setNotice("已交给系统打开");
     } catch (error) {
-      setNotice(`打开失败：${errorText(error)}`);
+      setErrorNotice(`打开失败：${errorText(error)}`);
     }
   }
 
   async function addComposerFiles(files: FileList | File[]) {
     const candidates = Array.from(files).filter((file) => Boolean(imageMediaType(file)));
     if (candidates.length === 0) {
-      setNotice("只支持 PNG、JPEG、WebP 或 GIF 图片");
+      setErrorNotice("只支持 PNG、JPEG、WebP 或 GIF 图片");
       return;
     }
     try {
@@ -2457,7 +2598,7 @@ function App() {
       setAttachments((current) => [...current, ...next].slice(0, 4));
       setNotice("图片已添加");
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -2480,7 +2621,7 @@ function App() {
       if (requestId !== searchRequestRef.current) return;
       setRemoteSearchResults(result.items.map((item) => ({ sessionId: item.sessionId, snippet: item.snippet ?? "" })));
     } catch (error) {
-      if (requestId === searchRequestRef.current) setNotice(errorText(error));
+      if (requestId === searchRequestRef.current) setErrorNotice(errorText(error));
     }
   }
 
@@ -2503,7 +2644,7 @@ function App() {
         return next;
       });
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -2563,7 +2704,7 @@ function App() {
         return next;
       });
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -2596,7 +2737,7 @@ function App() {
         return next;
       });
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -2605,7 +2746,7 @@ function App() {
     try {
       await bridgeRequest("session.updateQueue", { sessionId: activeSessionId, itemId, action: { kind: "remove" } });
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -2618,7 +2759,7 @@ function App() {
     if (!activeSessionId) return;
     const text = queueEditingText.trim();
     if (!text) {
-      setNotice("排队消息不能为空");
+      setErrorNotice("排队消息不能为空");
       return;
     }
     try {
@@ -2630,7 +2771,7 @@ function App() {
       setQueueEditingId(null);
       setQueueEditingText("");
     } catch (error) {
-      setNotice(errorText(error));
+      setErrorNotice(errorText(error));
     }
   }
 
@@ -2643,7 +2784,7 @@ function App() {
 
   function openSettingsNamespace(namespace: DshSettingsNamespace | undefined) {
     if (!namespace) {
-      setNotice("该设置命名空间当前不可用");
+      setErrorNotice("该设置命名空间当前不可用");
       return;
     }
     setSettingsDraft({
@@ -2677,7 +2818,7 @@ function App() {
       <StartupSplash
         status={status}
         logs={startupLogs}
-        onOpenNodejsDownload={() => void openNodejsDownload().catch((error) => setNotice(errorText(error)))}
+        onOpenNodejsDownload={() => void openNodejsDownload().catch((error) => setErrorNotice(errorText(error)))}
         onRetry={() => void restartRuntime()}
         windowMaximized={windowMaximized}
         onDrag={(event) => void startWindowDrag(event)}
@@ -2704,7 +2845,7 @@ function App() {
         onEditCommand={(command) => { if (desktop) document.execCommand(command); }}
       />
 
-      <div className={`workspace-layout ${todoVisible ? "todo-visible" : ""} ${todoVisible && todoCollapsed ? "todo-collapsed" : ""} ${activeJobs.length > 0 ? "tasks-visible" : ""} ${activeJobs.length > 0 && jobsCollapsed ? "tasks-collapsed" : ""}`} style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
+      <div className={`workspace-layout ${todoVisible ? "todo-visible" : ""} ${todoVisible && todoCollapsed ? "todo-collapsed" : ""} ${activeJobs.length > 0 ? "tasks-visible" : ""} ${activeJobs.length > 0 && jobsCollapsed ? "tasks-collapsed" : ""} ${deliverablesVisible ? "deliverables-visible" : ""} ${deliverablesVisible && deliverablesCollapsed ? "deliverables-collapsed" : ""}`} style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
         <SessionSidebar
           search={search}
           onSearchChange={setSearch}
@@ -2764,15 +2905,10 @@ function App() {
             presets={presets}
             runtimeDirectory={status.runtimeDirectory}
             notice={notice}
+            noticeIsError={noticeIsError}
             queueCount={queue.length}
-            activeJobs={activeJobs}
-            jobsOpen={activeJobs.length > 0 && !jobsCollapsed}
             trajectoryOpen={trajectoryOpen}
-            onToggleJobs={() => { setJobsCollapsed((collapsed) => !collapsed); setJobNow(Date.now()); }}
             onToggleTrajectory={() => setTrajectoryOpen((open) => !open)}
-            onExport={exportSession}
-            onExportZip={() => exportSessionZip()}
-            onFork={forkSession}
           />
 
           <div className="conversation-transcript-stage">
@@ -2814,8 +2950,8 @@ function App() {
             />
 
 
-             <div className={`utility-panel-shelf ${activeJobs.length > 0 ? "task-present" : ""} ${todoVisible ? "todo-present" : ""} ${activeJobs.length > 0 && jobsCollapsed ? "task-collapsed" : ""} ${todoVisible && todoCollapsed ? "todo-collapsed" : ""}`} aria-label="当前会话面板">
-              {activeJobs.length > 0 && <TaskPanel jobs={activeJobs} collapsed={jobsCollapsed} now={jobNow} onToggle={() => { setJobsCollapsed((collapsed) => !collapsed); setJobNow(Date.now()); }} />}
+             <div className={`utility-panel-shelf ${activeJobs.length > 0 ? "task-present" : ""} ${todoVisible ? "todo-present" : ""} ${activeJobs.length > 0 && jobsCollapsed ? "task-collapsed" : ""} ${todoVisible && todoCollapsed ? "todo-collapsed" : ""} ${deliverablesVisible ? "deliverables-present" : ""} ${deliverablesVisible && deliverablesCollapsed ? "deliverables-collapsed" : ""}`} aria-label="当前会话面板">
+              {activeJobs.length > 0 && <TaskPanel jobs={activeJobs} collapsed={jobsCollapsed} now={jobNow} onToggle={() => togglePanel("tasks")} />}
 
               {todoVisible && <TodoPanel
                 todos={todos ?? []}
@@ -2824,12 +2960,21 @@ function App() {
                 now={jobNow}
                 turnStartedAt={turnTiming.startedAt}
                 turnFinishedAt={turnTiming.finishedAt}
-                onToggle={() => { setTodoCollapsed((value) => !value); setJobNow(Date.now()); }}
+                onToggle={() => togglePanel("todo")}
+              />}
+
+              {deliverablesVisible && deliverables && <DeliverablesPanel
+                item={deliverables}
+                activeSession={activeSession ?? null}
+                collapsed={deliverablesCollapsed}
+                onToggle={() => togglePanel("deliverables")}
+                onOpenSessionPath={openSessionPath}
               />}
               </div>
 
             <SubagentPanel
               entries={childSubagents}
+              dockOpen={subagentDockOpen}
               panelOpen={subagentPanelOpen}
               selectedId={selectedSubagentId}
               selectedIndex={selectedSubagentIndex}
@@ -2839,6 +2984,7 @@ function App() {
               session={subagentSession}
               transcript={subagentTranscript}
               composer={subagentComposer}
+              onToggleDock={toggleSubagentDock}
               onToggle={toggleSubagent}
               onClose={() => setSubagentPanelOpen(false)}
               onComposerChange={setSubagentComposer}
@@ -2948,6 +3094,9 @@ function App() {
                   <button className={settingsSection === "general" ? "selected" : ""} onClick={() => setSettingsSection("general")}>
                     <strong>通用</strong><small>会话与 Host</small>
                   </button>
+                  <button className={settingsSection === "logs" ? "selected" : ""} onClick={() => { setSettingsSection("logs"); void loadRuntimeLogs(); }}>
+                    <strong>日志</strong><small>堆栈与运行日志</small>
+                  </button>
                   <button className={settingsSection === "keyboard" ? "selected" : ""} onClick={() => setSettingsSection("keyboard")}>
                      <strong>按键</strong><small>消息快捷键</small>
                    </button>
@@ -2988,7 +3137,7 @@ function App() {
                     runtimeDirectory={status.runtimeDirectory}
                     sidebarWidth={sidebarWidth}
                     pluginSettings={pluginSettings}
-                    onOpenDocument={() => bridgeRequest("settings.openDocument").then(() => setNotice("已打开 DSH 配置文件")).catch((error) => setNotice(errorText(error)))}
+                    onOpenDocument={() => bridgeRequest("settings.openDocument").then(() => setNotice("已打开 DSH 配置文件")).catch((error) => setErrorNotice(errorText(error)))}
                     onSetDefaultPreset={setDefaultPreset}
                     onSetDefaultModel={setDefaultModel}
                     onSetDefaultPermission={setDefaultPermission}
@@ -3000,6 +3149,15 @@ function App() {
                   {settingsSection === "keyboard" && <SettingsKeyboardPanel
                      sendShortcut={sendShortcut}
                      onSendShortcutChange={updateSendShortcut}
+                   />}
+
+                   {settingsSection === "logs" && <SettingsLogsPanel
+                     logs={appLogs}
+                     exportPath={logExportPath}
+                     exporting={logExporting}
+                     onRefresh={() => void loadRuntimeLogs()}
+                     onExport={() => void exportLogs()}
+                     onOpenLogsDirectory={() => void openLogsDirectoryHandle()}
                    />}
 
                    {settingsSection === "presets" && <SettingsPresetPanel
