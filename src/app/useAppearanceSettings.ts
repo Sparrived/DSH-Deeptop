@@ -26,11 +26,22 @@ export const backgroundZoneLabels: Record<BackgroundZone, { label: string; hint:
   dock: { label: "工具面板", hint: "右侧待办 / 交付物 / 工作区文件 / 子 Agent 面板" },
 };
 
-export function defaultBackgroundConfig(): BackgroundConfig {
+/** 各区域面板表面的默认不透明度（%）；global 无独立面板，不使用该值。 */
+export const defaultPanelOpacity: Record<BackgroundZone, number> = {
+  global: 100,
+  windowbar: 94,
+  sidebar: 92,
+  conversation: 91,
+  composer: 91,
+  dock: 92,
+};
+
+export function defaultBackgroundConfig(zone?: BackgroundZone): BackgroundConfig {
   return {
     image: "",
     name: "",
     opacity: 0.18,
+    panelOpacity: zone ? defaultPanelOpacity[zone] : 86,
     blur: 0,
     size: "cover",
     position: "center",
@@ -39,18 +50,24 @@ export function defaultBackgroundConfig(): BackgroundConfig {
 
 export function defaultBackgrounds(): BackgroundSettings {
   return {
-    global: defaultBackgroundConfig(),
-    windowbar: defaultBackgroundConfig(),
-    sidebar: defaultBackgroundConfig(),
-    conversation: defaultBackgroundConfig(),
-    composer: defaultBackgroundConfig(),
-    dock: defaultBackgroundConfig(),
+    global: defaultBackgroundConfig("global"),
+    windowbar: defaultBackgroundConfig("windowbar"),
+    sidebar: defaultBackgroundConfig("sidebar"),
+    conversation: defaultBackgroundConfig("conversation"),
+    composer: defaultBackgroundConfig("composer"),
+    dock: defaultBackgroundConfig("dock"),
   };
 }
 
-/** 只要任意区域设置了背景图，应用就进入自定义背景模式。 */
+/** 只要任意区域设置了背景图，或手动调整了某区域面板不透明度，应用就进入自定义背景模式。 */
 export function hasAnyBackground(backgrounds: BackgroundSettings): boolean {
-  return backgroundZones.some((zone) => Boolean(backgrounds[zone]?.image));
+  return backgroundZones.some((zone) => {
+    const config = backgrounds[zone];
+    if (!config) return false;
+    if (config.image) return true;
+    if (zone !== "global" && config.panelOpacity !== defaultPanelOpacity[zone]) return true;
+    return false;
+  });
 }
 
 export const defaultAppearance: AppearanceSettings = {
@@ -90,14 +107,15 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function parseBackgroundConfig(value: unknown): BackgroundConfig {
-  const defaults = defaultBackgroundConfig();
+function parseBackgroundConfig(value: unknown, fallback?: BackgroundConfig): BackgroundConfig {
+  const defaults = fallback ?? defaultBackgroundConfig();
   if (!value || typeof value !== "object") return defaults;
   const record = value as Partial<BackgroundConfig>;
   return {
     image: typeof record.image === "string" && /^(?:https?:|data:image\/)/i.test(record.image) ? record.image : "",
     name: typeof record.name === "string" ? record.name : "",
     opacity: boundedNumber(record.opacity, defaults.opacity, 0.05, 0.45),
+    panelOpacity: boundedNumber(record.panelOpacity, defaults.panelOpacity, 0, 100),
     blur: boundedNumber(record.blur, defaults.blur, 0, 16),
     size: record.size === "contain" ? "contain" : "cover",
     position: BACKGROUND_POSITIONS.includes(record.position as (typeof BACKGROUND_POSITIONS)[number])
@@ -121,7 +139,7 @@ function migrateBackgrounds(value: LegacyAppearance): BackgroundSettings {
   if (value.backgrounds && typeof value.backgrounds === "object") {
     const record = value.backgrounds as Record<string, unknown>;
     for (const zone of backgroundZones) {
-      backgrounds[zone] = parseBackgroundConfig(record[zone]);
+      backgrounds[zone] = parseBackgroundConfig(record[zone], defaultBackgrounds()[zone]);
     }
     return backgrounds;
   }
@@ -439,6 +457,7 @@ export function useAppearanceSettings({ onNotice, onError }: UseAppearanceSettin
       const config = appearance.backgrounds[zone];
       style[`--bg-${zone}-image`] = backgroundUrl(zone);
       style[`--bg-${zone}-opacity`] = String(config.opacity);
+      style[`--bg-${zone}-panel-opacity`] = `${config.panelOpacity}%`;
       style[`--bg-${zone}-blur`] = `${config.blur}px`;
       style[`--bg-${zone}-size`] = config.size;
       style[`--bg-${zone}-position`] = config.position;

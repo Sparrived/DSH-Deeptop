@@ -24,7 +24,10 @@ export type BackgroundZone = "global" | "windowbar" | "sidebar" | "conversation"
 export type BackgroundConfig = {
   image: string;
   name: string;
+  /** 本区域背景图自身的透明度（0.05–0.45）。 */
   opacity: number;
+  /** 本区域面板表面不透明度（0–100%）。即使没有背景图也生效，控制底层背景透过面板的程度。 */
+  panelOpacity: number;
   blur: number;
   size: "cover" | "contain";
   position: "center" | "top" | "bottom" | "left" | "right";

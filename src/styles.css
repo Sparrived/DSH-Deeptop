@@ -194,19 +194,23 @@ textarea:focus-visible {
 }
 
 .app-shell.has-custom-background .window-bar {
-  background: color-mix(in srgb, var(--chrome) 90%, transparent);
+  background: color-mix(in srgb, var(--chrome) var(--bg-windowbar-panel-opacity, 94%), transparent);
   backdrop-filter: blur(14px);
 }
 
 .app-shell.has-custom-background .session-sidebar {
-  background: color-mix(in srgb, var(--rail) 87%, transparent);
+  background: color-mix(in srgb, var(--rail) var(--bg-sidebar-panel-opacity, 92%), transparent);
   backdrop-filter: blur(14px);
 }
 
 .app-shell.has-custom-background .conversation-panel,
-.app-shell.has-custom-background .conversation-header,
+.app-shell.has-custom-background .conversation-header {
+  background: color-mix(in srgb, var(--paper) var(--bg-conversation-panel-opacity, 86%), transparent);
+  backdrop-filter: blur(10px);
+}
+
 .app-shell.has-custom-background .composer-area {
-  background: color-mix(in srgb, var(--paper) 86%, transparent);
+  background: color-mix(in srgb, var(--paper) var(--bg-composer-panel-opacity, 86%), transparent);
   backdrop-filter: blur(10px);
 }
 
@@ -7415,9 +7419,13 @@ textarea:focus-visible {
 }
 
 .app-shell.has-custom-background .conversation-panel,
-.app-shell.has-custom-background .conversation-header,
+.app-shell.has-custom-background .conversation-header {
+  background: color-mix(in srgb, var(--surface) var(--bg-conversation-panel-opacity, 91%), transparent);
+  backdrop-filter: blur(12px);
+}
+
 .app-shell.has-custom-background .composer-area {
-  background: color-mix(in srgb, var(--surface) 91%, transparent);
+  background: color-mix(in srgb, var(--surface) var(--bg-composer-panel-opacity, 91%), transparent);
   backdrop-filter: blur(12px);
 }
 
@@ -12980,12 +12988,12 @@ textarea:focus-visible {
 }
 
 .app-shell.has-custom-background .session-sidebar {
-  background: color-mix(in srgb, var(--rail) 92%, transparent);
+  background: color-mix(in srgb, var(--rail) var(--bg-sidebar-panel-opacity, 92%), transparent);
   backdrop-filter: blur(14px);
 }
 
 .app-shell.has-custom-background .window-bar {
-  background: color-mix(in srgb, var(--chrome) 94%, transparent);
+  background: color-mix(in srgb, var(--chrome) var(--bg-windowbar-panel-opacity, 94%), transparent);
   backdrop-filter: blur(14px);
 }
 
@@ -13003,12 +13011,12 @@ textarea:focus-visible {
 .app-shell.has-custom-background .task-panel,
 .app-shell.has-custom-background .workspace-files-panel,
 .app-shell.has-custom-background .subagent-dock {
-  background: color-mix(in srgb, var(--surface-raised) 92%, transparent);
+  background: color-mix(in srgb, var(--surface-raised) var(--bg-dock-panel-opacity, 92%), transparent);
   backdrop-filter: blur(14px);
 }
 
 .app-shell.has-custom-background .composer-shell {
-  background: color-mix(in srgb, var(--surface-raised) 88%, transparent);
+  background: color-mix(in srgb, var(--surface-raised) var(--bg-composer-panel-opacity, 91%), transparent);
   backdrop-filter: blur(10px);
 }
 
@@ -13217,6 +13225,23 @@ textarea:focus-visible {
   font-size: 12px;
   line-height: 1.6;
 }
+
+/* 面板不透明度行：控制本区域面板的透过程度（无背景图时也生效）。 */
+.background-panel-opacity-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 300px);
+  align-items: center;
+  gap: 18px;
+  margin-top: 16px;
+  padding: 13px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.background-panel-opacity-row > span:first-child { display: grid; gap: 4px; }
+.background-panel-opacity-row strong { color: var(--ink-strong); font-size: 14px; }
+.background-panel-opacity-row small { color: var(--ink-muted); font-size: 12px; line-height: 1.45; }
 
 @media (max-width: 1120px) {
   .workspace-layout {

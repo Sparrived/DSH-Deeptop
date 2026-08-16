@@ -108,8 +108,15 @@ export function SettingsBackgroundPanel({
           )}
         </div>
 
+        {zone !== "global" && (
+          <label className="background-panel-opacity-row">
+            <span><strong>面板不透明度</strong><small>底层背景透过本区域面板的程度；即使本区域没有背景图也生效</small></span>
+            <span className="appearance-range-control"><input type="range" min="0" max="100" step="1" value={config.panelOpacity} onChange={(event) => onUpdateBackground(zone, { panelOpacity: Number(event.target.value) })} /><output>{Math.round(config.panelOpacity)}%</output></span>
+          </label>
+        )}
+
         <div className="appearance-background-grid">
-          <label><span>透明度</span><input type="range" min="0.05" max="0.45" step="0.01" value={config.opacity} onChange={(event) => onUpdateBackground(zone, { opacity: Number(event.target.value) })} /><output>{Math.round(config.opacity * 100)}%</output></label>
+          <label><span>图片透明度</span><input type="range" min="0.05" max="0.45" step="0.01" value={config.opacity} onChange={(event) => onUpdateBackground(zone, { opacity: Number(event.target.value) })} /><output>{Math.round(config.opacity * 100)}%</output></label>
           <label><span>背景模糊</span><input type="range" min="0" max="16" step="1" value={config.blur} onChange={(event) => onUpdateBackground(zone, { blur: Number(event.target.value) })} /><output>{config.blur}px</output></label>
           <label><span>填充方式</span><select value={config.size} onChange={(event) => onUpdateBackground(zone, { size: event.target.value as BackgroundConfig["size"] })}><option value="cover">填满区域</option><option value="contain">完整显示</option></select></label>
           <label><span>对齐位置</span><select value={config.position} onChange={(event) => onUpdateBackground(zone, { position: event.target.value as BackgroundConfig["position"] })}>{backgroundPositions.map((item) => <option value={item} key={item}>{positionLabels[item]}</option>)}</select></label>
