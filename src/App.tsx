@@ -6,7 +6,6 @@ import { ConversationHeader } from "./components/ConversationHeader";
 import { ComposerShell } from "./components/ComposerShell";
 import { InteractionPanel } from "./components/InteractionPanel";
 import { SettingsAppearancePanel } from "./components/SettingsAppearancePanel";
-import { SettingsBackgroundPanel } from "./components/SettingsBackgroundPanel";
 import { SettingsGeneralPanel } from "./components/SettingsGeneralPanel";
 import { SettingsKeyboardPanel } from "./components/SettingsKeyboardPanel";
 import { SettingsLogsPanel } from "./components/SettingsLogsPanel";
@@ -19,6 +18,7 @@ import { SubagentPanel } from "./components/SubagentPanel";
 import { TaskPanel, TodoPanel } from "./components/TodoPanel";
 import { WorkspaceFilesPanel } from "./components/WorkspaceFilesPanel";
 import { DeliverablesPanel } from "./components/DeliverablesPanel";
+import { UtilityDockShelf } from "./components/UtilityDockShelf";
 import { WindowChrome } from "./components/WindowChrome";
 import { PopupDialog } from "./components/PopupDialog";
 import { useProviderSettings } from "./app/useProviderSettings";
@@ -52,6 +52,9 @@ import {
   type DshCommandExecution,
   type DshMessageAnnotationItem,
   type DshMessageAnnotationResult,
+  type DshPluginConfigDescription,
+  type DshPluginConfigEntry,
+  type DshPluginConfigMutation,
   type DshPluginInventoryEntry,
   type DshPluginInventorySnapshot,
   type DshPermissionSelect,
@@ -115,6 +118,7 @@ import {
 } from "./app/model";
 import {
   type PromptMode,
+  type AppearanceSection,
   type ModelMenuPane,
   type SessionAction,
   type ThemeMode,
@@ -137,6 +141,10 @@ import {
   type SubagentSession,
 } from "./app/model";
 import {
+  backgroundZones,
+  defaultAppearance,
+  defaultBackgroundConfig,
+  defaultBackgrounds,
   hasAnyBackground,
   useAppearanceSettings,
 } from "./app/useAppearanceSettings";
@@ -193,6 +201,20 @@ function applyFrontendVisualResetOnce() {
   } catch {
     // The native webview may disable storage in a restricted preview.
   }
+}
+
+type AppearanceConfigSection = "theme" | "background" | "typography" | "css";
+
+type AppearanceConfigEnvelope = {
+  kind: "deeptop-appearance-config";
+  version: 1;
+  section: AppearanceConfigSection;
+  exportedAt: string;
+  data: Record<string, unknown>;
+};
+
+function appearanceSectionLabel(section: AppearanceConfigSection) {
+  return section === "theme" ? "主题" : section === "background" ? "背景工作台" : section === "typography" ? "文字" : "CSS 主题";
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
@@ -292,8 +314,13 @@ function App() {
   const [providers, setProviders] = useState<DshProvider[]>([]);
   const [hostModels, setHostModels] = useState<DshHostModelCatalog | null>(null);
   const [pluginInventory, setPluginInventory] = useState<DshPluginInventoryEntry[] | null>(null);
+  const [excludedPlugins, setExcludedPlugins] = useState<DshPluginInventoryEntry[]>([]);
+  const [pluginConfig, setPluginConfig] = useState<DshPluginConfigDescription | null>(null);
+  const [pluginConfigDraft, setPluginConfigDraft] = useState<DshPluginConfigEntry[]>([]);
+  const [pluginConfigSaving, setPluginConfigSaving] = useState(false);
   const [showInspector, setShowInspector] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
+  const [appearanceSection, setAppearanceSection] = useState<AppearanceSection>("theme");
   const [pluginSearch, setPluginSearch] = useState("");
   const [expandedPlugin, setExpandedPlugin] = useState<string | null>(null);
   const [skills, setSkills] = useState<DshSkill[]>([]);
@@ -445,6 +472,93 @@ function App() {
     openThemesDirectory,
     resetAppearance,
   } = useAppearanceSettings({ onNotice: setNotice, onError: setErrorNotice });
+
+  function downloadAppearanceConfig(section: AppearanceConfigSection, data: Record<string, unknown>) {
+    const envelope: AppearanceConfigEnvelope = { kind: "deeptop-appearance-config", version: 1, section, exportedAt: new Date().toISOString(), data };
+    const content = JSON.stringify(envelope, null, 2);
+    const fileName = `deeptop-appearance-${section}.json`;
+    if (desktop) {
+      void saveExportFile(fileName, new TextEncoder().encode(content)).then((savedPath) => { if (savedPath) setNotice(`已导出${appearanceSectionLabel(section)}配置`); }).catch((error) => setErrorNotice(`导出失败：${errorText(error)}`));
+      return;
+    }
+    const url = URL.createObjectURL(new Blob([content], { type: "application/json" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setNotice(`已导出${appearanceSectionLabel(section)}配置`);
+  }
+
+  function exportAppearanceConfig() {
+    const section = appearanceSection;
+    const data = section === "theme" ? { themeMode, appTheme, themeCssPath: appearance.themeCssPath } : section === "background" ? { backgrounds: appearance.backgrounds } : section === "typography" ? { fontFamily: appearance.fontFamily, codeFontFamily: appearance.codeFontFamily, messageFontSize: appearance.messageFontSize, messageLineHeight: appearance.messageLineHeight } : { customCss: appearance.customCss, customCssName: appearance.customCssName, customCssEnabled: appearance.customCssEnabled };
+    downloadAppearanceConfig(section, data);
+  }
+
+  function normalizeImportedBackgrounds(value: unknown) {
+    if (!value || typeof value !== "object") throw new Error("背景配置格式无效");
+    const source = value as Record<string, unknown>;
+    const next = { ...appearance.backgrounds };
+    for (const zone of backgroundZones) {
+      const input = source[zone];
+      if (!input || typeof input !== "object") continue;
+      const record = input as Record<string, unknown>;
+      const fallback = defaultBackgroundConfig(zone);
+      const image = typeof record.image === "string" && (/^(?:https?:|data:image\/)/i.test(record.image) || record.image === "") ? record.image : fallback.image;
+      const number = (key: string, min: number, max: number, fallbackValue: number) => { const candidate = Number(record[key]); return Number.isFinite(candidate) ? Math.min(max, Math.max(min, candidate)) : fallbackValue; };
+      next[zone] = { image, name: typeof record.name === "string" ? record.name.slice(0, 200) : fallback.name, opacity: number("opacity", 0.05, 0.45, fallback.opacity), panelOpacity: number("panelOpacity", 0, 100, fallback.panelOpacity), blur: number("blur", 0, 16, fallback.blur), size: record.size === "contain" ? "contain" : "cover", position: ["center", "top", "bottom", "left", "right"].includes(String(record.position)) ? record.position as typeof fallback.position : fallback.position };
+    }
+    return next;
+  }
+
+  async function importAppearanceConfig(file: File | undefined) {
+    if (!file) return;
+    if (file.size > 8_000_000) { setErrorNotice("配置文件过大，请选择 8 MB 以内的 JSON 文件"); return; }
+    try {
+      const parsed = JSON.parse(await file.text()) as Partial<AppearanceConfigEnvelope>;
+      if (parsed.kind !== "deeptop-appearance-config" || parsed.version !== 1 || parsed.section !== appearanceSection || !parsed.data || typeof parsed.data !== "object") throw new Error(`这不是当前“${appearanceSectionLabel(appearanceSection)}”子页面的配置文件`);
+      const data = parsed.data as Record<string, unknown>;
+      if (appearanceSection === "theme") {
+        const nextMode = data.themeMode === "light" || data.themeMode === "dark" || data.themeMode === "system" ? data.themeMode : null;
+        const nextTheme = data.appTheme === "one-dark" || data.appTheme === "monokai-pro" || data.appTheme === "custom" ? data.appTheme : null;
+        const nextPath = typeof data.themeCssPath === "string" && data.themeCssPath.length <= 2000 ? data.themeCssPath : "";
+        if (!nextMode || !nextTheme) throw new Error("主题配置中的明暗模式或配色方案无效");
+        setThemeMode(nextMode);
+        setAppTheme(nextTheme);
+        updateAppearance({ themeCssPath: nextPath });
+      } else if (appearanceSection === "background") {
+        updateAppearance({ backgrounds: normalizeImportedBackgrounds(data.backgrounds) });
+      } else if (appearanceSection === "typography") {
+        const fontFamily = typeof data.fontFamily === "string" && data.fontFamily.trim() ? data.fontFamily.slice(0, 500) : defaultAppearance.fontFamily;
+        const codeFontFamily = typeof data.codeFontFamily === "string" && data.codeFontFamily.trim() ? data.codeFontFamily.slice(0, 500) : defaultAppearance.codeFontFamily;
+        const messageFontSize = Number(data.messageFontSize);
+        const messageLineHeight = Number(data.messageLineHeight);
+        updateAppearance({ fontFamily, codeFontFamily, messageFontSize: Number.isFinite(messageFontSize) ? Math.min(18, Math.max(14, messageFontSize)) : defaultAppearance.messageFontSize, messageLineHeight: Number.isFinite(messageLineHeight) ? Math.min(2.2, Math.max(1.35, messageLineHeight)) : defaultAppearance.messageLineHeight });
+      } else {
+        const customCss = typeof data.customCss === "string" && data.customCss.length <= 500_000 ? data.customCss : "";
+        updateAppearance({ customCss, customCssName: typeof data.customCssName === "string" ? data.customCssName.slice(0, 200) : "", customCssEnabled: data.customCssEnabled === true && Boolean(customCss) });
+      }
+      setNotice(`已应用${appearanceSectionLabel(appearanceSection)}配置：${file.name}`);
+    } catch (error) { setErrorNotice(`导入失败：${errorText(error)}`); }
+  }
+  function resetAppearanceSection() {
+    if (appearanceSection === "theme") {
+      setThemeMode("system");
+      setAppTheme("monokai-pro");
+      updateAppearance({ themeCssPath: themeFilesInfo?.monokaiPro ?? appearance.themeCssPath });
+    } else if (appearanceSection === "background") {
+      updateAppearance({ backgrounds: defaultBackgrounds() });
+    } else if (appearanceSection === "typography") {
+      updateAppearance({ fontFamily: defaultAppearance.fontFamily, codeFontFamily: defaultAppearance.codeFontFamily, messageFontSize: defaultAppearance.messageFontSize, messageLineHeight: defaultAppearance.messageLineHeight });
+    } else {
+      updateAppearance({ customCss: "", customCssName: "", customCssEnabled: false });
+    }
+    setNotice(`已恢复${appearanceSectionLabel(appearanceSection)}默认`);
+  }
+
   const providerSettings = useProviderSettings({
     desktop,
     settings,
@@ -802,8 +916,63 @@ function App() {
   const pluginSettings = useMemo(() => (settings?.namespaces ?? []).filter((namespace) => !providerNamespaces.has(namespace.ns) && !["locale", "permission", "ui-conversation", "ui-theme", "ui-onboarding"].includes(namespace.ns)), [providerNamespaces, settings]);
   const visiblePlugins = useMemo(() => {
     const query = pluginSearch.trim().toLocaleLowerCase();
-    return (pluginInventory ?? []).filter((plugin) => !query || `${plugin.entryId} ${plugin.moduleName}`.toLocaleLowerCase().includes(query));
+    return (pluginInventory ?? []).filter((plugin) => plugin.compatibility?.supported !== false)
+      .filter((plugin) => !query || `${plugin.entryId} ${plugin.moduleName}`.toLocaleLowerCase().includes(query));
   }, [pluginInventory, pluginSearch]);
+  const pluginConfigDirty = useMemo(() => JSON.stringify(pluginConfig?.plugins ?? []) !== JSON.stringify(pluginConfigDraft), [pluginConfig, pluginConfigDraft]);
+
+  function applyPluginConfig(description: DshPluginConfigDescription) {
+    setPluginConfig(description);
+    setPluginConfigDraft(description.plugins);
+  }
+
+  async function loadPluginConfig() {
+    if (!desktop) return;
+    const result = await bridgeRequest<DshPluginConfigDescription>("plugin.config.describe");
+    applyPluginConfig(result);
+  }
+
+  async function addPlugin() {
+    const id = window.prompt("插件 id", "my-plugin")?.trim();
+    const name = window.prompt("插件模块路径或包名", "C:/absolute/path/to/plugin/src/index.ts")?.trim();
+    if (!id || !name) return;
+    if (pluginConfigDraft.some((plugin) => plugin.id === id)) {
+      setErrorNotice(`插件 id 已存在：${id}`);
+      return;
+    }
+    setPluginConfigDraft((current) => [...current, { id, name, enabled: true, system: false, compatibility: { supported: true } }]);
+  }
+
+  async function savePluginConfig(): Promise<boolean> {
+    if (!pluginConfig || !settings?.writable || pluginConfigSaving) return false;
+    setPluginConfigSaving(true);
+    try {
+      const result = await bridgeRequest<DshPluginConfigMutation>("plugin.config.mutate", {
+        expectedRevision: pluginConfig.revision,
+        plugins: pluginConfigDraft.map(({ id, name, enabled }) => ({ id, name, enabled })),
+      });
+      applyPluginConfig(result);
+      setNotice("插件列表已保存，重启 Deeptop 后生效");
+      return true;
+    } catch (error) {
+      setErrorNotice(errorText(error));
+      return false;
+    } finally {
+      setPluginConfigSaving(false);
+    }
+  }
+
+  function cancelPluginConfig() {
+    if (pluginConfig) setPluginConfigDraft(pluginConfig.plugins);
+  }
+
+  function togglePluginConfig(id: string) {
+    setPluginConfigDraft((current) => current.map((plugin) => plugin.id === id ? { ...plugin, enabled: !plugin.enabled } : plugin));
+  }
+
+  function removePluginConfig(id: string) {
+    setPluginConfigDraft((current) => current.filter((plugin) => plugin.id !== id));
+  }
 
   useEffect(() => {
     try {
@@ -879,7 +1048,7 @@ function App() {
   async function loadRuntimeDetails(sessionItems = sessions) {
     if (!desktop) return;
     const workspaceVersion = workspaceRequestRef.current;
-    const [hostResult, presetResult, workspaceResult, settingsResult, providerResult, modelResult, pluginResult] = await Promise.allSettled([
+    const [hostResult, presetResult, workspaceResult, settingsResult, providerResult, modelResult, pluginResult, pluginConfigResult] = await Promise.allSettled([
       bridgeRequest<Record<string, unknown>>("host.describe"),
       bridgeRequest<DshPresetRoster>("agentPreset.list"),
       bridgeRequest<{ items: DshWorkspace[]; archivedSessionIds?: string[] }>("workspace.list"),
@@ -887,6 +1056,7 @@ function App() {
       bridgeRequest<{ providers: DshProvider[] }>("llm.providers"),
       bridgeRequest<DshHostModelCatalog>("llm.models"),
       bridgeRequest<DshPluginInventorySnapshot>("plugin.list"),
+      bridgeRequest<DshPluginConfigDescription>("plugin.config.describe"),
     ]);
     if (hostResult.status === "fulfilled") setRuntimeDetails(hostResult.value);
     if (presetResult.status === "fulfilled") {
@@ -920,7 +1090,11 @@ function App() {
     if (settingsResult.status === "fulfilled") setSettings(settingsResult.value);
     if (providerResult.status === "fulfilled") setProviders(providerResult.value.providers);
     if (modelResult.status === "fulfilled") setHostModels(modelResult.value);
-    if (pluginResult.status === "fulfilled") setPluginInventory(pluginResult.value.entries);
+    if (pluginResult.status === "fulfilled") {
+      setPluginInventory(pluginResult.value.entries);
+      setExcludedPlugins(pluginResult.value.excluded ?? []);
+    }
+    if (pluginConfigResult.status === "fulfilled") applyPluginConfig(pluginConfigResult.value);
   }
 
   async function loadSubagents(parentSessionId = activeSessionRef.current) {
@@ -1008,12 +1182,17 @@ function App() {
         setGoal((historyResult.projections?.values.goal as DshGoalProjection | null | undefined) ?? null);
       }
       if (tab === "settings") {
-        const [settingsResult, pluginResult] = await Promise.allSettled([
+        const [settingsResult, pluginResult, pluginConfigResult] = await Promise.allSettled([
           bridgeRequest<DshSettingsDescription>("settings.describe"),
           bridgeRequest<DshPluginInventorySnapshot>("plugin.list"),
+          bridgeRequest<DshPluginConfigDescription>("plugin.config.describe"),
         ]);
         if (settingsResult.status === "fulfilled") setSettings(settingsResult.value);
-        if (pluginResult.status === "fulfilled") setPluginInventory(pluginResult.value.entries);
+        if (pluginResult.status === "fulfilled") {
+          setPluginInventory(pluginResult.value.entries);
+          setExcludedPlugins(pluginResult.value.excluded ?? []);
+        }
+        if (pluginConfigResult.status === "fulfilled") applyPluginConfig(pluginConfigResult.value);
       }
     } catch (error) {
       setErrorNotice(errorText(error));
@@ -2209,15 +2388,31 @@ function App() {
   async function restartRuntime() {
     if (!desktop) return;
     setStartupLogs([]);
-    setNotice("正在重新启动 DSH");
+    setPluginInventory(null);
+    setExcludedPlugins([]);
+    setNotice("正在重新启动 Deeptop");
     try {
       const nextStatus = await refreshDsh();
       setStatus(nextStatus);
+      if (nextStatus.runtimeAvailable) {
+        await loadRuntimeDetails();
+        setNotice("Deeptop 已重启，插件列表已刷新");
+      }
     } catch (error) {
       const message = errorText(error);
       setStatus((current) => ({ ...current, runtimeAvailable: false, runtimeStarting: false, message }));
       setErrorNotice(message);
     }
+  }
+
+  async function saveAndRestartPlugins() {
+    if (!pluginConfigDirty) return restartRuntime();
+    const saved = await savePluginConfig();
+    if (saved) await restartRuntime();
+  }
+
+  function updatePluginConfig(id: string, patch: Partial<Pick<DshPluginConfigEntry, "id" | "name">>) {
+    setPluginConfigDraft((current) => current.map((plugin) => plugin.id === id ? { ...plugin, ...patch } : plugin));
   }
 
   async function loadRuntimeLogs() {
@@ -2922,29 +3117,27 @@ function App() {
             />
 
 
-             <div className={`utility-panel-shelf ${activeJobs.length > 0 ? "task-present" : ""} ${todoVisible ? "todo-present" : ""} ${activeJobs.length > 0 && jobsCollapsed ? "task-collapsed" : ""} ${todoVisible && todoCollapsed ? "todo-collapsed" : ""} ${deliverablesVisible ? "deliverables-present" : ""} ${deliverablesVisible && deliverablesCollapsed ? "deliverables-collapsed" : ""}`} aria-label="当前会话面板">
-              {activeJobs.length > 0 && <TaskPanel jobs={activeJobs} collapsed={jobsCollapsed} now={jobNow} onToggle={() => togglePanel("tasks")} />}
+             <UtilityDockShelf
+               tasks={activeJobs.length > 0 ? <TaskPanel jobs={activeJobs} collapsed={jobsCollapsed} now={jobNow} onToggle={() => togglePanel("tasks")} /> : null}
+               todo={todoVisible ? <TodoPanel
+                 todos={todos ?? []}
+                 collapsed={todoCollapsed}
+                 counts={todoCounts}
+                 now={jobNow}
+                 turnStartedAt={turnTiming.startedAt}
+                 turnFinishedAt={turnTiming.finishedAt}
+                 onToggle={() => togglePanel("todo")}
+               /> : null}
+               deliverables={deliverablesVisible && deliverables ? <DeliverablesPanel
+                 item={deliverables}
+                 activeSession={activeSession ?? null}
+                 collapsed={deliverablesCollapsed}
+                 onToggle={() => togglePanel("deliverables")}
+                 onOpenSessionPath={openSessionPath}
+               /> : null}
+             />
 
-              {todoVisible && <TodoPanel
-                todos={todos ?? []}
-                collapsed={todoCollapsed}
-                counts={todoCounts}
-                now={jobNow}
-                turnStartedAt={turnTiming.startedAt}
-                turnFinishedAt={turnTiming.finishedAt}
-                onToggle={() => togglePanel("todo")}
-              />}
-
-              {deliverablesVisible && deliverables && <DeliverablesPanel
-                item={deliverables}
-                activeSession={activeSession ?? null}
-                collapsed={deliverablesCollapsed}
-                onToggle={() => togglePanel("deliverables")}
-                onOpenSessionPath={openSessionPath}
-              />}
-              </div>
-
-            <SubagentPanel
+             <SubagentPanel
               entries={childSubagents}
               dockOpen={subagentDockOpen}
               panelOpen={subagentPanelOpen}
@@ -3049,9 +3242,10 @@ function App() {
             onChangeModel={changeModel}
             onChangeReasoningEffort={changeReasoningEffort}
           />
-        </section>
+           </section>
+         </div>
 
-        {showInspector && (
+         {showInspector && (
           <div className="inspector-modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="inspector-title">
             <button className="inspector-backdrop" onClick={closeSettings} aria-label="关闭设置" />
             <aside className="inspector-panel">
@@ -3061,12 +3255,14 @@ function App() {
             <div className="settings-layout">
                 <nav className="settings-navigation" aria-label="设置分区">
                   <div className="settings-navigation-title">DSH 设置</div>
-                  <button className={settingsSection === "appearance" ? "selected" : ""} onClick={() => setSettingsSection("appearance")}>
-                    <strong>外观</strong><small>字体与主题</small>
-                  </button>
-                  <button className={settingsSection === "background" ? "selected" : ""} onClick={() => setSettingsSection("background")}>
-                    <strong>背景工作台</strong><small>分区背景图</small>
-                  </button>
+                  <div className={`settings-navigation-group${settingsSection === "appearance" ? " expanded" : ""}`}>
+                    <button className="settings-navigation-group-toggle" aria-expanded={settingsSection === "appearance"} onClick={() => { setSettingsSection("appearance"); setAppearanceSection("theme"); }}>
+                      <strong>外观</strong><span className="settings-navigation-chevron">⌄</span>
+                    </button>
+                    {settingsSection === "appearance" && <div className="settings-navigation-subnav" role="tablist" aria-label="外观子页面">
+                      {(["theme", "background", "typography", "css"] as AppearanceSection[]).map((item) => <button key={item} className={`settings-navigation-subitem${appearanceSection === item ? " selected" : ""}`} onClick={() => setAppearanceSection(item)}>{item === "theme" ? "主题" : item === "background" ? "背景工作台" : item === "typography" ? "文字" : "CSS 主题"}</button>)}
+                    </div>}
+                  </div>
                   <button className={settingsSection === "general" ? "selected" : ""} onClick={() => setSettingsSection("general")}>
                     <strong>通用</strong><small>会话与 Host</small>
                   </button>
@@ -3099,23 +3295,24 @@ function App() {
                     codeFontPreset={appearanceCodeFontPreset}
                     fontPresets={appearanceFontPresets}
                     codeFontPresets={appearanceCodeFontPresets}
-                    onUpdate={updateAppearance}
+                    section={appearanceSection}
+                     onSectionChange={setAppearanceSection}
+                     onUpdate={updateAppearance}
+                     onUpdateBackground={updateBackground}
+                     onBackgroundFile={handleBackgroundFile}
+                     onClearBackground={clearBackground}
+                     onImport={importAppearanceConfig}
+                     onExport={exportAppearanceConfig}
                     onThemeChange={setThemeMode}
                     onAppThemeChange={setAppTheme}
                     onPickThemeCss={handlePickThemeCss}
                     onReloadThemeCss={reloadThemeCss}
                     onOpenThemesDirectory={openThemesDirectory}
-                    onOpenBackgrounds={() => setSettingsSection("background")}
+
                     onThemeFile={handleThemeFile}
-                    onReset={resetAppearance}
+                    onResetSection={resetAppearanceSection}
                   />}
 
-                  {settingsSection === "background" && <SettingsBackgroundPanel
-                    backgrounds={appearance.backgrounds}
-                    onUpdateBackground={updateBackground}
-                    onBackgroundFile={handleBackgroundFile}
-                    onClearBackground={clearBackground}
-                  />}
 
                   {settingsSection === "general" && <SettingsGeneralPanel
                     settings={settings}
@@ -3171,12 +3368,25 @@ function App() {
 
                   {settingsSection === "plugins" && <SettingsPluginsPanel
                     inventory={pluginInventory}
+                     excludedPlugins={excludedPlugins}
                     visiblePlugins={visiblePlugins}
                     search={pluginSearch}
                     expandedPlugin={expandedPlugin}
                     pluginSettings={pluginSettings}
                     settings={settings}
-                    onSearchChange={setPluginSearch}
+                    pluginConfig={pluginConfig}
+                     pluginConfigDraft={pluginConfigDraft}
+                     pluginConfigDirty={pluginConfigDirty}
+                     pluginConfigSaving={pluginConfigSaving}
+                     onSearchChange={setPluginSearch}
+                     onAddPlugin={() => void addPlugin()}
+                     onUpdatePlugin={updatePluginConfig}
+                     onToggleConfigPlugin={togglePluginConfig}
+                     onRemovePlugin={removePluginConfig}
+                     onCancelPluginConfig={cancelPluginConfig}
+                     onSavePluginConfig={() => void savePluginConfig()}
+                     onSaveAndRestart={() => void saveAndRestartPlugins()}
+                     onRestart={() => void restartRuntime()}
                     onTogglePlugin={(entryId) => setExpandedPlugin((current) => current === entryId ? null : entryId)}
                     onOpenNamespace={openSettingsNamespace}
                   />}
@@ -3244,8 +3454,7 @@ function App() {
       {confirmAction && <div className="confirm-backdrop" onMouseDown={() => setConfirmAction(null)}><div className="confirm-dialog" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><strong>归档会话？</strong><p>“{displayTitle(confirmAction.session)}”将从会话列表中隐藏，历史记录会保留；可在归档页查看、恢复或永久删除。</p><div className="surface-dialog-actions"><button onClick={() => setConfirmAction(null)}>取消</button><button className="confirm danger-button" onClick={() => void archiveSession(confirmAction.session)}>确认归档</button></div></div></div>}
       {deleteArchivedTarget && <div className="confirm-backdrop" onMouseDown={() => setDeleteArchivedTarget(null)}><div className="confirm-dialog" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><strong>永久删除归档会话？</strong><p>“{displayTitle(deleteArchivedTarget)}”的历史记录将被永久删除，无法恢复。</p><div className="surface-dialog-actions"><button onClick={() => setDeleteArchivedTarget(null)}>取消</button><button className="confirm danger-button" onClick={() => void deleteArchivedSession()}>永久删除</button></div></div></div>}
       {renameTarget && <div className="confirm-backdrop" onMouseDown={() => setRenameTarget(null)}><form className="confirm-dialog rename-dialog" role="dialog" aria-modal="true" onSubmit={(event) => { event.preventDefault(); void renameSession(); }} onMouseDown={(event) => event.stopPropagation()}><strong>重命名会话</strong><p>修改“{displayTitle(renameTarget)}”在左侧会话列表中的显示名称。</p><input className="rename-dialog-input" value={renameValue} onChange={(event) => setRenameValue(event.target.value)} autoFocus aria-label="会话名称" /><div className="surface-dialog-actions"><button type="button" onClick={() => setRenameTarget(null)}>取消</button><button className="confirm" type="submit" disabled={!renameValue.trim()}>保存</button></div></form></div>}
-      </div>
-    </main>
+     </main>
   );
 }
 

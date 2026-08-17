@@ -1,14 +1,18 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import {
   createWorkspaceFolder,
   deleteWorkspacePath,
+  getWorkspaceGitStatus,
   listWorkspaceFiles,
   openInVscode,
   revealInExplorer,
   type WorkspaceFileEntry,
+  type WorkspaceGitFile,
+  type WorkspaceGitStatus,
 } from "../lib/desktop";
 import { errorText } from "../app/model";
+import { DockFrame } from "./DockFrame";
 
 type FilesContextMenu = {
   x: number;
@@ -72,6 +76,47 @@ function fileIcon(name: string): string {
   }
 }
 
+function normalizeGitPath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+function workspaceRelativePath(root: string, path: string): string {
+  const normalizedRoot = normalizeGitPath(root).replace(/\/$/, "");
+  const normalizedPath = normalizeGitPath(path);
+  const rootPrefix = `${normalizedRoot}/`;
+  if (normalizedPath.toLocaleLowerCase().startsWith(rootPrefix.toLocaleLowerCase())) {
+    return normalizedPath.slice(rootPrefix.length);
+  }
+  return normalizedPath;
+}
+
+function gitFileLabel(file: WorkspaceGitFile): string {
+  if (file.status === "untracked") return "未跟踪";
+  if (file.status === "conflicted") return "冲突";
+  if (file.isRenamed) return "已重命名";
+  if (file.code.includes("D")) return "已删除";
+  if (file.code.includes("A")) return "已添加";
+  if (file.status === "staged") return "已暂存";
+  if (file.status === "staged-changed") return "暂存 + 修改";
+  return "已修改";
+}
+
+function gitFileMark(file: WorkspaceGitFile): string {
+  if (file.status === "untracked") return "?";
+  if (file.status === "conflicted") return "!";
+  if (file.isRenamed) return "R";
+  if (file.code.includes("A")) return "A";
+  if (file.code.includes("D")) return "D";
+  return "M";
+}
+
+function matchesGitFilter(file: WorkspaceGitFile, filter: "all" | WorkspaceGitFile["status"]): boolean {
+  if (filter === "all") return true;
+  if (filter === "changed") return file.status === "changed" || file.status === "staged-changed";
+  if (filter === "staged") return file.status === "staged" || file.status === "staged-changed";
+  return file.status === filter;
+}
+
 type NewFolderRowProps = {
   onCommit: (name: string) => void;
   onCancel: () => void;
@@ -116,6 +161,9 @@ function NewFolderRow({ onCommit, onCancel }: NewFolderRowProps) {
 export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError }: WorkspaceFilesPanelProps) {
   const [rootEntries, setRootEntries] = useState<WorkspaceFileEntry[] | null>(null);
   const [loadingRoot, setLoadingRoot] = useState(false);
+  const [gitStatus, setGitStatus] = useState<WorkspaceGitStatus | null>(null);
+  const [loadingGit, setLoadingGit] = useState(false);
+  const [gitFilter, setGitFilter] = useState<"all" | WorkspaceGitFile["status"]>("all");
   const [childrenByPath, setChildrenByPath] = useState<Record<string, WorkspaceFileEntry[]>>({});
   const [parentByPath, setParentByPath] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
@@ -135,9 +183,26 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError }:
     return entries;
   }, []);
 
+  const reloadGit = useCallback(async () => {
+    if (!workspace) {
+      setGitStatus(null);
+      return;
+    }
+    setLoadingGit(true);
+    try {
+      setGitStatus(await getWorkspaceGitStatus(workspace));
+    } catch (error) {
+      setGitStatus(null);
+      onError(`读取 Git 状态失败：${errorText(error)}`);
+    } finally {
+      setLoadingGit(false);
+    }
+  }, [workspace, onError]);
+
   const reloadRoot = useCallback(async () => {
     if (!workspace) {
       setRootEntries(null);
+      setGitStatus(null);
       setChildrenByPath({});
       setExpanded(new Set());
       return;
@@ -154,11 +219,34 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError }:
     } finally {
       setLoadingRoot(false);
     }
-  }, [workspace, loadDirectory, onError]);
+    void reloadGit();
+  }, [workspace, loadDirectory, onError, reloadGit]);
 
   useEffect(() => {
+    setGitFilter("all");
     void reloadRoot();
   }, [reloadRoot]);
+
+  const gitFilesByPath = useMemo(() => {
+    const result = new Map<string, WorkspaceGitFile>();
+    for (const file of gitStatus?.files ?? []) result.set(normalizeGitPath(file.path), file);
+    return result;
+  }, [gitStatus]);
+
+  const gitFilesByDirectory = useMemo(() => {
+    const result = new Map<string, WorkspaceGitFile[]>();
+    for (const file of gitStatus?.files ?? []) {
+      const path = normalizeGitPath(file.path);
+      const segments = path.split("/");
+      for (let index = 1; index < segments.length; index += 1) {
+        const directory = segments.slice(0, index).join("/");
+        const current = result.get(directory) ?? [];
+        current.push(file);
+        result.set(directory, current);
+      }
+    }
+    return result;
+  }, [gitStatus]);
 
   useEffect(() => {
     if (collapsed) {
@@ -310,13 +398,21 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError }:
   const renderEntries = (entries: WorkspaceFileEntry[] | undefined, depth: number) => {
     if (!entries) return null;
     return entries.map((entry) => {
+      const relativePath = workspaceRelativePath(gitStatus?.root ?? workspace, entry.path);
+      const fileStatus = gitFilesByPath.get(relativePath);
+      const directoryStatuses = entry.isDir ? (gitFilesByDirectory.get(relativePath) ?? []) : [];
+      const matchesEntry = fileStatus ? matchesGitFilter(fileStatus, gitFilter) : false;
+      const hasFilteredDescendant = directoryStatuses.some((file) => matchesGitFilter(file, gitFilter));
+      if (gitFilter !== "all" && !matchesEntry && !hasFilteredDescendant) return null;
       const isOpen = expanded.has(entry.path);
       const children = childrenByPath[entry.path];
       const loading = loadingPaths.has(entry.path);
+      const directoryStatus = directoryStatuses.find((file) => file.status === "conflicted") ?? directoryStatuses.find((file) => file.status === "changed" || file.status === "staged-changed") ?? directoryStatuses[0];
+      const visibleStatus = fileStatus ?? directoryStatus;
       return (
         <div
           key={entry.path}
-          className={`workspace-file-row ${entry.isDir ? "is-dir" : "is-file"} ${isOpen ? "open" : ""}`}
+          className={`workspace-file-row ${entry.isDir ? "is-dir" : "is-file"} ${isOpen ? "open" : ""} ${visibleStatus ? `git-${visibleStatus.status}` : ""}`}
           style={{ "--file-depth": depth } as CSSProperties}
         >
           <button
@@ -338,6 +434,7 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError }:
             </span>
             <span className="workspace-file-icon" aria-hidden="true">{entry.isDir ? "📁" : fileIcon(entry.name)}</span>
             <span className="workspace-file-name">{entry.name}</span>
+            {visibleStatus && <span className={`workspace-file-git-mark git-mark-${visibleStatus.status}`} title={gitFileLabel(visibleStatus)} aria-label={gitFileLabel(visibleStatus)}>{gitFileMark(visibleStatus)}</span>}
             {!entry.isDir && <span className="workspace-file-size">{formatFileSize(entry.size)}</span>}
           </button>
           {entry.isDir && isOpen && (
@@ -358,40 +455,37 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError }:
   const rootEmpty = rootEntries !== null && rootEntries.length === 0 && !showingNewFolderAtRoot;
 
   return (
-    <aside className={`workspace-files-panel ${collapsed ? "collapsed" : "expanded"}`} aria-label="工作区文件">
-      <button
-        className="workspace-files-rail"
-        type="button"
-        onClick={onToggle}
-        aria-controls="workspace-files-card"
-        aria-expanded={!collapsed}
-        aria-label={collapsed ? "展开文件面板" : "收起文件面板"}
-        title={collapsed ? "展开文件面板" : "收起文件面板"}
-      >
-        <span className="workspace-files-rail-mark" aria-hidden="true">▤</span>
-      </button>
-      {!collapsed && (
-        <div id="workspace-files-card" className="workspace-files-card">
-          <header className="workspace-files-header">
-            <div className="workspace-files-heading">
-              <span className="workspace-files-mark" aria-hidden="true">▤</span>
-              <div>
-                <span className="workspace-files-kicker">工作区</span>
-                <h2>文件</h2>
-              </div>
-            </div>
-            <div className="workspace-files-header-actions">
-              <span className="workspace-files-total">{rootEntries?.length ?? 0}</span>
-              <button className="workspace-files-toggle" type="button" onClick={onToggle} aria-label="收起文件面板" title="收起文件面板"><span aria-hidden="true">‹</span></button>
-            </div>
-          </header>
-          <div className="workspace-files-body">
+    <DockFrame
+      id="workspace-files-dock"
+      side="left"
+      className="workspace-files-panel"
+      collapsed={collapsed}
+      label="工作区文件"
+      title="文件"
+      kicker="工作区"
+      icon="▤"
+      total={rootEntries?.length ?? 0}
+      toggleGlyph="‹"
+      onToggle={onToggle}
+      railClassName="workspace-files-rail"
+      railMarkClassName="workspace-files-rail-mark"
+      headerMarkClassName="workspace-files-mark"
+      cardClassName="workspace-files-card"
+      headerClassName="workspace-files-header"
+      headingClassName="workspace-files-heading"
+      kickerClassName="workspace-files-kicker"
+      headerActionsClassName="workspace-files-header-actions"
+      totalClassName="workspace-files-total"
+      toggleClassName="workspace-files-toggle"
+      bodyClassName="workspace-files-body"
+    >
             <div className="workspace-files-summary">
-              <span className={`workspace-files-live ${loadingRoot ? "loading" : ""}`}>{loadingRoot ? "加载中…" : `${rootEntries?.length ?? 0} 个条目`}</span>
+              <span className={`workspace-files-live ${loadingRoot || loadingGit ? "loading" : ""}`}>{loadingRoot || loadingGit ? "同步中…" : `${rootEntries?.length ?? 0} 个条目`}</span>
               <span className="workspace-files-path" title={workspace}>{workspace || "未选择工作目录"}</span>
             </div>
-            <div className="workspace-files-toolbar">
-              <button type="button" disabled={!workspace} onClick={() => workspace && beginNewFolder(workspace)} title="新建文件夹">＋ 新建文件夹</button>
+            {workspace && <div className="workspace-git-summary" aria-label="Git 工作区摘要">{gitStatus?.isRepository && <span className="workspace-git-branch">⌘ {gitStatus.branch ?? "HEAD"}</span>}{!gitStatus?.isRepository && <span className="workspace-git-no-repo">未检测到 Git 仓库</span>}{gitStatus?.isRepository && <><span className="workspace-git-count git-count-changed">{(gitStatus.changed + gitStatus.staged) || 0} 修改</span><span className="workspace-git-count git-count-untracked">{gitStatus.untracked} 未跟踪</span>{gitStatus.conflicted > 0 && <span className="workspace-git-count git-count-conflicted">{gitStatus.conflicted} 冲突</span>}</>}</div>}
+             <div className="workspace-files-toolbar">
+              <div className="workspace-files-filter" role="group" aria-label="筛选 Git 状态">{(["all", "changed", "staged", "untracked", "conflicted"] as const).map((filter) => { const count = filter === "all" ? (gitStatus?.files.length ?? 0) : (gitStatus?.files.filter((file) => matchesGitFilter(file, filter)).length ?? 0); const label = filter === "all" ? "全部" : filter === "changed" ? "修改" : filter === "staged" ? "暂存" : filter === "untracked" ? "未跟踪" : "冲突"; return <button key={filter} type="button" className={gitFilter === filter ? "selected" : ""} disabled={filter !== "all" && !gitStatus?.isRepository} onClick={() => setGitFilter(filter)}>{label}{filter !== "all" && count > 0 ? ` ${count}` : ""}</button>; })}</div><button type="button" disabled={!workspace} onClick={() => workspace && beginNewFolder(workspace)} title="新建文件夹">＋ 新建文件夹</button>
               <button type="button" disabled={!workspace} onClick={() => void reloadRoot()} title="刷新">⟳</button>
             </div>
             <div className="workspace-files-tree">
@@ -408,10 +502,8 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError }:
                   {rootEmpty && <div className="workspace-files-empty">空目录</div>}
                 </>
               )}
-            </div>
-          </div>
-        </div>
-      )}
+
+      </div>
 
       {menu && createPortal(
         <div
@@ -442,6 +534,6 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError }:
           </div>
         </div>
       )}
-    </aside>
+    </DockFrame>
   );
 }

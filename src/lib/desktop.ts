@@ -244,15 +244,43 @@ export interface DshCredential {
 
 export type DshPluginFiberPhase = "pending" | "loading" | "active" | "failed" | "unloading" | null;
 
+export interface DshPluginCompatibility {
+  supported: boolean;
+  reason?: string;
+}
+
 export interface DshPluginInventoryEntry {
   entryId: string;
   moduleName: string;
   enabled: boolean;
   fiberPhase: DshPluginFiberPhase;
+  compatibility?: DshPluginCompatibility;
 }
 
 export interface DshPluginInventorySnapshot {
   entries: DshPluginInventoryEntry[];
+  excluded?: DshPluginInventoryEntry[];
+}
+
+export interface DshPluginConfigEntry {
+  id: string;
+  name: string;
+  enabled: boolean;
+  system: boolean;
+  compatibility: DshPluginCompatibility;
+}
+
+export interface DshPluginConfigDescription {
+  revision: number;
+  path: string;
+  plugins: DshPluginConfigEntry[];
+  patch: unknown[];
+  fingerprint: string;
+}
+
+export interface DshPluginConfigMutation extends DshPluginConfigDescription {
+  changed: boolean;
+  restartRequired: boolean;
 }
 
 export interface DshBridgeEvent {
@@ -532,11 +560,44 @@ export interface WorkspaceFileEntry {
   modified: number;
 }
 
+export type WorkspaceGitFileStatus = "staged" | "changed" | "staged-changed" | "untracked" | "conflicted";
+
+export interface WorkspaceGitFile {
+  path: string;
+  status: WorkspaceGitFileStatus;
+  code: string;
+  indexStatus: string;
+  worktreeStatus: string;
+  isRenamed: boolean;
+}
+
+export interface WorkspaceGitStatus {
+  isRepository: boolean;
+  root: string | null;
+  branch: string | null;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  staged: number;
+  changed: number;
+  untracked: number;
+  conflicted: number;
+  files: WorkspaceGitFile[];
+}
+
 /** List the entries under a workspace directory (folders first, then by name). */
 export async function listWorkspaceFiles(dir: string): Promise<WorkspaceFileEntry[]> {
   if (!isTauri()) return [];
   const entries = await invoke<unknown>("list_workspace_files", { dir });
   return Array.isArray(entries) ? (entries as WorkspaceFileEntry[]) : [];
+}
+
+/** Read the current project's branch and per-file Git working tree status. */
+export async function getWorkspaceGitStatus(dir: string): Promise<WorkspaceGitStatus> {
+  if (!isTauri()) {
+    return { isRepository: false, root: null, branch: null, upstream: null, ahead: 0, behind: 0, staged: 0, changed: 0, untracked: 0, conflicted: 0, files: [] };
+  }
+  return invoke<WorkspaceGitStatus>("get_workspace_git_status", { dir });
 }
 
 /** Open a file or folder in VSCode (falls back to the OS default opener). */

@@ -2,11 +2,12 @@ import { useRef, useState } from "react";
 import type { BackgroundConfig, BackgroundSettings, BackgroundZone } from "../app/model";
 import { backgroundZoneLabels, backgroundZones } from "../app/useAppearanceSettings";
 
-type SettingsBackgroundPanelProps = {
+export type SettingsBackgroundPanelProps = {
   backgrounds: BackgroundSettings;
   onUpdateBackground: (zone: BackgroundZone, patch: Partial<BackgroundConfig>) => void;
   onBackgroundFile: (zone: BackgroundZone, file: File | undefined) => void;
   onClearBackground: (zone: BackgroundZone) => void;
+  embedded?: boolean;
 };
 
 const backgroundPositions: BackgroundConfig["position"][] = ["center", "top", "bottom", "left", "right"];
@@ -23,6 +24,7 @@ export function SettingsBackgroundPanel({
   onUpdateBackground,
   onBackgroundFile,
   onClearBackground,
+  embedded = false,
 }: SettingsBackgroundPanelProps) {
   const [zone, setZone] = useState<BackgroundZone>("global");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -33,10 +35,10 @@ export function SettingsBackgroundPanel({
     `${extra}${zone === item ? " selected" : ""}${backgrounds[item].image ? " has-image" : ""}`.trim();
 
   return (
-    <div className="settings-page background-settings-page">
-      <div className="settings-page-header">
+    <div className={embedded ? "background-settings-page embedded-background-settings-page" : "settings-page background-settings-page"}>
+      {!embedded && <div className="settings-page-header">
         <div><span className="settings-overline">BACKGROUND WORKBENCH</span><h2>背景工作台</h2><p>为不同的界面区域单独设置背景图，互不干扰。</p></div>
-      </div>
+      </div>}
 
       <div className="settings-block">
         <div className="settings-block-heading"><div><h3>区域</h3><p>点击下方分区或示意图中的区域进行编辑。</p></div></div>

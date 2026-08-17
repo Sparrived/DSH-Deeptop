@@ -4,6 +4,7 @@ export * from "./settings-model";
 export * from "./ui-model";
 
 export type {
+  AppearanceSection,
   AppearanceSettings,
   AppTheme,
   BackgroundConfig,
