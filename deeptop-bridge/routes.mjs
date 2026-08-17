@@ -136,6 +136,56 @@ async function restoreWorkspaceSession(ctx, payload) {
   })
 }
 
+function liveSession(ctx, sessionId) {
+  const session = ctx.get?.('sessions')?.get?.(sessionId)
+  const agent = ctx.get?.('agents')?.get?.(sessionId)
+  return { session, agent }
+}
+
+function parentSessionIdFromAgent(agent) {
+  const candidates = [
+    agent?.parentSessionId,
+    agent?.header?.parentSessionId,
+    agent?.session?.parentSessionId,
+    agent?.address?.parentSessionId,
+  ]
+  return candidates.find((value) => typeof value === 'string' && value.trim() !== '')
+}
+
+async function waitForSessionStopped(ctx, sessionId, signal) {
+  const configuredTimeout = Number(ctx.sessionStopTimeoutMs)
+  const timeoutMs = Number.isFinite(configuredTimeout) ? Math.max(0, configuredTimeout) : 5000
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    signal?.throwIfAborted()
+    const live = liveSession(ctx, sessionId)
+    if (live.session === undefined && live.agent === undefined) return
+    if (Date.now() >= deadline) {
+      throw new Error(`session "${sessionId}" did not stop after the cancellation request`)
+    }
+    await new Promise((resolve) => setTimeout(resolve, Math.min(50, Math.max(1, deadline - Date.now()))))
+  }
+}
+
+async function stopSessionBeforeDelete(ctx, sessionId, signal) {
+  const live = liveSession(ctx, sessionId)
+  if (live.session === undefined && live.agent === undefined) return
+  signal?.throwIfAborted()
+
+  const parentSessionId = parentSessionIdFromAgent(live.agent)
+  if (live.agent !== undefined && parentSessionId && typeof ctx.apiProxy?.subagents?.interrupt === 'function') {
+    await ctx.apiProxy.subagents.interrupt({
+      rpcId: randomUUID(),
+      payload: { parentSessionId, childSessionId: sessionId, mode: 'continuable' },
+    })
+  } else if (typeof ctx.apiProxy?.sessions?.cancel === 'function') {
+    await ctx.apiProxy.sessions.cancel({ rpcId: randomUUID(), payload: { sessionId } })
+  } else {
+    throw new Error(`session "${sessionId}" is still running and the host cannot cancel it`)
+  }
+  await waitForSessionStopped(ctx, sessionId, signal)
+}
+
 async function deleteArchivedSession(ctx, payload, signal) {
   const sessionId = sessionIdFromPayload(payload, 'workspace.deleteArchivedSession')
   const registry = archiveRegistry(ctx)
@@ -149,9 +199,7 @@ async function deleteArchivedSession(ctx, payload, signal) {
     if (!state.archivedSessionIds.includes(sessionId)) {
       throw new Error(`session "${sessionId}" is not archived`)
     }
-    if (ctx.get?.('sessions')?.get?.(sessionId) !== undefined || ctx.get?.('agents')?.get?.(sessionId) !== undefined) {
-      throw new Error(`session "${sessionId}" is still running; stop it before deleting it`)
-    }
+    await stopSessionBeforeDelete(ctx, sessionId, signal)
 
     const header = (await persistence.list(signal)).find((item) => item?.id === sessionId)
     signal?.throwIfAborted()
