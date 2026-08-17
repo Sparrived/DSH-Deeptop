@@ -689,7 +689,8 @@
 }
 
 .inspector-modal.settings-modal .inspector-panel {
-  width: min(720px, 100%);
+  /* 插件清单和配置表单需要更宽的横向空间，桌面端优先使用宽面板。 */
+  width: min(1080px, calc(100vw - 56px));
   height: min(820px, calc(100vh - var(--window-bar-height) - 56px));
   max-height: calc(100vh - var(--window-bar-height) - 56px);
   border: 1px solid var(--line-strong);
