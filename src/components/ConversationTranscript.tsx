@@ -477,7 +477,9 @@ export function ConversationTranscript({
         <TrajectoryView entries={history} active={activeRunning || loading} />
       ) : transcript.length === 0 && !loading ? (
         <div className="empty-conversation">
-          <div className="empty-mark">DSH</div>
+          <div className="empty-mark" role="img" aria-label="Deeptop">
+            <span className="empty-mark-text" aria-hidden="true">Deeptop</span>
+          </div>
           <h1>{activeSession ? "继续这个会话" : "开始一个会话"}</h1>
           <p>{activeSession ? "历史消息会在这里继续，输入下一条指令即可。" : "消息会在发送时创建 DSH 会话。"}</p>
           <div className="empty-meta"><span>{workspace || runtimeDirectory || "运行目录"}</span><span>{modelName}</span></div>

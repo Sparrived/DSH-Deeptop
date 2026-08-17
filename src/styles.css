@@ -8661,19 +8661,75 @@ textarea:focus-visible {
 }
 
 .empty-mark {
-  width: 48px;
-  height: 48px;
-  display: grid;
-  place-items: center;
+  position: relative;
+  isolation: isolate;
+  width: fit-content;
+  min-width: 176px;
   margin-bottom: 20px;
-  border: 1px solid var(--accent);
-  border-radius: 14px;
-  background: var(--accent-soft);
-  color: var(--accent-deep);
-  font-family: var(--mono);
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  padding: 4px 0 8px;
+  color: var(--ink-strong);
+  font-family: "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  font-size: clamp(32px, 4vw, 48px);
+  font-weight: 800;
+  letter-spacing: -0.085em;
+  line-height: 0.92;
+  text-transform: none;
+}
+
+.empty-mark::before,
+.empty-mark::after {
+  position: absolute;
+  z-index: -1;
+  content: "";
+  pointer-events: none;
+}
+
+.empty-mark::before {
+  top: 50%;
+  left: -14px;
+  width: 64px;
+  height: 64px;
+  border: 1px solid color-mix(in srgb, var(--accent) 54%, transparent);
+  border-radius: 50%;
+  transform: translateY(-52%);
+  box-shadow: 0 0 22px color-mix(in srgb, var(--accent) 28%, transparent);
+  animation: empty-mark-orbit 4.6s ease-in-out infinite;
+}
+
+.empty-mark::after {
+  right: 7px;
+  bottom: 0;
+  width: 78%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: .72;
+  animation: empty-mark-scan 2.8s ease-in-out infinite;
+}
+
+.empty-mark-text {
+  display: inline-block;
+  background: linear-gradient(112deg, var(--ink-strong) 18%, var(--accent-deep) 46%, var(--ink-strong) 68%);
+  background-size: 220% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 3px 12px color-mix(in srgb, var(--accent) 22%, transparent));
+  animation: empty-mark-shimmer 5.2s ease-in-out infinite;
+}
+
+@keyframes empty-mark-orbit {
+  0%, 100% { opacity: .48; transform: translateY(-52%) translateX(0) scale(.92); }
+  50% { opacity: .95; transform: translateY(-52%) translateX(6px) scale(1.08); }
+}
+
+@keyframes empty-mark-scan {
+  0%, 100% { opacity: .28; transform: scaleX(.68); transform-origin: left; }
+  50% { opacity: .9; transform: scaleX(1); transform-origin: right; }
+}
+
+@keyframes empty-mark-shimmer {
+  0%, 72%, 100% { background-position: 100% 50%; }
+  86% { background-position: 0% 50%; }
 }
 
 .empty-conversation h1 {
