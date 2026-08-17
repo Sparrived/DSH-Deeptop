@@ -2831,6 +2831,20 @@ async fn pick_theme_css() -> Result<Option<String>, String> {
     Ok(picked.map(|path| path.to_string_lossy().into_owned()))
 }
 
+/// 弹出原生文件选择对话框，选择桌面插件入口文件；取消时返回 None。
+#[tauri::command]
+async fn pick_plugin_entry() -> Result<Option<String>, String> {
+    let picked = tauri::async_runtime::spawn_blocking(|| {
+        rfd::FileDialog::new()
+            .set_title("选择桌面插件入口文件")
+            .add_filter("JavaScript / TypeScript", &["js", "mjs", "cjs", "ts", "mts", "cts"])
+            .pick_file()
+    })
+    .await
+    .map_err(|error| format!("打开插件文件选择对话框失败：{error}"))?;
+    Ok(picked.map(|path| path.to_string_lossy().into_owned()))
+}
+
 /// 在系统文件管理器中打开主题目录，方便用户直接编辑外部主题文件。
 #[tauri::command]
 fn open_themes_directory() -> Result<(), String> {
@@ -2949,6 +2963,7 @@ fn main() {
             ensure_theme_files,
             read_theme_css,
             pick_theme_css,
+            pick_plugin_entry,
             open_themes_directory,
         ])
         .run(tauri::generate_context!())

@@ -5,10 +5,63 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { constants, zstdCompressSync, zstdDecompressSync } from 'node:zlib'
 import { routeDesktopRequest } from './routes.mjs'
+import { describePluginConfig, mutatePluginConfig } from './plugin-config.mjs'
 import { parseGitHubSource, validateRelativeRepoPath } from './skill-installer.mjs'
 import { reconstructContiguous, rowSeqs, scanZstdFrames, verifyReadable } from './session-repair.mjs'
 
 const signal = new AbortController().signal
+
+test('describes an empty plugin config without requiring a browser dialog', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-plugin-config-'))
+  try {
+    const result = await describePluginConfig({ get: key => key === 'dshHome' ? root : undefined })
+    assert.equal(result.plugins.length, 0)
+    assert.match(result.path, /deeptop-plugins\.json$/)
+  } finally {
+    await removePath(root, { recursive: true, force: true })
+  }
+})
+
+test('mutates plugin config and rejects duplicate ids before writing', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-plugin-config-'))
+  const ctx = { get: key => key === 'dshHome' ? root : undefined }
+  try {
+    const result = await mutatePluginConfig(ctx, {
+      expectedRevision: 0,
+      plugins: [{ id: 'local-tools', name: 'D:/plugins/local-tools/index.ts', enabled: true }],
+    })
+    assert.equal(result.changed, true)
+    assert.equal(result.restartRequired, true)
+    assert.equal(result.plugins[0].id, 'local-tools')
+    await assert.rejects(
+      mutatePluginConfig(ctx, {
+        expectedRevision: result.revision,
+        plugins: [
+          { id: 'local-tools', name: 'D:/plugins/local-tools/index.ts', enabled: true },
+          { id: 'local-tools', name: '@scope/other', enabled: true },
+        ],
+      }),
+      /插件 id 重复/,
+    )
+  } finally {
+    await removePath(root, { recursive: true, force: true })
+  }
+})
+
+test('routes plugin inventory and config methods through the desktop bridge', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-plugin-route-'))
+  try {
+    const result = await routeDesktopRequest({
+      get: key => key === 'dshHome' ? root : undefined,
+      pluginInventory: { list: async () => ({ entries: [] }) },
+    }, 'plugin.list', {}, signal)
+    assert.deepEqual(result, { entries: [], excluded: [] })
+    const config = await routeDesktopRequest({ get: key => key === 'dshHome' ? root : undefined }, 'plugin.config.describe', {}, signal)
+    assert.deepEqual(config.plugins, [])
+  } finally {
+    await removePath(root, { recursive: true, force: true })
+  }
+})
 
 test('routes an allowlisted API method with a generated RPC id', async () => {
   const ctx = {

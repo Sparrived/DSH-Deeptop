@@ -1,0 +1,78 @@
+.popup-plugin-install-dialog .popup-window { width: min(620px, 100%); }
+.plugin-install-form { display: grid; gap: 18px; }
+.plugin-install-source-picker {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.plugin-install-source-picker legend {
+  grid-column: 1 / -1;
+  padding: 0;
+  color: var(--ink-muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+.plugin-install-source-picker label {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  cursor: pointer;
+}
+.plugin-install-source-picker label.selected {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--line-strong));
+  background: color-mix(in srgb, var(--accent-soft) 45%, var(--surface-raised));
+}
+.plugin-install-source-picker input { margin: 3px 0 0; accent-color: var(--accent); }
+.plugin-install-source-picker span { min-width: 0; display: grid; gap: 4px; }
+.plugin-install-source-picker strong { color: var(--ink-strong); font-size: 13px; }
+.plugin-install-source-picker small,
+.plugin-install-help { color: var(--ink-faint); font-size: 11px; line-height: 1.45; }
+.plugin-install-path-control { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.plugin-install-path-control input { min-width: 0; }
+.plugin-install-path-control button {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  color: var(--ink-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.plugin-install-path-control button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-deep); }
+.plugin-install-error { margin: -5px 0 0; color: var(--danger); font-size: 12px; line-height: 1.5; }
+.plugin-install-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 15px;
+  border-top: 1px solid var(--line);
+}
+.plugin-install-steps span { display: flex; align-items: center; gap: 7px; color: var(--ink-faint); font-size: 11px; }
+.plugin-install-steps b {
+  width: 21px;
+  height: 21px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  font: 11px/1 var(--mono);
+}
+@media (max-width: 560px) {
+  .plugin-install-source-picker { grid-template-columns: 1fr; }
+  .plugin-install-source-picker legend { grid-column: auto; }
+  .plugin-install-path-control { grid-template-columns: 1fr; }
+  .plugin-install-path-control button { width: 100%; }
+  .plugin-install-steps { grid-template-columns: 1fr; gap: 7px; }
+}

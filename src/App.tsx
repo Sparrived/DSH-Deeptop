@@ -23,6 +23,7 @@ import { DeliverablesPanel } from "./components/DeliverablesPanel";
 import { UtilityDockShelf } from "./components/UtilityDockShelf";
 import { WindowChrome } from "./components/WindowChrome";
 import { PopupDialog } from "./components/PopupDialog";
+import { PluginInstallDialog, type PluginInstallDraft } from "./components/PluginInstallDialog";
 import { useProviderSettings } from "./app/useProviderSettings";
 import { useWindowControls } from "./app/useWindowControls";
 import { routeBridgeEvent } from "./app/bridge-event-handler";
@@ -40,6 +41,7 @@ import {
   openLogsDirectory,
   openNodejsDownload,
   saveExportFile,
+  pickPluginEntry,
   pickWorkspace,
   listPendingOpenSessions,
   acknowledgePendingOpenSession,
@@ -320,6 +322,8 @@ function App() {
   const [pluginConfig, setPluginConfig] = useState<DshPluginConfigDescription | null>(null);
   const [pluginConfigDraft, setPluginConfigDraft] = useState<DshPluginConfigEntry[]>([]);
   const [pluginConfigSaving, setPluginConfigSaving] = useState(false);
+  const [pluginInstallOpen, setPluginInstallOpen] = useState(false);
+  const [pluginPickingEntry, setPluginPickingEntry] = useState(false);
   const [showInspector, setShowInspector] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
   const [appearanceSection, setAppearanceSection] = useState<AppearanceSection>("theme");
@@ -935,15 +939,31 @@ function App() {
     applyPluginConfig(result);
   }
 
-  async function addPlugin() {
-    const id = window.prompt("插件 id", "my-plugin")?.trim();
-    const name = window.prompt("插件模块路径或包名", "C:/absolute/path/to/plugin/src/index.ts")?.trim();
-    if (!id || !name) return;
-    if (pluginConfigDraft.some((plugin) => plugin.id === id)) {
-      setErrorNotice(`插件 id 已存在：${id}`);
-      return;
+  function addPlugin(draft: PluginInstallDraft): string | null {
+    if (!desktop) return "添加插件只在 Tauri 桌面端可用。";
+    setPluginConfigDraft((current) => [...current, {
+      id: draft.id,
+      name: draft.name,
+      enabled: true,
+      system: false,
+      compatibility: { supported: true },
+    }]);
+    setPluginInstallOpen(false);
+    setNotice(`已添加插件：${draft.id}，保存列表后即可应用`);
+    return null;
+  }
+
+  async function pickPluginEntryForInstall(): Promise<string | null> {
+    if (!desktop) return null;
+    setPluginPickingEntry(true);
+    try {
+      return await pickPluginEntry();
+    } catch (error) {
+      setErrorNotice(errorText(error));
+      return null;
+    } finally {
+      setPluginPickingEntry(false);
     }
-    setPluginConfigDraft((current) => [...current, { id, name, enabled: true, system: false, compatibility: { supported: true } }]);
   }
 
   async function savePluginConfig(): Promise<boolean> {
@@ -3392,7 +3412,7 @@ function App() {
                      pluginConfigDirty={pluginConfigDirty}
                      pluginConfigSaving={pluginConfigSaving}
                      onSearchChange={setPluginSearch}
-                     onAddPlugin={() => void addPlugin()}
+                     onAddPlugin={() => setPluginInstallOpen(true)}
                      onUpdatePlugin={updatePluginConfig}
                      onToggleConfigPlugin={togglePluginConfig}
                      onRemovePlugin={removePluginConfig}
@@ -3412,7 +3432,14 @@ function App() {
             </aside>
           </div>
         )}
-      {popupRequest?.kind === "confirm" && <PopupDialog
+      {pluginInstallOpen && <PluginInstallDialog
+         existingIds={pluginConfigDraft.map((plugin) => plugin.id)}
+         pickingEntry={pluginPickingEntry}
+         onClose={() => setPluginInstallOpen(false)}
+         onPickEntry={pickPluginEntryForInstall}
+         onSubmit={addPlugin}
+       />}
+       {popupRequest?.kind === "confirm" && <PopupDialog
         title="请确认操作"
         eyebrow="DSH / 确认操作"
         description="请确认是否继续执行此操作。"

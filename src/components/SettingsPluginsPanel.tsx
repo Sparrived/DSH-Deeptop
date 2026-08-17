@@ -86,7 +86,7 @@ export function SettingsPluginsPanel({
 
       <section className="settings-block settings-plugin-config-block">
         <div className="settings-block-heading">
-          <div><h3>桌面插件列表</h3><p>在这里启用、停用、添加或移除用户插件。内置 Deeptop 服务始终保留。</p></div>
+          <div><h3>桌面插件列表</h3><p>插件会在下次启动时加载。添加时可选择本地入口文件，或登记已经安装好的 npm 包名；内置 Deeptop 服务始终保留。</p></div>
           <button className="settings-header-action" type="button" onClick={onAddPlugin} disabled={!writable || pluginConfigSaving}>添加插件</button>
         </div>
         {pluginConfig === null ? <p className="settings-empty">正在读取插件配置…</p> : pluginConfigDraft.length === 0 ? <div className="settings-plugin-empty-action"><p className="settings-empty">还没有添加用户插件。</p><button className="settings-header-action" type="button" onClick={onAddPlugin} disabled={!writable}>添加第一个插件</button></div> : <div className="settings-config-plugin-list">

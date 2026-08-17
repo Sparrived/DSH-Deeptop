@@ -708,6 +708,12 @@ export async function pickThemeCss(): Promise<string | null> {
   return invoke<string | null>("pick_theme_css");
 }
 
+/** Open the native file picker for a desktop plugin entry file; returns null when cancelled. */
+export async function pickPluginEntry(): Promise<string | null> {
+  if (!isTauri()) return null;
+  return invoke<string | null>("pick_plugin_entry");
+}
+
 /** Reveal the themes directory in the OS file manager. */
 export async function openThemesDirectory(): Promise<void> {
   if (!isTauri()) return;
