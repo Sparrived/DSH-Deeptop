@@ -1,6 +1,6 @@
 # Deeptop 项目说明手册
 
-> 本手册描述当前仓库实现，不是 DSH 官方 API 的替代文档。Deeptop 运行时跟随 `@deepseek-ai/dsh@latest`，因此 DSH 升级后应重新检查 Profile、ApiProxy 和 Remote 契约。
+> 本手册描述当前仓库实现，不是 DSH 官方 API 的替代文档。Deeptop 运行时来自 `vendor/dsh` 子模块锁定的 DSH 提交；更新子模块后应重新生成并验证 `dsh-runtime`，再检查 Profile、ApiProxy 和 Remote 契约。
 
 ## 1. 项目定位
 
@@ -21,8 +21,8 @@ Deeptop 是 DSH 的原生桌面工作台：
 
 - Node.js 22.19+ 或 24+；
 - Rust/Cargo 和 Tauri 桌面开发环境；
-- Node.js 与 npm 在 `PATH` 中可用；
-- 首次启动 DSH 时可访问 npm registry；
+- Node.js 在 `PATH` 中可用（npm 仅用于开发依赖安装）；
+- 首次生成内嵌 DSH 运行时时可访问 npm registry，或构建机已有源码依赖缓存；
 - Windows 上需要可用的 WebView2 环境。
 
 安装依赖并启动桌面应用：
@@ -43,6 +43,8 @@ Vite 浏览器预览没有 Tauri 的 `invoke`、事件通道和 DSH 子进程，
 ### 2.2 构建与测试
 
 ```powershell
+npm run dsh:sync
+npm run dsh:verify
 npm run build
 npm run tauri:build
 npm run test:bridge
@@ -55,7 +57,7 @@ npm run version:check
 
 ### 2.3 首次启动与用户流程
 
-1. 启动 `npm run tauri:dev`，等待 DSH runtime status 进入 ready。首次启动可能通过 npm registry 下载 `@deepseek-ai/dsh@latest`。
+1. 启动 `npm run tauri:dev`，等待 DSH runtime status 进入 ready。开发命令会先从 `vendor/dsh` 生成并校验内嵌运行时，应用启动不会访问 npm registry。
 2. 在 Settings/Workbench 中配置 Provider 和凭据（如果当前 Profile 暴露这些域）；凭据由 DSH API 管理，不应提交到仓库。
 3. 选择或创建 Workspace。新会话使用选定目录作为 `cwd`，已存在的 Session 不会被隐式改写。
 4. 创建 Session、选择模型并发送消息；运行中可通过 queue 或 steering 模式追加上下文。
@@ -243,7 +245,7 @@ Rust 将 Bridge 帧转发为 `deeptop-bridge-event`，React 再通过 `bridge-ev
 ### DSH 未就绪
 
 1. 检查运行时 Inspector 的状态和诊断文本。
-2. 确认 Node.js、npm 和 npm registry 可用；缺少 npm 时应用会快速失败并提示重试，不会无限等待；如果 DSH 缺失，应用会执行一次带超时的非交互安装。
+2. 确认 Node.js 在 `PATH` 中可用，并检查安装包的 `dsh-runtime/runtime-manifest.json`、CLI 入口和版本清单。
 3. 确认 `DSH_HOME` 可写。
 4. 检查 `$DSH_HOME/profiles/desktop/package.json` 和 `cordis.patch.yml` 是否为有效内容。
 5. 刷新 DSH 运行时，观察新的启动日志。
@@ -271,7 +273,7 @@ Rust 将 Bridge 帧转发为 `deeptop-bridge-event`，React 再通过 `bridge-ev
 
 ## 11. 版本漂移与证据范围
 
-Deeptop 启动的是 `@deepseek-ai/dsh@latest`，实际解析到的 DSH 版本可能随 npm registry 变化。仓库源码可以证明 Bridge 的启动命令、Profile 物化、路由 allowlist、JSONL 协议和已实现的 React 入口，但不能单独证明某个 DSH 版本内部服务的全部语义。不要把 Deeptop 描述为 DSH 官方桌面客户端、官方 fork 或“已覆盖全部官方插件”。
+Deeptop 启动的是 `vendor/dsh` 固定提交构建的 DSH 版本；运行时清单记录源码提交、包版本和目标平台。仓库源码可以证明 Bridge 的启动命令、Profile 物化、路由 allowlist、JSONL 协议和已实现的 React 入口，但不能单独证明某个 DSH 版本内部服务的全部语义。不要把 Deeptop 描述为 DSH 官方桌面客户端、官方 fork 或“已覆盖全部官方插件”。
 
 判断能力是否可用时，应以当前 Profile、`deeptop-bridge/routes.mjs`、`src/lib/desktop.ts` 和事件处理代码为依据。未出现在这些边界中的 DSH 能力不能视为已支持；可选域缺失时，面板应保持不可用。版本升级后应重新验证：
 

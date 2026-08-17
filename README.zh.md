@@ -41,7 +41,7 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 
 ## 首次使用
 
-1. 运行 `npm run tauri:dev`，等待运行时指示器显示 DSH 已就绪。启动时会优先复用 PATH 中的 `dsh`、npm 全局安装、`DSH_HOME` 本地 prefix 或 npm/npx 缓存；这些来源都不可用时，才会通过本机 npm 自动安装 `@deepseek-ai/dsh@latest`。
+1. 运行 `npm run tauri:dev`，等待运行时指示器显示 DSH 已就绪。开发启动会从 `vendor/dsh` 构建并同步固定提交的内嵌运行时；应用启动不会使用 PATH 中的 `dsh`、npm 全局安装、`DSH_HOME` prefix、npm/npx 缓存或 registry。
 2. 打开设置/运行台；如果当前 Profile 提供对应域，配置 Provider 和凭据。凭据通过 DSH API 写入，不要把密钥放进仓库或 Profile 补丁。
 3. 选择或创建工作区。选定目录会作为新建会话的 `cwd`，不会自动修改已有会话的工作目录。
 4. 创建会话、选择模型并发送提示。运行中需要追加上下文时，可使用 queue 或 steering 模式。
@@ -95,9 +95,9 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 2. 创建 `$DSH_HOME/profiles/desktop`，写入或补齐 desktop Profile 清单。
 3. 将内置 `deeptop-bridge` 写入 `$DSH_HOME/profiles/node_modules/deeptop-bridge`，因此无需全局安装该 Bridge。
 4. 保留用户已有的 desktop Profile Bundle 和 `$DSH_HOME/profiles/desktop/cordis.patch.yml` 修改。
-5. 按优先级复用已有的 DSH：PATH 中的 `dsh` 命令、npm 全局安装、`DSH_HOME` 本地 prefix，以及 npm/npx 缓存。
-6. 只有上述来源都不可用时，才通过本机 npm 将 `@deepseek-ai/dsh@latest` 安装到 `$DSH_HOME` prefix；自动安装只是兼容性回退，不是必须步骤。
-7. 最终始终通过正常的 `dsh` 命令或 npm exec 启动 DSH，并等待 Bridge 返回 `deeptop/1` 的 `ready` 帧。
+5. 从 Tauri 安装包的 `dsh-runtime` 资源读取固定版本的 DSH 源码构建产物和完整依赖树。
+6. 通过系统 Node.js 直接执行内嵌 `@deepseek-ai/dsh/lib/bin.js`，不调用 npm、PATH 中的 `dsh`、全局安装、npm/npx 缓存或 registry。
+7. 运行时资源只读；Profile、会话、日志和设置仍写入 `$DSH_HOME`，然后等待 Bridge 返回 `deeptop/1` 的 `ready` 帧。
 
 选定工作区后，桌面端会将其作为 `session.create({ cwd })` 的工作目录传给 DSH；它不会把桌面项目目录隐式当成所有会话的工作区。Storage、Session Persistence 和 Profile 数据仍由 DSH 按自身配置管理。
 
@@ -107,8 +107,8 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 
 - Node.js 22.19+ 或 24+；
 - Rust/Cargo，以及 Tauri 所需的 Windows 桌面开发环境；
-- Node.js 与 npm 位于 `PATH` 中；
-- 首次启动 DSH 时可以访问配置的 npm registry；
+- Node.js 位于 `PATH` 中（npm 仅用于开发依赖安装，不参与安装包运行时）；
+- 首次构建内嵌 DSH 运行时需要访问 npm registry，或构建机已准备好 DSH 源码依赖缓存；运行中的安装包不访问 registry；
 - Windows 运行时需要可用的 WebView2 环境。
 
 安装依赖：
@@ -134,6 +134,10 @@ npm run dev
 ## 构建与测试
 
 ```powershell
+# 从固定 vendor/dsh 提交生成并校验内嵌运行时
+npm run dsh:sync
+npm run dsh:verify
+
 # TypeScript 检查并构建 Vite 前端
 npm run build
 
@@ -152,7 +156,7 @@ npm run version:check
 
 `npm run build` 实际执行 `tsc --noEmit && vite build`；`npm run tauri:dev` 会按 Tauri 配置先启动 Vite，`npm run tauri:build` 会构建原生应用和已启用的 bundle。准备发布时使用 `npm run version:set -- 0.2.0`，它会同步更新 npm、Bridge、Tauri 和 Cargo 清单。每次修改至少运行 `npm run build` 与 `npm test`；修改 Bridge 或重试逻辑时同时运行对应专项测试。
 
-运行时会跟随不断变化的 `@deepseek-ai/dsh@latest`。本文档描述 Deeptop 使用的接口，而不是 DSH 的全部内部实现；升级 DSH 后，应重新验证 Profile、ApiProxy 方法、Remote 契约和事件投影。
+内嵌 DSH 来自 `vendor/dsh` 子模块锁定的 DeepSeek Harness 提交；构建脚本会先构建 Host 产物，再生成无 workspace 链接的 `dsh-runtime` 资源。升级 DSH 时应更新子模块指针、运行时清单，并重新验证 Profile、ApiProxy 方法、Remote 契约和事件投影。
 
 ## 扩展桌面 Profile
 
@@ -215,13 +219,13 @@ Deeptop 的目标是“功能和契约兼容，界面和生命周期原生化”
 
 ## 常见问题
 
-### 找不到 Node.js 或 npm
+### 找不到 Node.js
 
-如果缺少 npm，Deeptop 会快速失败并显示可重试的提示，不会一直卡在安装中。请确认 Node.js（包含 npm）已安装，并且启动 Deeptop 的进程继承了正确的 `PATH`；缺少 npm 时无法自动安装 DSH。
+Deeptop 通过系统 `PATH` 中的 Node.js 直接执行安装包内嵌的 DSH JavaScript；npm 不参与安装包运行时。请安装 Node.js 22.19+ 或 24+，确认启动 Deeptop 的进程继承了正确的 `PATH`，然后重试。
 
 ### DSH 启动失败或停留在“正在启动”
 
-打开运行时 Inspector 查看 DSH 状态和诊断信息，确认 npm registry 可访问、`DSH_HOME` 可写、desktop Profile 的 JSON/YAML 没有被破坏。修改 Profile 后可通过应用的刷新运行时操作重新启动 DSH。
+打开运行时 Inspector 查看 DSH 状态和诊断信息，确认 `DSH_HOME` 可写、安装包的 `dsh-runtime/runtime-manifest.json` 与 DSH 入口完整、desktop Profile 的 JSON/YAML 没有被破坏。修改 Profile 后可通过应用的刷新运行时操作重新启动 DSH。
 
 ### 浏览器预览没有会话
 

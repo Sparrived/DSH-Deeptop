@@ -27,11 +27,9 @@ export function StartupSplash({
   onClose,
 }: StartupSplashProps) {
   const failed = !status.runtimeStarting && !status.runtimeAvailable;
-  const installing = status.installing;
-  const registryTesting = status.registryTesting;
-  const phase = failed ? "error" : registryTesting ? "registry" : installing ? "install" : status.runtimeStarting ? "start" : "check";
-  const phaseLabel = failed ? "RUNTIME UNAVAILABLE" : registryTesting ? "TESTING NPM REGISTRIES" : installing ? "INSTALLING DSH" : status.runtimeStarting ? "STARTING RUNTIME" : "CHECKING ENVIRONMENT";
-  const phaseTitle = failed ? "DSH 暂时无法启动" : registryTesting ? "正在测试下载速度" : installing ? "正在准备 DSH" : status.runtimeStarting ? "正在连接 DSH" : "正在检查运行环境";
+  const phase = failed ? "error" : status.runtimeStarting ? "start" : "check";
+  const phaseLabel = failed ? "RUNTIME UNAVAILABLE" : status.runtimeStarting ? "STARTING BUNDLED RUNTIME" : "CHECKING BUNDLED RUNTIME";
+  const phaseTitle = failed ? "DSH 暂时无法启动" : status.runtimeStarting ? "正在启动内嵌 DSH" : "正在检查内嵌运行时";
   const phaseDescription = status.message || (failed ? "启动过程被中断，请检查环境后重试。" : "正在等待 DSH 桌面宿主就绪...");
   const logViewportRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -40,9 +38,8 @@ export function StartupSplash({
   }, [logs]);
   const statusDetails = [
     { label: "Node.js", active: status.nodeAvailable, detail: status.nodeAvailable ? "已发现" : "未找到" },
-    { label: "npm", active: status.npmAvailable, detail: status.npmAvailable ? "已发现" : "未找到" },
-    { label: "DSH package", active: status.packageAvailable, detail: status.packageAvailable ? "已就绪" : installing ? "准备安装" : "等待中" },
-    { label: "npm registry", active: Boolean(status.selectedRegistry), detail: status.selectedRegistry ? status.selectedRegistry.replace(/^https?:\/\//, "") : registryTesting ? "测速中" : "自动选择" },
+    { label: "内嵌 DSH", active: status.packageAvailable, detail: status.packageAvailable ? "已校验" : "等待校验" },
+    { label: "网络安装", active: true, detail: "未使用" },
     { label: "Desktop bridge", active: status.runtimeAvailable, detail: status.runtimeAvailable ? "已连接" : status.runtimeStarting ? "连接中" : "等待中" },
   ];
   const screenStyle = { "--startup-phase": `"${phase}"` } as CSSProperties;
@@ -94,7 +91,7 @@ export function StartupSplash({
         {failed ? (
           <div className="startup-actions">
             <button className="startup-retry" onClick={onRetry}>重新启动 DSH</button>
-            {(!status.nodeAvailable || !status.npmAvailable) && <button className="startup-nodejs" onClick={onOpenNodejsDownload}>安装 Node.js / npm</button>}
+            {!status.nodeAvailable && <button className="startup-nodejs" onClick={onOpenNodejsDownload}>安装 Node.js</button>}
           </div>
         ) : (
           <p className="startup-wait"><i />正在等待桌面桥接就绪</p>

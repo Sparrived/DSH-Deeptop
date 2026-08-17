@@ -69,7 +69,7 @@
 - Node.js **22.19+** 或 **24+**，且 `node`、`npm` 已加入 `PATH`；
 - Rust/Cargo 与 [Tauri 桌面开发环境](https://v2.tauri.app/start/prerequisites/)；
 - Windows 需要可用的 WebView2；
-- 首次启动 DSH 时需要访问已配置的 npm registry。
+- 构建与运行需要 Node.js **22.19+** 或 **24+**；安装包会携带固定版本的 DSH 源码构建运行时，不会在启动时访问 npm registry。
 
 ### 在本地运行
 
@@ -80,7 +80,7 @@ npm ci
 npm run tauri:dev
 ```
 
-启动后等待 DSH 运行时就绪，再选择或创建工作区、配置 Provider 与凭据，然后新建会话开始工作。Deeptop 会优先复用本机可用的 DSH；没有可用运行时时，才通过本机 npm 安装 `@deepseek-ai/dsh@latest` 到 `DSH_HOME`。
+启动后等待内嵌 DSH 运行时就绪，再选择或创建工作区、配置 Provider 与凭据，然后新建会话开始工作。Deeptop 会从安装包的 `dsh-runtime` 资源启动固定版本的 DSH；用户的 PATH、全局 npm、npm 缓存和 registry 不会替换或安装运行时。安装包仍使用系统 Node.js 执行内嵌 JavaScript；缺少 Node.js 时会显示可重试的原生错误。
 
 > `npm run dev` 仅启动 Vite 预览，缺少 Tauri Bridge 和 DSH 子进程。它适合调整布局，不应用于验证会话、文件或系统集成功能。
 
@@ -89,6 +89,8 @@ npm run tauri:dev
 | 目标 | 命令 |
 | --- | --- |
 | 前端类型检查与构建 | `npm run build` |
+| 生成内嵌 DSH 运行时 | `npm run dsh:sync` |
+| 校验内嵌 DSH 运行时 | `npm run dsh:verify` |
 | Bridge 路由测试 | `npm run test:bridge` |
 | 全量 JavaScript 测试 | `npm test` |
 | 原生应用与安装包 | `npm run tauri:build` |

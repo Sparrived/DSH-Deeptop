@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import packageInfo from "../../package.json";
 
-export const DSH_PACKAGE = "@deepseek-ai/dsh@latest";
+export const DSH_PACKAGE = "@deepseek-ai/dsh（内嵌运行时）";
 export const DEEPTOP_VERSION = packageInfo.version;
 export const DEEPTOP_PROJECT_URL = "https://github.com/Sparrived/DSH-Deeptop";
 

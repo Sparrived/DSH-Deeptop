@@ -50,23 +50,20 @@ Rust 启动器在 `src-tauri/src/main.rs` 中内嵌以下资源：
 5. 只在用户文件不存在时创建 `cordis.patch.yml`；
 6. 将 Bridge 内容写到 `$DSH_HOME/profiles/node_modules/deeptop-bridge`。
 
-这样桌面端可以按 Profile 解析 Bridge，同时又不会覆盖用户的 desktop Profile 扩展。启动前会按优先级复用 PATH 中的 `dsh` 命令、npm 全局安装、`$DSH_HOME` prefix 或 npm/npx 缓存；只有这些来源都不可用时，才使用本机 npm 将 `@deepseek-ai/dsh@latest` 安装到 `$DSH_HOME`。自动安装是兼容性回退，不是运行 DSH 的前置要求。
+这样桌面端可以按 Profile 解析 Bridge，同时又不会覆盖用户的 desktop Profile 扩展。运行时资源来自安装包内的固定 DSH 源码构建，资源目录只读；系统 Node.js 直接执行该资源中的 `@deepseek-ai/dsh/lib/bin.js`，不会使用 PATH、全局 npm、`$DSH_HOME` prefix、npm/npx 缓存或 registry。
 
 ### 2.2 DSH 子进程
 
-Rust 最终通过正常的 `dsh` 命令或 npm exec 启动 DSH。实际命令根据发现到的来源选择：
+Rust 通过 Tauri `resource_dir()` 定位 `dsh-runtime`，校验运行时清单、入口和包版本后直接启动系统 Node.js：
 
 ```text
-dsh --profile desktop
-npm exec --global --offline -- dsh --profile desktop
-npm exec --prefix $DSH_HOME --offline -- dsh --profile desktop
-npm exec --prefix <npx-cache-entry> --offline -- dsh --profile desktop
+node <resource-dir>/dsh-runtime/node_modules/@deepseek-ai/dsh/lib/bin.js --profile desktop
 ```
 
 进程环境包括：
 
 - `DSH_HOME`：统一 DSH 配置和数据根目录；
-- 当前目录 `$DSH_HOME`：让 npm prefix、DSH 配置和数据根目录保持一致；
+- 当前目录 `$DSH_HOME`：让 DSH 配置、Profile 和数据根目录保持一致；
 - `NO_COLOR=1`：避免结构化输出被颜色控制字符污染。
 
 stdin、stdout、stderr 均为管道。Windows 下进程隐藏运行；Unix-like 系统使用进程组，便于停止子进程树。

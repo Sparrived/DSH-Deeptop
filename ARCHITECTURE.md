@@ -39,9 +39,9 @@ Tauri window
         WorkspaceGroup.tsx and WorkspacePicker.tsx sidebar subdomains
 
 Tauri runtime
-  -> reuse dsh on PATH, npm global install, $DSH_HOME, or npx cache
-  -> npm install @deepseek-ai/dsh with --prefix $DSH_HOME only as fallback
-  -> launch dsh or npm exec --offline -- dsh --profile desktop
+  -> locate the fixed DSH source build in the Tauri `dsh-runtime` resource
+  -> run the bundled `@deepseek-ai/dsh/lib/bin.js` through system Node.js
+  -> keep Profile, sessions, logs and settings in `$DSH_HOME`; never write to resources
      -> desktop Profile + Cordis services
         -> deeptop-bridge plugin
            -> bridge.mjs       JSONL lifecycle and event forwarding

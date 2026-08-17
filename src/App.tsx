@@ -168,7 +168,7 @@ import { updateCheckStateFromResult, updateCheckErrorMessage, type UpdateCheckSt
 const demoStatus: DshStatus = {
   dshHome: "",
   runtimeDirectory: "",
-  packageName: "@deepseek-ai/dsh@latest",
+  packageName: "@deepseek-ai/dsh（内嵌运行时）",
   runtimeAvailable: false,
   runtimeStarting: false,
   installing: false,

@@ -13,7 +13,7 @@
 
 ## 文档原则
 
-- 以仓库源码和当前 `@deepseek-ai/dsh@latest` 运行方式为准；具体 DSH 版本升级后，应重新验证 Profile 和 API 契约。
+- 以仓库源码和 `vendor/dsh` 子模块锁定的 DSH 提交为准；更新子模块后，应重新生成运行时并验证 Profile 和 API 契约。
 - 把“功能兼容”和“WebUI 实现兼容”分开描述。Deeptop 复用 Host/Cordis、Remote、Projection 和事件语义，但不直接加载 WebUI Client runtime。
 - 对可选插件使用能力探测和失败状态，不假设所有 DSH Profile 都安装了全部领域服务。
 - 新增能力优先进入 DSH Profile；只有桌面传输、原生文件操作和桌面交互才应进入 Bridge/Tauri/React 适配层。
