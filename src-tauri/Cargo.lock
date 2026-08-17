@@ -707,7 +707,7 @@ dependencies = [
 
 [[package]]
 name = "deeptop"
-version = "0.1.2-dev.1"
+version = "0.1.2-dev.2"
 dependencies = [
  "notify-rust",
  "rfd",
