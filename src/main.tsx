@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import { installFrontendLogCapture } from "./lib/frontend-log";
+import "@xterm/xterm/css/xterm.css";
 import "./styles.css";
 import "./styles/terminal-dock.css";
 

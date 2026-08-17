@@ -10,6 +10,7 @@ type DockFrameProps = {
   kicker: string;
   icon: ReactNode;
   railExtra?: ReactNode;
+  keepBodyMounted?: boolean;
   total?: ReactNode;
   toggleGlyph?: ReactNode;
   headerContent?: ReactNode;
@@ -43,6 +44,7 @@ export function DockFrame({
   kicker,
   icon,
   railExtra,
+  keepBodyMounted = false,
   total,
   toggleGlyph = "›",
   headerContent,
@@ -84,8 +86,8 @@ export function DockFrame({
         {railExtra}
       </button>
 
-      {!collapsed && (
-        <div id={contentId} className={joinClasses("dock-frame-card", cardClassName)}>
+      {(keepBodyMounted || !collapsed) && (
+        <div id={contentId} className={joinClasses("dock-frame-card", cardClassName)} hidden={collapsed}>
           <header className={joinClasses("dock-frame-header", headerClassName)}>
             <div className={joinClasses("dock-frame-heading", headingClassName)}>
               <span className={joinClasses("dock-frame-mark", headerMarkClassName ?? markClassName)} aria-hidden="true">{icon}</span>

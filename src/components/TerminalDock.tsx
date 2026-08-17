@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FitAddon } from "@xterm/addon-fit";
+import { Terminal } from "@xterm/xterm";
 import { errorText } from "../app/model";
 import {
   closeTerminal,
   isTauri,
   listenToTerminalOutput,
   listTerminals,
+  resizeTerminal,
   startTerminal,
   writeTerminal,
   type TerminalOption,
@@ -18,22 +21,25 @@ type TerminalDockProps = {
   onError: (message: string) => void;
 };
 
-const MAX_TERMINAL_OUTPUT = 120_000;
-
 export function TerminalDock({ workspace, collapsed, onToggle, onError }: TerminalDockProps) {
   const [terminals, setTerminals] = useState<TerminalOption[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [loading, setLoading] = useState(false);
   const [launching, setLaunching] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [output, setOutput] = useState("");
-  const [input, setInput] = useState("");
   const [exited, setExited] = useState(false);
+  const [terminalReady, setTerminalReady] = useState(false);
+  const [listenerReady, setListenerReady] = useState(false);
+  const terminalHostRef = useRef<HTMLDivElement | null>(null);
+  const terminalRef = useRef<Terminal | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
   const sessionRef = useRef<string | null>(null);
   const targetRef = useRef<string | null>(null);
   const startingRef = useRef(false);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const outputRef = useRef<HTMLPreElement | null>(null);
+  const pendingEventsRef = useRef(new Map<string, { text: string; exited: boolean }>());
+  const aliveRef = useRef(true);
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
 
   const refreshTerminals = useCallback(async () => {
     setLoading(true);
@@ -60,32 +66,137 @@ export function TerminalDock({ workspace, collapsed, onToggle, onError }: Termin
   }, [collapsed, refreshTerminals]);
 
   useEffect(() => {
-    const viewport = outputRef.current;
-    if (viewport) viewport.scrollTop = viewport.scrollHeight;
-  }, [output]);
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+      const current = sessionRef.current;
+      sessionRef.current = null;
+      if (current) void closeTerminal(current);
+    };
+  }, []);
 
   useEffect(() => {
-    if (!isTauri()) return;
+    const host = terminalHostRef.current;
+    if (!host) return;
+
+    const terminal = new Terminal({
+      allowProposedApi: false,
+      convertEol: false,
+      cursorBlink: true,
+      cursorStyle: "bar",
+      fontFamily: '"Cascadia Mono", "JetBrains Mono", "SFMono-Regular", Consolas, monospace',
+      fontSize: 12,
+      lineHeight: 1.2,
+      scrollback: 10_000,
+      theme: {
+        background: "#111815",
+        foreground: "#d8e7da",
+        cursor: "#79d8a8",
+        cursorAccent: "#111815",
+        selectionBackground: "#335544",
+        black: "#111815",
+        brightBlack: "#718477",
+        red: "#ff7b72",
+        brightRed: "#ff9b94",
+        green: "#79d8a8",
+        brightGreen: "#a8f0c3",
+        yellow: "#e8c47a",
+        brightYellow: "#f5d99b",
+        blue: "#8ab4f8",
+        brightBlue: "#b1ccff",
+        magenta: "#d2a8ff",
+        brightMagenta: "#e2c6ff",
+        cyan: "#79d8d8",
+        brightCyan: "#a7eeee",
+        white: "#d8e7da",
+        brightWhite: "#ffffff",
+      },
+    });
+    const fitAddon = new FitAddon();
+    terminal.loadAddon(fitAddon);
+    terminal.open(host);
+    terminalRef.current = terminal;
+    fitAddonRef.current = fitAddon;
+    setTerminalReady(true);
+
+    const resizeDisposable = terminal.onResize(({ cols, rows }) => {
+      const current = sessionRef.current;
+      if (current) void resizeTerminal(current, cols, rows).catch(() => undefined);
+    });
+    const dataDisposable = terminal.onData((data) => {
+      const current = sessionRef.current;
+      if (current) void writeTerminal(current, data).catch((error) => onErrorRef.current(`发送终端输入失败：${errorText(error)}`));
+    });
+    const resizeObserver = new ResizeObserver(() => {
+      try {
+        fitAddon.fit();
+      } catch {
+        // The terminal can be measured while the Dock is hidden.
+      }
+    });
+    resizeObserver.observe(host);
+    requestAnimationFrame(() => {
+      try {
+        fitAddon.fit();
+      } catch {
+        // Wait for the Dock to become visible before fitting again.
+      }
+    });
+
+    return () => {
+      resizeObserver.disconnect();
+      resizeDisposable.dispose();
+      dataDisposable.dispose();
+      terminal.dispose();
+      terminalRef.current = null;
+      fitAddonRef.current = null;
+      setTerminalReady(false);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isTauri()) {
+      setListenerReady(true);
+      return;
+    }
     let cancelled = false;
     let unlisten: (() => void) | undefined;
-    void listenToTerminalOutput((event) => {
-      if (event.sessionId !== sessionRef.current) return;
+    const renderEvent = (event: { text: string; exited: boolean }) => {
+      const terminal = terminalRef.current;
       if (event.exited) {
+        terminal?.write("\r\n\x1b[90m[终端会话已结束]\x1b[0m\r\n");
         setExited(true);
         setSessionId(null);
         sessionRef.current = null;
+      } else if (event.text) {
+        terminal?.write(event.text);
+      }
+    };
+    void listenToTerminalOutput((event) => {
+      if (event.sessionId !== sessionRef.current) {
+        const pending = pendingEventsRef.current.get(event.sessionId) ?? { text: "", exited: false };
+        pending.text = `${pending.text}${event.text}`.slice(-64_000);
+        pending.exited ||= event.exited;
+        pendingEventsRef.current.set(event.sessionId, pending);
+        while (pendingEventsRef.current.size > 8) {
+          const oldest = pendingEventsRef.current.keys().next().value;
+          if (oldest) pendingEventsRef.current.delete(oldest);
+          else break;
+        }
         return;
       }
-      if (event.text) {
-        setOutput((current) => `${current}${event.text}`.slice(-MAX_TERMINAL_OUTPUT));
-      }
+      renderEvent(event);
     }).then((stop) => {
       if (cancelled) stop();
-      else unlisten = stop;
+      else {
+        unlisten = stop;
+        setListenerReady(true);
+      }
     }).catch((error) => onError(`连接终端输出失败：${errorText(error)}`));
     return () => {
       cancelled = true;
       unlisten?.();
+      setListenerReady(false);
     };
   }, [onError]);
 
@@ -112,26 +223,46 @@ export function TerminalDock({ workspace, collapsed, onToggle, onError }: Termin
       onError("当前系统没有检测到可用终端");
       return;
     }
-    if (startingRef.current) return;
+    if (!terminalReady || !listenerReady || startingRef.current) return;
     startingRef.current = true;
     setLaunching(true);
     try {
       await stopSession();
-      setOutput("");
-      setInput("");
+      terminalRef.current?.reset();
       const started = await startTerminal(workspace, selectedTerminal.id);
+      if (!aliveRef.current) {
+        await closeTerminal(started.sessionId).catch(() => undefined);
+        return;
+      }
       sessionRef.current = started.sessionId;
       targetRef.current = `${workspace}\u0000${selectedTerminal.id}`;
       setSessionId(started.sessionId);
       setExited(false);
-      window.setTimeout(() => inputRef.current?.focus(), 0);
+      const pending = pendingEventsRef.current.get(started.sessionId);
+      if (pending) {
+        pendingEventsRef.current.delete(started.sessionId);
+        terminalRef.current?.write(pending.text);
+        if (pending.exited) {
+          terminalRef.current?.write("\r\n\x1b[90m[终端会话已结束]\x1b[0m\r\n");
+          setExited(true);
+          setSessionId(null);
+          sessionRef.current = null;
+        }
+      }
+      requestAnimationFrame(() => {
+        try {
+          fitAddonRef.current?.fit();
+        } catch {
+          // The ResizeObserver will retry when the viewport has dimensions.
+        }
+      });
     } catch (error) {
       onError(`启动内嵌终端失败：${errorText(error)}`);
     } finally {
       startingRef.current = false;
       setLaunching(false);
     }
-  }, [onError, selectedTerminal, stopSession, workspace]);
+  }, [listenerReady, onError, selectedTerminal, stopSession, terminalReady, workspace]);
 
   useEffect(() => {
     if (collapsed || !workspace || !selectedTerminal || sessionRef.current || exited) return;
@@ -144,29 +275,13 @@ export function TerminalDock({ workspace, collapsed, onToggle, onError }: Termin
     }
   }, [collapsed, selectedTerminal?.id, startSession, workspace]);
 
-  useEffect(() => () => {
-    const current = sessionRef.current;
-    if (current) void closeTerminal(current);
-  }, []);
-
-  async function submitInput() {
-    const current = sessionRef.current;
-    const command = input;
-    if (!current || !command.trim()) return;
-    setInput("");
-    try {
-      await writeTerminal(current, `${command}\r\n`);
-    } catch (error) {
-      onError(`发送终端输入失败：${errorText(error)}`);
-    }
-  }
-
   return (
     <DockFrame
       id="terminal-dock"
       side="left"
       className="terminal-panel"
       collapsed={collapsed}
+      keepBodyMounted
       label="工作区终端"
       title="终端"
       kicker="当前工作区"
@@ -203,21 +318,10 @@ export function TerminalDock({ workspace, collapsed, onToggle, onError }: Termin
         </div>
         <span className="terminal-panel-path" title={workspace}>{workspace || "未选择工作目录"}</span>
       </div>
-      <pre ref={outputRef} className="terminal-panel-output" aria-label="终端输出">{output || (launching ? "正在启动…" : !workspace ? "选择工作区后，终端会直接显示在这里。" : exited ? "终端会话已结束。" : "")}</pre>
-      <form className="terminal-panel-input-row" onSubmit={(event) => { event.preventDefault(); void submitInput(); }}>
-        <span aria-hidden="true">$</span>
-        <input
-          ref={inputRef}
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) event.preventDefault(); }}
-          disabled={!sessionId || launching || exited}
-          placeholder={sessionId ? "输入命令并回车" : "终端尚未启动"}
-          aria-label="终端输入"
-        />
-      </form>
+      <div ref={terminalHostRef} className="terminal-panel-terminal" aria-label="原生终端窗口" />
       {!workspace && <p className="terminal-panel-empty">选择工作区后，终端会直接显示在 Dock 内。</p>}
       {workspace && terminals.length === 0 && !loading && <p className="terminal-panel-empty">未检测到可内嵌 shell，请安装 bash、zsh 或 PowerShell。</p>}
+      {workspace && exited && <p className="terminal-panel-empty">终端会话已结束，点击右上角 ↻ 重新启动。</p>}
     </DockFrame>
   );
 }
