@@ -187,36 +187,6 @@ mod registry {
         }
     }
 
-    #[cfg(test)]
-    mod tests {
-        use super::normalize;
-
-        #[test]
-        fn accepts_safe_registry_urls() {
-            assert_eq!(
-                normalize(" https://registry.example.test/ "),
-                Some("https://registry.example.test".to_string())
-            );
-            assert_eq!(
-                normalize("https://registry.example.test/npm/"),
-                Some("https://registry.example.test/npm".to_string())
-            );
-        }
-
-        #[test]
-        fn rejects_credentials_and_controls() {
-            for value in [
-                "https://user:password@registry.example.test",
-                "https://registry.example.test?token=secret",
-                "https://registry.example.test#fragment",
-                "https://",
-                "file:///tmp/npm",
-            ] {
-                assert_eq!(normalize(value), None, "{value}");
-            }
-        }
-    }
-
     pub fn select(factory: fn() -> Result<Command, String>) -> Selection {
         let mut probes = thread::scope(|scope| {
             candidates()
@@ -254,6 +224,36 @@ mod registry {
             all_failed: !probes.iter().any(|probe| probe.ok),
             registry: selected,
             probes,
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::normalize;
+
+        #[test]
+        fn accepts_safe_registry_urls() {
+            assert_eq!(
+                normalize(" https://registry.example.test/ "),
+                Some("https://registry.example.test".to_string())
+            );
+            assert_eq!(
+                normalize("https://registry.example.test/npm/"),
+                Some("https://registry.example.test/npm".to_string())
+            );
+        }
+
+        #[test]
+        fn rejects_credentials_and_controls() {
+            for value in [
+                "https://user:password@registry.example.test",
+                "https://registry.example.test?token=secret",
+                "https://registry.example.test#fragment",
+                "https://",
+                "file:///tmp/npm",
+            ] {
+                assert_eq!(normalize(value), None, "{value}");
+            }
         }
     }
 }
@@ -771,10 +771,7 @@ fn materialize_desktop_profile() -> Result<(), String> {
         &bridge_dir.join("skill-install-plugin.mjs"),
         BRIDGE_SKILL_INSTALL_PLUGIN,
     )?;
-    write_text(
-        &bridge_dir.join("plugin-config.mjs"),
-        BRIDGE_PLUGIN_CONFIG,
-    )?;
+    write_text(&bridge_dir.join("plugin-config.mjs"), BRIDGE_PLUGIN_CONFIG)?;
     Ok(())
 }
 
@@ -2281,52 +2278,100 @@ fn get_workspace_git_status(dir: String) -> Result<WorkspaceGitStatus, String> {
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
         .filter(|value| !value.is_empty());
     let branch_output = git_output(&directory, &["branch", "--show-current"])?;
-    let branch = String::from_utf8_lossy(&branch_output.stdout).trim().to_string();
-    let branch = if branch.is_empty() { None } else { Some(branch) };
-    let upstream_output = git_output(&directory, &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]).ok();
+    let branch = String::from_utf8_lossy(&branch_output.stdout)
+        .trim()
+        .to_string();
+    let branch = if branch.is_empty() {
+        None
+    } else {
+        Some(branch)
+    };
+    let upstream_output = git_output(
+        &directory,
+        &[
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{upstream}",
+        ],
+    )
+    .ok();
     let upstream = upstream_output
         .filter(|output| output.status.success())
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
         .filter(|value| !value.is_empty());
     let (ahead, behind) = if upstream.is_some() {
-        git_output(&directory, &["rev-list", "--left-right", "--count", "HEAD...@{upstream}"])
-            .ok()
-            .filter(|output| output.status.success())
-            .and_then(|output| {
-                let values = String::from_utf8_lossy(&output.stdout);
-                let mut parts = values.split_whitespace().filter_map(|part| part.parse::<u32>().ok());
-                Some((parts.next()?, parts.next()?))
-            })
-            .unwrap_or((0, 0))
+        git_output(
+            &directory,
+            &["rev-list", "--left-right", "--count", "HEAD...@{upstream}"],
+        )
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| {
+            let values = String::from_utf8_lossy(&output.stdout);
+            let mut parts = values
+                .split_whitespace()
+                .filter_map(|part| part.parse::<u32>().ok());
+            Some((parts.next()?, parts.next()?))
+        })
+        .unwrap_or((0, 0))
     } else {
         (0, 0)
     };
-    let status_output = git_output(&directory, &["status", "--porcelain=v1", "-z", "--untracked-files=all"])?;
+    let status_output = git_output(
+        &directory,
+        &["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+    )?;
     if !status_output.status.success() {
-        return Err(format!("读取 Git 状态失败：{}", String::from_utf8_lossy(&status_output.stderr).trim()));
+        return Err(format!(
+            "读取 Git 状态失败：{}",
+            String::from_utf8_lossy(&status_output.stderr).trim()
+        ));
     }
     let bytes = status_output.stdout;
     let mut files = Vec::new();
     let mut index = 0;
     while index < bytes.len() {
-        if index + 3 > bytes.len() { break; }
+        if index + 3 > bytes.len() {
+            break;
+        }
         let x = bytes[index] as char;
         let y = bytes[index + 1] as char;
-        if bytes[index + 2] != b' ' { break; }
+        if bytes[index + 2] != b' ' {
+            break;
+        }
         index += 3;
-        let end = bytes[index..].iter().position(|byte| *byte == 0).map(|offset| index + offset).unwrap_or(bytes.len());
+        let end = bytes[index..]
+            .iter()
+            .position(|byte| *byte == 0)
+            .map(|offset| index + offset)
+            .unwrap_or(bytes.len());
         let raw_path = String::from_utf8_lossy(&bytes[index..end]).into_owned();
         index = end.saturating_add(1);
         let is_renamed = x == 'R' || y == 'R';
         let path = if is_renamed && index < bytes.len() {
-            let new_end = bytes[index..].iter().position(|byte| *byte == 0).map(|offset| index + offset).unwrap_or(bytes.len());
+            let new_end = bytes[index..]
+                .iter()
+                .position(|byte| *byte == 0)
+                .map(|offset| index + offset)
+                .unwrap_or(bytes.len());
             let new_path = String::from_utf8_lossy(&bytes[index..new_end]).into_owned();
             index = new_end.saturating_add(1);
             new_path
         } else {
             raw_path
         };
-        let status = if x == '?' && y == '?' { "untracked" } else if x == 'U' || y == 'U' || (x == 'A' && y == 'A') || (x == 'D' && y == 'D') { "conflicted" } else if x != ' ' && y != ' ' { "staged-changed" } else if x != ' ' { "staged" } else { "changed" };
+        let status = if x == '?' && y == '?' {
+            "untracked"
+        } else if x == 'U' || y == 'U' || (x == 'A' && y == 'A') || (x == 'D' && y == 'D') {
+            "conflicted"
+        } else if x != ' ' && y != ' ' {
+            "staged-changed"
+        } else if x != ' ' {
+            "staged"
+        } else {
+            "changed"
+        };
         files.push(WorkspaceGitFile {
             path,
             status: status.to_string(),
@@ -2336,11 +2381,39 @@ fn get_workspace_git_status(dir: String) -> Result<WorkspaceGitStatus, String> {
             is_renamed,
         });
     }
-    let staged = files.iter().filter(|file| file.index_status != " " && file.status != "untracked" && file.status != "conflicted").count() as u32;
-    let changed = files.iter().filter(|file| file.worktree_status != " " && file.status != "untracked" && file.status != "conflicted").count() as u32;
-    let untracked = files.iter().filter(|file| file.status == "untracked").count() as u32;
-    let conflicted = files.iter().filter(|file| file.status == "conflicted").count() as u32;
-    Ok(WorkspaceGitStatus { is_repository: true, root: repository_root, branch, upstream, ahead, behind, staged, changed, untracked, conflicted, files })
+    let staged = files
+        .iter()
+        .filter(|file| {
+            file.index_status != " " && file.status != "untracked" && file.status != "conflicted"
+        })
+        .count() as u32;
+    let changed = files
+        .iter()
+        .filter(|file| {
+            file.worktree_status != " " && file.status != "untracked" && file.status != "conflicted"
+        })
+        .count() as u32;
+    let untracked = files
+        .iter()
+        .filter(|file| file.status == "untracked")
+        .count() as u32;
+    let conflicted = files
+        .iter()
+        .filter(|file| file.status == "conflicted")
+        .count() as u32;
+    Ok(WorkspaceGitStatus {
+        is_repository: true,
+        root: repository_root,
+        branch,
+        upstream,
+        ahead,
+        behind,
+        staged,
+        changed,
+        untracked,
+        conflicted,
+        files,
+    })
 }
 
 /// 列出工作区目录下的条目（文件夹优先，其余按名称排序），供左侧文件看板使用。
@@ -2475,7 +2548,7 @@ fn try_launch_vscode(target: &Path) -> bool {
         if candidate.exists() {
             let mut command = if cfg!(windows) {
                 let mut command = Command::new("cmd");
-                command.args(["/C", &candidate.to_string_lossy().into_owned()]);
+                command.args(["/C", candidate.to_string_lossy().as_ref()]);
                 command
             } else {
                 Command::new(&candidate)
