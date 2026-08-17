@@ -22,6 +22,8 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
 
+mod terminal;
+
 mod registry {
     use std::{
         env,
@@ -2932,6 +2934,8 @@ fn main() {
             export_runtime_logs,
             open_logs_directory,
             save_export_file,
+            terminal::list_terminals,
+            terminal::open_terminal,
             list_workspace_files,
             get_workspace_git_status,
             open_in_vscode,
