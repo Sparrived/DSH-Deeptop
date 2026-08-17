@@ -87,7 +87,11 @@ export function DockFrame({
       </button>
 
       {(keepBodyMounted || !collapsed) && (
-        <div id={contentId} className={joinClasses("dock-frame-card", cardClassName)} hidden={collapsed}>
+        <div
+          id={contentId}
+          className={joinClasses("dock-frame-card", cardClassName, collapsed ? "dock-frame-card-collapsed" : undefined)}
+          hidden={collapsed}
+        >
           <header className={joinClasses("dock-frame-header", headerClassName)}>
             <div className={joinClasses("dock-frame-heading", headingClassName)}>
               <span className={joinClasses("dock-frame-mark", headerMarkClassName ?? markClassName)} aria-hidden="true">{icon}</span>

@@ -47,6 +47,10 @@
   box-shadow: var(--shadow-panel);
 }
 
+.dock-frame-card-collapsed {
+  display: none !important;
+}
+
 .dock-frame-right .dock-frame-card { right: calc(100% + var(--right-surface-gap, 12px)); left: auto; }
 .dock-frame-left .dock-frame-card { right: auto; left: calc(100% + var(--right-surface-gap, 12px)); }
 .dock-frame-header { min-width: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px; border-bottom: 1px solid var(--line); background: var(--surface-soft); }
