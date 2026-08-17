@@ -288,8 +288,12 @@ const PROFILE_PNPM_WORKSPACE: &str =
     "packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n";
 const MAX_PENDING_OPEN_SESSIONS: usize = 16;
 const DSH_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(8);
-/// Max in-memory runtime log entries kept for the log viewer and export.
+/// Max in-memory runtime log entries kept for export and recent diagnostics.
 const MAX_LOG_ENTRIES: usize = 3000;
+/// Keep the initial log-viewer payload small enough for the WebView to render quickly.
+const MAX_LOG_VIEW_ENTRIES: usize = 500;
+/// Bound one entry so a large DSH response cannot freeze log retrieval/rendering.
+const MAX_LOG_TEXT_BYTES: usize = 16 * 1024;
 /// Rotate the persistent log file after it grows past this size.
 const MAX_LOG_FILE_BYTES: u64 = 4 * 1024 * 1024;
 
@@ -448,7 +452,6 @@ struct LogStore {
 
 impl LogStore {
     fn push(&mut self, entry: DshRuntimeLog) {
-        append_log_file(&persistent_log_path(), &format_log_line(&entry));
         self.entries.push_back(entry);
         while self.entries.len() > MAX_LOG_ENTRIES {
             self.entries.pop_front();
@@ -457,6 +460,18 @@ impl LogStore {
 
     fn snapshot(&self) -> Vec<DshRuntimeLog> {
         self.entries.iter().cloned().collect()
+    }
+
+    fn recent_snapshot(&self, limit: usize) -> Vec<DshRuntimeLog> {
+        self.entries
+            .iter()
+            .rev()
+            .take(limit)
+            .cloned()
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect()
     }
 }
 
@@ -513,6 +528,7 @@ struct BridgeManager {
     next_request_id: Arc<AtomicU64>,
     pending_open_sessions: Arc<Mutex<VecDeque<String>>>,
     logs: Arc<Mutex<LogStore>>,
+    log_file_lock: Arc<Mutex<()>>,
 }
 
 impl BridgeManager {
@@ -642,6 +658,18 @@ fn format_log_line(entry: &DshRuntimeLog) -> String {
         entry.stream,
         entry.text
     )
+}
+
+/// Keep large DSH responses from making log snapshots and the viewer expensive.
+fn bound_log_text(text: String) -> String {
+    if text.len() <= MAX_LOG_TEXT_BYTES {
+        return text;
+    }
+    let mut end = MAX_LOG_TEXT_BYTES;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…（日志已截断，原始 {} 字节）", &text[..end], text.len())
 }
 
 /// Best-effort append of one formatted line to the persistent log file.
@@ -1712,7 +1740,7 @@ impl BridgeManager {
         stream: &str,
         text: impl Into<String>,
     ) {
-        let text = text.into();
+        let text = bound_log_text(text.into());
         let entry = DshRuntimeLog {
             time: now_millis(),
             phase: phase.to_string(),
@@ -1722,6 +1750,7 @@ impl BridgeManager {
         if let Ok(mut logs) = self.logs.lock() {
             logs.push(entry.clone());
         }
+        self.persist_log(&entry);
         if !self.is_current(generation) {
             return;
         }
@@ -1735,10 +1764,24 @@ impl BridgeManager {
         self.emit_runtime_log(app, generation, "runtime", "diagnostic", message);
     }
 
+    fn persist_log(&self, entry: &DshRuntimeLog) {
+        let Ok(_guard) = self.log_file_lock.lock() else {
+            return;
+        };
+        append_log_file(&persistent_log_path(), &format_log_line(entry));
+    }
+
     fn log_snapshot(&self) -> Vec<DshRuntimeLog> {
         self.logs
             .lock()
             .map(|logs| logs.snapshot())
+            .unwrap_or_default()
+    }
+
+    fn recent_log_snapshot(&self) -> Vec<DshRuntimeLog> {
+        self.logs
+            .lock()
+            .map(|logs| logs.recent_snapshot(MAX_LOG_VIEW_ENTRIES))
             .unwrap_or_default()
     }
 
@@ -1749,11 +1792,12 @@ impl BridgeManager {
             time: now_millis(),
             phase: "frontend".to_string(),
             stream,
-            text,
+            text: bound_log_text(text),
         };
         if let Ok(mut logs) = self.logs.lock() {
-            logs.push(entry);
+            logs.push(entry.clone());
         }
+        self.persist_log(&entry);
     }
 
     /// 生成格式化后的日志导出文本（不再写盘；由前端通过原生“另存为”对话框落盘）。
@@ -2092,7 +2136,7 @@ fn bridge_request(
 
 #[tauri::command]
 fn get_runtime_logs(runtime: State<'_, BridgeManager>) -> Vec<DshRuntimeLog> {
-    runtime.log_snapshot()
+    runtime.recent_log_snapshot()
 }
 
 #[tauri::command]
@@ -2766,7 +2810,10 @@ fn open_themes_directory() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_log_line, format_utc_datetime, is_dsh_package_manifest, DshRuntimeLog};
+    use super::{
+        bound_log_text, format_log_line, format_utc_datetime, is_dsh_package_manifest,
+        DshRuntimeLog, MAX_LOG_TEXT_BYTES,
+    };
 
     #[test]
     fn accepts_the_dsh_package_manifest() {
@@ -2784,6 +2831,15 @@ mod tests {
         assert_eq!(format_utc_datetime(0), "1970-01-01 00:00:00");
         assert_eq!(format_utc_datetime(1_700_000_000), "2023-11-14 22:13:20");
         assert_eq!(format_utc_datetime(1_725_260_400), "2024-09-02 07:00:00");
+    }
+
+    #[test]
+    fn bounds_large_log_text_without_splitting_utf8() {
+        let text = "界".repeat(MAX_LOG_TEXT_BYTES);
+        let bounded = bound_log_text(text.clone());
+        assert!(bounded.len() <= MAX_LOG_TEXT_BYTES + 64);
+        assert!(bounded.contains("日志已截断"));
+        assert!(bounded.starts_with("界"));
     }
 
     #[test]

@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { formatRuntimeLogTime, runtimeLogMatches, runtimeLogStreamLabel } from "../app/model";
 import type { DshRuntimeLog } from "../lib/desktop";
 
-const MAX_RENDERED_LOGS = 1500;
+// Keep opening the settings page responsive during stderr/error bursts.
+const MAX_RENDERED_LOGS = 500;
 
 type SettingsLogsPanelProps = {
   logs: DshRuntimeLog[];
