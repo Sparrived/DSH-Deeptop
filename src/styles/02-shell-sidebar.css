@@ -291,7 +291,7 @@
   --todo-collapsed-width: 44px;
   --deliverables-panel-width: 286px;
   --deliverables-collapsed-width: 44px;
-  --workspace-files-panel-width: 360px;
+  --workspace-files-panel-width: 480px;
   --workspace-files-collapsed-width: 44px;
   position: relative;
   min-width: 0;

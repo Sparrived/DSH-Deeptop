@@ -37,7 +37,7 @@
   position: absolute;
   top: 0;
   left: calc(100% + var(--right-surface-gap, 12px));
-  width: min(var(--workspace-files-panel-width, 360px), calc(100vw - 32px));
+  width: min(var(--workspace-files-panel-width, 480px), calc(100vw - 32px));
   min-width: 0;
   max-height: min(78svh, 680px);
   display: flex;
@@ -266,6 +266,7 @@
 }
 
 .workspace-file-row {
+  width: 100%;
   min-width: 0;
 }
 
@@ -273,10 +274,11 @@
   width: 100%;
   min-width: 0;
   display: grid;
-  grid-template-columns: 16px 20px minmax(0, 1fr) 16px auto;
+  grid-template-columns: 16px 20px minmax(0, 1fr) 16px 52px;
   align-items: center;
   gap: 6px;
   padding: 4px 10px 4px calc(8px + var(--file-depth, 0) * 14px);
+  overflow: hidden;
   border: 0;
   background: transparent;
   color: var(--ink);
@@ -303,6 +305,7 @@
 .workspace-file-row.is-dir > .workspace-file-main .workspace-file-icon { color: var(--accent-deep); }
 
 .workspace-file-git-mark {
+  grid-column: 4;
   display: inline-grid;
   place-items: center;
   width: 16px;
@@ -328,9 +331,12 @@
 }
 
 .workspace-file-size {
+  grid-column: 5;
   color: var(--ink-faint);
   font-family: var(--mono);
   font-size: 11px;
+  white-space: nowrap;
+  text-align: right;
 }
 
 .workspace-file-children {
