@@ -49,7 +49,6 @@ function run(command, commandArgs, label) {
   const result = spawnSync(command, commandArgs, {
     cwd: root,
     stdio: "inherit",
-    shell: process.platform === "win32",
   });
   if (result.error) throw result.error;
   if (result.status !== 0) {
