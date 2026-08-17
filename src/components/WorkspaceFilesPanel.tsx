@@ -13,6 +13,7 @@ import {
   type WorkspaceGitStatus,
 } from "../lib/desktop";
 import { errorText } from "../app/model";
+import { WORKSPACE_FILES_CONTEXT_MENU_SELECTOR } from "../app/context-menu";
 import { DockFrame } from "./DockFrame";
 
 type FilesContextMenu = {
@@ -260,7 +261,10 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError, o
 
   useEffect(() => {
     if (!contextMenu) return;
-    const handlePointerDown = () => setContextMenu(null);
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Element && event.target.closest(WORKSPACE_FILES_CONTEXT_MENU_SELECTOR)) return;
+      setContextMenu(null);
+    };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setContextMenu(null);
     };
@@ -506,7 +510,7 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError, o
           className="workspace-files-context-menu"
           style={{ left: menuX, top: menuY }}
           role="menu"
-          onMouseDown={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.preventDefault()}
         >
           <button role="menuitem" disabled={busy} onClick={() => void handleOpenInVscode(menu.entry.path)}>用 VSCode 打开</button>
