@@ -11,6 +11,12 @@ import { reconstructContiguous, rowSeqs, scanZstdFrames, verifyReadable } from '
 
 const signal = new AbortController().signal
 
+test('keeps workspace clipboard actions on the native bridge', async () => {
+  const source = await readFile(join(import.meta.dirname, '..', 'src', 'components', 'WorkspaceFilesPanel.tsx'), 'utf8')
+  assert.match(source, /writeClipboard\(path\)/)
+  assert.doesNotMatch(source, /navigator\.clipboard|document\.execCommand\(['"]copy/)
+})
+
 test('describes an empty plugin config without requiring a browser dialog', async () => {
   const root = await mkdtemp(join(tmpdir(), 'deeptop-plugin-config-'))
   try {
