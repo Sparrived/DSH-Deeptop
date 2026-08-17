@@ -1300,8 +1300,8 @@ function App() {
       setSubagentPanelOpen(false);
       return;
     }
-    // 选中书签时收起书签卡片，让执行抽屉完整展示，避免互相遮挡。
-    setSubagentDockOpen(false);
+    // Drawer 打开时保留右侧 Dock，方便继续切换其他子 Agent。
+    setSubagentDockOpen(true);
     setSubagentPanelOpen(true);
     void openSubagent({
       parentSessionId: activeSessionId!,
