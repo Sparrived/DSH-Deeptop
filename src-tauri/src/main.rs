@@ -2880,7 +2880,10 @@ async fn pick_plugin_entry() -> Result<Option<String>, String> {
     let picked = tauri::async_runtime::spawn_blocking(|| {
         rfd::FileDialog::new()
             .set_title("选择桌面插件入口文件")
-            .add_filter("JavaScript / TypeScript", &["js", "mjs", "cjs", "ts", "mts", "cts"])
+            .add_filter(
+                "JavaScript / TypeScript",
+                &["js", "mjs", "cjs", "ts", "mts", "cts"],
+            )
             .pick_file()
     })
     .await
@@ -2901,7 +2904,7 @@ fn open_themes_directory() -> Result<(), String> {
 mod tests {
     use super::{
         bound_log_text, format_log_line, format_utc_datetime, is_dsh_package_manifest,
-        DshRuntimeLog, LogStore, MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES,
+        validated_connection_url, DshRuntimeLog, LogStore, MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES,
     };
 
     #[test]
@@ -2962,11 +2965,15 @@ mod tests {
             "[2023-11-14 22:13:20.123] [runtime/stderr] boom"
         );
     }
+
     #[test]
     fn validates_connection_protocols_without_opening_processes() {
-        assert_eq!(super::validated_connection_url(" https://example.com/docs ").unwrap(), "https://example.com/docs");
-        assert!(super::validated_connection_url("javascript:alert(1)").is_err());
-        assert!(super::validated_connection_url("https://").is_err());
+        assert_eq!(
+            validated_connection_url(" https://example.com/docs ").unwrap(),
+            "https://example.com/docs"
+        );
+        assert!(validated_connection_url("javascript:alert(1)").is_err());
+        assert!(validated_connection_url("https://").is_err());
     }
 }
 

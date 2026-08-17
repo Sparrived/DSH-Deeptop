@@ -3052,6 +3052,7 @@ function App() {
     if (updateState.status !== "available") return;
     void openExternalUrl(updateState.releaseUrl).catch((error) => setErrorNotice(errorText(error)));
   }
+
   function openSettings() {
     if (showInspector) {
       closeSettings();
@@ -3202,8 +3203,8 @@ function App() {
                onRetryMessage={retryMessage}
                retryingMessageSeq={retryingMessageSeq}
               onForkSession={forkSession}
+               onOpenUrl={openMessageUrl}
               onOpenSessionPath={openSessionPath}
-              onOpenUrl={openMessageUrl}
             />
 
             <div className="left-dock-shelf" aria-label="工作区工具">
@@ -3390,10 +3391,10 @@ function App() {
                   <button className={settingsSection === "plugins" ? "selected" : ""} onClick={() => setSettingsSection("plugins")}>
                     <strong>插件</strong><small>运行中的 Cordis 插件</small>
                   </button>
-                  <button className={settingsSection === "about" ? "selected" : ""} onClick={() => setSettingsSection("about")}>
-                    <strong>关于</strong><small>版本与更新检查</small>
-                  </button>
-                </nav>
+                <button className={settingsSection === "about" ? "selected" : ""} onClick={() => setSettingsSection("about")}>
+                     <strong>关于</strong><small>版本与更新检查</small>
+                   </button>
+                 </nav>
 
                 <section className="settings-main">
                   {settingsSection === "about" && <SettingsAboutPanel
@@ -3406,7 +3407,7 @@ function App() {
                      onOpenRelease={openLatestRelease}
                    />}
 
-                  {settingsSection === "appearance" && <SettingsAppearancePanel
+                   {settingsSection === "appearance" && <SettingsAppearancePanel
                     appearance={appearance}
                     themeMode={themeMode}
                     appTheme={appTheme}

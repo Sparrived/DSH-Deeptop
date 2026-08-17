@@ -493,12 +493,6 @@ export async function refreshDsh(): Promise<DshStatus> {
   return invoke<DshStatus>("refresh_dsh");
 }
 
-/** Open an http(s) connection through the operating system's default application. */
-export async function openConnectionUrl(url: string): Promise<void> {
-  if (!isTauri()) throw new Error("连接只在桌面端通过系统打开");
-  await invoke("open_connection_url", { url });
-}
-
 export interface NativeUpdateResult {
   currentVersion: string;
   latestVersion: string | null;
@@ -511,7 +505,14 @@ export interface NativeUpdateResult {
 /** Read the bundled desktop version and query the latest stable GitHub release through Rust. */
 export async function checkForUpdates(): Promise<NativeUpdateResult> {
   if (!isTauri()) {
-    return { currentVersion: packageInfo.version, latestVersion: null, releaseTag: null, releaseName: null, releaseUrl: null, updateAvailable: false };
+    return {
+      currentVersion: packageInfo.version,
+      latestVersion: null,
+      releaseTag: null,
+      releaseName: null,
+      releaseUrl: null,
+      updateAvailable: false,
+    };
   }
   return invoke<NativeUpdateResult>("check_for_updates");
 }
@@ -527,6 +528,13 @@ export async function openExternalUrl(url: string): Promise<void> {
   if (!isTauri()) throw new Error("外部链接只在桌面端通过系统打开");
   await invoke("open_project_url", { url });
 }
+
+/** Open an http(s) connection through the operating system's default application. */
+export async function openConnectionUrl(url: string): Promise<void> {
+  if (!isTauri()) throw new Error("连接只在桌面端通过系统打开");
+  await invoke("open_connection_url", { url });
+}
+
 export async function openNodejsDownload(): Promise<void> {
   if (!isTauri()) {
     window.open("https://nodejs.org/en/download", "_blank", "noopener,noreferrer");
