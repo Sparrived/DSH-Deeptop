@@ -1,0 +1,339 @@
+:root {
+  color: #282a27;
+  background: #242622;
+  color-scheme: light;
+  font-family: "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --chrome: #242622;
+  --chrome-soft: #2d302b;
+  --rail: #30332e;
+  --rail-text: #d9dbd4;
+  --rail-muted: #969d94;
+  --paper: #f1f0eb;
+  --paper-deep: #e8e6df;
+  --line: #d8d6cf;
+  --line-strong: #c8c5bc;
+  --ink: #282a27;
+  --muted: #767a73;
+  --faint: #a3a59f;
+  --accent: #b84f3e;
+  --accent-deep: #933c31;
+  --good: #6e9273;
+  --warning: #ad8450;
+  --mono: "Cascadia Mono", Consolas, monospace;
+  --app-font-family: "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  --message-font-size: 13px;
+  --message-line-height: 1.7;
+  --window-bar-height: 48px;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #1c201c;
+  --paper-deep: #252a25;
+  --line: #3a4239;
+  --line-strong: #505b4e;
+  --ink: #e6e9e2;
+  --muted: #a5ada2;
+  --faint: #7e887d;
+  --accent: #d88778;
+  --accent-deep: #e2a095;
+  --good: #8db392;
+  --warning: #d6a15b;
+  --chrome: #171a17;
+  --chrome-soft: #222722;
+  --rail: #202520;
+  --rail-text: #e0e5dd;
+  --rail-muted: #9da99b;
+}
+
+:root[data-theme="dark"] .conversation-panel,
+:root[data-theme="dark"] .conversation-header,
+:root[data-theme="dark"] .composer-shell,
+:root[data-theme="dark"] .settings-main,
+:root[data-theme="dark"] .settings-page,
+:root[data-theme="dark"] .settings-block,
+:root[data-theme="dark"] .surface-content,
+:root[data-theme="dark"] .inspector-panel,
+:root[data-theme="dark"] .jobs-popover {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+:root[data-theme="dark"] .settings-provider-details,
+:root[data-theme="dark"] .settings-plugin-details,
+:root[data-theme="dark"] .settings-provider-card,
+:root[data-theme="dark"] .settings-plugin-card,
+:root[data-theme="dark"] .settings-provider-candidates,
+:root[data-theme="dark"] .workflow-entry,
+:root[data-theme="dark"] .deliverables-entry,
+:root[data-theme="dark"] .reasoning-entry,
+:root[data-theme="dark"] .injected-entry,
+:root[data-theme="dark"] .tool-entry,
+:root[data-theme="dark"] .todo-panel,
+:root[data-theme="dark"] .todo-panel-header,
+:root[data-theme="dark"] .todo-panel-body,
+:root[data-theme="dark"] .workspace-files-panel,
+:root[data-theme="dark"] .workspace-files-card,
+:root[data-theme="dark"] .workspace-files-header,
+:root[data-theme="dark"] .workspace-files-body {
+  background: var(--paper-deep);
+  color: var(--ink);
+}
+
+:root[data-theme="dark"] input,
+:root[data-theme="dark"] select,
+:root[data-theme="dark"] textarea,
+:root[data-theme="dark"] .model-menu,
+:root[data-theme="dark"] .composer-candidates {
+  background: #202520;
+  color: var(--ink);
+}
+
+:root[data-theme="dark"] .header-action.selected,
+:root[data-theme="dark"] .header-action:hover,
+:root[data-theme="dark"] .conversation-actions .trajectory-toggle.selected,
+:root[data-theme="dark"] .settings-provider-header:hover,
+:root[data-theme="dark"] .settings-provider-card.open .settings-provider-header,
+:root[data-theme="dark"] .settings-plugin-header:hover,
+:root[data-theme="dark"] .settings-plugin-card.open .settings-plugin-header {
+  background: #303830;
+}
+
+* {
+  box-sizing: border-box;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 320px;
+  height: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.conversation-panel,
+.conversation-panel * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+button {
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid rgba(184, 79, 62, 0.65);
+  outline-offset: 1px;
+}
+
+.app-shell {
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-rows: var(--window-bar-height) minmax(0, 1fr);
+  background: var(--chrome);
+  font-family: var(--app-font-family, "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", sans-serif);
+}
+
+.app-shell::before,
+.app-shell::after {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.app-shell::before {
+  z-index: -2;
+  background-image: var(--app-background-image, none);
+  background-position: var(--app-background-position, center);
+  background-size: var(--app-background-size, cover);
+  background-repeat: no-repeat;
+  content: "";
+  filter: blur(var(--app-background-blur, 0px));
+  opacity: var(--app-background-opacity, 0);
+  transform: scale(1.04);
+}
+
+.app-shell.has-custom-background {
+  background: transparent;
+}
+
+.app-shell.has-custom-background::after {
+  z-index: -1;
+  background: color-mix(in srgb, var(--paper) 42%, transparent);
+  content: "";
+}
+
+.app-shell.has-custom-background .window-bar {
+  background: color-mix(in srgb, var(--chrome) var(--bg-windowbar-panel-opacity, 94%), transparent);
+  backdrop-filter: blur(14px);
+}
+
+.app-shell.has-custom-background .session-sidebar {
+  background: color-mix(in srgb, var(--rail) var(--bg-sidebar-panel-opacity, 92%), transparent);
+  backdrop-filter: blur(14px);
+}
+
+.app-shell.has-custom-background .conversation-panel,
+.app-shell.has-custom-background .conversation-header {
+  background: color-mix(in srgb, var(--paper) var(--bg-conversation-panel-opacity, 86%), transparent);
+  backdrop-filter: blur(10px);
+}
+
+.app-shell.has-custom-background .composer-area {
+  background: color-mix(in srgb, var(--paper) var(--bg-composer-panel-opacity, 86%), transparent);
+  backdrop-filter: blur(10px);
+}
+
+.startup-screen {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-rows: var(--window-bar-height) minmax(0, 1fr);
+  background: var(--chrome);
+  color: var(--rail-text);
+}
+
+.startup-content {
+  width: min(480px, 100%);
+  align-self: center;
+  justify-self: center;
+  padding: 32px;
+}
+
+.startup-rule {
+  width: 100%;
+  height: 1px;
+  margin: 22px 0 42px;
+  background: #3e423b;
+}
+
+.startup-kicker {
+  margin: 0 0 10px;
+  color: #9da79a;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+}
+
+.startup-content h1 {
+  max-width: 100%;
+  margin: 0;
+  color: #f0eee8;
+  font-size: clamp(25px, 4vw, 34px);
+  font-weight: 600;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.startup-message {
+  min-height: 22px;
+  margin: 14px 0 22px;
+  color: #b9bdb5;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.startup-progress {
+  width: 100%;
+  height: 4px;
+  overflow: hidden;
+  background: #3b3f38;
+}
+
+.startup-progress i {
+  display: block;
+  width: 34%;
+  height: 100%;
+  background: var(--good);
+  animation: startup-progress 1.4s ease-in-out infinite;
+}
+
+.startup-content.failed .startup-progress i {
+  width: 100%;
+  background: var(--accent);
+  animation: none;
+}
+
+.startup-wait {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 14px 0 0;
+  color: #8f988c;
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.startup-wait i {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--good);
+  animation: startup-pulse 1.2s ease-in-out infinite;
+}
+
+.startup-retry {
+  min-height: 32px;
+  margin-top: 14px;
+  padding: 0 12px;
+  border: 1px solid #9f493c;
+  background: transparent;
+  color: #f0c7be;
+  font-size: 11px;
+}
+
+.startup-retry:hover {
+  background: #933c31;
+  color: #fff9f5;
+}
+
+.startup-package {
+  margin: 42px 0 0;
+  color: #697166;
+  font-family: var(--mono);
+  font-size: 9px;
+  overflow-wrap: anywhere;
+}
+
+@keyframes startup-progress {
+  0% { transform: translateX(-120%); }
+  45%, 55% { transform: translateX(190%); }
+  100% { transform: translateX(310%); }
+}
+
+@keyframes startup-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1); }
+}
