@@ -926,7 +926,7 @@
 
 /* Appearance is a parent section: the child rail and cards share one quiet hierarchy. */
 .settings-navigation-group { display: grid; gap: 2px; margin-top: 2px; }
-.settings-navigation .settings-navigation-group-toggle { width: 100%; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 8px; border: 0; border-left: 3px solid transparent; border-radius: 0 var(--radius-control) var(--radius-control) 0; background: transparent; color: var(--ink-muted); text-align: left; }
+.settings-navigation-group-toggle { width: 100%; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 8px; border: 0; border-left: 3px solid transparent; border-radius: 0 var(--radius-control) var(--radius-control) 0; background: transparent; color: var(--ink-muted); text-align: left; }
 .settings-navigation-group-toggle:hover, .settings-navigation-group.expanded .settings-navigation-group-toggle { background: var(--surface-raised); color: var(--ink); }
 .settings-navigation-group.expanded .settings-navigation-group-toggle { border-left-color: var(--line-strong); }
 .settings-navigation-chevron { flex: 0 0 auto; color: var(--ink-faint); font-size: 13px; line-height: 1; transition: transform 140ms ease, color 140ms ease; }
