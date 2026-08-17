@@ -323,7 +323,8 @@
 .settings-preset-heading span { padding: 3px 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent-deep); font-size: 11px; }
 .settings-preset-heading span.error { background: color-mix(in srgb, var(--danger) 10%, transparent); color: var(--danger); }
 .settings-preset-copy > small { color: var(--ink-faint); font: 11px/1.4 var(--mono); }
-.settings-preset-copy > p { margin: 0; color: var(--ink-muted); font-size: 13px; line-height: 1.55; }
+.settings-preset-description { min-width: 0; grid-column: 1 / -1; display: grid; gap: 6px; }
+.settings-preset-description > p { margin: 0; color: var(--ink-muted); font-size: 13px; line-height: 1.55; }
 .settings-preset-error { color: var(--danger) !important; }
 .settings-preset-actions { display: flex; align-items: flex-start; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .settings-preset-actions button { min-height: 32px; padding: 0 9px; border: 1px solid var(--line-strong); background: transparent; color: var(--ink-muted); font-size: 12px; }

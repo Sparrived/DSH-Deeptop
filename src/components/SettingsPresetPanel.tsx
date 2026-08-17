@@ -40,8 +40,6 @@ export function SettingsPresetPanel({
                   <div className="settings-preset-copy">
                     <div className="settings-preset-heading"><strong>{presetDisplayName(preset.id, presets)}</strong>{preset.isDefault && <span>当前默认</span>}{preset.broken && <span className="error">加载失败</span>}</div>
                     <small>{preset.id} · {trust === "system" ? "内置" : "自定义"}</small>
-                    <p>{presetDescription(preset)}</p>
-                    {preset.broken && <p className="settings-preset-error">{preset.broken}</p>}
                   </div>
                   <div className="settings-preset-actions">
                     <button disabled={writable === false || Boolean(preset.broken) || preset.isDefault} onClick={() => void onSetDefault(preset.id)}>设为默认</button>
@@ -49,6 +47,10 @@ export function SettingsPresetPanel({
                     {trust === "user" && <button onClick={() => void onOpenDocument(preset.id)}>打开目录</button>}
                     <button disabled={!authorable || Boolean(preset.broken)} onClick={() => onBeginCopy(preset.id)}>复制</button>
                     {trust === "user" && <button className="danger" onClick={() => void onRemove(preset.id)}>删除</button>}
+                  </div>
+                  <div className="settings-preset-description">
+                    <p>{presetDescription(preset)}</p>
+                    {preset.broken && <p className="settings-preset-error">{preset.broken}</p>}
                   </div>
                 </article>)}
               </div>
