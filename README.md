@@ -1,222 +1,155 @@
-# Deeptop
+<div align="center">
+  <img src="assets/deeptop-poster.png" alt="Deeptop 原生桌面工作台海报，展示会话与工作区界面" />
 
-English | [中文](README.zh.md)
+  <h1>Deeptop</h1>
+  <p><strong>把复杂的工作，交给深处。</strong></p>
+  <p>基于 <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness（DSH）</a> 的原生桌面工作台。</p>
 
-Deeptop is a lightweight native desktop client for [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness). It combines a Tauri + React workbench with the DSH runtime instead of reimplementing an Agent stack in the desktop process.
+  <p>
+    <a href="https://github.com/Sparrived/DSH-Deeptop/actions/workflows/ci.yml"><img src="https://github.com/Sparrived/DSH-Deeptop/actions/workflows/ci.yml/badge.svg" alt="CI 状态" /></a>
+    <a href="https://github.com/Sparrived/DSH-Deeptop/releases"><img src="https://img.shields.io/github/v/release/Sparrived/DSH-Deeptop?display_name=tag&sort=semver" alt="最新发布版本" /></a>
+    <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="Tauri 2" />
+    <img src="https://img.shields.io/badge/平台-Windows%20%7C%20macOS%20%7C%20Linux-5C6BC0" alt="支持 Windows、macOS 和 Linux" />
+  </p>
 
-Deeptop is not a wrapper around `dsh web`. The `deeptop-bridge` package is a Cordis Profile Bundle: sessions, agents, tools, model routes, persistence, workspaces, skills, goals and provider services remain in the same DSH tree. Tauri owns process supervision and transport; React owns the native interaction surface; DSH remains the source of domain semantics.
+  <p>
+    <a href="#快速开始">快速开始</a> ·
+    <a href="#文档">文档</a> ·
+    <a href="https://github.com/Sparrived/DSH-Deeptop/releases">下载发布版</a> ·
+    <a href="https://github.com/Sparrived/DSH-Deeptop/issues">报告问题</a>
+  </p>
+</div>
 
-Project: [Sparrived/DSH-Deeptop](https://github.com/Sparrived/DSH-Deeptop)
+---
 
-## Documentation
+## 这是什么
 
-- [Project guide](docs/PROJECT_GUIDE.md) — installation, runtime layout, data flow, extension and troubleshooting.
-- [CI/CD and releases](docs/CI_CD.md) — GitHub Actions checks, cross-platform bundles, versioning and automatic Releases.
-- [Native DSH coordination](docs/DSH_NATIVE_COORDINATION.md) — the boundary between Tauri, the Bridge, Cordis Profile, ApiProxy/Remote and React.
-- [Architecture notes](ARCHITECTURE.md) — dependency direction, pure app models and pluginization rules.
-- [Deeptop UI Runtime design](docs/DEEPTOP_UI_RUNTIME.md) — the proposed Client Module, Slot, Bridge capability and desktop UI plugin architecture.
-- [Official plugin compatibility](PLUGIN_COMPATIBILITY.md) — compatibility layers, current status and follow-up work.
-- [WebUI parity checklist](WEBUI_PARITY.md) — supported areas, gaps and explicitly excluded WebUI infrastructure.
+**Deeptop** 将 DSH 的 Agent 能力带到一个面向深度工作的原生桌面环境中：用会话组织任务、用工作区提供上下文，并在运行时直接处理工具调用、审批、追问与诊断。
 
-## Current surface
+它不是把 `dsh web` 放进桌面窗口，也不在应用内重写一套 Agent。DSH 仍然负责 Agent、Session、Tool、Model、Workspace、Skill、Goal、Provider、持久化与事件语义；Tauri/Rust 负责原生窗口、进程监管与系统能力，React 只负责清晰、可操作的桌面交互界面。
 
-The desktop workbench currently provides the core conversation surface and a native DSH workbench. The status below distinguishes shipped behavior from partial surfaces and Profile-dependent capabilities.
+> **桌面优先。** 目录选择、文件保存与日志导出通过 Tauri/Bridge 的原生能力完成；界面不依赖浏览器下载、浏览器弹窗或内部 URL 来完成系统操作。
 
-| Area | Status | Details |
-| --- | --- | --- |
-| Sessions | Supported | Persistent list, history recovery, older-history paging, live events, rename, search, fork, archive, restore and deletion of archived sessions. |
-| Conversation | Supported | Streaming assistant/reasoning, Markdown/GFM, image attachments, queued/steering prompts, queue editing/removal, stop and message retry. Retry forks a recoverable prefix; it does not roll back the original session. |
-| Workspace | Supported | Directory picking, create/rename/delete, session membership, grouping and ordering. Selected paths are passed as session `cwd`. |
-| Models and providers | Supported with boundaries | Provider/model catalogs, per-session model selection, reasoning effort, context-window and input-modality metadata, provider discovery and custom connection settings. Schema-driven provider forms are not complete. |
-| Tools and interaction | Supported | Tool call/result rows, Workflow, Job, Todo, trajectory views, user questions with single/multi-select and custom answers, plus approval responses. |
-| Feedback and export | Partial | Message Like/Dislike and versioned notes are available; session JSON/ZIP export is available, while ZIP currently crosses the JSONL Bridge as Base64 and is not yet a native streaming transfer. |
-| Diagnostics and logs | Supported | Runtime, Bridge and frontend stack traces are captured with timestamps, persisted under `$DSH_HOME/logs`, and can be viewed, filtered and exported from the Settings → 日志 panel. |
-| DSH workbench | Supported where the Profile provides the domain | Profile/plugin inventory, runtime inspector, Host settings, Skill catalog, Agent Presets, Subagent history/follow-up/interruption and Goal lifecycle. Missing optional domains remain unavailable instead of being faked. |
-| Skill installation | Supported | `/skill` input candidates and approval-gated GitHub installation with direct-download and sparse-git fallback. |
-| Remote and events | Supported | Typert Remote loopback calls and forwarded official Host events; native UI adapts the contracts rather than loading WebUI Client bundles. |
-| Partial areas | In progress | Permission presets/global controls, Plan chip/Review, complete Session Stats, recursive Subagent navigation, schema-driven settings, long-session virtualization, full media preview and localization remain incomplete. |
+## 核心体验
 
-The native window is frameless, resizable and currently defaults to 1360×860 with a 920×620 minimum. Light, Dark and System themes plus appearance settings are available.
+| 能力 | 你可以做什么 |
+| --- | --- |
+| **工作区与会话** | 用原生目录选择器关联工作目录；创建、搜索、分叉、归档、恢复和导出会话。 |
+| **连续对话** | 流式查看回答与思考过程；附加图片；在任务运行时排队或引导后续提示。 |
+| **Agent 交互** | 在同一界面中查看工具调用、Todo、Workflow、Job 与执行轨迹，并处理审批和单选、多选或自定义问题。 |
+| **模型与 Provider** | 浏览可用 Provider 与模型，按会话选择模型与推理强度；凭据仍由 DSH API 管理。 |
+| **原生运行台** | 查看 Profile、插件、Skill、Agent Preset、Subagent、Goal 与运行时状态；缺少可选能力时明确显示，而不伪造结果。 |
+| **可追溯诊断** | 聚合 DSH、Bridge 和前端错误；在设置中筛选、打开日志目录或导出日志快照。 |
 
-Optional DSH domains are capability-gated. If a profile does not provide a domain, its native panel remains unavailable instead of duplicating or faking the missing service, while the core Agent conversation can continue.
-
-## First use
-
-1. Run `npm run tauri:dev` and wait for the runtime indicator to show that DSH is ready. Startup first asks npm to validate `@deepseek-ai/dsh` under the `$DSH_HOME` prefix; if it is missing or incomplete, Deeptop installs `@deepseek-ai/dsh@latest` there through the local npm.
-2. Open the settings/workbench panels and configure a Provider and credential when the active Profile exposes those domains. Credentials are written through DSH APIs; do not put secrets in the repository or Profile patch.
-3. Select or create a workspace. A selected directory becomes the `cwd` for newly created sessions; it is not automatically applied to every existing session.
-4. Create a session, choose its model, and send a prompt. Use queue/steering mode when you need to add context while a turn is running.
-5. Handle approval and question prompts in the native interaction panel. Questions can support single selection, multiple selection or custom text depending on the DSH event.
-6. Use `/skill` for Skill candidates, the Subagent and Goal panels for their respective DSH workflows, and the runtime Inspector to inspect Profile/plugin availability.
-7. Use session actions for retry, fork, archive, restore, export or deletion. Refreshing the runtime restarts the DSH child process and may fail pending requests.
-
-The repository includes a GitHub Actions release pipeline. `src-tauri/tauri.conf.json` enables Tauri bundles, and pushing a SemVer tag such as `v0.2.0` builds Windows (NSIS/MSI), Linux (DEB/AppImage), and macOS (DMG) assets before publishing a GitHub Release. See [CI/CD and releases](docs/CI_CD.md) for the complete flow and signing setup.
-
-## Native runtime model
+## 原生运行模型
 
 ```text
-Tauri window + React UI
-        │ Tauri invoke/events
-        ▼
-Rust Bridge Manager
-  profile materialization, process supervision, JSONL stdin/stdout
-        │ deeptop/1 JSONL
-        ▼
-node <installed @deepseek-ai/dsh bin> --profile desktop
-        │
-dsh-base + deeptop-bridge + user desktop Profile bundles
-        │ one Cordis tree
-        ▼
-DSH Host/Cordis services
-Session · Agent · Tool · Model · Storage · Workspace · Skill · Goal
-Provider · ApiProxy · Remote · Projection · events
+┌─────────────────────────────────────────────────┐
+│  Deeptop Desktop UI · Tauri + React              │
+│  会话 · 工作区 · 设置 · 运行台 · 交互面板        │
+└───────────────────────┬─────────────────────────┘
+                        │ Tauri commands / events
+┌───────────────────────▼─────────────────────────┐
+│  Rust Bridge Manager                             │
+│  Profile 物化 · DSH 子进程监管 · JSONL 传输       │
+└───────────────────────┬─────────────────────────┘
+                        │ deeptop/1 JSONL
+┌───────────────────────▼─────────────────────────┐
+│  DeepSeek Harness · 一棵 Cordis 运行时树          │
+│  Agent · Session · Tool · Model · Storage · Host │
+└─────────────────────────────────────────────────┘
 ```
 
-The desktop process starts one hidden, long-lived DSH child process. The Bridge emits a `ready` frame for protocol `deeptop/1`, accepts validated JSONL requests, and forwards `mux` and `host` event streams. Tauri turns responses/events into commands and application events consumed by the React runtime.
+这种边界让桌面端复用 DSH 的领域契约，而不是把 WebUI 的浏览器生命周期、下载机制或客户端插件运行时带入桌面应用。
 
-The Bridge is not a separate HTTP service and does not contain a second Agent implementation. It exposes an explicit desktop allowlist over DSH `ApiProxy` domains and forwards Typert Remote calls through the official gateway. Native-only boundaries such as directory picking, session ZIP transfer and approved Skill installation are adapted at the edge.
+## 快速开始
 
-See [Native DSH coordination](docs/DSH_NATIVE_COORDINATION.md) for the request/event sequence and extension rules.
+### 环境要求
 
-## Runtime and data locations
+- Node.js **22.19+** 或 **24+**，且 `node`、`npm` 已加入 `PATH`；
+- Rust/Cargo 与 [Tauri 桌面开发环境](https://v2.tauri.app/start/prerequisites/)；
+- Windows 需要可用的 WebView2；
+- 首次启动 DSH 时需要访问已配置的 npm registry。
 
-`DSH_HOME` controls the DSH home directory. If it is not set, Windows uses `%USERPROFILE%\.dsh` and Unix-like systems use `$HOME/.dsh`.
-
-On startup Deeptop:
-
-1. creates or completes `$DSH_HOME/profiles/desktop`;
-2. preserves user desktop Profile bundles and `cordis.patch.yml` edits;
-3. materializes the embedded Bridge at `$DSH_HOME/profiles/node_modules/deeptop-bridge`;
-4. reuses an existing DSH in this order: a `dsh` command on `PATH`, an npm global install, the local `$DSH_HOME` prefix, or an npm/npx cache;
-5. only when none of those sources is available, installs `@deepseek-ai/dsh@latest` into `$DSH_HOME` through the local npm; automatic installation is a compatibility fallback, not a requirement;
-6. launches DSH through the normal `dsh` command or npm exec and waits for `deeptop/1` readiness.
-
-A selected workspace is passed to DSH as `session.create({ cwd })`, so the desktop project directory is not silently used as every session's working directory. DSH owns storage, persistence and Profile data according to its own configuration.
-
-## Requirements
-
-- Node.js 22.19+ or 24+;
-- Rust/Cargo and the Tauri desktop toolchain;
-- Node.js and npm available on `PATH`;
-- network access to the configured npm registry on first DSH startup;
-- a working WebView2 environment on Windows.
-
-## Development
+### 在本地运行
 
 ```powershell
-npm install
+git clone https://github.com/Sparrived/DSH-Deeptop.git
+cd DSH-Deeptop
+npm ci
 npm run tauri:dev
 ```
 
-For a frontend-only preview:
+启动后等待 DSH 运行时就绪，再选择或创建工作区、配置 Provider 与凭据，然后新建会话开始工作。Deeptop 会优先复用本机可用的 DSH；没有可用运行时时，才通过本机 npm 安装 `@deepseek-ai/dsh@latest` 到 `DSH_HOME`。
 
-```powershell
-npm run dev
-```
+> `npm run dev` 仅启动 Vite 预览，缺少 Tauri Bridge 和 DSH 子进程。它适合调整布局，不应用于验证会话、文件或系统集成功能。
 
-The Vite preview does not have the Tauri Bridge or DSH child process. Use it for layout/component work, not for validating sessions or native directory operations.
+### 构建与验证
 
-## Build and test
+| 目标 | 命令 |
+| --- | --- |
+| 前端类型检查与构建 | `npm run build` |
+| Bridge 路由测试 | `npm run test:bridge` |
+| 全量 JavaScript 测试 | `npm test` |
+| 原生应用与安装包 | `npm run tauri:build` |
+| 检查版本清单一致性 | `npm run version:check` |
 
-```powershell
-# TypeScript check and Vite build
-npm run build
+## 文档
 
-# Tauri application build
-npm run tauri:build
+| 文档 | 适用场景 |
+| --- | --- |
+| [项目说明手册](docs/PROJECT_GUIDE.md) | 安装、运行时目录、数据流、扩展和排障。 |
+| [DSH 原生协调关系](docs/DSH_NATIVE_COORDINATION.md) | 判断功能应位于 Tauri、Bridge、Profile 还是 React。 |
+| [架构说明](ARCHITECTURE.md) | 了解依赖方向、纯模型层与插件化边界。 |
+| [插件兼容策略](PLUGIN_COMPATIBILITY.md) | 查看 Host/Cordis 与 WebUI Client 的兼容分层。 |
+| [WebUI 对齐清单](WEBUI_PARITY.md) | 了解已覆盖能力、进行中项目与明确排除项。 |
+| [CI/CD 与发布](docs/CI_CD.md) | 了解版本同步、跨平台构建、校验和与 GitHub Release 流程。 |
+| [中文完整参考](README.zh.md) | 查看更完整的功能清单、配置示例与常见问题。 |
 
-# Bridge route and Skill-source tests
-npm run test:bridge
+## 为 Deeptop 扩展能力
 
-# All JavaScript tests
-npm test
-
-# Keep all application manifests on one version
-npm run version:check
-```
-
-`npm run build` runs `tsc --noEmit && vite build`; `npm run tauri:dev` runs the Vite dev server through the Tauri configuration, and `npm run tauri:build` builds the native application and enabled bundles. Use `npm run version:set -- 0.2.0` when preparing a release; it updates the npm, Bridge, Tauri and Cargo manifests together. Run `npm run build` and `npm test` for every change, then use the focused test command when changing Bridge routing or retry behavior.
-
-The runtime intentionally follows the moving `@deepseek-ai/dsh@latest` package. Deeptop documents the interfaces it consumes, not every internal DSH implementation detail; after a DSH upgrade, revalidate the Profile, ApiProxy methods, Remote contracts and event projections.
-
-## Extending the desktop Profile
-
-User DSH capabilities should be added to the desktop Profile before changing Rust or React domain logic. The persistent user patch is:
+优先把用户自定义能力加入 DSH desktop Profile，而不是直接复制到 Rust 或 React。持久化补丁位于：
 
 ```text
 $DSH_HOME/profiles/desktop/cordis.patch.yml
 ```
 
-For example:
+推荐顺序：
 
-```yaml
-- insert:
-    - id: my-plugin
-      name: 'C:/absolute/path/to/my-plugin/src/index.ts'
+1. 先寻找 DSH 已有的 Host/Cordis 服务、ApiProxy 方法、Remote 契约或 Projection；
+2. 在 Profile 中挂载并验证该能力；
+3. 需要桌面入口时，在 `deeptop-bridge` 添加最小、显式校验的 allowlist 路由；
+4. 在 Tauri 层处理目录、文件保存、系统通知等原生边界；
+5. 最后让 React 映射状态和触发语义化操作，并补足成功、取消、失败与缺失能力路径。
+
+请不要直接修改 `$DSH_HOME/profiles/node_modules/deeptop-bridge` 下的生成文件；应用启动时会重新物化它们。更多示例见[项目说明手册](docs/PROJECT_GUIDE.md#扩展桌面-profile)。
+
+## 贡献
+
+欢迎提交 Issue 和 Pull Request。提交前请：
+
+- 保持 DSH 作为 Agent、权限、会话和插件领域语义的权威来源；
+- 不引入 Web 原生下载、浏览器弹窗或散落在 React 组件内的平台判断；
+- 为新增 Bridge 命令覆盖协议、取消和失败路径；
+- 运行与变更相关的测试；修改前端时至少运行 `npm run build`，提交前运行 `npm test`；
+- 使用 Conventional Commits，例如 `feat(workspace): 支持工作区模板`。
+
+完整的开发与发布约定见[项目说明手册](docs/PROJECT_GUIDE.md)和[CI/CD 与发布](docs/CI_CD.md)。
+
+## 发布
+
+推送符合 SemVer 的 Tag（例如 `v0.2.0`）会触发 GitHub Actions，构建 Windows、Linux 和 macOS 安装包，生成 SHA-256 校验和，并以自动归类的中文说明创建或更新 GitHub Release。发布前请先运行：
+
+```powershell
+npm run version:check
+npm run build
+npm test
 ```
 
-A minimal Cordis plugin can be:
+请从 [Releases](https://github.com/Sparrived/DSH-Deeptop/releases) 获取安装包与升级说明。
 
-```ts
-import type { Context } from "@deepseek-ai/cordis";
+---
 
-export const name = "my-plugin";
-
-export function apply(ctx: Context) {
-  ctx.on("session/event", (event) => {
-    console.log("session event", event);
-  });
-}
-```
-
-Integration order:
-
-1. look for an official Host/Cordis service, ApiProxy method, Remote contract or Projection;
-2. mount and validate Host capabilities in the Profile rather than copying domain logic;
-3. declare the smallest desktop-side types in `src/lib/desktop.ts` and adapt Remote/Projection through `desktopClientRuntime`;
-4. implement only a native React entry point when the official package is WebUI-only;
-5. add new desktop methods to the explicit allowlist in `deeptop-bridge/routes.mjs` and test them.
-
-Do not edit generated files under `$DSH_HOME/profiles/node_modules/deeptop-bridge`; they are materialized again on restart. Put persistent user changes in the desktop Profile patch.
-
-## Compatibility boundary
-
-Deeptop targets functional and contract compatibility with DSH, not an unmodified copy of the WebUI client. Host/Cordis services, ApiProxy, Remote contracts, Session Projections, events and data semantics should be reused. WebUI-only `window.__ModuleLoader__`, the Cordis client runner, slot registry, client lifecycle and browser-specific layout/download infrastructure are outside the pure desktop target.
-
-Current follow-up work includes richer Plan and Permission surfaces, complete Session Stats and native ZIP streaming, schema-driven provider/plugin settings, recursive Subagent navigation, GoalBar, more domain-specific tool cards, long-session virtualization, media polish and localization.
-
-Read [PLUGIN_COMPATIBILITY.md](PLUGIN_COMPATIBILITY.md) and [WEBUI_PARITY.md](WEBUI_PARITY.md) for the maintained status.
-
-## Repository map
-
-```text
-src/                       React UI, state models and desktop runtime adapters
-src/components/            conversation, settings, workbench and interaction UI
-src/app/                   session/message/trajectory/event state models
-src/lib/desktop.ts         Tauri Bridge types and request wrappers
-src/lib/desktop-client-runtime.ts
-                           Remote loopback and Host event subscription
-src-tauri/src/main.rs      DSH process, Profile materialization and JSONL manager
-src-tauri/                 Tauri and Rust configuration
-deeptop-bridge/             Cordis Bundle, route allowlist and Bridge tests
-docs/                      project guide and native coordination notes
-ARCHITECTURE.md             dependency direction and pluginization rules
-PLUGIN_COMPATIBILITY.md    plugin compatibility layers and engineering checklist
-WEBUI_PARITY.md            WebUI alignment status and gaps
-```
-
-## Troubleshooting
-
-- **Node.js or npm is missing:** Deeptop now fails fast with a retryable message instead of waiting for an installer. Verify the Node.js installation and the `PATH` inherited by the process launching Deeptop; automatic DSH installation requires npm.
-- **DSH does not become ready:** inspect the runtime panel and diagnostics; check npm access, a writable `DSH_HOME`, and valid JSON/YAML in the desktop Profile. Refreshing the runtime restarts the child process.
-- **No sessions in the browser preview:** expected; only `npm run tauri:dev` owns the Rust Bridge and DSH child.
-- **A Profile change has no effect:** edit `$DSH_HOME/profiles/desktop/cordis.patch.yml`, not the generated Bridge package, then refresh DSH.
-- **Troubleshooting a crash or failed request:** open Settings → 日志. Runtime, Bridge and frontend error stack traces are shown with timestamps; use 刷新 to backfill from the desktop host, 打开日志目录 to inspect `$DSH_HOME/logs/deeptop.log`, or 导出日志 to write a timestamped snapshot file to share.
-
-## Contribution checklist
-
-- do not load WebUI Client bundles as desktop dependencies;
-- do not duplicate DSH session, permission, Agent or plugin domain logic in React/Rust;
-- keep new Bridge methods explicitly allowlisted and validate arguments, errors and cancellation;
-- cover history recovery, live events, missing plugins, failures, cancellation and rapid Session switching;
-- run `npm run build` and focused tests, then update the compatibility documentation.
+<div align="center">
+  <sub>Deeptop · A desktop for deep work, powered by DeepSeek Harness.</sub>
+</div>
