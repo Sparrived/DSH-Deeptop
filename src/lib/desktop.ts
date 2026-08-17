@@ -598,7 +598,7 @@ export interface TerminalSessionInfo {
 
 export interface TerminalOutput {
   sessionId: string;
-  stream: "stdout" | "stderr" | "system";
+  stream: "pty" | "system";
   text: string;
   exited: boolean;
   exitCode?: number | null;
@@ -621,6 +621,12 @@ export async function startTerminal(workspace: string, terminalId: string): Prom
 export async function writeTerminal(sessionId: string, input: string): Promise<void> {
   if (!isTauri()) throw new Error("终端只在桌面端可用");
   await invoke("write_terminal", { sessionId, input });
+}
+
+/** Resize an embedded terminal session to match the rendered viewport. */
+export async function resizeTerminal(sessionId: string, cols: number, rows: number): Promise<void> {
+  if (!isTauri()) throw new Error("终端只在桌面端可用");
+  await invoke("resize_terminal", { sessionId, cols, rows });
 }
 
 /** Stop an embedded terminal session. */

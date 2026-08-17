@@ -2,7 +2,6 @@ use std::{
     env,
     io::{Read, Write},
     path::{Path, PathBuf},
-    process::{Child, ChildStdin, Command, Stdio},
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex,
@@ -11,12 +10,20 @@ use std::{
     time::Duration,
 };
 
+use portable_pty::{native_pty_system, Child as PtyChild, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 const TERMINAL_OUTPUT_EVENT: &str = "terminal-output";
 const MAX_TERMINAL_INPUT_BYTES: usize = 64 * 1024;
+const INITIAL_TERMINAL_COLS: u16 = 120;
+const INITIAL_TERMINAL_ROWS: u16 = 32;
+const MAX_TERMINAL_COLS: u16 = 500;
+const MAX_TERMINAL_ROWS: u16 = 200;
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
+
+type PtyChildHandle = Box<dyn PtyChild + Send + Sync>;
+type PtyMasterHandle = Box<dyn MasterPty + Send>;
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -45,8 +52,9 @@ pub struct TerminalOutput {
 
 struct TerminalSession {
     id: String,
-    stdin: Arc<Mutex<ChildStdin>>,
-    child: Arc<Mutex<Child>>,
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    master: Arc<Mutex<PtyMasterHandle>>,
+    child: Arc<Mutex<PtyChildHandle>>,
 }
 
 #[derive(Clone, Default)]
@@ -99,21 +107,21 @@ fn available_terminals() -> Vec<TerminalOption> {
         terminals.push(terminal_option(
             "pwsh",
             "PowerShell 7",
-            "内嵌 PowerShell 7 会话",
+            "原生 PTY PowerShell 7 会话",
         ));
     }
     if windows_shell_executable("powershell.exe").is_some() {
         terminals.push(terminal_option(
             "powershell",
             "Windows PowerShell",
-            "内嵌系统 PowerShell 会话",
+            "原生 PTY 系统 PowerShell 会话",
         ));
     }
     if windows_shell_executable("cmd.exe").is_some() {
         terminals.push(terminal_option(
             "command-prompt",
             "命令提示符",
-            "内嵌 Windows 命令行会话",
+            "原生 ConPTY 命令行会话",
         ));
     }
     terminals
@@ -122,10 +130,10 @@ fn available_terminals() -> Vec<TerminalOption> {
 #[cfg(unix)]
 fn available_terminals() -> Vec<TerminalOption> {
     let definitions = [
-        ("zsh", "zsh", "交互式 zsh 会话"),
-        ("bash", "bash", "交互式 bash 会话"),
-        ("fish", "fish", "交互式 fish 会话"),
-        ("sh", "sh", "兼容性 shell 会话"),
+        ("zsh", "zsh", "原生 PTY 交互式 zsh 会话"),
+        ("bash", "bash", "原生 PTY 交互式 bash 会话"),
+        ("fish", "fish", "原生 PTY 交互式 fish 会话"),
+        ("sh", "sh", "原生 PTY 兼容性 shell 会话"),
     ];
     let preferred = env::var("SHELL")
         .ok()
@@ -159,7 +167,7 @@ fn available_terminals() -> Vec<TerminalOption> {
 }
 
 #[cfg(windows)]
-fn shell_command(directory: &Path, terminal_id: &str) -> Result<Command, String> {
+fn shell_command(directory: &Path, terminal_id: &str) -> Result<CommandBuilder, String> {
     let (executable, args) = match terminal_id {
         "pwsh" => (
             windows_shell_executable("pwsh.exe"),
@@ -173,59 +181,45 @@ fn shell_command(directory: &Path, terminal_id: &str) -> Result<Command, String>
         _ => (None, Vec::new()),
     };
     let executable = executable.ok_or_else(|| "所选终端当前不可用，请刷新终端列表".to_string())?;
-    let mut command = Command::new(executable);
-    command.args(args).current_dir(directory);
+    let mut command = CommandBuilder::new(executable);
+    command.args(args);
+    command.cwd(directory);
     Ok(command)
 }
 
 #[cfg(unix)]
-fn shell_command(directory: &Path, terminal_id: &str) -> Result<Command, String> {
+fn shell_command(directory: &Path, terminal_id: &str) -> Result<CommandBuilder, String> {
     let executable = unix_shell_executable(terminal_id)
         .ok_or_else(|| "所选终端当前不可用，请刷新终端列表".to_string())?;
-    let mut command = Command::new(executable);
+    let mut command = CommandBuilder::new(executable);
     match terminal_id {
-        "zsh" => {
-            command.args(["-l", "-i"]);
-        }
-        "bash" => {
-            command.args(["--login", "--interactive"]);
-        }
-        "fish" => {
-            command.arg("-i");
-        }
-        "sh" => {
-            command.arg("-i");
-        }
+        "zsh" => command.args(["-l", "-i"]),
+        "bash" => command.args(["--login", "--interactive"]),
+        "fish" => command.arg("-i"),
+        "sh" => command.arg("-i"),
         _ => return Err("未识别的终端选项".to_string()),
     }
-    command.current_dir(directory);
+    command.cwd(directory);
     Ok(command)
 }
 
 #[cfg(not(any(windows, unix)))]
-fn shell_command(_directory: &Path, _terminal_id: &str) -> Result<Command, String> {
+fn shell_command(_directory: &Path, _terminal_id: &str) -> Result<CommandBuilder, String> {
     Err("当前系统暂不支持内嵌终端".to_string())
 }
 
-fn configure_shell_process(command: &mut Command) {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
-    #[cfg(unix)]
-    {
-        command.env("TERM", "dumb");
-    }
+fn configure_shell_process(command: &mut CommandBuilder) {
+    command.env("TERM_PROGRAM", "Deeptop");
+    command.env("TERM", "xterm-256color");
+    command.env("COLORTERM", "truecolor");
 }
 
-fn emit_output(app: &AppHandle, session_id: &str, stream: &str, text: String) {
+fn emit_output(app: &AppHandle, session_id: &str, text: String) {
     let _ = app.emit(
         TERMINAL_OUTPUT_EVENT,
         TerminalOutput {
             session_id: session_id.to_string(),
-            stream: stream.to_string(),
+            stream: "pty".to_string(),
             text,
             exited: false,
             exit_code: None,
@@ -233,27 +227,30 @@ fn emit_output(app: &AppHandle, session_id: &str, stream: &str, text: String) {
     );
 }
 
-fn read_stream<R: Read + Send + 'static>(
-    app: AppHandle,
-    session_id: String,
-    stream: &'static str,
-    mut reader: R,
-) {
+fn read_stream<R: Read + Send + 'static>(app: AppHandle, session_id: String, mut reader: R) {
     thread::spawn(move || {
-        let mut buffer = [0_u8; 4096];
+        let mut buffer = [0_u8; 8192];
         loop {
             match reader.read(&mut buffer) {
                 Ok(0) => break,
                 Ok(size) => emit_output(
                     &app,
                     &session_id,
-                    stream,
                     String::from_utf8_lossy(&buffer[..size]).into_owned(),
                 ),
                 Err(_) => break,
             }
         }
     });
+}
+
+fn terminal_size(cols: u16, rows: u16) -> PtySize {
+    PtySize {
+        cols: cols.clamp(1, MAX_TERMINAL_COLS),
+        rows: rows.clamp(1, MAX_TERMINAL_ROWS),
+        pixel_width: 0,
+        pixel_height: 0,
+    }
 }
 
 impl TerminalManager {
@@ -295,37 +292,39 @@ impl TerminalManager {
         self.stop_current();
         let mut command = shell_command(&directory, &terminal_id)?;
         configure_shell_process(&mut command);
-        let mut child = command
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(terminal_size(INITIAL_TERMINAL_COLS, INITIAL_TERMINAL_ROWS))
+            .map_err(|error| format!("创建终端 PTY 失败：{error}"))?;
+        let child = pair
+            .slave
+            .spawn_command(command)
             .map_err(|error| format!("启动内嵌终端失败：{error}"))?;
-        let stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| "内嵌终端没有可用输入流".to_string())?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| "内嵌终端没有可用输出流".to_string())?;
-        let stderr = child
-            .stderr
-            .take()
-            .ok_or_else(|| "内嵌终端没有可用错误流".to_string())?;
+        let reader = pair
+            .master
+            .try_clone_reader()
+            .map_err(|error| format!("读取终端 PTY 失败：{error}"))?;
+        let writer = pair
+            .master
+            .take_writer()
+            .map_err(|error| format!("打开终端输入失败：{error}"))?;
+        let master: PtyMasterHandle = pair.master;
         let session_id = format!(
             "terminal-{}",
             NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed)
         );
-        let stdin = Arc::new(Mutex::new(stdin));
+        let writer = Arc::new(Mutex::new(writer));
+        let master = Arc::new(Mutex::new(master));
         let child = Arc::new(Mutex::new(child));
         if let Ok(mut current) = self.session.lock() {
             *current = Some(TerminalSession {
                 id: session_id.clone(),
-                stdin: Arc::clone(&stdin),
+                writer: Arc::clone(&writer),
+                master: Arc::clone(&master),
                 child: Arc::clone(&child),
             });
         }
+
         let manager = self.clone();
         let monitor_app = app.clone();
         let monitor_id = session_id.clone();
@@ -347,7 +346,7 @@ impl TerminalManager {
                     stream: "system".to_string(),
                     text: String::new(),
                     exited: true,
-                    exit_code: status.and_then(|status| status.code()),
+                    exit_code: status.map(|status| status.exit_code() as i32),
                 },
             );
             if let Ok(mut current) = manager.session.lock() {
@@ -357,8 +356,7 @@ impl TerminalManager {
                 }
             }
         });
-        read_stream(app.clone(), session_id.clone(), "stdout", stdout);
-        read_stream(app, session_id.clone(), "stderr", stderr);
+        read_stream(app, session_id.clone(), reader);
         Ok(TerminalSessionInfo {
             session_id,
             terminal_id,
@@ -369,7 +367,7 @@ impl TerminalManager {
         if input.len() > MAX_TERMINAL_INPUT_BYTES {
             return Err("终端输入过长，请分段发送".to_string());
         }
-        let session = self
+        let writer = self
             .session
             .lock()
             .ok()
@@ -377,18 +375,38 @@ impl TerminalManager {
                 current
                     .as_ref()
                     .filter(|session| session.id == session_id)
-                    .map(|session| Arc::clone(&session.stdin))
+                    .map(|session| Arc::clone(&session.writer))
             })
             .ok_or_else(|| "内嵌终端会话已结束".to_string())?;
-        let mut stdin = session
+        let mut writer = writer
             .lock()
             .map_err(|_| "内嵌终端输入流不可用".to_string())?;
-        stdin
+        writer
             .write_all(input.as_bytes())
             .map_err(|error| format!("写入终端失败：{error}"))?;
-        stdin
+        writer
             .flush()
             .map_err(|error| format!("刷新终端输入失败：{error}"))
+    }
+
+    fn resize(&self, session_id: &str, cols: u16, rows: u16) -> Result<(), String> {
+        let master = self
+            .session
+            .lock()
+            .ok()
+            .and_then(|current| {
+                current
+                    .as_ref()
+                    .filter(|session| session.id == session_id)
+                    .map(|session| Arc::clone(&session.master))
+            })
+            .ok_or_else(|| "内嵌终端会话已结束".to_string())?;
+        let result = master
+            .lock()
+            .map_err(|_| "终端窗口不可用".to_string())?
+            .resize(terminal_size(cols, rows))
+            .map_err(|error| format!("调整终端大小失败：{error}"));
+        result
     }
 
     fn close(&self, session_id: &str) {
@@ -433,6 +451,16 @@ pub fn write_terminal(
 }
 
 #[tauri::command]
+pub fn resize_terminal(
+    manager: State<'_, TerminalManager>,
+    session_id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    manager.resize(&session_id, cols, rows)
+}
+
+#[tauri::command]
 pub fn close_terminal(
     manager: State<'_, TerminalManager>,
     session_id: String,
@@ -443,14 +471,16 @@ pub fn close_terminal(
 
 #[cfg(test)]
 mod tests {
-    use super::{terminal_option, TerminalOption};
+    use super::{
+        terminal_option, terminal_size, TerminalOption, MAX_TERMINAL_COLS, MAX_TERMINAL_ROWS,
+    };
 
     #[test]
     fn terminal_options_have_stable_metadata() {
-        let option = terminal_option("bash", "bash", "交互式 bash 会话");
+        let option = terminal_option("bash", "bash", "原生 PTY 交互式 bash 会话");
         assert_eq!(option.id, "bash");
         assert_eq!(option.name, "bash");
-        assert_eq!(option.description, "交互式 bash 会话");
+        assert_eq!(option.description, "原生 PTY 交互式 bash 会话");
     }
 
     #[test]
@@ -463,5 +493,12 @@ mod tests {
         let value = serde_json::to_value(option).expect("terminal option should serialize");
         assert_eq!(value["id"], "system-default");
         assert_eq!(value["name"], "系统默认终端");
+    }
+
+    #[test]
+    fn terminal_size_is_clamped_to_safe_bounds() {
+        assert_eq!(terminal_size(0, 0).cols, 1);
+        assert_eq!(terminal_size(u16::MAX, u16::MAX).cols, MAX_TERMINAL_COLS);
+        assert_eq!(terminal_size(u16::MAX, u16::MAX).rows, MAX_TERMINAL_ROWS);
     }
 }

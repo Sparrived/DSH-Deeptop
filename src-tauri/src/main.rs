@@ -2938,6 +2938,7 @@ fn main() {
             terminal::list_terminals,
             terminal::start_terminal,
             terminal::write_terminal,
+            terminal::resize_terminal,
             terminal::close_terminal,
             list_workspace_files,
             get_workspace_git_status,
