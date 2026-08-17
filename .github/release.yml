@@ -1,0 +1,47 @@
+# GitHub Release note configuration.
+#
+# Pull requests should use one of the labels below. When a release is created
+# with `gh release create --generate-notes`, GitHub groups merged PRs here and
+# keeps the release page scannable for users.
+changelog:
+  exclude:
+    labels:
+      - "skip-changelog"
+      - "dependencies"
+      - "internal"
+    authors:
+      - "dependabot"
+  categories:
+    - title: "✨ 新增功能"
+      labels:
+        - "feature"
+        - "enhancement"
+        - "feat"
+    - title: "🛠️ 改进与优化"
+      labels:
+        - "improvement"
+        - "refactor"
+        - "performance"
+        - "ux"
+    - title: "🐛 修复问题"
+      labels:
+        - "bug"
+        - "fix"
+        - "regression"
+    - title: "🔐 安全性"
+      labels:
+        - "security"
+    - title: "📦 构建与发布"
+      labels:
+        - "build"
+        - "ci"
+        - "release"
+    - title: "📝 文档与工程"
+      labels:
+        - "documentation"
+        - "docs"
+        - "chore"
+        - "test"
+    - title: "其他变更"
+      labels:
+        - "*"
