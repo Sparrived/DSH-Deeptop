@@ -22,6 +22,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
 
+mod about;
 mod terminal;
 
 mod registry {
@@ -2978,6 +2979,7 @@ fn main() {
             let _ = app.emit("single-instance", json!({ "args": args, "cwd": cwd }));
         }))
         .manage(BridgeManager::default())
+        .manage(about::UpdateCheckManager::default())
         .manage(terminal::TerminalManager::default())
         .setup(|app| {
             let runtime = app.state::<BridgeManager>().inner().clone();
@@ -2986,6 +2988,9 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             check_dsh,
+            about::check_for_updates,
+            about::cancel_update_check,
+            about::open_project_url,
             open_connection_url,
             refresh_dsh,
             open_nodejs_download,

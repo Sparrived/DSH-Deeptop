@@ -958,3 +958,42 @@
 @media (max-width: 900px) { .appearance-subpage-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .settings-navigation-group-toggle { padding-inline: 6px; } .settings-navigation-subnav { margin-left: 7px; padding-left: 7px; } .appearance-subpage-grid { grid-template-columns: 1fr; } .appearance-subpage-card { min-height: 72px; } .appearance-import-export { justify-content: flex-start; } .appearance-import-export > span { width: 100%; margin-right: 0; } .appearance-import-export .settings-header-action { flex: 1 1 0; } }
 @media (prefers-reduced-motion: reduce) { .settings-navigation-chevron { transition: none; } }
+
+/* About surface: use the project's quiet workbench language, with one strong D-mark. */
+.settings-about-page { gap: 20px; }
+.about-identity { min-width: 0; display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 18px; padding: 18px; border: 1px solid var(--line-strong); background: color-mix(in srgb, var(--accent) 6%, var(--surface-raised)); }
+.about-mark { width: 76px; height: 76px; display: grid; place-items: center; border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent, #fff); font: 700 42px/1 var(--mono); }
+.about-identity-copy { min-width: 0; display: grid; align-content: center; gap: 9px; }
+.about-identity-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 9px; }
+.about-identity-title strong { color: var(--ink-strong, var(--ink)); font-size: 20px; letter-spacing: -0.02em; }
+.about-identity-title span { color: var(--accent-deep); font: 9px/1.4 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.about-identity-copy > p { max-width: 640px; margin: 0; color: var(--ink-muted, var(--muted)); font-size: 12px; line-height: 1.65; }
+.about-meta-list { display: flex; flex-wrap: wrap; gap: 7px 18px; padding-top: 4px; }
+.about-meta-list span { min-width: 0; display: inline-flex; align-items: baseline; gap: 6px; color: var(--ink-faint, var(--faint)); font-size: 10px; }
+.about-meta-list b { color: var(--ink-muted, var(--muted)); font-weight: 600; }
+.about-meta-list code { overflow: hidden; color: var(--ink-muted, var(--muted)); font: 9px/1.4 var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.about-update-block { gap: 12px; }
+.about-update-indicator { width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: var(--ink-faint, var(--faint)); }
+.about-update-indicator.available { background: var(--good); box-shadow: 0 0 0 4px color-mix(in srgb, var(--good) 15%, transparent); }
+.about-update-indicator.failed { background: var(--danger, var(--accent-deep)); }
+.about-update-card { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px 14px; border: 1px solid var(--line); background: var(--surface-raised); }
+.about-update-card.available { border-color: color-mix(in srgb, var(--good) 58%, var(--line)); background: color-mix(in srgb, var(--good) 8%, var(--surface-raised)); }
+.about-update-card.failed { border-color: color-mix(in srgb, var(--danger, var(--accent-deep)) 50%, var(--line)); }
+.about-update-copy { min-width: 0; display: grid; gap: 4px; }
+.about-update-copy strong { color: var(--ink-strong, var(--ink)); font-size: 12px; font-weight: 650; }
+.about-update-copy small { overflow-wrap: anywhere; color: var(--ink-muted, var(--muted)); font: 10px/1.5 var(--mono); }
+.about-update-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.about-update-actions button { min-height: 29px; padding: 0 9px; border: 1px solid var(--line-strong); background: transparent; color: var(--ink-muted, var(--muted)); font-size: 10px; }
+.about-update-actions button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-deep); }
+.about-update-actions button.confirm { border-color: var(--accent); background: var(--accent); color: var(--on-accent, #fff); }
+.about-update-actions button.confirm:hover:not(:disabled) { border-color: var(--accent-deep); background: var(--accent-deep); color: var(--on-accent, #fff); }
+.about-update-actions button:disabled { cursor: not-allowed; opacity: .45; }
+.about-link-list { display: grid; border-top: 1px solid var(--line); }
+.about-link-list > button, .about-link-row { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px 0; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--ink); text-align: left; }
+.about-link-list > button:hover { color: var(--accent-deep); }
+.about-link-list > button span, .about-link-row span { min-width: 0; display: grid; gap: 3px; }
+.about-link-list strong { color: inherit; font-size: 11px; font-weight: 600; }
+.about-link-list small { color: var(--muted); font: 9px/1.45 var(--mono); }
+.about-link-list b { flex: 0 0 auto; color: var(--accent-deep); font-size: 16px; font-weight: 400; }
+.about-link-row code { flex: 0 0 auto; color: var(--muted); font: 9px/1.4 var(--mono); }
+@media (max-width: 640px) { .about-identity { grid-template-columns: 52px minmax(0, 1fr); gap: 12px; padding: 13px; } .about-mark { width: 52px; height: 52px; font-size: 28px; } .about-update-card { align-items: flex-start; flex-direction: column; } .about-update-actions { justify-content: flex-start; } }

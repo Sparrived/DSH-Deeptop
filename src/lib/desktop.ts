@@ -1,7 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import packageInfo from "../../package.json";
 
 export const DSH_PACKAGE = "@deepseek-ai/dsh@latest";
+export const DEEPTOP_VERSION = packageInfo.version;
+export const DEEPTOP_PROJECT_URL = "https://github.com/Sparrived/DSH-Deeptop";
 
 export interface DshStatus {
   dshHome: string;
@@ -496,6 +499,34 @@ export async function openConnectionUrl(url: string): Promise<void> {
   await invoke("open_connection_url", { url });
 }
 
+export interface NativeUpdateResult {
+  currentVersion: string;
+  latestVersion: string | null;
+  releaseTag: string | null;
+  releaseName: string | null;
+  releaseUrl: string | null;
+  updateAvailable: boolean;
+}
+
+/** Read the bundled desktop version and query the latest stable GitHub release through Rust. */
+export async function checkForUpdates(): Promise<NativeUpdateResult> {
+  if (!isTauri()) {
+    return { currentVersion: packageInfo.version, latestVersion: null, releaseTag: null, releaseName: null, releaseUrl: null, updateAvailable: false };
+  }
+  return invoke<NativeUpdateResult>("check_for_updates");
+}
+
+/** Cancel the in-flight native update request; the network request is aborted by Rust. */
+export async function cancelUpdateCheck(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("cancel_update_check");
+}
+
+/** Open a project or release page with the OS default browser via the native host. */
+export async function openExternalUrl(url: string): Promise<void> {
+  if (!isTauri()) throw new Error("外部链接只在桌面端通过系统打开");
+  await invoke("open_project_url", { url });
+}
 export async function openNodejsDownload(): Promise<void> {
   if (!isTauri()) {
     window.open("https://nodejs.org/en/download", "_blank", "noopener,noreferrer");

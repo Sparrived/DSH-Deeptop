@@ -142,7 +142,7 @@ export type TodoItem = {
 
 export type SurfaceTab = "runtime" | "presets" | "skills" | "subagents" | "goal" | "settings";
 export type AppearanceSection = "theme" | "background" | "typography" | "css";
-export type SettingsSection = "appearance" | "general" | "keyboard" | "models" | "plugins" | "presets" | "logs";
+export type SettingsSection = "appearance" | "general" | "keyboard" | "models" | "plugins" | "presets" | "logs" | "about";
 
 export type SettingsDraft = {
   ns: string;

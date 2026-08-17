@@ -5,6 +5,7 @@ import { ConversationTranscript } from "./components/ConversationTranscript";
 import { ConversationHeader } from "./components/ConversationHeader";
 import { ComposerShell } from "./components/ComposerShell";
 import { InteractionPanel } from "./components/InteractionPanel";
+import { SettingsAboutPanel } from "./components/SettingsAboutPanel";
 import { SettingsAppearancePanel } from "./components/SettingsAppearancePanel";
 import { SettingsGeneralPanel } from "./components/SettingsGeneralPanel";
 import { SettingsKeyboardPanel } from "./components/SettingsKeyboardPanel";
@@ -30,6 +31,10 @@ import { routeBridgeEvent } from "./app/bridge-event-handler";
 import {
   bridgeRequest,
   checkDsh,
+  checkForUpdates,
+  cancelUpdateCheck,
+  DEEPTOP_PROJECT_URL,
+  DEEPTOP_VERSION,
   exportRuntimeLogs,
   getRuntimeLogs,
   isTauri,
@@ -38,6 +43,7 @@ import {
   listenToRuntimeLog,
   listenToRuntimeStatus,
   listenToSingleInstance,
+  openExternalUrl,
   openConnectionUrl,
   openLogsDirectory,
   openNodejsDownload,
@@ -157,6 +163,7 @@ import {
 import { SEND_SHORTCUT_STORAGE_KEY, readSendShortcut, type SendShortcut } from "./app/keyboard-shortcut";
 import { DEFAULT_PERMISSION_OPTIONS, isDefaultPermission, readStoredDefaultModel, readStoredDefaultPermission, writeStoredDefaultModel, writeStoredDefaultPermission, type DefaultPermission } from "./app/session-defaults";
 import { reconcileSessionIndicators } from "./app/session-runtime-state";
+import { updateCheckStateFromResult, updateCheckErrorMessage, type UpdateCheckState } from "./app/update-model";
 
 const demoStatus: DshStatus = {
   dshHome: "",
@@ -348,6 +355,8 @@ function App() {
   const [presetView, setPresetView] = useState<{ id: string; content: string } | null>(null);
   const [presetCopy, setPresetCopy] = useState<{ from: string; id: string; name: string } | null>(null);
   const [surfaceLoading, setSurfaceLoading] = useState(false);
+  const [updateState, setUpdateState] = useState<UpdateCheckState>({ status: "idle" });
+  const updateCheckRequestRef = useRef(0);
   const [renameTarget, setRenameTarget] = useState<DshSessionSummary | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [queue, setQueue] = useState<DshQueueItem[]>([]);
@@ -3003,12 +3012,46 @@ function App() {
   }
 
   function closeSettings() {
+    updateCheckRequestRef.current += 1;
+    void cancelUpdateCheck().catch(() => undefined);
     setShowInspector(false);
     setSettingsDraft(null);
     setPresetCopy(null);
     setPresetView(null);
   }
 
+  async function checkForAppUpdates() {
+    if (!desktop || updateState.status === "checking") return;
+    const requestId = ++updateCheckRequestRef.current;
+    setUpdateState({ status: "checking" });
+    try {
+      const result = await checkForUpdates();
+      if (requestId !== updateCheckRequestRef.current) return;
+      setUpdateState(updateCheckStateFromResult(result));
+    } catch (error) {
+      if (requestId !== updateCheckRequestRef.current) return;
+      if (String(error).includes("更新检查已取消")) {
+        setUpdateState({ status: "idle" });
+        return;
+      }
+      setUpdateState({ status: "error", message: updateCheckErrorMessage(error) });
+    }
+  }
+
+  function cancelAppUpdateCheck() {
+    updateCheckRequestRef.current += 1;
+    setUpdateState({ status: "idle" });
+    void cancelUpdateCheck().catch((error) => setErrorNotice(errorText(error)));
+  }
+
+  function openProjectPage() {
+    void openExternalUrl(DEEPTOP_PROJECT_URL).catch((error) => setErrorNotice(errorText(error)));
+  }
+
+  function openLatestRelease() {
+    if (updateState.status !== "available") return;
+    void openExternalUrl(updateState.releaseUrl).catch((error) => setErrorNotice(errorText(error)));
+  }
   function openSettings() {
     if (showInspector) {
       closeSettings();
@@ -3347,9 +3390,22 @@ function App() {
                   <button className={settingsSection === "plugins" ? "selected" : ""} onClick={() => setSettingsSection("plugins")}>
                     <strong>插件</strong><small>运行中的 Cordis 插件</small>
                   </button>
+                  <button className={settingsSection === "about" ? "selected" : ""} onClick={() => setSettingsSection("about")}>
+                    <strong>关于</strong><small>版本与更新检查</small>
+                  </button>
                 </nav>
 
                 <section className="settings-main">
+                  {settingsSection === "about" && <SettingsAboutPanel
+                     version={DEEPTOP_VERSION}
+                     desktop={desktop}
+                     updateState={updateState}
+                     onCheckForUpdates={() => void checkForAppUpdates()}
+                     onCancelUpdateCheck={cancelAppUpdateCheck}
+                     onOpenProject={openProjectPage}
+                     onOpenRelease={openLatestRelease}
+                   />}
+
                   {settingsSection === "appearance" && <SettingsAppearancePanel
                     appearance={appearance}
                     themeMode={themeMode}
