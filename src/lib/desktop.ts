@@ -659,6 +659,12 @@ export async function openInVscode(path: string): Promise<void> {
   await invoke("open_in_vscode", { path });
 }
 
+/** Write text through the native system clipboard. */
+export async function writeClipboard(text: string): Promise<void> {
+  if (!isTauri()) throw new Error("系统剪贴板只在桌面端可用");
+  await invoke("write_clipboard", { text });
+}
+
 /** Reveal a path in the OS file manager. */
 export async function revealInExplorer(path: string): Promise<void> {
   await invoke("reveal_in_explorer", { path });

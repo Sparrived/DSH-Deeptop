@@ -87,6 +87,7 @@ import {
   subagentActivityLabel,
   subagentModeLabel,
   detectComposerTrigger,
+  insertComposerText,
   modelSupportsImages,
   promptContentParts,
   imageMediaType,
@@ -374,6 +375,7 @@ function App() {
   const historyLoadingOlderRef = useRef(false);
   const [transcriptFollowing, setTranscriptFollowing] = useState(true);
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const sessionsRef = useRef<DshSessionSummary[]>(sessions);
   sessionsRef.current = sessions;
   const openSessionRef = useRef<(session: DshSessionSummary) => Promise<boolean>>(() => Promise.resolve(false));
@@ -2134,6 +2136,22 @@ function App() {
     void sendPrompt();
   }
 
+  function addPathToComposer(path: string) {
+    const textarea = composerRef.current;
+    const selectionStart = textarea?.selectionStart ?? composer.length;
+    const selectionEnd = textarea?.selectionEnd ?? selectionStart;
+    const inserted = insertComposerText(composer, path, selectionStart, selectionEnd);
+    setComposer(inserted.value);
+    setComposerMenuDismissed(true);
+    window.requestAnimationFrame(() => {
+      const nextTextarea = composerRef.current;
+      if (!nextTextarea) return;
+      nextTextarea.focus();
+      nextTextarea.setSelectionRange(inserted.selectionStart, inserted.selectionEnd);
+    });
+    setNotice("文件路径已添加到聊天框");
+  }
+
   function updateSendShortcut(shortcut: SendShortcut) {
     setSendShortcut(shortcut);
     try {
@@ -3143,6 +3161,7 @@ function App() {
                 workspace={workspace}
                 collapsed={filesCollapsed}
                 onToggle={() => setFilesOpen((open) => !open)}
+                 onAddPathToComposer={addPathToComposer}
                 onError={setErrorNotice}
               />
             </div>
@@ -3236,6 +3255,7 @@ function App() {
             activeCandidateIndex={activeComposerCandidateIndex}
             models={composerModels}
             modelMenuRef={modelMenuRef}
+             composerRef={composerRef}
             selectedModelValue={selectedModelValue}
             selectedModelName={selectedModel?.name}
             selectedReasoning={selectedReasoning}

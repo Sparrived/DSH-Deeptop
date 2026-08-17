@@ -29,6 +29,7 @@ interface ComposerShellProps {
   activeCandidateIndex: number;
   models: DshSessionModels | null;
   modelMenuRef: RefObject<HTMLDivElement | null>;
+  composerRef: RefObject<HTMLTextAreaElement | null>;
   selectedModelValue: string;
   selectedModelName?: string;
   selectedReasoning?: NonNullable<DshModel["reasoning"]>;
@@ -73,6 +74,7 @@ export function ComposerShell({
   activeCandidateIndex,
   models,
   modelMenuRef,
+  composerRef,
   selectedModelValue,
   selectedModelName,
   selectedReasoning,
@@ -161,6 +163,7 @@ export function ComposerShell({
     <div className="composer-shell" onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
       <input ref={attachmentInputRef} className="composer-file-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple onChange={(event) => { void onAddFiles(event.target.files ?? []); event.currentTarget.value = ""; }} />
       <textarea
+        ref={composerRef}
         value={composer}
         onChange={(event) => onComposerChange(event.target.value)}
         onPaste={onPaste}

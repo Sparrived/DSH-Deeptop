@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { modelSupportsImages, promptContentParts, formatRuntimeLog, formatRuntimeLogs, runtimeLogMatches } from "./ui-model.ts";
+import { modelSupportsImages, promptContentParts, insertComposerText, formatRuntimeLog, formatRuntimeLogs, runtimeLogMatches } from "./ui-model.ts";
 
 test("allows image prompts when the provider omits modality metadata", () => {
   assert.equal(modelSupportsImages({ id: "model", name: "Model" }), true);
@@ -21,6 +21,19 @@ test("builds the DSH prompt shape for image-only and mixed messages", () => {
     { type: "text", text: "描述这张图" },
     { type: "image", mediaType: "image/png", data: "QUJD", name: "画面.png" },
   ]);
+});
+
+test("inserts a file path at the caret with readable separators", () => {
+  assert.deepEqual(insertComposerText("请查看", "D:\\repo\\main.ts", 2, 2), {
+    value: "请查 D:\\repo\\main.ts 看",
+    selectionStart: 18,
+    selectionEnd: 18,
+  });
+  assert.deepEqual(insertComposerText("已有内容", "D:\\repo", 2, 2), {
+    value: "已有 D:\\repo 内容",
+    selectionStart: 10,
+    selectionEnd: 10,
+  });
 });
 
 test("formats runtime log lines with UTC timestamps", () => {

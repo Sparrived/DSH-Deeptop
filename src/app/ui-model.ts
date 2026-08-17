@@ -22,6 +22,16 @@ export function shortSubagentId(id: string) {
   return id.length > 24 ? `${id.slice(0, 10)}...${id.slice(-8)}` : id;
 }
 
+export function insertComposerText(value: string, insertion: string, selectionStart = value.length, selectionEnd = selectionStart) {
+  const start = Math.max(0, Math.min(selectionStart, value.length));
+  const end = Math.max(start, Math.min(selectionEnd, value.length));
+  const prefix = start > 0 && !/\s$/.test(value.slice(0, start)) ? " " : "";
+  const suffix = end < value.length && !/^\s/.test(value.slice(end)) ? " " : "";
+  const nextValue = `${value.slice(0, start)}${prefix}${insertion}${suffix}${value.slice(end)}`;
+  const nextSelection = start + prefix.length + insertion.length;
+  return { value: nextValue, selectionStart: nextSelection, selectionEnd: nextSelection };
+}
+
 export function detectComposerTrigger(value: string): ComposerTrigger | null {
   // Only the token immediately before the caret can drive completion. Keep the
   // trigger at a word boundary, but do not let a slash in a URL/path or an @

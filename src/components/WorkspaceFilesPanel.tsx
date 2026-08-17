@@ -7,6 +7,7 @@ import {
   listWorkspaceFiles,
   openInVscode,
   revealInExplorer,
+  writeClipboard,
   type WorkspaceFileEntry,
   type WorkspaceGitFile,
   type WorkspaceGitStatus,
@@ -25,6 +26,7 @@ type WorkspaceFilesPanelProps = {
   collapsed: boolean;
   onToggle: () => void;
   onError: (message: string) => void;
+  onAddPathToComposer: (path: string) => void;
 };
 
 function formatFileSize(bytes: number): string {
@@ -158,7 +160,7 @@ function NewFolderRow({ onCommit, onCancel }: NewFolderRowProps) {
   );
 }
 
-export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError }: WorkspaceFilesPanelProps) {
+export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError, onAddPathToComposer }: WorkspaceFilesPanelProps) {
   const [rootEntries, setRootEntries] = useState<WorkspaceFileEntry[] | null>(null);
   const [loadingRoot, setLoadingRoot] = useState(false);
   const [gitStatus, setGitStatus] = useState<WorkspaceGitStatus | null>(null);
@@ -335,21 +337,15 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError }:
   async function handleCopyPath(path: string) {
     setContextMenu(null);
     try {
-      await navigator.clipboard.writeText(path);
-    } catch {
-      try {
-        const textarea = document.createElement("textarea");
-        textarea.value = path;
-        textarea.style.position = "fixed";
-        textarea.style.opacity = "0";
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand("copy");
-        textarea.remove();
-      } catch {
-        onError("复制路径失败");
-      }
+      await writeClipboard(path);
+    } catch (error) {
+      onError(`复制路径失败：${errorText(error)}`);
     }
+  }
+
+  function handleAddPathToComposer(path: string) {
+    setContextMenu(null);
+    onAddPathToComposer(path);
   }
 
   async function handleCreateFolder(parent: string, name: string) {
@@ -516,6 +512,7 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError }:
           <button role="menuitem" disabled={busy} onClick={() => void handleOpenInVscode(menu.entry.path)}>用 VSCode 打开</button>
           <button role="menuitem" disabled={busy} onClick={() => void handleReveal(menu.entry.path)}>在资源管理器中显示</button>
           <button role="menuitem" onClick={() => void handleCopyPath(menu.entry.path)}>复制路径</button>
+          <button role="menuitem" onClick={() => handleAddPathToComposer(menu.entry.path)}>添加到聊天框</button>
           {menu.entry.isDir && <button role="menuitem" onClick={() => beginNewFolder(menu.entry.path)}>新建文件夹</button>}
           <button role="menuitem" className="danger" onClick={() => setDeleteTarget(menu.entry)}>删除</button>
         </div>,

@@ -2658,6 +2658,16 @@ fn open_in_vscode(path: String) -> Result<(), String> {
         .map_err(|error| format!("未找到 VSCode，改用系统打开也失败：{error}"))
 }
 
+/// 将文本写入系统剪贴板，避免依赖 WebView 的剪贴板权限策略。
+#[tauri::command]
+fn write_clipboard(text: String) -> Result<(), String> {
+    let mut clipboard =
+        arboard::Clipboard::new().map_err(|error| format!("打开系统剪贴板失败：{error}"))?;
+    clipboard
+        .set_text(text)
+        .map_err(|error| format!("写入系统剪贴板失败：{error}"))
+}
+
 /// 在系统文件管理器中显示该路径（选中状态）。
 #[tauri::command]
 fn reveal_in_explorer(path: String) -> Result<(), String> {
@@ -2957,6 +2967,7 @@ fn main() {
             list_workspace_files,
             get_workspace_git_status,
             open_in_vscode,
+            write_clipboard,
             reveal_in_explorer,
             delete_workspace_path,
             create_workspace_folder,
