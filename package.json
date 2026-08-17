@@ -23,6 +23,7 @@
     "test:retry": "node --test src/app/message-retry.test.mjs",
     "version:check": "node scripts/version.mjs check",
     "version:set": "node scripts/version.mjs set",
+    "build:dev": "node scripts/build-dev.mjs",
     "release:notes": "node scripts/generate-release-notes.mjs"
   },
   "dependencies": {

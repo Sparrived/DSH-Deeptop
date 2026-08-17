@@ -49,6 +49,22 @@ npm test
 
 脚本支持 SemVer prerelease，例如 `0.2.0-rc.1`。不要只修改其中一个清单，否则 CI 和 Release 的版本校验会失败。
 
+### 本地开发版构建脚本
+
+后续本地开发版构建建议直接使用统一脚本：
+
+```powershell
+npm run build:dev -- 0.1.2-dev.2
+```
+
+脚本会依次同步并检查全部版本清单、运行 JavaScript 测试、构建前端、执行 Rust 格式/编译/测试/Clippy 检查，最后构建 Windows x64 NSIS 安装包并输出文件大小与 SHA256。脚本只修改本地版本清单和构建产物，不执行 `git push`、Tag 或 GitHub Release。
+
+如果只需要查看帮助：
+
+```powershell
+npm run build:dev -- --help
+```
+
 ## 自动 Release
 
 ### Tag 触发
