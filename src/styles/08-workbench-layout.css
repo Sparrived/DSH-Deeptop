@@ -1461,13 +1461,14 @@ textarea:focus-visible {
   width: fit-content;
   min-width: 176px;
   margin-bottom: 20px;
-  padding: 4px 0 8px;
+  padding: 6px 0 10px;
+  overflow: visible;
   color: var(--ink-strong);
   font-family: "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", sans-serif;
   font-size: clamp(32px, 4vw, 48px);
   font-weight: 800;
-  letter-spacing: -0.085em;
-  line-height: 0.92;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
   text-transform: none;
 }
 
