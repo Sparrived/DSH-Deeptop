@@ -1,0 +1,185 @@
+/* 左侧工作区终端 dock；独立文件避免影响其他面板的层叠顺序。 */
+.left-dock-shelf {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--surface-scrollbar-gap, 16px);
+  z-index: 23;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--right-surface-gap, 12px);
+  pointer-events: none;
+}
+
+.left-dock-shelf > .dock-frame,
+.left-dock-shelf > .workspace-files-panel {
+  position: relative;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  flex: 0 0 auto;
+  pointer-events: auto;
+}
+
+.left-dock-shelf > .dock-frame .dock-frame-card,
+.left-dock-shelf > .workspace-files-panel .workspace-files-card {
+  right: auto;
+  left: calc(100% + var(--right-surface-gap, 12px));
+}
+
+.terminal-panel {
+  --terminal-panel-width: min(360px, calc(100vw - 32px));
+  --terminal-panel-collapsed-width: 44px;
+  width: var(--terminal-panel-collapsed-width);
+}
+
+.terminal-panel-rail { min-height: 48px; }
+
+.terminal-panel-rail-mark,
+.terminal-panel-mark {
+  display: grid;
+  place-items: center;
+  color: var(--accent-deep);
+  font-family: var(--mono);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.terminal-panel-rail-mark {
+  width: 26px;
+  height: 26px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--line));
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.terminal-panel-mark {
+  width: 30px;
+  height: 30px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--line));
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.terminal-panel-card {
+  width: var(--terminal-panel-width);
+  max-height: min(78svh, 680px);
+}
+
+.terminal-panel-summary,
+.terminal-panel-form {
+  display: grid;
+  gap: 6px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.terminal-panel-live {
+  color: var(--accent-deep);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.terminal-panel-path {
+  overflow: hidden;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-panel-form { border-bottom: 0; }
+.terminal-panel-form label { color: var(--ink-muted); font-size: 12px; }
+
+.terminal-panel-select-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 6px;
+}
+
+.terminal-panel-select-row select,
+.terminal-panel-refresh,
+.terminal-panel-launch {
+  min-height: 34px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.terminal-panel-select-row select { min-width: 0; padding: 0 8px; }
+.terminal-panel-refresh { padding: 0; color: var(--ink-muted); font-size: 16px; }
+
+.terminal-panel-select-row select:focus-visible,
+.terminal-panel-refresh:focus-visible,
+.terminal-panel-launch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.terminal-panel-refresh:hover:not(:disabled),
+.terminal-panel-launch:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-deep);
+}
+
+.terminal-panel-description,
+.terminal-panel-empty {
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.terminal-panel-launch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin-top: 4px;
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line-strong));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  color: var(--accent-deep);
+  font-weight: 650;
+}
+
+.terminal-panel-launch span { font-family: var(--mono); font-size: 16px; }
+
+.terminal-panel-refresh:disabled,
+.terminal-panel-launch:disabled,
+.terminal-panel-select-row select:disabled {
+  cursor: default;
+  opacity: .5;
+}
+
+@media (max-width: 760px) {
+  .left-dock-shelf {
+    position: fixed;
+    top: calc(var(--window-bar-height) + var(--conversation-header-height) + 10px);
+    right: auto;
+    bottom: auto;
+    left: 8px;
+    gap: 8px;
+  }
+
+  .left-dock-shelf > .dock-frame:not(.collapsed),
+  .left-dock-shelf > .workspace-files-panel:not(.collapsed) {
+    width: min(320px, calc(100vw - 16px));
+  }
+
+  .left-dock-shelf > .dock-frame:not(.collapsed) .dock-frame-card,
+  .left-dock-shelf > .workspace-files-panel:not(.collapsed) .workspace-files-card {
+    position: static;
+    width: 100%;
+    max-height: min(50svh, 420px);
+  }
+
+  .left-dock-shelf > .dock-frame.collapsed,
+  .left-dock-shelf > .workspace-files-panel.collapsed {
+    width: var(--dock-collapsed-width, 44px);
+  }
+}

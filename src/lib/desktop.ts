@@ -585,6 +585,25 @@ export interface WorkspaceGitStatus {
   files: WorkspaceGitFile[];
 }
 
+export interface TerminalOption {
+  id: string;
+  name: string;
+  description: string;
+}
+
+/** Detect the terminals available on the host, ordered by platform default. */
+export async function listTerminals(): Promise<TerminalOption[]> {
+  if (!isTauri()) return [];
+  const terminals = await invoke<unknown>("list_terminals");
+  return Array.isArray(terminals) ? (terminals as TerminalOption[]) : [];
+}
+
+/** Launch a selected terminal with the workspace directory as its starting location. */
+export async function openTerminal(workspace: string, terminalId: string): Promise<void> {
+  if (!isTauri()) throw new Error("终端只在桌面端可用");
+  await invoke("open_terminal", { workspace, terminalId });
+}
+
 /** List the entries under a workspace directory (folders first, then by name). */
 export async function listWorkspaceFiles(dir: string): Promise<WorkspaceFileEntry[]> {
   if (!isTauri()) return [];

@@ -18,6 +18,7 @@ import { SubagentDock } from "./components/SubagentDock";
 import { SubagentPanel } from "./components/SubagentPanel";
 import { TaskPanel, TodoPanel } from "./components/TodoPanel";
 import { WorkspaceFilesPanel } from "./components/WorkspaceFilesPanel";
+import { TerminalDock } from "./components/TerminalDock";
 import { DeliverablesPanel } from "./components/DeliverablesPanel";
 import { UtilityDockShelf } from "./components/UtilityDockShelf";
 import { WindowChrome } from "./components/WindowChrome";
@@ -350,6 +351,7 @@ function App() {
   const [openPanel, setOpenPanel] = useState<"tasks" | "todo" | "deliverables" | null>(null);
   const [jobNow, setJobNow] = useState(() => Date.now());
   const [filesOpen, setFilesOpen] = useState(false);
+  const [terminalOpen, setTerminalOpen] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState<Record<string, PendingApproval>>({});
   const [pendingQuestions, setPendingQuestions] = useState<Record<string, PendingQuestion>>({});
   const [questionAnswersBySession, setQuestionAnswersBySession] = useState<Record<string, Record<string, string[]>>>({});
@@ -3110,15 +3112,22 @@ function App() {
               onOpenSessionPath={openSessionPath}
             />
 
-            <WorkspaceFilesPanel
-              workspace={workspace}
-              collapsed={filesCollapsed}
-              onToggle={() => setFilesOpen((open) => !open)}
-              onError={setErrorNotice}
-            />
+            <div className="left-dock-shelf" aria-label="工作区工具">
+              <TerminalDock
+                workspace={workspace}
+                collapsed={!terminalOpen}
+                onToggle={() => setTerminalOpen((open) => !open)}
+                onError={setErrorNotice}
+              />
+              <WorkspaceFilesPanel
+                workspace={workspace}
+                collapsed={filesCollapsed}
+                onToggle={() => setFilesOpen((open) => !open)}
+                onError={setErrorNotice}
+              />
+            </div>
 
-
-             <UtilityDockShelf
+              <UtilityDockShelf
                tasks={activeJobs.length > 0 ? <TaskPanel jobs={activeJobs} collapsed={jobsCollapsed} now={jobNow} onToggle={() => togglePanel("tasks")} /> : null}
                todo={todoVisible ? <TodoPanel
                  todos={todos ?? []}

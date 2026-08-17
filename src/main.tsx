@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import { installFrontendLogCapture } from "./lib/frontend-log";
 import "./styles.css";
+import "./styles/terminal-dock.css";
 
 installFrontendLogCapture();
 
