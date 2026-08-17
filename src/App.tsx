@@ -2772,7 +2772,7 @@ function App() {
   }
 
   async function openSessionPath(path: string) {
-    const session = sessions.find((item) => item.sessionId === activeSessionRef.current);
+    const session = sessionsRef.current.find((item) => item.sessionId === activeSessionRef.current);
     if (!session) return;
     try {
       await bridgeRequest("host.openPath", { path: sessionPath(session.cwd, path) });
