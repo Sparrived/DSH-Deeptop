@@ -45,6 +45,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: recursive
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - name: Set up Node.js
@@ -123,7 +124,7 @@ jobs:
             bundles: deb,appimage
           - platform: macos
             arch: x64
-            runner: macos-14
+            runner: macos-13
             bundles: dmg
           - platform: macos
             arch: arm64
@@ -136,6 +137,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.prepare.outputs.tag }}
+          submodules: recursive
 
       - name: Install Linux dependencies
         if: matrix.platform == 'linux'
@@ -160,6 +162,9 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      - name: Enable Corepack for DSH source build
+        run: corepack enable
+
       - name: Check synchronized application version
         run: npm run version:check -- "${{ needs.prepare.outputs.version }}"
 
@@ -170,6 +175,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+
+      - name: Build and verify embedded DSH runtime
+        run: npm run dsh:sync && npm run dsh:verify
 
       - name: Build Tauri bundles
         run: npm run tauri -- build --bundles ${{ needs.prepare.outputs.prerelease == 'true' && matrix.development_bundles || matrix.bundles }} --ci --no-sign
@@ -211,6 +219,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ needs.prepare.outputs.tag }}
+          submodules: recursive
           path: release-source
 
       - name: Set up Node.js for release notes
