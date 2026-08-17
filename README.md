@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/deeptop-poster.png" alt="Deeptop 原生桌面工作台海报，展示会话与工作区界面" />
+  <img src="https://raw.githubusercontent.com/Sparrived/DSH-Deeptop/refs/heads/master/assets/deeptop-poster.png" alt="Deeptop 原生桌面工作台海报，展示会话与工作区界面" />
 
   <h1>Deeptop</h1>
   <p><strong>把复杂的工作，交给深处。</strong></p>
