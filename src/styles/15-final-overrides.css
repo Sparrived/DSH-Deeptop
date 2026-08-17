@@ -384,7 +384,7 @@
 .workspace-files-context-menu {
   position: fixed;
   z-index: 1000;
-  min-width: 184px;
+  min-width: 196px;
   display: grid;
   gap: 2px;
   padding: 6px;

@@ -446,7 +446,7 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError, o
 
   const menu = contextMenu;
   const menuX = menu ? Math.min(menu.x, window.innerWidth - 220) : 0;
-  const menuY = menu ? Math.min(menu.y, window.innerHeight - 200) : 0;
+  const menuY = menu ? Math.min(menu.y, window.innerHeight - 240) : 0;
   const showingNewFolderAtRoot = creatingFolderIn === workspace;
   const rootEmpty = rootEntries !== null && rootEntries.length === 0 && !showingNewFolderAtRoot;
 
