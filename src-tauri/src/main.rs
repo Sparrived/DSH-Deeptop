@@ -2085,6 +2085,38 @@ fn focus_main_window(app: &AppHandle) {
     }
 }
 
+fn validated_connection_url(value: &str) -> Result<String, String> {
+    let normalized = value.trim();
+    let lower = normalized.to_ascii_lowercase();
+    let scheme_length = if lower.starts_with("https://") {
+        8
+    } else if lower.starts_with("http://") {
+        7
+    } else {
+        return Err("只允许打开 http 或 https 连接".to_string());
+    };
+    if normalized.is_empty()
+        || normalized.chars().any(char::is_whitespace)
+        || normalized.contains(['\r', '\n', '\\'])
+    {
+        return Err("连接地址无效".to_string());
+    }
+    let authority = normalized[scheme_length..]
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or_default();
+    if authority.is_empty() || authority.starts_with(':') || authority.contains('@') {
+        return Err("连接地址缺少有效主机".to_string());
+    }
+    Ok(normalized.to_string())
+}
+
+#[tauri::command]
+fn open_connection_url(url: String) -> Result<(), String> {
+    let value = validated_connection_url(&url)?;
+    open_with_system_default(Path::new(&value)).map_err(|error| format!("打开连接失败：{error}"))
+}
+
 #[tauri::command]
 fn open_nodejs_download() -> Result<(), String> {
     let mut command = if cfg!(windows) {
@@ -2929,6 +2961,12 @@ mod tests {
             "[2023-11-14 22:13:20.123] [runtime/stderr] boom"
         );
     }
+    #[test]
+    fn validates_connection_protocols_without_opening_processes() {
+        assert_eq!(super::validated_connection_url(" https://example.com/docs ").unwrap(), "https://example.com/docs");
+        assert!(super::validated_connection_url("javascript:alert(1)").is_err());
+        assert!(super::validated_connection_url("https://").is_err());
+    }
 }
 
 fn main() {
@@ -2948,6 +2986,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             check_dsh,
+            open_connection_url,
             refresh_dsh,
             open_nodejs_download,
             list_pending_open_sessions,
