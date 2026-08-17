@@ -1,6 +1,6 @@
 [package]
 name = "deeptop"
-version = "0.1.2-dev.2"
+version = "0.1.2-dev.3"
 description = "Native desktop client for DeepSeek Harness"
 authors = ["Deeptop"]
 edition = "2021"
