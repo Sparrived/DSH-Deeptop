@@ -56,15 +56,23 @@ function run(command, commandArgs, label) {
   }
 }
 
-run(npmCommand, ["run", "version:set", "--", version], "同步版本清单");
-run(npmCommand, ["run", "version:check"], "检查版本一致性");
-run(npmCommand, ["test"], "运行 JavaScript 测试");
-run(npmCommand, ["run", "build"], "构建前端资源");
+function runNpm(commandArgs, label) {
+  if (process.platform === "win32") {
+    run(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", npmCommand, ...commandArgs], label);
+    return;
+  }
+  run(npmCommand, commandArgs, label);
+}
+
+runNpm(["run", "version:set", "--", version], "同步版本清单");
+runNpm(["run", "version:check"], "检查版本一致性");
+runNpm(["test"], "运行 JavaScript 测试");
+runNpm(["run", "build"], "构建前端资源");
 run("cargo", ["fmt", "--manifest-path", cargoManifest, "--all", "--", "--check"], "检查 Rust 格式");
 run("cargo", ["check", "--manifest-path", cargoManifest], "检查 Rust 编译");
 run("cargo", ["test", "--manifest-path", cargoManifest], "运行 Rust 测试");
 run("cargo", ["clippy", "--manifest-path", cargoManifest, "--all-targets", "--", "-D", "warnings"], "运行 Rust Clippy");
-run(npmCommand, ["run", "tauri:build"], "构建 Windows x64 NSIS 安装包");
+runNpm(["run", "tauri:build"], "构建 Windows x64 NSIS 安装包");
 
 const artifact = path.join(
   root,
