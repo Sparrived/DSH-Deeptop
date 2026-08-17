@@ -275,13 +275,13 @@ const BRIDGE_PATCH: &str = include_str!("../../deeptop-bridge/cordis.patch.yml")
 const BRIDGE_ENTRY: &str = include_str!("../../deeptop-bridge/index.mjs");
 const BRIDGE_RUNTIME: &str = include_str!("../../deeptop-bridge/bridge.mjs");
 const BRIDGE_ROUTES: &str = include_str!("../../deeptop-bridge/routes.mjs");
-const BRIDGE_SESSION_REPAIR: &str =
-    include_str!("../../deeptop-bridge/session-repair.mjs");
+const BRIDGE_SESSION_REPAIR: &str = include_str!("../../deeptop-bridge/session-repair.mjs");
 const BRIDGE_MESSAGE_ANNOTATIONS: &str =
     include_str!("../../deeptop-bridge/message-annotations.mjs");
 const BRIDGE_SKILL_INSTALLER: &str = include_str!("../../deeptop-bridge/skill-installer.mjs");
 const BRIDGE_SKILL_INSTALL_PLUGIN: &str =
     include_str!("../../deeptop-bridge/skill-install-plugin.mjs");
+const BRIDGE_PLUGIN_CONFIG: &str = include_str!("../../deeptop-bridge/plugin-config.mjs");
 const PROFILE_TEMPLATE: &str = include_str!("../../deeptop-bridge/desktop-profile.json");
 const PROFILE_PATCH_TEMPLATE: &str = include_str!("../../deeptop-bridge/profile.patch.yml");
 const PROFILE_PNPM_WORKSPACE: &str =
@@ -770,6 +770,10 @@ fn materialize_desktop_profile() -> Result<(), String> {
     write_text(
         &bridge_dir.join("skill-install-plugin.mjs"),
         BRIDGE_SKILL_INSTALL_PLUGIN,
+    )?;
+    write_text(
+        &bridge_dir.join("plugin-config.mjs"),
+        BRIDGE_PLUGIN_CONFIG,
     )?;
     Ok(())
 }
@@ -1893,15 +1897,17 @@ impl BridgeManager {
                 // with a short backoff. `stop()` (manual restart) and a successful
                 // boot reset the counter, so this only loops when DSH keeps dying
                 // without reaching Ready (guards against a crash loop).
-                let restart_delay = if !state.auto_restart_pending && state.crash_count < MAX_AUTO_RESTARTS {
-                    state.crash_count += 1;
-                    state.auto_restart_pending = true;
-                    let count = state.crash_count;
-                    let delay = AUTO_RESTART_BASE_DELAY.saturating_mul(1u32 << count.saturating_sub(1).min(8));
-                    Some(delay)
-                } else {
-                    None
-                };
+                let restart_delay =
+                    if !state.auto_restart_pending && state.crash_count < MAX_AUTO_RESTARTS {
+                        state.crash_count += 1;
+                        state.auto_restart_pending = true;
+                        let count = state.crash_count;
+                        let delay = AUTO_RESTART_BASE_DELAY
+                            .saturating_mul(1u32 << count.saturating_sub(1).min(8));
+                        Some(delay)
+                    } else {
+                        None
+                    };
                 (true, restart_delay)
             })
             .unwrap_or((false, None));
@@ -2158,6 +2164,185 @@ struct WorkspaceFileEntry {
     modified: u64,
 }
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceGitFile {
+    path: String,
+    status: String,
+    code: String,
+    index_status: String,
+    worktree_status: String,
+    is_renamed: bool,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceGitStatus {
+    is_repository: bool,
+    root: Option<String>,
+    branch: Option<String>,
+    upstream: Option<String>,
+    ahead: u32,
+    behind: u32,
+    staged: u32,
+    changed: u32,
+    untracked: u32,
+    conflicted: u32,
+    files: Vec<WorkspaceGitFile>,
+}
+
+fn git_command(directory: &Path) -> Command {
+    let mut command = Command::new("git");
+    command.current_dir(directory);
+    #[cfg(windows)]
+    configure_hidden_process(&mut command);
+    command
+}
+
+fn git_output(directory: &Path, args: &[&str]) -> Result<Output, String> {
+    git_command(directory)
+        .args(args)
+        .output()
+        .map_err(|error| format!("无法运行 git：{error}"))
+}
+
+/// 读取工作区 Git 摘要。使用 porcelain v1 保障路径状态可稳定解析，失败时
+/// 返回“不是仓库”而不是把 git 的诊断噪声暴露给文件看板。
+#[tauri::command]
+fn get_workspace_git_status(dir: String) -> Result<WorkspaceGitStatus, String> {
+    let directory = PathBuf::from(&dir);
+    if dir.trim().is_empty() {
+        return Ok(WorkspaceGitStatus {
+            is_repository: false,
+            root: None,
+            branch: None,
+            upstream: None,
+            ahead: 0,
+            behind: 0,
+            staged: 0,
+            changed: 0,
+            untracked: 0,
+            conflicted: 0,
+            files: Vec::new(),
+        });
+    }
+    if !directory.is_dir() {
+        return Ok(WorkspaceGitStatus {
+            is_repository: false,
+            root: None,
+            branch: None,
+            upstream: None,
+            ahead: 0,
+            behind: 0,
+            staged: 0,
+            changed: 0,
+            untracked: 0,
+            conflicted: 0,
+            files: Vec::new(),
+        });
+    }
+    let probe = match git_output(&directory, &["rev-parse", "--is-inside-work-tree"]) {
+        Ok(output) => output,
+        Err(_) => {
+            return Ok(WorkspaceGitStatus {
+                is_repository: false,
+                root: None,
+                branch: None,
+                upstream: None,
+                ahead: 0,
+                behind: 0,
+                staged: 0,
+                changed: 0,
+                untracked: 0,
+                conflicted: 0,
+                files: Vec::new(),
+            });
+        }
+    };
+    if !probe.status.success() || String::from_utf8_lossy(&probe.stdout).trim() != "true" {
+        return Ok(WorkspaceGitStatus {
+            is_repository: false,
+            root: None,
+            branch: None,
+            upstream: None,
+            ahead: 0,
+            behind: 0,
+            staged: 0,
+            changed: 0,
+            untracked: 0,
+            conflicted: 0,
+            files: Vec::new(),
+        });
+    }
+
+    let repository_root = git_output(&directory, &["rev-parse", "--show-toplevel"])
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .filter(|value| !value.is_empty());
+    let branch_output = git_output(&directory, &["branch", "--show-current"])?;
+    let branch = String::from_utf8_lossy(&branch_output.stdout).trim().to_string();
+    let branch = if branch.is_empty() { None } else { Some(branch) };
+    let upstream_output = git_output(&directory, &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]).ok();
+    let upstream = upstream_output
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .filter(|value| !value.is_empty());
+    let (ahead, behind) = if upstream.is_some() {
+        git_output(&directory, &["rev-list", "--left-right", "--count", "HEAD...@{upstream}"])
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| {
+                let values = String::from_utf8_lossy(&output.stdout);
+                let mut parts = values.split_whitespace().filter_map(|part| part.parse::<u32>().ok());
+                Some((parts.next()?, parts.next()?))
+            })
+            .unwrap_or((0, 0))
+    } else {
+        (0, 0)
+    };
+    let status_output = git_output(&directory, &["status", "--porcelain=v1", "-z", "--untracked-files=all"])?;
+    if !status_output.status.success() {
+        return Err(format!("读取 Git 状态失败：{}", String::from_utf8_lossy(&status_output.stderr).trim()));
+    }
+    let bytes = status_output.stdout;
+    let mut files = Vec::new();
+    let mut index = 0;
+    while index < bytes.len() {
+        if index + 3 > bytes.len() { break; }
+        let x = bytes[index] as char;
+        let y = bytes[index + 1] as char;
+        if bytes[index + 2] != b' ' { break; }
+        index += 3;
+        let end = bytes[index..].iter().position(|byte| *byte == 0).map(|offset| index + offset).unwrap_or(bytes.len());
+        let raw_path = String::from_utf8_lossy(&bytes[index..end]).into_owned();
+        index = end.saturating_add(1);
+        let is_renamed = x == 'R' || y == 'R';
+        let path = if is_renamed && index < bytes.len() {
+            let new_end = bytes[index..].iter().position(|byte| *byte == 0).map(|offset| index + offset).unwrap_or(bytes.len());
+            let new_path = String::from_utf8_lossy(&bytes[index..new_end]).into_owned();
+            index = new_end.saturating_add(1);
+            new_path
+        } else {
+            raw_path
+        };
+        let status = if x == '?' && y == '?' { "untracked" } else if x == 'U' || y == 'U' || (x == 'A' && y == 'A') || (x == 'D' && y == 'D') { "conflicted" } else if x != ' ' && y != ' ' { "staged-changed" } else if x != ' ' { "staged" } else { "changed" };
+        files.push(WorkspaceGitFile {
+            path,
+            status: status.to_string(),
+            code: format!("{x}{y}"),
+            index_status: x.to_string(),
+            worktree_status: y.to_string(),
+            is_renamed,
+        });
+    }
+    let staged = files.iter().filter(|file| file.index_status != " " && file.status != "untracked" && file.status != "conflicted").count() as u32;
+    let changed = files.iter().filter(|file| file.worktree_status != " " && file.status != "untracked" && file.status != "conflicted").count() as u32;
+    let untracked = files.iter().filter(|file| file.status == "untracked").count() as u32;
+    let conflicted = files.iter().filter(|file| file.status == "conflicted").count() as u32;
+    Ok(WorkspaceGitStatus { is_repository: true, root: repository_root, branch, upstream, ahead, behind, staged, changed, untracked, conflicted, files })
+}
+
 /// 列出工作区目录下的条目（文件夹优先，其余按名称排序），供左侧文件看板使用。
 #[tauri::command]
 fn list_workspace_files(dir: String) -> Result<Vec<WorkspaceFileEntry>, String> {
@@ -2235,7 +2420,8 @@ fn known_vscode_cli_paths() -> Vec<PathBuf> {
             candidates.push(PathBuf::from(program_files).join("Microsoft VS Code/bin/code.cmd"));
         }
         if let Some(program_files_x86) = env::var_os("ProgramFiles(x86)") {
-            candidates.push(PathBuf::from(program_files_x86).join("Microsoft VS Code/bin/code.cmd"));
+            candidates
+                .push(PathBuf::from(program_files_x86).join("Microsoft VS Code/bin/code.cmd"));
         }
     }
     #[cfg(target_os = "macos")]
@@ -2265,7 +2451,11 @@ fn try_launch_vscode(target: &Path) -> bool {
         command.args(["/C", "code"]);
         command.arg(target);
         configure_hidden_process(&mut command);
-        if command.status().map(|status| status.success()).unwrap_or(false) {
+        if command
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+        {
             return true;
         }
     }
@@ -2273,7 +2463,11 @@ fn try_launch_vscode(target: &Path) -> bool {
     {
         let mut command = Command::new("code");
         command.arg(target);
-        if command.status().map(|status| status.success()).unwrap_or(false) {
+        if command
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+        {
             return true;
         }
     }
@@ -2289,7 +2483,11 @@ fn try_launch_vscode(target: &Path) -> bool {
             command.arg(target);
             #[cfg(windows)]
             configure_hidden_process(&mut command);
-            if command.status().map(|status| status.success()).unwrap_or(false) {
+            if command
+                .status()
+                .map(|status| status.success())
+                .unwrap_or(false)
+            {
                 return true;
             }
         }
@@ -2415,7 +2613,8 @@ fn ensure_theme_files() -> Result<ThemeFilesInfo, String> {
     if current_version < THEME_FILES_VERSION {
         let write = |name: &str, content: &str| -> Result<(), String> {
             let path = directory.join(name);
-            fs::write(&path, content).map_err(|error| format!("无法写入 {}：{error}", path.display()))
+            fs::write(&path, content)
+                .map_err(|error| format!("无法写入 {}：{error}", path.display()))
         };
         write("monokai-pro.css", MONOKAI_PRO_THEME_CSS)?;
         write("one-dark.css", ONE_DARK_THEME_CSS)?;
@@ -2423,8 +2622,14 @@ fn ensure_theme_files() -> Result<ThemeFilesInfo, String> {
     }
     Ok(ThemeFilesInfo {
         themes_dir: directory.to_string_lossy().into_owned(),
-        monokai_pro: directory.join("monokai-pro.css").to_string_lossy().into_owned(),
-        one_dark: directory.join("one-dark.css").to_string_lossy().into_owned(),
+        monokai_pro: directory
+            .join("monokai-pro.css")
+            .to_string_lossy()
+            .into_owned(),
+        one_dark: directory
+            .join("one-dark.css")
+            .to_string_lossy()
+            .into_owned(),
     })
 }
 
@@ -2551,6 +2756,7 @@ fn main() {
             open_logs_directory,
             save_export_file,
             list_workspace_files,
+            get_workspace_git_status,
             open_in_vscode,
             reveal_in_explorer,
             delete_workspace_path,

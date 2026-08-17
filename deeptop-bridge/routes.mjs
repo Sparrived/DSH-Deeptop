@@ -3,6 +3,7 @@ import { open, readFile, rename, rm, stat } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
 import { installSkillFromSource } from './skill-installer.mjs'
 import { repairCorruptLog } from './session-repair.mjs'
+import { describePluginConfig, filterInventory, mutatePluginConfig } from './plugin-config.mjs'
 
 function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -360,7 +361,9 @@ export async function routeDesktopRequest(ctx, method, payload, signal) {
     case 'llm.models': return hostModels(ctx, request)
     case 'llm.discoverModels': return api.llm.discoverModels(request, signal)
     case 'remote.invoke': return invokeRemote(ctx, payload, signal)
-    case 'plugin.list': return ctx.pluginInventory.list()
+    case 'plugin.list': return filterInventory(await ctx.pluginInventory.list())
+    case 'plugin.config.describe': return describePluginConfig(ctx)
+    case 'plugin.config.mutate': return mutatePluginConfig(ctx, payload)
     case 'respond': return api.respond(payload)
     default: throw new Error(`desktop bridge does not expose ${JSON.stringify(method)}`)
   }
