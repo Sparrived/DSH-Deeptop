@@ -630,7 +630,7 @@ textarea:focus-visible {
   --todo-collapsed-width: 44px;
   --deliverables-panel-width: 286px;
   --deliverables-collapsed-width: 44px;
-  --workspace-files-panel-width: 300px;
+  --workspace-files-panel-width: 360px;
   --workspace-files-collapsed-width: 44px;
   position: relative;
   min-width: 0;
@@ -14683,9 +14683,9 @@ textarea:focus-visible {
   position: absolute;
   top: 0;
   left: calc(100% + var(--right-surface-gap, 12px));
-  width: var(--workspace-files-panel-width, 300px);
+  width: min(var(--workspace-files-panel-width, 360px), calc(100vw - 32px));
   min-width: 0;
-  max-height: min(70svh, 560px);
+  max-height: min(78svh, 680px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
