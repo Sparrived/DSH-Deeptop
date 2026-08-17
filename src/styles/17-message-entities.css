@@ -1,0 +1,115 @@
+/* Message entities: compact desktop references, not browser links. */
+.message-entity-card {
+  display: inline-flex;
+  min-width: 0;
+  max-width: min(100%, 360px);
+  align-items: center;
+  gap: 8px;
+  margin: 2px 3px;
+  padding: 5px 6px 5px 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-raised) 88%, var(--accent) 12%);
+  color: var(--ink);
+  vertical-align: middle;
+  line-height: 1.25;
+  text-align: left;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.message-entity-card:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--surface-raised) 78%, var(--accent) 22%);
+}
+
+.message-entity-icon {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: var(--accent-deep);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.connection-entity-card .message-entity-icon {
+  color: var(--good);
+}
+
+.message-entity-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.message-entity-copy strong,
+.message-entity-copy small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-entity-copy strong {
+  color: var(--ink-strong);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.message-entity-copy small {
+  max-width: 240px;
+  color: var(--ink-muted);
+  font-size: 10px;
+}
+
+.message-entity-open {
+  min-height: 25px;
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--accent-deep);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.message-entity-open:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+}
+
+.message-entity-open:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.message-entity-open:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.message-text .message-entity-card {
+  font-size: 1rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-entity-card,
+  .message-entity-open {
+    transition: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .message-entity-card {
+    max-width: calc(100% - 6px);
+  }
+
+  .message-entity-copy small {
+    max-width: min(42vw, 180px);
+  }
+}
