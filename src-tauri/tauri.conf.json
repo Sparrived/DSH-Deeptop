@@ -4,8 +4,8 @@
   "version": "0.1.2-dev.3",
   "identifier": "com.deeptop.desktop",
   "build": {
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "npm run dsh:sync && npm run dev",
+    "beforeBuildCommand": "npm run build:desktop",
     "devUrl": "http://localhost:5173",
     "frontendDist": "../dist"
   },
@@ -33,6 +33,9 @@
     "targets": [
       "nsis"
     ],
+    "resources": {
+      "resources/dsh-runtime": "dsh-runtime"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/64x64.png",

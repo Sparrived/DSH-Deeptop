@@ -14,9 +14,6 @@ use std::{
     time::Duration,
 };
 
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
-
 use notify_rust::{Notification as DesktopNotification, NotificationResponse};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -25,254 +22,19 @@ use tauri::{AppHandle, Emitter, Manager, State};
 mod about;
 mod terminal;
 
-mod registry {
-    use std::{
-        env,
-        process::{Command, Stdio},
-        thread,
-        time::{Duration, Instant},
-    };
-
-    const DEFAULT: &str = "https://registry.npmjs.org";
-    const MIRROR: &str = "https://registry.npmmirror.com";
-    const TENCENT_MIRROR: &str = "https://mirrors.cloud.tencent.com/npm";
-    const HUAWEI_MIRROR: &str = "https://repo.huaweicloud.com/repository/npm";
-    const PACKAGE: &str = "@deepseek-ai/dsh@latest";
-    // npm may spend a few seconds initializing its cache on a fresh machine.
-    // Keep this separate from the install timeout, but do not reject a usable
-    // registry merely because the first npm process is cold.
-    const TIMEOUT: Duration = Duration::from_secs(20);
-
-    #[derive(Clone)]
-    pub struct Probe {
-        pub registry: String,
-        pub elapsed_ms: u128,
-        pub ok: bool,
-    }
-    pub struct Selection {
-        pub registry: String,
-        pub probes: Vec<Probe>,
-        pub all_failed: bool,
-    }
-
-    fn normalize(value: &str) -> Option<String> {
-        let value = value.trim().trim_end_matches('/');
-        let offset = if value.starts_with("https://") {
-            8
-        } else if value.starts_with("http://") {
-            7
-        } else {
-            return None;
-        };
-        if value.is_empty()
-            || value.chars().any(char::is_whitespace)
-            || value.contains(['@', '?', '#', '\\'])
-        {
-            return None;
-        }
-        let authority = value[offset..].split('/').next().unwrap_or_default();
-        if authority.is_empty() || authority.starts_with(':') || authority.ends_with(':') {
-            return None;
-        }
-        Some(value.to_string())
-    }
-
-    fn candidates() -> Vec<String> {
-        let configured = env::var("DSH_REGISTRY")
-            .or_else(|_| env::var("npm_config_registry"))
-            .or_else(|_| env::var("NPM_CONFIG_REGISTRY"))
-            .ok()
-            .and_then(|value| normalize(&value));
-        [
-            configured,
-            Some(MIRROR.to_string()),
-            Some(TENCENT_MIRROR.to_string()),
-            Some(HUAWEI_MIRROR.to_string()),
-            Some(DEFAULT.to_string()),
-        ]
-        .into_iter()
-        .flatten()
-        .fold(Vec::new(), |mut values, value| {
-            if !values.contains(&value) {
-                values.push(value);
-            }
-            values
-        })
-    }
-
-    fn kill(pid: u32) {
-        #[cfg(windows)]
-        {
-            let mut command = Command::new("taskkill");
-            command.args(["/PID", &pid.to_string(), "/T", "/F"]);
-            super::configure_hidden_process(&mut command);
-            let _ = command.status();
-        }
-        #[cfg(unix)]
-        {
-            for signal in ["-TERM", "-KILL"] {
-                let mut command = Command::new("kill");
-                command.args([signal, &format!("-{pid}")]);
-                let _ = command.status();
-            }
-        }
-    }
-
-    fn probe(factory: fn() -> Result<Command, String>, registry: String) -> Probe {
-        let started = Instant::now();
-        let mut command = match factory() {
-            Ok(command) => command,
-            Err(_) => {
-                return Probe {
-                    registry,
-                    elapsed_ms: 0,
-                    ok: false,
-                };
-            }
-        };
-        command
-            .args([
-                "view",
-                PACKAGE,
-                "version",
-                "--registry",
-                &registry,
-                "--fetch-timeout",
-                "8000",
-                "--fetch-retries",
-                "0",
-                "--prefer-online",
-                "--offline=false",
-                "--loglevel",
-                "error",
-            ])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        let mut child = match command.spawn() {
-            Ok(child) => child,
-            Err(_) => {
-                return Probe {
-                    registry,
-                    elapsed_ms: started.elapsed().as_millis(),
-                    ok: false,
-                };
-            }
-        };
-        let pid = child.id();
-        let status = loop {
-            match child.try_wait() {
-                Ok(Some(status)) => break status,
-                Ok(None) if started.elapsed() >= TIMEOUT => {
-                    kill(pid);
-                    let _ = child.wait();
-                    return Probe {
-                        registry,
-                        elapsed_ms: started.elapsed().as_millis(),
-                        ok: false,
-                    };
-                }
-                Ok(None) => thread::sleep(Duration::from_millis(50)),
-                Err(_) => {
-                    kill(pid);
-                    let _ = child.wait();
-                    return Probe {
-                        registry,
-                        elapsed_ms: started.elapsed().as_millis(),
-                        ok: false,
-                    };
-                }
-            }
-        };
-        Probe {
-            registry,
-            elapsed_ms: started.elapsed().as_millis(),
-            ok: status.success(),
-        }
-    }
-
-    pub fn select(factory: fn() -> Result<Command, String>) -> Selection {
-        let mut probes = thread::scope(|scope| {
-            candidates()
-                .into_iter()
-                .enumerate()
-                .map(|(index, registry)| scope.spawn(move || (index, probe(factory, registry))))
-                .collect::<Vec<_>>()
-                .into_iter()
-                .map(|handle| {
-                    handle.join().unwrap_or_else(|_| {
-                        (
-                            usize::MAX,
-                            Probe {
-                                registry: DEFAULT.to_string(),
-                                elapsed_ms: 0,
-                                ok: false,
-                            },
-                        )
-                    })
-                })
-                .collect::<Vec<_>>()
-        });
-        probes.sort_by_key(|(index, _)| *index);
-        let probes = probes
-            .into_iter()
-            .map(|(_, probe)| probe)
-            .collect::<Vec<_>>();
-        let selected = probes
-            .iter()
-            .filter(|probe| probe.ok)
-            .min_by_key(|probe| probe.elapsed_ms)
-            .map(|probe| probe.registry.clone())
-            .unwrap_or_else(|| DEFAULT.to_string());
-        Selection {
-            all_failed: !probes.iter().any(|probe| probe.ok),
-            registry: selected,
-            probes,
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::normalize;
-
-        #[test]
-        fn accepts_safe_registry_urls() {
-            assert_eq!(
-                normalize(" https://registry.example.test/ "),
-                Some("https://registry.example.test".to_string())
-            );
-            assert_eq!(
-                normalize("https://registry.example.test/npm/"),
-                Some("https://registry.example.test/npm".to_string())
-            );
-        }
-
-        #[test]
-        fn rejects_credentials_and_controls() {
-            for value in [
-                "https://user:password@registry.example.test",
-                "https://registry.example.test?token=secret",
-                "https://registry.example.test#fragment",
-                "https://",
-                "file:///tmp/npm",
-            ] {
-                assert_eq!(normalize(value), None, "{value}");
-            }
-        }
-    }
-}
-
 const DSH_PROFILE: &str = "desktop";
-const DSH_PACKAGE: &str = "@deepseek-ai/dsh@latest";
+const BUNDLED_DSH_PACKAGE: &str = "@deepseek-ai/dsh";
+const BUNDLED_DSH_RUNTIME_DIR: &str = "dsh-runtime";
+const BUNDLED_DSH_ENTRY: &str = "node_modules/@deepseek-ai/dsh/lib/bin.js";
 const NODEJS_DOWNLOAD_URL: &str = "https://nodejs.org/en/download";
 const BRIDGE_TIMEOUT: Duration = Duration::from_secs(45);
-const DSH_INSTALL_TIMEOUT: Duration = Duration::from_secs(300);
 /// Max consecutive unexpected DSH exits we auto-restart before requiring manual
 /// action. Guards against a crash loop (e.g. a corrupted profile) that would
 /// otherwise restart DSH forever.
 const MAX_AUTO_RESTARTS: u32 = 3;
 /// Base delay for the first auto-restart; each consecutive crash doubles it.
 const AUTO_RESTART_BASE_DELAY: Duration = Duration::from_millis(1000);
-const DSH_PACKAGE_JSON: &str = "{\n  \"name\": \"deeptop-dsh\",\n  \"private\": true\n}\n";
+const BUNDLED_DSH_VERSION: &str = "0.1.0-rc.7";
 const BRIDGE_PACKAGE_JSON: &str = include_str!("../../deeptop-bridge/package.json");
 const BRIDGE_PATCH: &str = include_str!("../../deeptop-bridge/cordis.patch.yml");
 const BRIDGE_ENTRY: &str = include_str!("../../deeptop-bridge/index.mjs");
@@ -290,7 +52,6 @@ const PROFILE_PATCH_TEMPLATE: &str = include_str!("../../deeptop-bridge/profile.
 const PROFILE_PNPM_WORKSPACE: &str =
     "packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n";
 const MAX_PENDING_OPEN_SESSIONS: usize = 16;
-const DSH_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(8);
 /// Max in-memory runtime log entries kept for export and recent diagnostics.
 const MAX_LOG_ENTRIES: usize = 3000;
 /// Keep the initial log-viewer payload small enough for the WebView to render quickly.
@@ -427,19 +188,15 @@ mod output_tests {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DshSource {
-    LocalPrefix,
-    GlobalPrefix,
-    PathExecutable,
-    NpmCache,
+    /// DSH runtime packaged through Tauri resources. This is the only production
+    /// source so a user's PATH, npm installation, and npm cache cannot replace it.
+    BundledResource,
 }
 
 impl DshSource {
     fn label(self) -> &'static str {
         match self {
-            Self::LocalPrefix => "Deeptop 本地 npm prefix",
-            Self::GlobalPrefix => "npm 全局安装",
-            Self::PathExecutable => "PATH 中的 dsh 命令",
-            Self::NpmCache => "npm/npx 缓存",
+            Self::BundledResource => "随安装包内嵌的 DSH 运行时",
         }
     }
 }
@@ -515,7 +272,6 @@ impl LogStore {
 enum RuntimePhase {
     Idle,
     Checking,
-    Installing,
     Starting,
     Ready,
     Failed,
@@ -525,11 +281,8 @@ struct BridgeState {
     phase: RuntimePhase,
     message: String,
     package_available: bool,
-    registry_testing: bool,
-    selected_registry: Option<String>,
     generation: u64,
     pid: Option<u32>,
-    install_pid: Option<u32>,
     stdin: Option<Arc<Mutex<std::process::ChildStdin>>>,
     pending: HashMap<String, mpsc::Sender<Result<Value, String>>>,
     /// Consecutive unexpected DSH exits not yet recovered by a successful boot.
@@ -545,11 +298,8 @@ impl Default for BridgeState {
             phase: RuntimePhase::Idle,
             message: "等待 DSH 启动".to_string(),
             package_available: false,
-            registry_testing: false,
-            selected_registry: None,
             generation: 0,
             pid: None,
-            install_pid: None,
             stdin: None,
             pending: HashMap::new(),
             crash_count: 0,
@@ -852,152 +602,91 @@ fn node_executable() -> Result<PathBuf, String> {
     executable_from_path(name).ok_or_else(|| "未找到 Node.js，请先安装 Node.js 后重试".to_string())
 }
 
-fn npm_executable() -> Result<PathBuf, String> {
-    let name = if cfg!(windows) { "npm.cmd" } else { "npm" };
-    executable_from_path(name)
-        .or_else(|| {
-            node_executable().ok().and_then(|node| {
-                node.parent()
-                    .map(|directory| directory.join(name))
-                    .filter(|path| path.is_file())
-            })
-        })
-        .ok_or_else(|| "未找到 npm，请确认 Node.js 安装完整后重试".to_string())
+/// Return the unpacked Tauri resource root that contains the immutable DSH
+/// runtime bundled with this Deeptop build. Runtime state must stay in DSH_HOME;
+/// this directory is only read to load DSH code and dependencies.
+fn bundled_dsh_runtime_root(app: &AppHandle) -> Result<PathBuf, String> {
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|error| format!("无法定位应用资源目录：{error}"))?;
+    let runtime = resource_dir.join(BUNDLED_DSH_RUNTIME_DIR);
+    let manifest_path = runtime.join("runtime-manifest.json");
+    let manifest = fs::read_to_string(&manifest_path).map_err(|error| {
+        format!(
+            "内嵌 DSH 运行时缺失或损坏：无法读取清单 {}：{error}。请重新安装 Deeptop；不会回退到系统 npm、PATH 或网络下载。",
+            manifest_path.display()
+        )
+    })?;
+    let manifest: Value = serde_json::from_str(&manifest)
+        .map_err(|error| format!("内嵌 DSH 运行时清单无效：{error}"))?;
+    if !is_bundled_runtime_manifest(&manifest) {
+        return Err("内嵌 DSH 运行时版本或入口清单不匹配，请重新安装 Deeptop".to_string());
+    }
+    let package_manifest = dsh_package_manifest_at(&runtime);
+    let entry = runtime.join(BUNDLED_DSH_ENTRY);
+    if !dsh_package_available_at(&runtime) {
+        return Err(format!(
+            "内嵌 DSH 运行时缺失或损坏：未找到有效包清单 {}。请重新安装 Deeptop。",
+            package_manifest.display()
+        ));
+    }
+    if !entry.is_file() {
+        return Err(format!(
+            "内嵌 DSH 运行时缺失启动入口 {}。请重新安装 Deeptop。",
+            entry.display()
+        ));
+    }
+    Ok(runtime)
 }
 
-fn npm_available() -> bool {
-    npm_command().is_ok()
+fn bundled_dsh_package_label(runtime: &Path) -> Result<String, String> {
+    let manifest = dsh_package_manifest_at(runtime);
+    let raw = fs::read_to_string(&manifest)
+        .map_err(|error| format!("无法读取内嵌 DSH 清单 {}：{error}", manifest.display()))?;
+    let package: Value = serde_json::from_str(&raw)
+        .map_err(|error| format!("内嵌 DSH 清单无效：{error}"))?;
+    let version = package
+        .get("version")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "内嵌 DSH 清单缺少版本号".to_string())?;
+    Ok(format!("{BUNDLED_DSH_PACKAGE}@{version}（内嵌）"))
 }
 
-fn npm_command() -> Result<Command, String> {
-    let mut command = if cfg!(windows) {
-        let npm = npm_executable()?;
-        let node = npm
-            .parent()
-            .map(|directory| directory.join("node.exe"))
-            .filter(|path| path.is_file())
-            .or_else(|| executable_from_path("node.exe"))
-            .ok_or_else(|| "未找到与 npm 对应的 node.exe".to_string())?;
-        let npm_cli = npm
-            .parent()
-            .map(|directory| directory.join("node_modules/npm/bin/npm-cli.js"))
-            .filter(|path| path.is_file())
-            .ok_or_else(|| "未找到 npm 的 npm-cli.js".to_string())?;
-        let mut command = Command::new(node);
-        command.arg(npm_cli);
-        command
-    } else {
-        Command::new(npm_executable()?)
-    };
+/// Create a direct Node launch for the packaged DSH entry.  Do not invoke npm
+/// or a dsh shell shim: those could select a user-installed package instead of
+/// the resource shipped with this application.
+fn bundled_dsh_launch(app: &AppHandle) -> Result<DshLaunch, String> {
+    let runtime = bundled_dsh_runtime_root(app)?;
+    let entry = runtime.join(BUNDLED_DSH_ENTRY);
+    let mut command = Command::new(node_executable()?);
     command
-        .env("NO_COLOR", "1")
-        .env("CI", "1")
-        .env("NPM_CONFIG_YES", "true")
-        .env("NPM_CONFIG_AUDIT", "false")
-        .env("NPM_CONFIG_FUND", "false")
-        .env("NPM_CONFIG_UPDATE_NOTIFIER", "false")
-        // Do not inherit npm's temporary prefix/cache/lifecycle environment when
-        // Deeptop itself was started from an npm script. Use the user's normal
-        // global install and npm cache locations instead.
-        .env_remove("NPM_CONFIG_CACHE")
-        .env_remove("npm_config_cache")
-        .env_remove("NPM_CONFIG_GLOBALCONFIG")
-        .env_remove("npm_config_globalconfig")
-        // A user's .npmrc may set offline=true. Network phases must override it;
-        // the launch command below still passes an explicit --offline flag.
-        .env("NPM_CONFIG_OFFLINE", "false")
-        .env("npm_config_offline", "false")
-        .env_remove("NPM_CONFIG_GLOBAL_PREFIX")
-        .env_remove("npm_config_global_prefix")
-        .env_remove("NPM_CONFIG_PREFIX")
-        .env_remove("npm_config_prefix")
-        .env_remove("NPM_CONFIG_LOCAL_PREFIX")
-        .env_remove("npm_config_local_prefix")
-        .env_remove("NPM_CONFIG_PACKAGE")
-        .env_remove("npm_config_package")
-        .env_remove("npm_command")
-        .env_remove("npm_execpath")
-        .env_remove("npm_lifecycle_event")
-        .env_remove("npm_lifecycle_script")
-        .env_remove("npm_package_json")
-        .env_remove("npm_node_execpath")
-        .env("NPM_CONFIG_PREFER_OFFLINE", "false")
-        .env("npm_config_prefer_offline", "false")
-        .env("NPM_CONFIG_MAXSOCKETS", "50")
-        .env("NPM_CONFIG_PROGRESS", "false");
+        .arg(&entry)
+        .args(["--profile", DSH_PROFILE])
+        .current_dir(dsh_home())
+        .env("DSH_HOME", dsh_home())
+        .env_remove("DSH_CWD");
     #[cfg(windows)]
     configure_hidden_process(&mut command);
     #[cfg(unix)]
     configure_process_group(&mut command);
-    Ok(command)
+    Ok(DshLaunch {
+        source: DshSource::BundledResource,
+        command,
+        label: format!(
+            "{}（{}）",
+            bundled_dsh_package_label(&runtime)?,
+            runtime.display()
+        ),
+    })
 }
 
-fn run_npm_with_timeout(mut command: Command, timeout: Duration) -> Result<Output, String> {
-    command.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = command
-        .spawn()
-        .map_err(|error| format!("无法执行 npm：{error}"))?;
-    let pid = child.id();
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "无法获取 npm 标准输出".to_string())?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| "无法获取 npm 错误输出".to_string())?;
-    let (sender, receiver) = mpsc::channel();
-    let stdout_sender = sender.clone();
-    thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let _ = BufReader::new(stdout).read_to_end(&mut bytes);
-        let _ = stdout_sender.send((true, bytes));
-    });
-    let stderr_sender = sender.clone();
-    thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let _ = BufReader::new(stderr).read_to_end(&mut bytes);
-        let _ = stderr_sender.send((false, bytes));
-    });
-    drop(sender);
-    let deadline = std::time::Instant::now() + timeout;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if std::time::Instant::now() >= deadline => {
-                terminate_process_tree(pid);
-                let _ = child.wait();
-                return Err("npm 命令超时".to_string());
-            }
-            Ok(None) => thread::sleep(Duration::from_millis(50)),
-            Err(error) => {
-                terminate_process_tree(pid);
-                let _ = child.wait();
-                return Err(format!("等待 npm 命令结束失败：{error}"));
-            }
-        }
-    };
-    let mut stdout = Vec::new();
-    let mut stderr = Vec::new();
-    let mut streams_received = 0;
-    while streams_received < 2 {
-        match receiver.recv_timeout(Duration::from_millis(250)) {
-            Ok((is_stdout, bytes)) => {
-                if is_stdout {
-                    stdout = bytes;
-                } else {
-                    stderr = bytes;
-                }
-                streams_received += 1;
-            }
-            Err(mpsc::RecvTimeoutError::Timeout | mpsc::RecvTimeoutError::Disconnected) => break,
-        }
-    }
-    Ok(Output {
-        status,
-        stdout,
-        stderr,
-    })
+fn is_bundled_runtime_manifest(manifest: &Value) -> bool {
+    manifest.get("format").and_then(Value::as_u64) == Some(1)
+        && manifest.get("packageName").and_then(Value::as_str) == Some(BUNDLED_DSH_PACKAGE)
+        && manifest.get("packageVersion").and_then(Value::as_str) == Some(BUNDLED_DSH_VERSION)
+        && manifest.get("entry").and_then(Value::as_str) == Some(BUNDLED_DSH_ENTRY)
 }
 
 fn dsh_package_manifest_at(root: &Path) -> PathBuf {
@@ -1026,358 +715,6 @@ fn dsh_package_available_at(root: &Path) -> bool {
         return false;
     };
     is_dsh_package_manifest(&content)
-}
-
-fn dsh_package_manifest_in_node_modules(root: &Path) -> PathBuf {
-    root.join("@deepseek-ai").join("dsh").join("package.json")
-}
-
-fn dsh_package_available_in_node_modules(root: &Path) -> bool {
-    let manifest = dsh_package_manifest_in_node_modules(root);
-    let Ok(content) = fs::read_to_string(manifest) else {
-        return false;
-    };
-    is_dsh_package_manifest(&content)
-}
-
-fn npm_global_value(args: &[&str]) -> Option<PathBuf> {
-    let mut command = npm_command().ok()?;
-    command.args(args).arg("--offline=false");
-    let output = run_npm_with_timeout(command, DSH_DISCOVERY_TIMEOUT).ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .map(PathBuf::from)
-}
-
-fn npm_global_root() -> Option<PathBuf> {
-    npm_global_value(&["root", "--global"]).filter(|path| path.is_dir())
-}
-
-fn npm_global_prefix() -> Option<PathBuf> {
-    npm_global_value(&["prefix", "--global"]).filter(|path| path.is_dir())
-}
-
-fn npm_cached_dsh_root() -> Option<PathBuf> {
-    let cache = npm_global_value(&["config", "get", "cache"])?;
-    let npx_root = cache.join("_npx");
-    fs::read_dir(npx_root)
-        .ok()?
-        .flatten()
-        .map(|entry| entry.path())
-        .find(|path| path.is_dir() && dsh_package_available_at(path))
-}
-
-fn dsh_executable_from_path() -> Option<PathBuf> {
-    if cfg!(windows) {
-        executable_from_path("dsh.cmd")
-            .or_else(|| executable_from_path("dsh.exe"))
-            .or_else(|| executable_from_path("dsh"))
-    } else {
-        executable_from_path("dsh")
-    }
-}
-
-fn dsh_executable_from_global_prefix() -> Option<PathBuf> {
-    let prefix = npm_global_prefix()?;
-    let candidates = if cfg!(windows) {
-        vec![
-            prefix.join("dsh.cmd"),
-            prefix.join("dsh.exe"),
-            prefix.join("dsh"),
-        ]
-    } else {
-        vec![prefix.join("bin").join("dsh"), prefix.join("dsh")]
-    };
-    candidates.into_iter().find(|path| path.is_file())
-}
-
-fn npm_dsh_launch(
-    source: DshSource,
-    prefix: Option<&Path>,
-    global: bool,
-) -> Result<DshLaunch, String> {
-    let mut command = npm_command()?;
-    command.arg("exec");
-    if global {
-        command.arg("--global");
-    }
-    let prefix_value = prefix.map(|path| path.to_string_lossy().into_owned());
-    if let Some(prefix) = prefix_value.as_deref() {
-        command.args(["--prefix", prefix]);
-    }
-    command.args(["--offline", "--", "dsh", "--profile", DSH_PROFILE]);
-    command
-        .current_dir(dsh_home())
-        .env("DSH_HOME", dsh_home())
-        .env_remove("DSH_CWD");
-    Ok(DshLaunch {
-        source,
-        command,
-        label: source.label().to_string(),
-    })
-}
-
-fn path_dsh_launch(executable: PathBuf) -> DshLaunch {
-    let mut command = if cfg!(windows)
-        && executable.extension().and_then(|value| value.to_str()) == Some("cmd")
-    {
-        let command_line = format!("\"{}\" --profile {}", executable.display(), DSH_PROFILE);
-        let mut command = Command::new("cmd");
-        command.args(["/D", "/S", "/C"]);
-        #[cfg(windows)]
-        {
-            // cmd /C needs an outer quote pair around a quoted .cmd path.
-            command.raw_arg(format!("\"{command_line}\""));
-        }
-        #[cfg(not(windows))]
-        command.arg(command_line);
-        command
-    } else {
-        let mut command = Command::new(&executable);
-        command.args(["--profile", DSH_PROFILE]);
-        command
-    };
-    #[cfg(windows)]
-    configure_hidden_process(&mut command);
-    command
-        .current_dir(dsh_home())
-        .env("DSH_HOME", dsh_home())
-        .env_remove("DSH_CWD");
-    DshLaunch {
-        source: DshSource::PathExecutable,
-        command,
-        label: format!("PATH 命令：{}", executable.display()),
-    }
-}
-
-fn resolve_dsh_launch() -> Result<Option<DshLaunch>, String> {
-    let home = dsh_home();
-    if let Some(executable) = dsh_executable_from_path() {
-        return Ok(Some(path_dsh_launch(executable)));
-    }
-    if let Some(root) = npm_global_root() {
-        if dsh_package_available_in_node_modules(&root) {
-            if let Some(executable) = dsh_executable_from_global_prefix() {
-                return Ok(Some(path_dsh_launch(executable)));
-            }
-            return Ok(Some(npm_dsh_launch(DshSource::GlobalPrefix, None, true)?));
-        }
-    }
-    if dsh_package_available_at(&home) {
-        return Ok(Some(npm_dsh_launch(
-            DshSource::LocalPrefix,
-            Some(&home),
-            false,
-        )?));
-    }
-    if let Some(cache_root) = npm_cached_dsh_root() {
-        return Ok(Some(npm_dsh_launch(
-            DshSource::NpmCache,
-            Some(&cache_root),
-            false,
-        )?));
-    }
-    let mut probe = npm_command()?;
-    probe
-        .args([
-            "exec",
-            "--offline",
-            "--package=@deepseek-ai/dsh",
-            "--",
-            "dsh",
-            "--version",
-        ])
-        .current_dir(&home);
-    if run_npm_with_timeout(probe, DSH_DISCOVERY_TIMEOUT)
-        .map(|output| output.status.success())
-        .unwrap_or(false)
-    {
-        return Ok(Some(npm_dsh_launch(DshSource::NpmCache, None, false)?));
-    }
-    Ok(None)
-}
-
-fn local_dsh_launch() -> Result<DshLaunch, String> {
-    npm_dsh_launch(DshSource::LocalPrefix, Some(&dsh_home()), false)
-}
-
-fn install_dsh(
-    manager: &BridgeManager,
-    app: &AppHandle,
-    generation: u64,
-    registry: &str,
-) -> Result<(), String> {
-    let home = dsh_home();
-    fs::create_dir_all(&home).map_err(|error| format!("无法创建 DSH 目录：{error}"))?;
-    write_if_missing(&home.join("package.json"), DSH_PACKAGE_JSON)?;
-    let prefix = home.to_string_lossy().into_owned();
-    let mut command = npm_command()?;
-    let command_label = format!(
-        "npm install --prefix {} --registry {} --no-audit --no-fund {}",
-        prefix, registry, DSH_PACKAGE
-    );
-    manager.emit_runtime_log(app, generation, "install", "command", command_label);
-    command
-        .args([
-            "install",
-            "--prefix",
-            &prefix,
-            "--registry",
-            registry,
-            "--no-audit",
-            "--no-fund",
-            "--no-update-notifier",
-            "--prefer-online",
-            "--offline=false",
-            "--fetch-retries=1",
-            "--fetch-retry-mintimeout=1000",
-            "--fetch-retry-maxtimeout=5000",
-            "--fetch-timeout=30000",
-            "--progress=false",
-            DSH_PACKAGE,
-        ])
-        .current_dir(&home)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let mut child = command
-        .spawn()
-        .map_err(|error| format!("无法执行 DSH 安装：{error}"))?;
-    let pid = child.id();
-    let active = manager
-        .state
-        .lock()
-        .map(|mut state| {
-            if state.generation != generation || state.phase != RuntimePhase::Installing {
-                return false;
-            }
-            state.install_pid = Some(pid);
-            true
-        })
-        .unwrap_or(false);
-    if !active {
-        terminate_process_tree(pid);
-        let _ = child.wait();
-        return Err("DSH 安装已取消".to_string());
-    }
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "无法获取 DSH 安装标准输出".to_string())?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| "无法获取 DSH 安装错误输出".to_string())?;
-    let (line_sender, line_receiver) = mpsc::channel::<(String, String)>();
-    let stdout_sender = line_sender.clone();
-    thread::spawn(move || {
-        for line in lossy_lines(stdout).flatten() {
-            let _ = stdout_sender.send(("stdout".to_string(), line));
-        }
-    });
-    let stderr_sender = line_sender.clone();
-    thread::spawn(move || {
-        for line in lossy_lines(stderr).flatten() {
-            let _ = stderr_sender.send(("stderr".to_string(), line));
-        }
-    });
-    drop(line_sender);
-    let (exit_sender, exit_receiver) = mpsc::channel();
-    thread::spawn(move || {
-        let _ = exit_sender.send(child.wait());
-    });
-    let deadline = std::time::Instant::now() + DSH_INSTALL_TIMEOUT;
-    let mut stderr_lines = Vec::new();
-    let status = loop {
-        while let Ok((stream, line)) = line_receiver.try_recv() {
-            if stream == "stderr" && !line.trim().is_empty() {
-                stderr_lines.push(line.clone());
-                if stderr_lines.len() > 12 {
-                    stderr_lines.remove(0);
-                }
-            }
-            manager.emit_runtime_log(app, generation, "install", &stream, line);
-        }
-        match exit_receiver.recv_timeout(Duration::from_millis(100)) {
-            Ok(Ok(status)) => {
-                while let Ok((stream, line)) = line_receiver.try_recv() {
-                    if stream == "stderr" && !line.trim().is_empty() {
-                        stderr_lines.push(line.clone());
-                    }
-                    manager.emit_runtime_log(app, generation, "install", &stream, line);
-                }
-                break status;
-            }
-            Ok(Err(error)) => {
-                if let Ok(mut state) = manager.state.lock() {
-                    if state.generation == generation {
-                        state.install_pid = None;
-                    }
-                }
-                return Err(format!("等待 DSH 安装结束失败：{error}"));
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) if std::time::Instant::now() >= deadline => {
-                terminate_process_tree(pid);
-                if let Ok(mut state) = manager.state.lock() {
-                    if state.generation == generation {
-                        state.install_pid = None;
-                    }
-                }
-                return Err("DSH 安装超时，请检查 npm 网络连接后重试。".to_string());
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                if !manager.is_current(generation) {
-                    terminate_process_tree(pid);
-                    return Err("DSH 安装已取消".to_string());
-                }
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                return Err("DSH 安装进程已断开".to_string());
-            }
-        }
-    };
-    manager.emit_runtime_log(
-        app,
-        generation,
-        "install",
-        "diagnostic",
-        format!("npm 安装进程结束，退出码 {}", status.code().unwrap_or(-1)),
-    );
-    if let Ok(mut state) = manager.state.lock() {
-        if state.generation == generation {
-            state.install_pid = None;
-        }
-    }
-    if !status.success() {
-        let detail = stderr_lines
-            .iter()
-            .rev()
-            .take(3)
-            .rev()
-            .cloned()
-            .collect::<Vec<_>>()
-            .join(" ");
-        return Err(if detail.is_empty() {
-            format!("DSH 安装失败（退出码 {}）", status.code().unwrap_or(-1))
-        } else {
-            format!("DSH 安装失败：{detail}")
-        });
-    }
-    if !manager.is_current(generation) {
-        return Err("DSH 安装已取消".to_string());
-    }
-    if dsh_package_available_at(&home) {
-        Ok(())
-    } else {
-        Err(format!(
-            "DSH 安装校验失败：未找到 {}",
-            dsh_package_manifest_at(&home).display()
-        ))
-    }
 }
 
 #[cfg(windows)]
@@ -1419,39 +756,27 @@ fn pending_error(state: &mut BridgeState, message: String) {
 impl BridgeManager {
     fn status(&self) -> DshStatus {
         let state = self.state.lock();
-        let (runtime_available, runtime_starting, installing, message) = match state {
+        let (runtime_available, runtime_starting, message, package_available) = match state {
             Ok(state) => (
                 state.phase == RuntimePhase::Ready,
-                matches!(
-                    state.phase,
-                    RuntimePhase::Checking | RuntimePhase::Installing | RuntimePhase::Starting
-                ),
-                state.phase == RuntimePhase::Installing,
+                matches!(state.phase, RuntimePhase::Checking | RuntimePhase::Starting),
                 state.message.clone(),
+                state.package_available,
             ),
-            Err(_) => (false, false, false, "DSH 启动状态不可用".to_string()),
+            Err(_) => (false, false, "DSH 启动状态不可用".to_string(), false),
         };
-        let (registry_testing, selected_registry) = self
-            .state
-            .lock()
-            .map(|state| (state.registry_testing, state.selected_registry.clone()))
-            .unwrap_or((false, None));
         DshStatus {
             dsh_home: dsh_home().to_string_lossy().into_owned(),
             runtime_directory: dsh_home().to_string_lossy().into_owned(),
-            package_name: DSH_PACKAGE.to_string(),
+            package_name: format!("{BUNDLED_DSH_PACKAGE}@{BUNDLED_DSH_VERSION}（内嵌运行时）"),
             runtime_available,
             runtime_starting,
-            installing,
-            registry_testing,
-            selected_registry,
+            installing: false,
+            registry_testing: false,
+            selected_registry: None,
             node_available: node_executable().is_ok(),
-            npm_available: npm_available(),
-            package_available: self
-                .state
-                .lock()
-                .map(|state| state.package_available)
-                .unwrap_or(false),
+            npm_available: false,
+            package_available,
             message,
         }
     }
@@ -1478,16 +803,13 @@ impl BridgeManager {
             };
             if matches!(
                 state.phase,
-                RuntimePhase::Checking
-                    | RuntimePhase::Installing
-                    | RuntimePhase::Starting
-                    | RuntimePhase::Ready
+                RuntimePhase::Checking | RuntimePhase::Starting | RuntimePhase::Ready
             ) {
                 return;
             }
             state.generation += 1;
             state.phase = RuntimePhase::Checking;
-            state.message = "正在检查 DSH 安装...".to_string();
+            state.message = "正在检查内嵌 DSH 运行时...".to_string();
             state.auto_restart_pending = false;
             state.generation
         };
@@ -1497,23 +819,21 @@ impl BridgeManager {
     }
 
     fn stop(&self, message: &str) {
-        let (pid, install_pid) = {
+        let pid = {
             let Ok(mut state) = self.state.lock() else {
                 return;
             };
             state.generation += 1;
             state.phase = RuntimePhase::Idle;
             state.message = message.to_string();
-            state.registry_testing = false;
             state.stdin = None;
             state.crash_count = 0;
             state.auto_restart_pending = false;
             let pid = state.pid.take();
-            let install_pid = state.install_pid.take();
             pending_error(&mut state, "DSH 桌面宿主已停止".to_string());
-            (pid, install_pid)
+            pid
         };
-        if let Some(pid) = pid.or(install_pid) {
+        if let Some(pid) = pid {
             terminate_process_tree(pid);
         }
     }
@@ -1526,80 +846,21 @@ impl BridgeManager {
 
     fn prepare_and_launch(&self, app: AppHandle, generation: u64) {
         let result = (|| -> Result<DshLaunch, String> {
+            // Profile data remains user-owned in DSH_HOME. The DSH executable and
+            // all of its dependencies are read exclusively from Tauri resources.
             materialize_desktop_profile()?;
-            let launch = if let Some(launch) = resolve_dsh_launch()? {
-                self.emit_runtime_log(
-                    &app,
-                    generation,
-                    "start",
-                    "diagnostic",
-                    format!("复用 {} 启动 DSH", launch.source.label()),
-                );
-                launch
-            } else {
-                node_executable()?;
-                npm_executable()?;
-                let changed = self
-                    .state
-                    .lock()
-                    .map(|mut state| {
-                        if state.generation != generation {
-                            return false;
-                        }
-                        state.phase = RuntimePhase::Installing;
-                        state.registry_testing = true;
-                        state.message = "未检测到可用的 DSH，正在测试 npm 下载速度...".to_string();
-                        true
-                    })
-                    .unwrap_or(false);
-                if changed {
-                    self.emit_status(&app);
-                }
-                let selection = registry::select(npm_command);
-                for probe in &selection.probes {
-                    self.emit_runtime_log(
-                        &app,
-                        generation,
-                        "registry",
-                        "diagnostic",
-                        if probe.ok {
-                            format!(
-                                "registry {} 可用，响应耗时 {} ms",
-                                probe.registry, probe.elapsed_ms
-                            )
-                        } else {
-                            format!(
-                                "registry {} 不可用或响应超时（{} ms）",
-                                probe.registry, probe.elapsed_ms
-                            )
-                        },
-                    );
-                }
-                if selection.all_failed {
-                    self.emit_runtime_log(
-                        &app,
-                        generation,
-                        "registry",
-                        "diagnostic",
-                        "所有 npm registry 测速均失败，回退到 npm 官方源安装 DSH".to_string(),
-                    );
-                }
-                if let Ok(mut state) = self.state.lock() {
-                    if state.generation == generation {
-                        state.registry_testing = false;
-                        state.selected_registry = Some(selection.registry.clone());
-                        state.message = format!("使用 {} 安装 DSH...", selection.registry);
-                    }
-                }
-                self.emit_status(&app);
-                install_dsh(self, &app, generation, &selection.registry)?;
-                local_dsh_launch()?
-            };
+            let launch = bundled_dsh_launch(&app)?;
+            self.emit_runtime_log(
+                &app,
+                generation,
+                "start",
+                "diagnostic",
+                format!("使用 {} 启动 DSH", launch.source.label()),
+            );
             if !self.is_current(generation) {
                 return Err("DSH 启动已取消".to_string());
             }
             if let Ok(mut state) = self.state.lock() {
-                state.registry_testing = false;
                 state.package_available = true;
             }
             Ok(launch)
@@ -1616,14 +877,11 @@ impl BridgeManager {
             .state
             .lock()
             .map(|mut state| {
-                if state.generation != generation
-                    || state.phase != RuntimePhase::Installing
-                        && state.phase != RuntimePhase::Checking
-                {
+                if state.generation != generation || state.phase != RuntimePhase::Checking {
                     return false;
                 }
                 state.phase = RuntimePhase::Starting;
-                state.message = "正在启动 DSH...".to_string();
+                state.message = "正在启动内嵌 DSH...".to_string();
                 true
             })
             .unwrap_or(false);
@@ -2903,13 +2161,31 @@ fn open_themes_directory() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        bound_log_text, format_log_line, format_utc_datetime, is_dsh_package_manifest,
-        validated_connection_url, DshRuntimeLog, LogStore, MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES,
+        bound_log_text, format_log_line, format_utc_datetime, is_bundled_runtime_manifest,
+        is_dsh_package_manifest, validated_connection_url, DshRuntimeLog, LogStore, MAX_LOG_ENTRIES,
+        MAX_LOG_TEXT_BYTES,
     };
 
     #[test]
     fn accepts_the_dsh_package_manifest() {
         assert!(is_dsh_package_manifest(r#"{"name":"@deepseek-ai/dsh"}"#));
+    }
+
+    #[test]
+    fn accepts_only_the_pinned_bundled_runtime_manifest() {
+        let manifest = serde_json::json!({
+            "format": 1,
+            "packageName": "@deepseek-ai/dsh",
+            "packageVersion": "0.1.0-rc.7",
+            "entry": "node_modules/@deepseek-ai/dsh/lib/bin.js",
+        });
+        assert!(is_bundled_runtime_manifest(&manifest));
+        assert!(!is_bundled_runtime_manifest(&serde_json::json!({
+            "format": 1,
+            "packageName": "@deepseek-ai/dsh",
+            "packageVersion": "latest",
+            "entry": "node_modules/@deepseek-ai/dsh/lib/bin.js",
+        })));
     }
 
     #[test]

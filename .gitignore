@@ -1,5 +1,8 @@
 node_modules/
 dist/
+# Generated from the reviewed vendor/dsh submodule before Tauri builds.
+src-tauri/resources/dsh-runtime/
+src-tauri/resources/dsh-runtime.*/
 release-assets/
 src-tauri/target/
 src-tauri/target-desktop-build/

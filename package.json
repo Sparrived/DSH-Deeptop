@@ -15,6 +15,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "dsh:sync": "node scripts/sync-dsh-runtime.mjs",
+    "dsh:verify": "node scripts/verify-dsh-runtime.mjs",
+    "build:desktop": "npm run dsh:sync && npm run dsh:verify && npm run build",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
