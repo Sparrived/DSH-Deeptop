@@ -38,6 +38,7 @@ import {
   listenToRuntimeLog,
   listenToRuntimeStatus,
   listenToSingleInstance,
+  openConnectionUrl,
   openLogsDirectory,
   openNodejsDownload,
   saveExportFile,
@@ -2778,6 +2779,17 @@ function App() {
       setNotice("已交给系统打开");
     } catch (error) {
       setErrorNotice(`打开失败：${errorText(error)}`);
+      throw error;
+    }
+  }
+
+  async function openMessageUrl(url: string) {
+    try {
+      await openConnectionUrl(url);
+      setNotice("已交给系统打开连接");
+    } catch (error) {
+      setErrorNotice(`打开连接失败：${errorText(error)}`);
+      throw error;
     }
   }
 
@@ -3148,6 +3160,7 @@ function App() {
                retryingMessageSeq={retryingMessageSeq}
               onForkSession={forkSession}
               onOpenSessionPath={openSessionPath}
+              onOpenUrl={openMessageUrl}
             />
 
             <div className="left-dock-shelf" aria-label="工作区工具">
