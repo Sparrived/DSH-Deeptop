@@ -1,10 +1,22 @@
 use std::{
     env,
+    io::{Read, Write},
     path::{Path, PathBuf},
-    process::Command,
+    process::{Child, ChildStdin, Command, Stdio},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
+    thread,
+    time::Duration,
 };
 
 use serde::Serialize;
+use tauri::{AppHandle, Emitter, State};
+
+const TERMINAL_OUTPUT_EVENT: &str = "terminal-output";
+const MAX_TERMINAL_INPUT_BYTES: usize = 64 * 1024;
+static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -12,6 +24,34 @@ pub struct TerminalOption {
     pub id: String,
     pub name: String,
     pub description: String,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalSessionInfo {
+    pub session_id: String,
+    pub terminal_id: String,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalOutput {
+    pub session_id: String,
+    pub stream: String,
+    pub text: String,
+    pub exited: bool,
+    pub exit_code: Option<i32>,
+}
+
+struct TerminalSession {
+    id: String,
+    stdin: Arc<Mutex<ChildStdin>>,
+    child: Arc<Mutex<Child>>,
+}
+
+#[derive(Clone, Default)]
+pub struct TerminalManager {
+    session: Arc<Mutex<Option<TerminalSession>>>,
 }
 
 fn terminal_option(id: &str, name: &str, description: &str) -> TerminalOption {
@@ -31,119 +71,86 @@ fn executable_from_path(name: &str) -> Option<PathBuf> {
 }
 
 #[cfg(windows)]
-fn windows_terminal_executable(name: &str) -> Option<PathBuf> {
-    executable_from_path(name)
-        .or_else(|| {
-            env::var_os("SystemRoot")
-                .map(PathBuf::from)
-                .map(|root| root.join("System32").join(name))
-                .filter(|path| path.is_file())
-        })
-        .or_else(|| {
-            (name == "wt.exe")
-                .then(|| {
-                    env::var_os("LOCALAPPDATA")
-                        .map(PathBuf::from)
-                        .map(|root| root.join("Microsoft/WindowsApps/wt.exe"))
-                        .filter(|path| path.is_file())
-                })
-                .flatten()
-        })
+fn windows_shell_executable(name: &str) -> Option<PathBuf> {
+    executable_from_path(name).or_else(|| {
+        env::var_os("SystemRoot")
+            .map(PathBuf::from)
+            .map(|root| root.join("System32").join(name))
+            .filter(|path| path.is_file())
+    })
+}
+
+#[cfg(unix)]
+fn unix_shell_executable(name: &str) -> Option<PathBuf> {
+    [
+        PathBuf::from(format!("/bin/{name}")),
+        PathBuf::from(format!("/usr/bin/{name}")),
+        PathBuf::from(format!("/usr/local/bin/{name}")),
+    ]
+    .into_iter()
+    .find(|path| path.is_file())
+    .or_else(|| executable_from_path(name))
 }
 
 #[cfg(windows)]
 fn available_terminals() -> Vec<TerminalOption> {
     let mut terminals = Vec::new();
-    if windows_terminal_executable("wt.exe").is_some() {
+    if windows_shell_executable("pwsh.exe").is_some() {
         terminals.push(terminal_option(
-            "windows-terminal",
-            "Windows Terminal",
-            "Windows 的多标签终端",
+            "pwsh",
+            "PowerShell 7",
+            "内嵌 PowerShell 7 会话",
         ));
     }
-    if windows_terminal_executable("pwsh.exe").is_some() {
-        terminals.push(terminal_option(
-            "powershell",
-            "PowerShell 7",
-            "跨平台 PowerShell",
-        ));
-    } else if windows_terminal_executable("powershell.exe").is_some() {
+    if windows_shell_executable("powershell.exe").is_some() {
         terminals.push(terminal_option(
             "powershell",
             "Windows PowerShell",
-            "系统自带 PowerShell",
+            "内嵌系统 PowerShell 会话",
         ));
     }
-    if windows_terminal_executable("cmd.exe").is_some() {
+    if windows_shell_executable("cmd.exe").is_some() {
         terminals.push(terminal_option(
             "command-prompt",
             "命令提示符",
-            "Windows 命令提示符",
+            "内嵌 Windows 命令行会话",
         ));
     }
     terminals
 }
 
-#[cfg(target_os = "macos")]
-fn mac_application_exists(name: &str) -> bool {
-    [
-        PathBuf::from(format!("/Applications/{name}.app")),
-        PathBuf::from(format!("/System/Applications/{name}.app")),
-        env::var_os("HOME")
-            .map(PathBuf::from)
-            .map(|home| home.join(format!("Applications/{name}.app")))
-            .unwrap_or_default(),
-    ]
-    .iter()
-    .any(|path| path.is_dir())
-}
-
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 fn available_terminals() -> Vec<TerminalOption> {
-    let mut terminals = Vec::new();
-    if mac_application_exists("Terminal") {
-        terminals.push(terminal_option("terminal", "Terminal", "macOS 系统终端"));
-    }
-    if mac_application_exists("iTerm") || mac_application_exists("iTerm2") {
-        terminals.push(terminal_option("iterm", "iTerm2", "可定制的 macOS 终端"));
-    }
-    for (id, name, description) in [
-        ("kitty", "kitty", "GPU 加速终端"),
-        ("alacritty", "Alacritty", "轻量 GPU 加速终端"),
-        ("wezterm", "WezTerm", "跨平台终端"),
-    ] {
-        if executable_from_path(id).is_some() {
-            terminals.push(terminal_option(id, name, description));
+    let definitions = [
+        ("zsh", "zsh", "交互式 zsh 会话"),
+        ("bash", "bash", "交互式 bash 会话"),
+        ("fish", "fish", "交互式 fish 会话"),
+        ("sh", "sh", "兼容性 shell 会话"),
+    ];
+    let preferred = env::var("SHELL")
+        .ok()
+        .and_then(|value| Path::new(&value).file_stem()?.to_str().map(str::to_owned));
+    let mut ordered = Vec::new();
+    if let Some(preferred) = preferred {
+        if definitions.iter().any(|(id, _, _)| *id == preferred) {
+            ordered.push(preferred);
         }
     }
-    terminals
-}
-
-#[cfg(all(unix, not(target_os = "macos")))]
-fn available_terminals() -> Vec<TerminalOption> {
-    let mut terminals = Vec::new();
-    if executable_from_path("x-terminal-emulator").is_some() {
-        terminals.push(terminal_option(
-            "system-default",
-            "系统默认终端",
-            "由 Linux 的终端替代器决定",
-        ));
-    }
-    for (id, name, description) in [
-        ("gnome-terminal", "GNOME Terminal", "GNOME 桌面终端"),
-        ("konsole", "Konsole", "KDE 桌面终端"),
-        ("xfce4-terminal", "Xfce Terminal", "Xfce 桌面终端"),
-        ("kitty", "kitty", "GPU 加速终端"),
-        ("alacritty", "Alacritty", "轻量 GPU 加速终端"),
-        ("wezterm", "WezTerm", "跨平台终端"),
-        ("foot", "foot", "Wayland 终端"),
-        ("xterm", "xterm", "经典 X11 终端"),
-    ] {
-        if executable_from_path(id).is_some() {
-            terminals.push(terminal_option(id, name, description));
+    definitions.iter().for_each(|(id, _, _)| {
+        if !ordered.iter().any(|current| current == id) {
+            ordered.push((*id).to_string());
         }
-    }
-    terminals
+    });
+    ordered
+        .into_iter()
+        .filter_map(|id| {
+            unix_shell_executable(&id)?;
+            let (_, name, description) = definitions
+                .iter()
+                .find(|(candidate, _, _)| *candidate == id)?;
+            Some(terminal_option(&id, name, description))
+        })
+        .collect()
 }
 
 #[cfg(not(any(windows, unix)))]
@@ -152,192 +159,286 @@ fn available_terminals() -> Vec<TerminalOption> {
 }
 
 #[cfg(windows)]
-fn launch_terminal(directory: &Path, terminal_id: &str) -> Result<(), String> {
-    let executable = match terminal_id {
-        "windows-terminal" => windows_terminal_executable("wt.exe")
-            .ok_or_else(|| "Windows Terminal 当前不可用".to_string())?,
-        "powershell" => windows_terminal_executable("pwsh.exe")
-            .or_else(|| windows_terminal_executable("powershell.exe"))
-            .ok_or_else(|| "PowerShell 当前不可用".to_string())?,
-        "command-prompt" => windows_terminal_executable("cmd.exe")
-            .ok_or_else(|| "命令提示符当前不可用".to_string())?,
-        _ => return Err("未识别的终端选项".to_string()),
+fn shell_command(directory: &Path, terminal_id: &str) -> Result<Command, String> {
+    let (executable, args) = match terminal_id {
+        "pwsh" => (
+            windows_shell_executable("pwsh.exe"),
+            vec!["-NoLogo", "-NoProfile", "-NoExit"],
+        ),
+        "powershell" => (
+            windows_shell_executable("powershell.exe"),
+            vec!["-NoLogo", "-NoProfile", "-NoExit"],
+        ),
+        "command-prompt" => (windows_shell_executable("cmd.exe"), vec!["/K"]),
+        _ => (None, Vec::new()),
     };
+    let executable = executable.ok_or_else(|| "所选终端当前不可用，请刷新终端列表".to_string())?;
     let mut command = Command::new(executable);
-    command.current_dir(directory);
+    command.args(args).current_dir(directory);
+    Ok(command)
+}
+
+#[cfg(unix)]
+fn shell_command(directory: &Path, terminal_id: &str) -> Result<Command, String> {
+    let executable = unix_shell_executable(terminal_id)
+        .ok_or_else(|| "所选终端当前不可用，请刷新终端列表".to_string())?;
+    let mut command = Command::new(executable);
     match terminal_id {
-        "windows-terminal" => {
-            command.args(["-d", directory.to_string_lossy().as_ref()]);
+        "zsh" => {
+            command.args(["-l", "-i"]);
         }
-        "powershell" => {
-            command.args(["-NoLogo", "-NoExit"]);
+        "bash" => {
+            command.args(["--login", "--interactive"]);
         }
-        "command-prompt" => {
-            command.arg("/K");
+        "fish" => {
+            command.arg("-i");
         }
-        _ => unreachable!(),
-    }
-    command
-        .spawn()
-        .map(|_| ())
-        .map_err(|error| format!("启动终端失败：{error}"))
-}
-
-#[cfg(target_os = "macos")]
-fn apple_script_string(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace(['\r', '\n'], " ")
-}
-
-#[cfg(target_os = "macos")]
-fn shell_quote(value: &str) -> String {
-    let mut quoted = String::from("'");
-    for character in value.chars() {
-        if character == '\'' {
-            quoted.push_str("'\\''");
-        } else {
-            quoted.push(character);
-        }
-    }
-    quoted.push('\'');
-    quoted
-}
-
-#[cfg(target_os = "macos")]
-fn launch_terminal(directory: &Path, terminal_id: &str) -> Result<(), String> {
-    let shell_command = format!(
-        "cd -- {} && exec $SHELL -l",
-        shell_quote(&directory.to_string_lossy())
-    );
-    let mut command = match terminal_id {
-        "terminal" => {
-            let script = format!(
-                "tell application \"Terminal\" to do script \"{}\"",
-                apple_script_string(&shell_command)
-            );
-            let mut command = Command::new("osascript");
-            command.args(["-e", &script]);
-            command
-        }
-        "iterm" => {
-            let script = format!(
-                "tell application \"iTerm2\" to create window with default profile command \"{}\"",
-                apple_script_string(&shell_command)
-            );
-            let mut command = Command::new("osascript");
-            command.args(["-e", &script]);
-            command
-        }
-        "kitty" => {
-            let mut command = Command::new("kitty");
-            command.args(["--directory", directory.to_string_lossy().as_ref()]);
-            command
-        }
-        "alacritty" => {
-            let mut command = Command::new("alacritty");
-            command.args(["--working-directory", directory.to_string_lossy().as_ref()]);
-            command
-        }
-        "wezterm" => {
-            let mut command = Command::new("wezterm");
-            command.args(["start", "--cwd", directory.to_string_lossy().as_ref()]);
-            command
+        "sh" => {
+            command.arg("-i");
         }
         _ => return Err("未识别的终端选项".to_string()),
-    };
-    command
-        .spawn()
-        .map(|_| ())
-        .map_err(|error| format!("启动终端失败：{error}"))
-}
-
-#[cfg(all(unix, not(target_os = "macos")))]
-fn launch_terminal(directory: &Path, terminal_id: &str) -> Result<(), String> {
-    let mut command = match terminal_id {
-        "system-default" => {
-            let mut command = Command::new("x-terminal-emulator");
-            command.current_dir(directory);
-            command
-        }
-        "gnome-terminal" => {
-            let mut command = Command::new("gnome-terminal");
-            command.args(["--working-directory", directory.to_string_lossy().as_ref()]);
-            command
-        }
-        "konsole" => {
-            let mut command = Command::new("konsole");
-            command.args(["--workdir", directory.to_string_lossy().as_ref()]);
-            command
-        }
-        "xfce4-terminal" => {
-            let mut command = Command::new("xfce4-terminal");
-            command.args(["--working-directory", directory.to_string_lossy().as_ref()]);
-            command
-        }
-        "kitty" => {
-            let mut command = Command::new("kitty");
-            command.args(["--directory", directory.to_string_lossy().as_ref()]);
-            command
-        }
-        "alacritty" => {
-            let mut command = Command::new("alacritty");
-            command.args(["--working-directory", directory.to_string_lossy().as_ref()]);
-            command
-        }
-        "wezterm" => {
-            let mut command = Command::new("wezterm");
-            command.args(["start", "--cwd", directory.to_string_lossy().as_ref()]);
-            command
-        }
-        "foot" => {
-            let mut command = Command::new("foot");
-            command.current_dir(directory);
-            command
-        }
-        "xterm" => {
-            let mut command = Command::new("xterm");
-            command.current_dir(directory);
-            command
-        }
-        _ => return Err("未识别的终端选项".to_string()),
-    };
-    command
-        .spawn()
-        .map(|_| ())
-        .map_err(|error| format!("启动终端失败：{error}"))
+    }
+    command.current_dir(directory);
+    Ok(command)
 }
 
 #[cfg(not(any(windows, unix)))]
-fn launch_terminal(_directory: &Path, _terminal_id: &str) -> Result<(), String> {
-    Err("当前系统暂不支持启动终端".to_string())
+fn shell_command(_directory: &Path, _terminal_id: &str) -> Result<Command, String> {
+    Err("当前系统暂不支持内嵌终端".to_string())
 }
 
-/// 返回当前系统检测到的终端，列表顺序即为默认终端优先级。
+fn configure_shell_process(command: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(unix)]
+    {
+        command.env("TERM", "dumb");
+    }
+}
+
+fn emit_output(app: &AppHandle, session_id: &str, stream: &str, text: String) {
+    let _ = app.emit(
+        TERMINAL_OUTPUT_EVENT,
+        TerminalOutput {
+            session_id: session_id.to_string(),
+            stream: stream.to_string(),
+            text,
+            exited: false,
+            exit_code: None,
+        },
+    );
+}
+
+fn read_stream<R: Read + Send + 'static>(
+    app: AppHandle,
+    session_id: String,
+    stream: &'static str,
+    mut reader: R,
+) {
+    thread::spawn(move || {
+        let mut buffer = [0_u8; 4096];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(size) => emit_output(
+                    &app,
+                    &session_id,
+                    stream,
+                    String::from_utf8_lossy(&buffer[..size]).into_owned(),
+                ),
+                Err(_) => break,
+            }
+        }
+    });
+}
+
+impl TerminalManager {
+    fn stop_current(&self) {
+        let current = self
+            .session
+            .lock()
+            .ok()
+            .and_then(|mut session| session.take());
+        if let Some(session) = current {
+            if let Ok(mut child) = session.child.lock() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+
+    fn start(
+        &self,
+        app: AppHandle,
+        workspace: String,
+        terminal_id: String,
+    ) -> Result<TerminalSessionInfo, String> {
+        let trimmed = workspace.trim();
+        if trimmed.is_empty() {
+            return Err("请先选择一个工作区".to_string());
+        }
+        let directory = PathBuf::from(trimmed);
+        if !directory.is_dir() {
+            return Err(format!("工作区目录不存在：{trimmed}"));
+        }
+        if !available_terminals()
+            .iter()
+            .any(|terminal| terminal.id == terminal_id)
+        {
+            return Err("所选终端当前不可用，请刷新终端列表".to_string());
+        }
+
+        self.stop_current();
+        let mut command = shell_command(&directory, &terminal_id)?;
+        configure_shell_process(&mut command);
+        let mut child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|error| format!("启动内嵌终端失败：{error}"))?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| "内嵌终端没有可用输入流".to_string())?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "内嵌终端没有可用输出流".to_string())?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| "内嵌终端没有可用错误流".to_string())?;
+        let session_id = format!(
+            "terminal-{}",
+            NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed)
+        );
+        let stdin = Arc::new(Mutex::new(stdin));
+        let child = Arc::new(Mutex::new(child));
+        if let Ok(mut current) = self.session.lock() {
+            *current = Some(TerminalSession {
+                id: session_id.clone(),
+                stdin: Arc::clone(&stdin),
+                child: Arc::clone(&child),
+            });
+        }
+        let manager = self.clone();
+        let monitor_app = app.clone();
+        let monitor_id = session_id.clone();
+        thread::spawn(move || {
+            let status = loop {
+                let result = child
+                    .lock()
+                    .ok()
+                    .and_then(|mut child| child.try_wait().ok().flatten());
+                if result.is_some() {
+                    break result;
+                }
+                thread::sleep(Duration::from_millis(80));
+            };
+            let _ = monitor_app.emit(
+                TERMINAL_OUTPUT_EVENT,
+                TerminalOutput {
+                    session_id: monitor_id.clone(),
+                    stream: "system".to_string(),
+                    text: String::new(),
+                    exited: true,
+                    exit_code: status.and_then(|status| status.code()),
+                },
+            );
+            if let Ok(mut current) = manager.session.lock() {
+                if current.as_ref().map(|session| session.id.as_str()) == Some(monitor_id.as_str())
+                {
+                    *current = None;
+                }
+            }
+        });
+        read_stream(app.clone(), session_id.clone(), "stdout", stdout);
+        read_stream(app, session_id.clone(), "stderr", stderr);
+        Ok(TerminalSessionInfo {
+            session_id,
+            terminal_id,
+        })
+    }
+
+    fn write(&self, session_id: &str, input: &str) -> Result<(), String> {
+        if input.len() > MAX_TERMINAL_INPUT_BYTES {
+            return Err("终端输入过长，请分段发送".to_string());
+        }
+        let session = self
+            .session
+            .lock()
+            .ok()
+            .and_then(|current| {
+                current
+                    .as_ref()
+                    .filter(|session| session.id == session_id)
+                    .map(|session| Arc::clone(&session.stdin))
+            })
+            .ok_or_else(|| "内嵌终端会话已结束".to_string())?;
+        let mut stdin = session
+            .lock()
+            .map_err(|_| "内嵌终端输入流不可用".to_string())?;
+        stdin
+            .write_all(input.as_bytes())
+            .map_err(|error| format!("写入终端失败：{error}"))?;
+        stdin
+            .flush()
+            .map_err(|error| format!("刷新终端输入失败：{error}"))
+    }
+
+    fn close(&self, session_id: &str) {
+        let current = self.session.lock().ok().and_then(|mut session| {
+            if session.as_ref().map(|current| current.id.as_str()) == Some(session_id) {
+                session.take()
+            } else {
+                None
+            }
+        });
+        if let Some(session) = current {
+            if let Ok(mut child) = session.child.lock() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+}
+
 #[tauri::command]
 pub fn list_terminals() -> Vec<TerminalOption> {
     available_terminals()
 }
 
-/// 在指定工作区启动所选终端；终端进程独立于 Deeptop 生命周期运行。
 #[tauri::command]
-pub fn open_terminal(workspace: String, terminal_id: String) -> Result<(), String> {
-    let trimmed = workspace.trim();
-    if trimmed.is_empty() {
-        return Err("请先选择一个工作区".to_string());
-    }
-    let directory = PathBuf::from(trimmed);
-    if !directory.is_dir() {
-        return Err(format!("工作区目录不存在：{trimmed}"));
-    }
-    if !available_terminals()
-        .iter()
-        .any(|terminal| terminal.id == terminal_id)
-    {
-        return Err("所选终端当前不可用，请刷新终端列表".to_string());
-    }
-    launch_terminal(&directory, &terminal_id)
+pub fn start_terminal(
+    app: AppHandle,
+    manager: State<'_, TerminalManager>,
+    workspace: String,
+    terminal_id: String,
+) -> Result<TerminalSessionInfo, String> {
+    manager.start(app, workspace, terminal_id)
+}
+
+#[tauri::command]
+pub fn write_terminal(
+    manager: State<'_, TerminalManager>,
+    session_id: String,
+    input: String,
+) -> Result<(), String> {
+    manager.write(&session_id, &input)
+}
+
+#[tauri::command]
+pub fn close_terminal(
+    manager: State<'_, TerminalManager>,
+    session_id: String,
+) -> Result<(), String> {
+    manager.close(&session_id);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -346,10 +447,10 @@ mod tests {
 
     #[test]
     fn terminal_options_have_stable_metadata() {
-        let option = terminal_option("terminal", "Terminal", "系统终端");
-        assert_eq!(option.id, "terminal");
-        assert_eq!(option.name, "Terminal");
-        assert_eq!(option.description, "系统终端");
+        let option = terminal_option("bash", "bash", "交互式 bash 会话");
+        assert_eq!(option.id, "bash");
+        assert_eq!(option.name, "bash");
+        assert_eq!(option.description, "交互式 bash 会话");
     }
 
     #[test]

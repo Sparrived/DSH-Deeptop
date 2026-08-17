@@ -591,17 +591,46 @@ export interface TerminalOption {
   description: string;
 }
 
-/** Detect the terminals available on the host, ordered by platform default. */
+export interface TerminalSessionInfo {
+  sessionId: string;
+  terminalId: string;
+}
+
+export interface TerminalOutput {
+  sessionId: string;
+  stream: "stdout" | "stderr" | "system";
+  text: string;
+  exited: boolean;
+  exitCode?: number | null;
+}
+
+/** Detect the shell sessions available for an embedded terminal. */
 export async function listTerminals(): Promise<TerminalOption[]> {
   if (!isTauri()) return [];
   const terminals = await invoke<unknown>("list_terminals");
   return Array.isArray(terminals) ? (terminals as TerminalOption[]) : [];
 }
 
-/** Launch a selected terminal with the workspace directory as its starting location. */
-export async function openTerminal(workspace: string, terminalId: string): Promise<void> {
+/** Start an embedded terminal session in the selected workspace. */
+export async function startTerminal(workspace: string, terminalId: string): Promise<TerminalSessionInfo> {
   if (!isTauri()) throw new Error("终端只在桌面端可用");
-  await invoke("open_terminal", { workspace, terminalId });
+  return invoke<TerminalSessionInfo>("start_terminal", { workspace, terminalId });
+}
+
+/** Send raw input (including a newline) to an embedded terminal session. */
+export async function writeTerminal(sessionId: string, input: string): Promise<void> {
+  if (!isTauri()) throw new Error("终端只在桌面端可用");
+  await invoke("write_terminal", { sessionId, input });
+}
+
+/** Stop an embedded terminal session. */
+export async function closeTerminal(sessionId: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("close_terminal", { sessionId });
+}
+
+export async function listenToTerminalOutput(handler: (output: TerminalOutput) => void): Promise<UnlistenFn> {
+  return listen<TerminalOutput>("terminal-output", (event) => handler(event.payload));
 }
 
 /** List the entries under a workspace directory (folders first, then by name). */

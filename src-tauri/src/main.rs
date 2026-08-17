@@ -2916,6 +2916,7 @@ fn main() {
             let _ = app.emit("single-instance", json!({ "args": args, "cwd": cwd }));
         }))
         .manage(BridgeManager::default())
+        .manage(terminal::TerminalManager::default())
         .setup(|app| {
             let runtime = app.state::<BridgeManager>().inner().clone();
             runtime.start(app.handle().clone());
@@ -2935,7 +2936,9 @@ fn main() {
             open_logs_directory,
             save_export_file,
             terminal::list_terminals,
-            terminal::open_terminal,
+            terminal::start_terminal,
+            terminal::write_terminal,
+            terminal::close_terminal,
             list_workspace_files,
             get_workspace_git_status,
             open_in_vscode,
