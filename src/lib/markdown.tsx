@@ -1,7 +1,25 @@
 import ReactMarkdown, { type Components } from "react-markdown";
 import { isValidElement, memo, useState, type HTMLAttributes, type ReactNode } from "react";
+import { SKIP, visit } from "unist-util-visit";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
+import { decodeFileLink, entityHost, FILE_LINK_PREFIX, pathLabel, splitMessageEntities } from "./message-entities";
+
+function remarkMessageEntities() {
+  return (tree: { children?: unknown[] }) => {
+    visit(tree as never, "text", (node: { value?: unknown }, _index: number | undefined, parent: { type?: string; children?: unknown[] } | undefined) => {
+      if (parent?.type === "link" || parent?.type === "inlineCode" || parent?.type === "code" || typeof node.value !== "string") return;
+      const segments = splitMessageEntities(node.value);
+      if (segments.length === 1 && segments[0].kind === "text") return;
+      if (!parent?.children || _index === undefined) return;
+      const replacement = segments.map((segment) => segment.kind === "text"
+        ? { type: "text", value: segment.value }
+        : { type: "link", url: segment.kind === "file" ? `${FILE_LINK_PREFIX}${encodeURIComponent(segment.value)}` : segment.value, children: [{ type: "text", value: segment.value }] });
+      parent.children.splice(_index, 1, ...replacement);
+      return [SKIP, replacement.length] as const;
+    });
+  };
+}
 
 function textFromNode(node: ReactNode): string {
   if (typeof node === "string" || typeof node === "number") return String(node);
@@ -34,21 +52,53 @@ function MarkdownCodeBlock({ children, ...props }: HTMLAttributes<HTMLPreElement
   );
 }
 
-const markdownComponents: Components = {
+type MarkdownEntityActions = {
+  onOpenPath?: (path: string) => void | Promise<void>;
+  onOpenUrl?: (url: string) => void | Promise<void>;
+};
+
+function MessageEntityLink({ href, children, onOpenPath, onOpenUrl }: { href?: string; children?: ReactNode } & MarkdownEntityActions) {
+  const path = href ? decodeFileLink(href) : null;
+  const url = href && /^(?:https?):/i.test(href) ? href : null;
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const label = path ? pathLabel(path) : url ? { name: entityHost(url), directory: "连接" } : null;
+  if (!label || (!path && !url)) return <span className="markdown-link-disabled">{children}</span>;
+
+  async function open() {
+    const action = path ? onOpenPath : onOpenUrl;
+    const value = path ?? url;
+    if (!action || !value) return;
+    setBusy(true);
+    setError("");
+    try {
+      await action(value);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <span className={`message-entity-card ${path ? "file-entity-card" : "connection-entity-card"}`} title={error || (path ?? url ?? "") }>
+      <span className="message-entity-icon" aria-hidden="true">{path ? "▧" : "↗"}</span>
+      <span className="message-entity-copy"><strong>{label.name}</strong><small>{error || label.directory}</small></span>
+      <button type="button" className="message-entity-open" disabled={busy || !(path ? onOpenPath : onOpenUrl)} onClick={() => void open()}>
+        {busy ? "打开中" : error ? "重试" : "打开"}
+      </button>
+    </span>
+  );
+}
+
+function createMarkdownComponents(actions: MarkdownEntityActions): Components {
+  return {
   a: ({ children, href, node, ...props }) => {
     if (!href) return <span className="markdown-link-disabled">{children}</span>;
-
-    const external = /^(?:https?:|mailto:)/i.test(href);
-    return (
-      <a
-        {...props}
-        href={href}
-        target={external ? "_blank" : undefined}
-        rel={external ? "noreferrer" : undefined}
-      >
-        {children}
-      </a>
-    );
+    if (decodeFileLink(href) || /^(?:https?):/i.test(href)) {
+      return <MessageEntityLink href={href} onOpenPath={actions.onOpenPath} onOpenUrl={actions.onOpenUrl}>{children}</MessageEntityLink>;
+    }
+    return <span className="markdown-link-disabled">{children}</span>;
   },
   code: ({ children, className, node, ...props }) => {
     const language = className?.match(/language-([\w-]+)/)?.[1];
@@ -64,18 +114,21 @@ const markdownComponents: Components = {
       <table {...props}>{children}</table>
     </div>
   ),
-};
+  };
+}
 
 // Memoized: while a stream advances, the transcript re-renders on every frame
 // but only the actively streaming message's `text` changes. Skipping the
 // others avoids re-parsing every previous message's markdown on each token.
-export const MarkdownContent = memo(function MarkdownContent({ text, className = "message-text", reveal = false }: { text: string; className?: string; reveal?: boolean }) {
+export const MarkdownContent = memo(function MarkdownContent({ text, className = "message-text", reveal = false, onOpenPath, onOpenUrl }: { text: string; className?: string; reveal?: boolean } & MarkdownEntityActions) {
   const contentClassName = reveal ? `${className} model-text-reveal` : className;
+  const components = createMarkdownComponents({ onOpenPath, onOpenUrl });
   return (
     <div className={contentClassName}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkBreaks]}
-        components={markdownComponents}
+        remarkPlugins={[remarkGfm, remarkBreaks, remarkMessageEntities]}
+        components={components}
+        urlTransform={(url) => url}
         skipHtml
       >
         {text.replace(/\r\n?/g, "\n")}

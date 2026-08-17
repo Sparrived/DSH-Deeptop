@@ -47,6 +47,7 @@ type ConversationTranscriptProps = {
   onRetryMessage?: (seq: number) => void | Promise<void>;
   onForkSession: (sessionId: string, seq?: number) => void | Promise<void>;
   onOpenSessionPath: (path: string) => void | Promise<void>;
+  onOpenUrl: (url: string) => void | Promise<void>;
 };
 
 function diffTextLines(text: string) {
@@ -320,6 +321,8 @@ type TranscriptArticleProps = {
   onEditAnnotation: (messageId: string) => void | Promise<void>;
   onRetryMessage?: (seq: number) => void | Promise<void>;
   onForkSession: (sessionId: string, seq?: number) => void | Promise<void>;
+  onOpenPath: (path: string) => void | Promise<void>;
+  onOpenUrl: (url: string) => void | Promise<void>;
 };
 
 function TranscriptArticleView({
@@ -335,6 +338,8 @@ function TranscriptArticleView({
   onEditAnnotation,
   onRetryMessage,
   onForkSession,
+  onOpenPath,
+  onOpenUrl,
 }: TranscriptArticleProps) {
   const diff = activeDiff(item);
   const hasToolResult = item.toolResultText !== undefined || item.toolResultDiff !== undefined || item.toolState === "result";
@@ -378,7 +383,7 @@ function TranscriptArticleView({
               <pre className="message-text">{item.text}</pre>
             </div>
           </details>
-        ) : <MarkdownContent text={item.text} reveal={streamingAssistant} />}
+        ) : <MarkdownContent text={item.text} reveal={streamingAssistant} onOpenPath={onOpenPath} onOpenUrl={onOpenUrl} />}
         {item.kind === "assistant" && <MessageStatsLine stats={item.stats} />}
         {(item.kind === "user" || item.kind === "assistant") && (
           <div className="message-actions">
@@ -451,6 +456,7 @@ export function ConversationTranscript({
   onRetryMessage,
   onForkSession,
   onOpenSessionPath,
+  onOpenUrl,
 }: ConversationTranscriptProps) {
   const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null);
 
@@ -516,6 +522,8 @@ export function ConversationTranscript({
               onEditAnnotation={onEditAnnotation}
               onRetryMessage={onRetryMessage}
               onForkSession={onForkSession}
+               onOpenPath={onOpenSessionPath}
+               onOpenUrl={onOpenUrl}
             />
           ))}
           {(loading || activeRunning) && <div className="agent-working" role="status" aria-live="polite">Deep diving...</div>}
