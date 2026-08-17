@@ -1077,33 +1077,14 @@
 .deliverable-file-diff b:last-child { color: var(--accent-deep); }
 
 .deliverable-file-open {
-  position: relative;
   width: 16px;
   height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--ink-faint);
-}
-
-.deliverable-file-open::before {
-  position: absolute;
-  top: 2px;
-  right: 1px;
-  width: 7px;
-  height: 7px;
-  border-top: 1px solid currentColor;
-  border-right: 1px solid currentColor;
-  content: "";
-}
-
-.deliverable-file-open::after {
-  position: absolute;
-  top: 7px;
-  left: 3px;
-  width: 9px;
-  height: 1px;
-  background: currentColor;
-  content: "";
-  transform: rotate(-45deg);
-  transform-origin: right center;
+  font: 17px/1 var(--mono);
+  transform: translateY(-1px);
 }
 
 .deliverables-actions {

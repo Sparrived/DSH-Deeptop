@@ -63,7 +63,7 @@ export function DeliverablesPanel({ item, activeSession, collapsed, onToggle, on
                 <span className="deliverable-file-type" aria-hidden="true">{fileTypeLabel(path)}</span>
                 <span className="deliverable-file-copy"><strong>{pathBasename(path)}</strong><small>{fileDirectory(path)}</small></span>
                 {diff && <span className="deliverable-file-diff" aria-label={`新增 ${diff.added} 行，删除 ${diff.removed} 行`}><b>+{diff.added}</b><b>−{diff.removed}</b></span>}
-                <span className="deliverable-file-open" aria-hidden="true" />
+                <span className="deliverable-file-open" aria-hidden="true">↗</span>
               </button>
             );
           })}
