@@ -2419,7 +2419,7 @@ function App() {
   async function loadRuntimeLogs() {
     if (!desktop) return;
     try {
-      const logs = await getRuntimeLogs();
+      const logs = await withTimeout(getRuntimeLogs(), 5_000, "读取运行日志超时，请稍后重试");
       setAppLogs(logs.slice(-2000));
     } catch (error) {
       setErrorNotice(errorText(error));

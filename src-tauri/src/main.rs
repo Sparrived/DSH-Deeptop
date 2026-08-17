@@ -296,6 +296,8 @@ const MAX_LOG_VIEW_ENTRIES: usize = 500;
 const MAX_LOG_TEXT_BYTES: usize = 16 * 1024;
 /// Rotate the persistent log file after it grows past this size.
 const MAX_LOG_FILE_BYTES: u64 = 4 * 1024 * 1024;
+/// Bound the asynchronous writer queue so a log storm cannot block the runtime.
+const LOG_WRITE_QUEUE_CAPACITY: usize = 1024;
 
 #[cfg(windows)]
 #[link(name = "kernel32")]
@@ -445,6 +447,37 @@ struct DshLaunch {
     label: String,
 }
 
+/// Persist logs on a dedicated thread so runtime events and log snapshots never
+/// wait for filesystem metadata, rotation, or append I/O. A full queue drops
+/// only the persistent copy; the in-memory viewer remains available.
+#[derive(Clone)]
+struct LogWriter {
+    sender: mpsc::SyncSender<String>,
+}
+
+impl LogWriter {
+    fn new() -> Self {
+        let (sender, receiver): (mpsc::SyncSender<String>, mpsc::Receiver<String>) =
+            mpsc::sync_channel(LOG_WRITE_QUEUE_CAPACITY);
+        thread::spawn(move || {
+            while let Ok(line) = receiver.recv() {
+                append_log_file(&persistent_log_path(), &line);
+            }
+        });
+        Self { sender }
+    }
+
+    fn enqueue(&self, entry: &DshRuntimeLog) {
+        let _ = self.sender.try_send(format_log_line(entry));
+    }
+}
+
+impl Default for LogWriter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Default)]
 struct LogStore {
     entries: VecDeque<DshRuntimeLog>,
@@ -528,7 +561,7 @@ struct BridgeManager {
     next_request_id: Arc<AtomicU64>,
     pending_open_sessions: Arc<Mutex<VecDeque<String>>>,
     logs: Arc<Mutex<LogStore>>,
-    log_file_lock: Arc<Mutex<()>>,
+    log_writer: LogWriter,
 }
 
 impl BridgeManager {
@@ -1765,10 +1798,7 @@ impl BridgeManager {
     }
 
     fn persist_log(&self, entry: &DshRuntimeLog) {
-        let Ok(_guard) = self.log_file_lock.lock() else {
-            return;
-        };
-        append_log_file(&persistent_log_path(), &format_log_line(entry));
+        self.log_writer.enqueue(entry);
     }
 
     fn log_snapshot(&self) -> Vec<DshRuntimeLog> {
@@ -2812,7 +2842,7 @@ fn open_themes_directory() -> Result<(), String> {
 mod tests {
     use super::{
         bound_log_text, format_log_line, format_utc_datetime, is_dsh_package_manifest,
-        DshRuntimeLog, MAX_LOG_TEXT_BYTES,
+        DshRuntimeLog, LogStore, MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES,
     };
 
     #[test]
@@ -2840,6 +2870,24 @@ mod tests {
         assert!(bounded.len() <= MAX_LOG_TEXT_BYTES + 64);
         assert!(bounded.contains("日志已截断"));
         assert!(bounded.starts_with("界"));
+    }
+
+    #[test]
+    fn keeps_recent_log_snapshot_bounded_and_ordered() {
+        let mut store = LogStore::default();
+        for index in 0..(MAX_LOG_ENTRIES + 3) {
+            store.push(DshRuntimeLog {
+                time: index as u64,
+                phase: "test".to_string(),
+                stream: "stdout".to_string(),
+                text: index.to_string(),
+            });
+        }
+        let recent = store.recent_snapshot(2);
+        assert_eq!(recent.len(), 2);
+        assert_eq!(recent[0].time, (MAX_LOG_ENTRIES + 1) as u64);
+        assert_eq!(recent[1].time, (MAX_LOG_ENTRIES + 2) as u64);
+        assert_eq!(store.snapshot().len(), MAX_LOG_ENTRIES);
     }
 
     #[test]
