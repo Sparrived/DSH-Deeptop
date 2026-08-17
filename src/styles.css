@@ -1400,34 +1400,6 @@ textarea:focus-visible {
   pointer-events: auto;
 }
 
-.subagent-rail {
-  position: absolute;
-  top: 50%;
-  left: 0;
-  right: auto;
-  width: 172px;
-  display: grid;
-  gap: 6px;
-  padding: 7px 7px 7px 0;
-  transform: translateY(-50%);
-  pointer-events: auto;
-  transition: left 180ms ease;
-}
-
-.subagent-layer.open .subagent-rail {
-  left: var(--subagent-drawer-width);
-  right: auto;
-}
-
-.subagent-rail-label {
-  padding: 0 10px 2px;
-  color: #8d958a;
-  font-family: var(--mono);
-  font-size: 8px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
 .subagent-bookmark {
   --subagent-tone: var(--accent);
   width: 100%;
@@ -6839,10 +6811,6 @@ textarea:focus-visible {
     --subagent-drawer-width: min(380px, calc(100vw - 300px));
   }
 
-  .subagent-rail {
-    width: 160px;
-  }
-
   .conversation-header {
     padding: 0 18px;
   }
@@ -6932,34 +6900,11 @@ textarea:focus-visible {
     right: 0;
   }
 
-  .workspace-layout.todo-visible .subagent-rail {
-    left: 10px;
-    right: auto;
-  }
-
-  .workspace-layout.todo-visible.todo-collapsed .subagent-rail {
-    left: 10px;
-    right: auto;
-  }
-
   .subagent-layer {
     position: fixed;
     inset: var(--window-bar-height) 0 0;
     z-index: 40;
     --subagent-drawer-width: min(420px, calc(100vw - 16px));
-  }
-
-  .subagent-rail {
-    top: auto;
-    right: auto;
-    bottom: 20%;
-    left: 10px;
-    width: min(158px, calc(100vw - 20px));
-    transform: none;
-  }
-
-  .subagent-layer.open .subagent-dock {
-    display: none;
   }
 
   .subagent-drawer {
@@ -7189,12 +7134,6 @@ textarea:focus-visible {
     max-height: none;
   }
 
-  .workspace-layout.todo-visible .subagent-rail {
-    top: 10px;
-    right: auto;
-    bottom: auto;
-    left: 10px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -11326,23 +11265,8 @@ textarea:focus-visible {
 }
 
 .subagent-dock {
-  position: absolute;
-  /* Keep the child-agent rail flush with the top of the right-side dock shelf. */
-  top: 0;
-  left: auto;
-  right: var(--subagent-dock-right);
-  width: var(--subagent-collapsed-width);
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: visible;
-  transform: none;
   pointer-events: auto;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-panel);
-  background: var(--surface-raised);
-  color: var(--ink);
-  box-shadow: none;
 }
 
 .subagent-dock-rail {
@@ -13611,17 +13535,6 @@ textarea:focus-visible {
     --subagent-drawer-width: min(430px, calc(100vw - 16px));
   }
 
-  .subagent-dock {
-    top: auto;
-    left: auto;
-    bottom: 18%;
-    right: 8px;
-    width: var(--subagent-collapsed-width, 44px);
-    transform: none;
-  }
-
-  .subagent-layer.open .subagent-dock { display: none; }
-
   .subagent-drawer {
     top: 10px;
     left: auto;
@@ -15250,6 +15163,52 @@ textarea:focus-visible {
 
   .workspace-layout.todo-visible.todo-collapsed.tasks-visible.tasks-collapsed .conversation-transcript-stage {
     --utility-panel-width: max(var(--todo-collapsed-width, 44px), var(--task-collapsed-width, 44px));
+  }
+}
+
+/* All right-side rails share the shelf track; SubAgent no longer has a centered/absolute rail. */
+@media (min-width: 761px) {
+  .conversation-transcript-stage > .utility-panel-shelf > .subagent-dock {
+    position: relative;
+    top: auto;
+    right: auto;
+    bottom: auto;
+    left: auto;
+    width: var(--subagent-collapsed-width, 44px);
+    min-height: 0;
+    flex: 0 0 auto;
+    align-self: flex-end;
+    transform: none;
+    pointer-events: auto;
+  }
+
+  .conversation-transcript-stage > .utility-panel-shelf > .subagent-dock .subagent-dock-card {
+    right: calc(100% + var(--right-surface-gap, 12px));
+    left: auto;
+  }
+}
+
+@media (max-width: 760px) {
+  .conversation-transcript-stage > .utility-panel-shelf > .subagent-dock {
+    position: static !important;
+    top: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    left: auto !important;
+    width: 100% !important;
+    flex: 0 1 auto;
+    margin: 0 !important;
+  }
+
+  .conversation-transcript-stage > .utility-panel-shelf > .subagent-dock.collapsed {
+    width: var(--subagent-collapsed-width, 44px) !important;
+    align-self: flex-end;
+  }
+
+  .conversation-transcript-stage > .utility-panel-shelf > .subagent-dock .subagent-dock-card {
+    position: static;
+    width: 100%;
+    max-height: min(34svh, 300px);
   }
 }
 

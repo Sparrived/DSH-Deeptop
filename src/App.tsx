@@ -14,6 +14,7 @@ import { SettingsPluginsPanel } from "./components/SettingsPluginsPanel";
 import { SettingsPresetPanel } from "./components/SettingsPresetPanel";
 import { QueueDock } from "./components/QueueDock";
 import { SessionSidebar } from "./components/SessionSidebar";
+import { SubagentDock } from "./components/SubagentDock";
 import { SubagentPanel } from "./components/SubagentPanel";
 import { TaskPanel, TodoPanel } from "./components/TodoPanel";
 import { WorkspaceFilesPanel } from "./components/WorkspaceFilesPanel";
@@ -3128,7 +3129,14 @@ function App() {
                  turnFinishedAt={turnTiming.finishedAt}
                  onToggle={() => togglePanel("todo")}
                /> : null}
-               deliverables={deliverablesVisible && deliverables ? <DeliverablesPanel
+                subagent={<SubagentDock
+                  entries={childSubagents}
+                  dockOpen={subagentDockOpen}
+                  selectedId={selectedSubagentId}
+                  onToggleDock={toggleSubagentDock}
+                  onToggle={toggleSubagent}
+                />}
+                deliverables={deliverablesVisible && deliverables ? <DeliverablesPanel
                  item={deliverables}
                  activeSession={activeSession ?? null}
                  collapsed={deliverablesCollapsed}
@@ -3138,8 +3146,6 @@ function App() {
              />
 
              <SubagentPanel
-              entries={childSubagents}
-              dockOpen={subagentDockOpen}
               panelOpen={subagentPanelOpen}
               selectedId={selectedSubagentId}
               selectedIndex={selectedSubagentIndex}
@@ -3149,8 +3155,6 @@ function App() {
               session={subagentSession}
               transcript={subagentTranscript}
               composer={subagentComposer}
-              onToggleDock={toggleSubagentDock}
-              onToggle={toggleSubagent}
               onClose={() => setSubagentPanelOpen(false)}
               onComposerChange={setSubagentComposer}
               onPrompt={promptSubagent}
