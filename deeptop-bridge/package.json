@@ -1,6 +1,6 @@
 {
   "name": "deeptop-bridge",
-  "version": "0.1.2-dev.4",
+  "version": "0.1.2-dev.5",
   "private": true,
   "type": "module",
   "main": "./index.mjs",
