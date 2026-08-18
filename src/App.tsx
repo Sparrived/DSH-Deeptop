@@ -1663,13 +1663,13 @@ function App() {
     if (externalLaunchFlushRef.current) return externalLaunchFlushRef.current;
     const flush = (async () => {
       const nativeRequests = await listPendingExternalLaunches();
-      const requests = [...externalLaunchQueueRef.current, ...nativeRequests];
+      let requests = [...externalLaunchQueueRef.current, ...nativeRequests];
       externalLaunchQueueRef.current = [];
-      const seen = new Set<string>();
+      const attempted = new Set<string>();
       for (const request of requests) {
         const key = externalLaunchKey(request);
-        if (seen.has(key)) continue;
-        seen.add(key);
+        if (attempted.has(key)) continue;
+        attempted.add(key);
         try {
           await handleExternalLaunch(request);
           await acknowledgePendingExternalLaunch(request.paths);
