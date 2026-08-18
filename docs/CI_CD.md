@@ -109,7 +109,7 @@ git push origin master --follow-tags
 5. 先上传 GitHub Actions 制品（保留 14 天）；
 6. 汇总所有平台资产，生成 `SHA256SUMS`；
 7. 根据 Tag 生成稳定版或 Development 标题；开发版自动传递 `--prerelease`，不会成为 Latest；
-8. 创建 GitHub Release 并生成 GitHub release notes。若同一 Tag 的 Release 已存在，重跑时会覆盖同名资产并同步 Release 的 prerelease 状态，不会创建重复 Release。
+8. 创建 GitHub Release 并生成 GitHub release notes。发布说明的比较基线按通道选择：开发版比较上一个 Tag 到当前开发版，正式版只比较上一个正式版到当前正式版；也可以使用 `--from` 显式覆盖基线。若同一 Tag 的 Release 已存在，重跑时会覆盖同名资产并同步 Release 的 prerelease 状态，不会创建重复 Release。
 
 ### 手动触发
 

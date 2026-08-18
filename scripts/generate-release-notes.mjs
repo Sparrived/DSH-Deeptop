@@ -12,7 +12,9 @@ const server = process.env.GITHUB_SERVER_URL ?? 'https://github.com'
 const commitUrl = repository ? `${server}/${repository}/commit` : undefined
 
 const endRef = resolveRef(args.to ?? tag)
-const startRef = args.from ?? previousTag(endRef)
+const currentTag = currentReleaseTag(endRef)
+const releaseTag = currentTag || (tag !== 'HEAD' ? tag : `v${version}`)
+const startRef = args.from ?? previousTag(endRef, releaseTag)
 const range = startRef ? `${startRef}..${endRef}` : endRef
 const commits = readCommits(range)
 const groups = new Map([
@@ -81,11 +83,37 @@ function resolveRef(ref) {
   return execFileSync('git', ['rev-parse', '--verify', `${ref}^{commit}`], { encoding: 'utf8' }).trim()
 }
 
-function previousTag(ref) {
-  const tags = git(['tag', '--sort=-version:refname']).split('\n').map((value) => value.trim()).filter(Boolean)
-  const current = git(['tag', '--points-at', ref]).split('\n').map((value) => value.trim()).filter(Boolean)[0]
+function currentReleaseTag(ref) {
+  return git(['tag', '--points-at', ref])
+    .split('\n')
+    .map((value) => value.trim())
+    .filter(isReleaseTag)
+    .sort(compareTags)[0]
+}
+
+function previousTag(ref, releaseTag) {
+  const allTags = git(['tag', '--sort=-version:refname'])
+    .split('\n')
+    .map((value) => value.trim())
+    .filter(isReleaseTag)
+  const current = releaseTag ?? currentReleaseTag(ref)
+  const tags = isPrereleaseTag(current)
+    ? allTags
+    : allTags.filter((candidate) => !isPrereleaseTag(candidate))
   const index = current ? tags.indexOf(current) : -1
   return index >= 0 ? tags[index + 1] : undefined
+}
+
+function isReleaseTag(tag) {
+  return /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(tag)
+}
+
+function isPrereleaseTag(tag) {
+  return tag.includes('-')
+}
+
+function compareTags(left, right) {
+  return left.localeCompare(right, undefined, { numeric: true })
 }
 
 function readCommits(commitRange) {
