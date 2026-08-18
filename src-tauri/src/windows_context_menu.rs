@@ -169,6 +169,30 @@ mod platform {
         format!("\"{executable}\" \"{marker}\" \"{argument}\"")
     }
 
+    fn verify_entry(path: &str, expected_command: &str) -> io::Result<()> {
+        let key = open_entry(path)?;
+        if read_value(&key, "").as_deref() != Some(MENU_LABEL)
+            || read_value(&key, MANAGED_VALUE).as_deref() != Some("1")
+            || read_value(&key, COMMAND_VALUE).as_deref() != Some(expected_command)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "右键菜单注册项写入后校验失败",
+            ));
+        }
+        let command = key
+            .open_subkey("command")
+            .ok()
+            .and_then(|command_key| read_value(&command_key, ""));
+        if command.as_deref() != Some(expected_command) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "右键菜单命令写入后校验失败",
+            ));
+        }
+        Ok(())
+    }
+
     fn write_entry(
         path: &str,
         argument: &str,
@@ -261,13 +285,19 @@ mod platform {
             .map_err(|error| format!("无法定位 Deeptop 可执行文件：{error}"))?;
         let mut written = Vec::new();
         for (index, (path, argument, marker)) in ENTRY_PATHS.iter().enumerate() {
-            if let Err(error) = write_entry(path, argument, marker, &executable) {
-                let rollback_error = rollback(&snapshots[..=written.len()]);
-                return Err(format!(
-                    "写入右键菜单失败（第 {} 项）：{error}{rollback_error}",
-                    index + 1
-                ));
-            }
+            let command = quote_command(&executable, argument, marker);
+            let write_result = write_entry(path, argument, marker, &executable)
+                .and_then(|()| verify_entry(path, &command));
+            match write_result {
+                Ok(()) => {}
+                Err(error) => {
+                    let rollback_error = rollback(&snapshots[..=written.len()]);
+                    return Err(format!(
+                        "写入右键菜单失败（第 {} 项）：{error}{rollback_error}",
+                        index + 1
+                    ));
+                }
+            };
             written.push(&snapshots[index]);
         }
         Ok(ContextMenuStatus {
