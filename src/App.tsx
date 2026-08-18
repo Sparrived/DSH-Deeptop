@@ -43,6 +43,11 @@ import {
   listenToRuntimeLog,
   listenToRuntimeStatus,
   listenToSingleInstance,
+  listenToExternalLaunch,
+  listPendingExternalLaunches,
+  acknowledgePendingExternalLaunch,
+  getWindowsContextMenuStatus,
+  setWindowsContextMenuEnabled,
   openExternalUrl,
   openConnectionUrl,
   openLogsDirectory,
@@ -84,6 +89,8 @@ import {
   type DshSessionSummary,
   type DshStatus,
   type DshRuntimeLog,
+  type ExternalLaunchRequest,
+  type WindowsContextMenuStatus,
   type DshSubagentAddress,
   type DshSubagentCatalog,
   type DshWorkspace,
@@ -161,6 +168,7 @@ import {
   useAppearanceSettings,
 } from "./app/useAppearanceSettings";
 import { SEND_SHORTCUT_STORAGE_KEY, readSendShortcut, type SendShortcut } from "./app/keyboard-shortcut";
+import { externalLaunchKey } from "./lib/external-launch";
 import { DEFAULT_PERMISSION_OPTIONS, isDefaultPermission, readStoredDefaultModel, readStoredDefaultPermission, writeStoredDefaultModel, writeStoredDefaultPermission, type DefaultPermission } from "./app/session-defaults";
 import { reconcileSessionIndicators } from "./app/session-runtime-state";
 import { updateCheckStateFromResult, updateCheckErrorMessage, type UpdateCheckState } from "./app/update-model";
@@ -349,6 +357,8 @@ function App() {
   const [subagentSession, setSubagentSession] = useState<SubagentSession | null>(null);
   const [subagentComposer, setSubagentComposer] = useState("");
   const [settings, setSettings] = useState<DshSettingsDescription | null>(null);
+  const [contextMenuStatus, setContextMenuStatus] = useState<WindowsContextMenuStatus | null>(null);
+  const [contextMenuUpdating, setContextMenuUpdating] = useState(false);
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft | null>(null);
   const [goal, setGoal] = useState<DshGoalProjection | null | undefined>(undefined);
   const [goalDraft, setGoalDraft] = useState("");
@@ -411,6 +421,9 @@ function App() {
   const retryingMessageRef = useRef<number | null>(null);
   const retryingSessionRef = useRef<string | null>(null);
   const imageAttachmentCacheRef = useRef(new Map<string, Promise<string>>());
+  const externalLaunchQueueRef = useRef<ExternalLaunchRequest[]>([]);
+  const externalLaunchFlushRef = useRef<Promise<void> | null>(null);
+  const externalLaunchBootedRef = useRef(false);
 
   const loadImageAttachment = useCallback((attachmentId: string) => {
     const sessionId = activeSessionRef.current;
@@ -1626,6 +1639,83 @@ function App() {
     }
   }
 
+  async function handleExternalLaunch(request: ExternalLaunchRequest) {
+    const path = request.cwd.trim();
+    if (!path) throw new Error("右键启动没有提供有效工作目录");
+    const known = workspacesRef.current.find((item) => sameWorkspacePath(item.path, path));
+    if (known) {
+      await chooseWorkspace(known.path);
+    } else {
+      const result = await bridgeRequest<{ workspace: DshWorkspace }>("workspace.create", { path });
+      workspaceSelectionInitializedRef.current = true;
+      setWorkspace(result.workspace.path);
+      setWorkspaces((current) => current.some((item) => item.workspaceId === result.workspace.workspaceId)
+        ? current.map((item) => item.workspaceId === result.workspace.workspaceId ? result.workspace : item)
+        : [result.workspace, ...current]);
+      await syncConversationToWorkspace(result.workspace.path);
+    }
+    setNotice(`已从路径启动 Deeptop：${path}`);
+  }
+
+  async function flushPendingExternalLaunches() {
+    if (externalLaunchFlushRef.current) return externalLaunchFlushRef.current;
+    const flush = (async () => {
+      const nativeRequests = await listPendingExternalLaunches();
+      const requests = [...externalLaunchQueueRef.current, ...nativeRequests];
+      externalLaunchQueueRef.current = [];
+      const seen = new Set<string>();
+      for (const request of requests) {
+        const key = externalLaunchKey(request);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        try {
+          await handleExternalLaunch(request);
+          await acknowledgePendingExternalLaunch(request.paths);
+        } catch (error) {
+          if (!externalLaunchQueueRef.current.some((item) => externalLaunchKey(item) === key)) externalLaunchQueueRef.current.push(request);
+          setErrorNotice(`右键启动失败：${errorText(error)}`);
+        }
+      }
+    })();
+    externalLaunchFlushRef.current = flush;
+    try {
+      await flush;
+    } finally {
+      if (externalLaunchFlushRef.current === flush) externalLaunchFlushRef.current = null;
+    }
+  }
+
+  function queueExternalLaunch(request: ExternalLaunchRequest) {
+    const key = externalLaunchKey(request);
+    if (externalLaunchQueueRef.current.some((item) => externalLaunchKey(item) === key)) return;
+    externalLaunchQueueRef.current.push(request);
+    if (externalLaunchBootedRef.current && runtimeAvailableRef.current) void flushPendingExternalLaunches();
+  }
+
+  async function loadContextMenuStatus() {
+    if (!desktop) return;
+    try {
+      setContextMenuStatus(await getWindowsContextMenuStatus());
+    } catch (error) {
+      setContextMenuStatus({ supported: false, enabled: false, managed: false, message: errorText(error) });
+    }
+  }
+
+  async function setContextMenuEnabled(enabled: boolean) {
+    if (contextMenuUpdating) return;
+    setContextMenuUpdating(true);
+    try {
+      const next = await setWindowsContextMenuEnabled(enabled);
+      setContextMenuStatus(next);
+      setNotice(next.message);
+    } catch (error) {
+      setErrorNotice(`更新右键启动设置失败：${errorText(error)}`);
+      await loadContextMenuStatus();
+    } finally {
+      setContextMenuUpdating(false);
+    }
+  }
+
   async function boot() {
     if (!desktop) {
       setNotice("浏览器预览模式");
@@ -1637,10 +1727,13 @@ function App() {
       runtimeAvailableRef.current = nextStatus.runtimeAvailable;
       setStatus(nextStatus);
       setNotice(nextStatus.message);
+      await loadContextMenuStatus();
       if (nextStatus.runtimeAvailable) {
         const loadedSessions = await loadSessions(true);
         await loadRuntimeDetails(loadedSessions);
+        externalLaunchBootedRef.current = true;
         await flushPendingOpenSessions();
+        await flushPendingExternalLaunches();
       }
     } catch (error) {
       const message = errorText(error);
@@ -1713,6 +1806,8 @@ function App() {
             if (reopenItem) await openSession(reopenItem);
           }
           await flushPendingOpenSessions();
+          externalLaunchBootedRef.current = true;
+          await flushPendingExternalLaunches();
         })().catch((error) => setErrorNotice(errorText(error)));
       } else if (wasAvailable) {
         // Transitioned from available to unavailable: DSH crashed or was stopped.
@@ -1735,6 +1830,9 @@ function App() {
     }).then((unlisten) => { cleanups.push(unlisten); });
     void listenToSingleInstance(() => {
       setNotice("已切换到正在运行的 Deeptop");
+    }).then((unlisten) => { cleanups.push(unlisten); });
+    void listenToExternalLaunch((request) => {
+      queueExternalLaunch(request);
     }).then((unlisten) => { cleanups.push(unlisten); });
     void desktopClientRuntime.remote.on("commands/change", () => { void loadCommands(); }).then((unlisten) => { cleanups.push(unlisten); });
     void desktopClientRuntime.start(routedBridgeEvent).then((unlisten) => { cleanups.push(unlisten); });
@@ -3426,6 +3524,9 @@ function App() {
                     runtimeDirectory={status.runtimeDirectory}
                     sidebarWidth={sidebarWidth}
                     pluginSettings={pluginSettings}
+                     contextMenuStatus={contextMenuStatus}
+                     contextMenuUpdating={contextMenuUpdating}
+                     onSetContextMenuEnabled={setContextMenuEnabled}
                     onOpenDocument={() => bridgeRequest("settings.openDocument").then(() => setNotice("已打开 DSH 配置文件")).catch((error) => setErrorNotice(errorText(error)))}
                     onSetDefaultPreset={setDefaultPreset}
                     onSetDefaultModel={setDefaultModel}

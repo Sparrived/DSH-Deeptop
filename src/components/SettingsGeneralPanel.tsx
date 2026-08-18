@@ -1,4 +1,4 @@
-import type { DshPreset, DshSettingsDescription, DshSettingsNamespace } from "../lib/desktop";
+import type { DshPreset, DshSettingsDescription, DshSettingsNamespace, WindowsContextMenuStatus } from "../lib/desktop";
 import { presetDisplayName } from "../app/model";
 import type { DshHostModelCatalog, ModelSelection } from "../app/model";
 
@@ -22,6 +22,9 @@ type SettingsGeneralPanelProps = {
   runtimeDirectory: string;
   sidebarWidth: number;
   pluginSettings: DshSettingsNamespace[];
+  contextMenuStatus: WindowsContextMenuStatus | null;
+  contextMenuUpdating: boolean;
+  onSetContextMenuEnabled: (enabled: boolean) => void | Promise<void>;
   onOpenDocument: () => void | Promise<void>;
   onSetDefaultPreset: (id: string) => void | Promise<void>;
   onSetDefaultModel: (selection: ModelSelection) => void | Promise<void>;
@@ -41,6 +44,9 @@ export function SettingsGeneralPanel({
   runtimeDirectory,
   sidebarWidth,
   pluginSettings,
+  contextMenuStatus,
+  contextMenuUpdating,
+  onSetContextMenuEnabled,
   onOpenDocument,
   onSetDefaultPreset,
   onSetDefaultModel,
@@ -81,6 +87,11 @@ export function SettingsGeneralPanel({
           <div className="settings-preference-row"><span><strong>工作目录</strong><small>{workspace || runtimeDirectory || "使用 DSH 运行目录"}</small></span><button onClick={() => void onAddWorkspace()}>选择目录</button></div>
           <div className="settings-preference-row"><span><strong>会话侧栏</strong><small>{sidebarWidth}px · 拖动主界面分隔线调整</small></span><button onClick={onResetSidebar} disabled={sidebarWidth === 320}>恢复默认</button></div>
         </div>
+      </div>
+
+      <div className="settings-block">
+        <div className="settings-block-heading"><div><h3>右键启动</h3><p>在 Windows 资源管理器中添加“使用 Deeptop 启动”，从选中的文件或文件夹打开对应工作目录。</p></div></div>
+        {contextMenuStatus?.supported ? <label className="settings-preference-row"><span><strong>资源管理器右键菜单</strong><small>{contextMenuStatus.message} · 修改后可能需要重新打开资源管理器窗口</small></span><span className="settings-plugin-toggle"><input type="checkbox" checked={contextMenuStatus.enabled} disabled={contextMenuUpdating} aria-label="启用资源管理器右键菜单" onChange={(event) => void onSetContextMenuEnabled(event.target.checked)} /><span aria-hidden="true" /></span></label> : <p className="settings-empty">{contextMenuStatus?.message ?? "正在检查 Windows 右键菜单状态…"}</p>}
       </div>
 
       <div className="settings-block">
