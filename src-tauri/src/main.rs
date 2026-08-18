@@ -884,6 +884,8 @@ fn runtime_manifest_tree_sha256(manifest: &Value) -> Option<&str> {
 }
 
 fn is_runtime_cache_ready(root: &Path, manifest: &Value) -> bool {
+    // The completion marker is written only after a full tree verification during
+    // materialization. Do not reread the entire 145 MB runtime on every startup.
     if is_runtime_reparse_point(root) {
         return false;
     }
@@ -900,8 +902,6 @@ fn is_runtime_cache_ready(root: &Path, manifest: &Value) -> bool {
             .is_some_and(|cached| cached == *manifest)
         && root.join(BUNDLED_DSH_ENTRY).is_file()
         && dsh_package_available_at(root)
-        && runtime_manifest_tree_sha256(manifest)
-            .is_some_and(|expected| runtime_tree_sha256(root).ok().as_deref() == Some(expected))
 }
 
 fn runtime_archive_target(destination: &Path, entry_path: &Path) -> Result<PathBuf, String> {
@@ -2904,19 +2904,37 @@ mod tests {
 }
 
 fn main() {
-    tauri::Builder::default()
+    let prepare_runtime = env::args().any(|argument| argument == "--prepare-bundled-runtime");
+    let mut builder = tauri::Builder::default();
+    if !prepare_runtime {
         // This plugin must be registered first so a second launch is forwarded
         // before any runtime or window setup can create another instance.
-        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             focus_main_window(app);
             let _ = app.emit("single-instance", json!({ "args": args, "cwd": cwd }));
-        }))
+        }));
+    }
+    builder = builder
         .manage(BridgeManager::default())
         .manage(about::UpdateCheckManager::default())
         .manage(terminal::TerminalManager::default())
-        .setup(|app| {
-            let runtime = app.state::<BridgeManager>().inner().clone();
-            runtime.start(app.handle().clone());
+        .setup(move |app| {
+            if prepare_runtime {
+                let exit_code = match materialize_bundled_runtime(app.handle()) {
+                    Ok(cache) => {
+                        println!("内嵌 DSH 运行时已准备：{}", cache.display());
+                        0
+                    }
+                    Err(error) => {
+                        eprintln!("内嵌 DSH 运行时准备失败：{error}");
+                        1
+                    }
+                };
+                app.handle().exit(exit_code);
+            } else {
+                let runtime = app.state::<BridgeManager>().inner().clone();
+                runtime.start(app.handle().clone());
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -2953,7 +2971,12 @@ fn main() {
             pick_theme_css,
             pick_plugin_entry,
             open_themes_directory,
-        ])
-        .run(tauri::generate_context!())
-        .expect("启动 Deeptop 失败");
+        ]);
+    let mut context = tauri::generate_context!();
+    if prepare_runtime {
+        for window in &mut context.config_mut().app.windows {
+            window.create = false;
+        }
+    }
+    builder.run(context).expect("启动 Deeptop 失败");
 }

@@ -33,6 +33,11 @@
     "targets": [
       "nsis"
     ],
+    "windows": {
+      "nsis": {
+        "installerHooks": "windows/installer-hooks.nsh"
+      }
+    },
     "resources": {
       "resources/dsh-runtime.tar.gz": "dsh-runtime.tar.gz",
       "resources/dsh-runtime-manifest.json": "dsh-runtime-manifest.json"
