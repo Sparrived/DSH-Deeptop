@@ -536,10 +536,7 @@ export async function openConnectionUrl(url: string): Promise<void> {
 }
 
 export async function openNodejsDownload(): Promise<void> {
-  if (!isTauri()) {
-    window.open("https://nodejs.org/en/download", "_blank", "noopener,noreferrer");
-    return;
-  }
+  if (!isTauri()) throw new Error("Node.js 下载页只在 Deeptop 桌面端通过系统打开");
   await invoke("open_nodejs_download");
 }
 

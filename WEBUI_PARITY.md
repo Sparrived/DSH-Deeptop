@@ -60,7 +60,7 @@
 - [~] 插件设置：已有原始 JSON 编辑和只读清单；缺少 schema 驱动表单及插件管理卡片。
 - [~] Agent Preset：已有选择、默认值、复制、查看和打开文件；缺少完整管理入口、新会话 chip 和删除。
 - [x] 消息 Like/Dislike 及反馈备注：复用官方 `messageFeedback` Remote，使用版本号做并发冲突对账。
-- [~] 会话日志导出、ZIP 下载和完整会话统计：官方 `session-log-download`、`session-stats` 已接入；原生 JSONL Bridge 会缓冲 ZIP，且运行台只展示摘要字段，未达到 WebUI 的流式下载和完整 stats strip。
+- [~] 会话日志导出、ZIP 下载和完整会话统计：复用 rc7 的 `session-log-download` Host endpoint 与 `session-stats` projection；原生 JSONL Bridge 只负责取消、字节缓冲和文件名适配，Tauri `save_export_file` 负责原生另存为，不加载 WebUI 浏览器下载插件。运行台仍只展示摘要字段，未达到 WebUI 的完整 stats strip。
 
 ### 插件兼容边界
 
@@ -97,7 +97,7 @@
 - `src/styles.css` 增加消息操作栏和 composer 候选层；候选层不抢 textarea 焦点。
 - `src/App.tsx` 接入 workspace/session 排序、历史分页、assistant/chunk 拼装、reasoning、Jobs、Workflow、Produced Files、图片附件和 JSON 导出。
 - `src/App.tsx` 接入 `credentials.*`、`llm.discoverModels`、字段级 `settings.mutate`，Provider 支持自定义连接和模型写回。
-- `deeptop-bridge/cordis.patch.yml` 注入官方 `message-feedback`、`session-log-download`、`session-stats` Host 插件；`standard` preset 继续提供 Windows PowerShell、文件、搜索和 Job 工具，避免 Host 重复挂载。
+- `deeptop-bridge/cordis.patch.yml` 注入官方 `message-feedback`、`session-log-download`、`session-stats` Host 插件；`standard` preset 继续提供 Windows PowerShell、文件、搜索和 Job 工具，避免 Host 重复挂载。桌面端对消息反馈、导出和统计优先复用 rc7 Host/Projection；仅保留 Tauri 原生保存对话框和 Bridge 取消适配，不加载 WebUI 浏览器下载流程。
 - `src/lib/desktop-client-runtime.ts` 暴露 loopback `remote.invoke/on`，桌面端接入官方 commands、messageFeedback、permissions、plan、sessionStats 以及 ZIP 导出。
 - `src/styles.css` 增加侧栏拖拽宽度、Job/Workflow/Produced Files/Provider 编辑/深色主题样式。
 - 验证：`npm run build` 通过（TypeScript 与 Vite）。

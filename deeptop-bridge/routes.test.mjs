@@ -411,6 +411,57 @@ test('buffers the official session ZIP endpoint for the native download surface'
   assert.equal(Buffer.from(result.base64, 'base64').toString('hex'), '504b0304')
 })
 
+test('reports the official session ZIP error body without fabricating a file', async () => {
+  await assert.rejects(
+    routeDesktopRequest({
+      apiProxy: {
+        downloads: {
+          sessionLog: async () => new Response('session export denied', { status: 403 }),
+        },
+      },
+    }, 'session.exportZip', { sessionId: 'session-123' }, signal),
+    /session export denied/,
+  )
+})
+
+test('passes cancellation to the official session ZIP endpoint', async () => {
+  const controller = new AbortController()
+  controller.abort()
+  let receivedSignal
+  await assert.rejects(
+    routeDesktopRequest({
+      apiProxy: {
+        downloads: {
+          sessionLog: async (_request, requestSignal) => {
+            receivedSignal = requestSignal
+            requestSignal.throwIfAborted()
+            return new Response('unreachable')
+          },
+        },
+      },
+    }, 'session.exportZip', { sessionId: 'session-123' }, controller.signal),
+    /aborted/,
+  )
+  assert.equal(receivedSignal, controller.signal)
+})
+
+test('rejects invalid native session ZIP requests before contacting DSH', async () => {
+  let called = false
+  const ctx = { apiProxy: { downloads: { sessionLog: async () => { called = true; return new Response() } } } }
+  await assert.rejects(routeDesktopRequest(ctx, 'session.exportZip', { sessionId: '' }, signal), /requires sessionId/)
+  await assert.rejects(routeDesktopRequest(ctx, 'session.exportZip', { sessionId: 'session-123', includeDescendants: 'yes' }, signal), /requires sessionId/)
+  assert.equal(called, false)
+})
+
+test('keeps file export in the native save bridge instead of browser downloads', async () => {
+  const app = await readFile(join(import.meta.dirname, '..', 'src', 'App.tsx'), 'utf8')
+  const desktop = await readFile(join(import.meta.dirname, '..', 'src', 'lib', 'desktop.ts'), 'utf8')
+  assert.doesNotMatch(app, /link\.download|URL\.createObjectURL|window\.open/)
+  assert.doesNotMatch(desktop, /window\.open/)
+  assert.match(app, /saveExportFile\(result\.filename, bytes\)/)
+  assert.match(app, /saveExportFile\(fileName, new TextEncoder\(\)\.encode\(content\)\)/)
+})
+
 test('routes message annotation operations through the Cordis service', async () => {
   const calls = []
   const service = {

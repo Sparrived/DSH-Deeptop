@@ -496,19 +496,13 @@ function App() {
     const envelope: AppearanceConfigEnvelope = { kind: "deeptop-appearance-config", version: 1, section, exportedAt: new Date().toISOString(), data };
     const content = JSON.stringify(envelope, null, 2);
     const fileName = `deeptop-appearance-${section}.json`;
-    if (desktop) {
-      void saveExportFile(fileName, new TextEncoder().encode(content)).then((savedPath) => { if (savedPath) setNotice(`已导出${appearanceSectionLabel(section)}配置`); }).catch((error) => setErrorNotice(`导出失败：${errorText(error)}`));
+    if (!desktop) {
+      setErrorNotice("配置导出只在 Deeptop 桌面端可用");
       return;
     }
-    const url = URL.createObjectURL(new Blob([content], { type: "application/json" }));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-    setNotice(`已导出${appearanceSectionLabel(section)}配置`);
+    void saveExportFile(fileName, new TextEncoder().encode(content)).then((savedPath) => {
+      if (savedPath) setNotice(`已导出${appearanceSectionLabel(section)}配置`);
+    }).catch((error) => setErrorNotice(`导出失败：${errorText(error)}`));
   }
 
   function exportAppearanceConfig() {
@@ -2732,19 +2726,12 @@ function App() {
       const session = sessions.find((item) => item.sessionId === sessionId);
       const content = JSON.stringify({ exportedAt: new Date().toISOString(), session, events: exported }, null, 2);
       const fileName = `dsh-${sessionId.slice(0, 8)}.json`;
-      if (desktop) {
-        const savedPath = await saveExportFile(fileName, new TextEncoder().encode(content));
-        if (savedPath) setNotice(`已导出 ${exported.length} 条事件`);
+      if (!desktop) {
+        setErrorNotice("会话导出只在 Deeptop 桌面端可用");
         return;
       }
-      const blob = new Blob([content], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = fileName;
-      link.click();
-      URL.revokeObjectURL(url);
-      setNotice(`已导出 ${exported.length} 条事件`);
+      const savedPath = await saveExportFile(fileName, new TextEncoder().encode(content));
+      if (savedPath) setNotice(`已导出 ${exported.length} 条事件`);
     } catch (error) {
       setErrorNotice(`导出失败：${errorText(error)}`);
     }
@@ -2761,20 +2748,12 @@ function App() {
       const binary = atob(result.base64);
       const bytes = new Uint8Array(binary.length);
       for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-      if (desktop) {
-        const savedPath = await saveExportFile(result.filename, bytes);
-        if (savedPath) setNotice(`已导出 ZIP（${result.size} 字节）`);
+      if (!desktop) {
+        setErrorNotice("会话 ZIP 导出只在 Deeptop 桌面端可用");
         return;
       }
-      const url = URL.createObjectURL(new Blob([bytes], { type: result.contentType }));
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = result.filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-      setNotice(`已导出 ZIP（${result.size} 字节）`);
+      const savedPath = await saveExportFile(result.filename, bytes);
+      if (savedPath) setNotice(`已导出 ZIP（${result.size} 字节）`);
     } catch (error) {
       setErrorNotice(`ZIP 导出失败：${errorText(error)}`);
     }
