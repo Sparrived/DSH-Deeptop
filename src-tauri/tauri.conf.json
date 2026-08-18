@@ -34,7 +34,8 @@
       "nsis"
     ],
     "resources": {
-      "resources/dsh-runtime": "dsh-runtime"
+      "resources/dsh-runtime.tar.gz": "dsh-runtime.tar.gz",
+      "resources/dsh-runtime-manifest.json": "dsh-runtime-manifest.json"
     },
     "icon": [
       "icons/32x32.png",

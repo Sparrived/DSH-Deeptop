@@ -4,7 +4,7 @@ use std::{
     collections::{HashMap, VecDeque},
     env, fs,
     io::{BufRead, BufReader, Read, Write},
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     process::{Command, Output, Stdio},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -25,7 +25,10 @@ mod terminal;
 const DSH_PROFILE: &str = "desktop";
 const BUNDLED_DSH_PACKAGE: &str = "@deepseek-ai/dsh";
 const BUNDLED_DSH_RUNTIME_DIR: &str = "dsh-runtime";
+const BUNDLED_DSH_ARCHIVE: &str = "dsh-runtime.tar.gz";
+const BUNDLED_DSH_MANIFEST: &str = "dsh-runtime-manifest.json";
 const BUNDLED_DSH_ENTRY: &str = "node_modules/@deepseek-ai/dsh/lib/bin.js";
+const RUNTIME_CACHE_MARKER: &str = ".complete";
 const NODEJS_DOWNLOAD_URL: &str = "https://nodejs.org/en/download";
 const BRIDGE_TIMEOUT: Duration = Duration::from_secs(45);
 /// Max consecutive unexpected DSH exits we auto-restart before requiring manual
@@ -548,16 +551,41 @@ fn ensure_desktop_profile_manifest(path: &Path) -> Result<(), String> {
     write_text(path, &content)
 }
 
+fn migrate_desktop_profile_patch(path: &Path) -> Result<(), String> {
+    let Ok(content) = fs::read_to_string(path) else {
+        return Ok(());
+    };
+    if !content.contains("dsh-session-log-export") {
+        return Ok(());
+    }
+    let newline = if content.contains("\r\n") { "\r\n" } else { "\n" };
+    let lines = content.lines().collect::<Vec<_>>();
+    let mut filtered = Vec::with_capacity(lines.len());
+    let mut remove_name = false;
+    for line in lines {
+        if line.trim_start() == "- id: session-log-download" {
+            remove_name = true;
+            continue;
+        }
+        if remove_name && line.trim_start() == "name: '@deepseek-ai/dsh-session-log-export'" {
+            remove_name = false;
+            continue;
+        }
+        remove_name = false;
+        filtered.push(line);
+    }
+    write_text(path, &format!("{}{newline}", filtered.join(newline)))
+}
+
 fn materialize_desktop_profile() -> Result<(), String> {
     let profiles = dsh_home().join("profiles");
     let profile_dir = profiles.join(DSH_PROFILE);
     fs::create_dir_all(&profile_dir)
         .map_err(|error| format!("无法创建 desktop Profile：{error}"))?;
     ensure_desktop_profile_manifest(&profile_dir.join("package.json"))?;
-    write_if_missing(
-        &profile_dir.join("cordis.patch.yml"),
-        PROFILE_PATCH_TEMPLATE,
-    )?;
+    let profile_patch = profile_dir.join("cordis.patch.yml");
+    write_if_missing(&profile_patch, PROFILE_PATCH_TEMPLATE)?;
+    migrate_desktop_profile_patch(&profile_patch)?;
     write_if_missing(
         &profile_dir.join("pnpm-workspace.yaml"),
         PROFILE_PNPM_WORKSPACE,
@@ -601,6 +629,186 @@ fn normalize_windows_resource_path(path: PathBuf) -> PathBuf {
     path
 }
 
+fn runtime_platform() -> &'static str {
+    if cfg!(windows) {
+        "win32"
+    } else if cfg!(target_os = "macos") {
+        "darwin"
+    } else {
+        "linux"
+    }
+}
+
+fn runtime_arch() -> &'static str {
+    if cfg!(target_arch = "x86_64") {
+        "x64"
+    } else if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "other"
+    }
+}
+
+fn runtime_resource_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|error| format!("无法定位应用资源目录：{error}"))?;
+    #[cfg(windows)]
+    let resource_dir = normalize_windows_resource_path(resource_dir);
+    Ok(resource_dir)
+}
+
+fn runtime_manifest_matches_host(manifest: &Value) -> bool {
+    manifest.get("platform").and_then(Value::as_str) == Some(runtime_platform())
+        && manifest.get("arch").and_then(Value::as_str) == Some(runtime_arch())
+}
+
+fn runtime_cache_root(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_local_data_dir()
+        .map(|path| path.join(BUNDLED_DSH_RUNTIME_DIR))
+        .map_err(|error| format!("无法定位 DSH 运行时缓存目录：{error}"))
+}
+
+fn runtime_cache_key(manifest: &Value) -> Result<String, String> {
+    let commit = manifest
+        .get("sourceCommit")
+        .and_then(Value::as_str)
+        .filter(|value| value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .ok_or_else(|| "内嵌 DSH 清单缺少有效源码提交".to_string())?;
+    Ok(format!(
+        "{commit}-{}-{}",
+        runtime_platform(),
+        runtime_arch()
+    ))
+}
+
+fn is_safe_runtime_entry(name: &str) -> bool {
+    !name.is_empty()
+        && !name.contains('\\')
+        && !name.starts_with('/')
+        && !(name.len() >= 2 && name.as_bytes()[1] == b':')
+        && !Path::new(name).components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
+}
+
+fn is_runtime_cache_ready(root: &Path, manifest: &Value) -> bool {
+    let Ok(key) = runtime_cache_key(manifest) else {
+        return false;
+    };
+    fs::read_to_string(root.join(RUNTIME_CACHE_MARKER))
+        .ok()
+        .as_deref()
+        == Some(key.as_str())
+        && fs::read_to_string(root.join(BUNDLED_DSH_MANIFEST))
+            .ok()
+            .and_then(|content| serde_json::from_str::<Value>(&content).ok())
+            .is_some_and(|cached| cached == *manifest)
+        && root.join(BUNDLED_DSH_ENTRY).is_file()
+        && dsh_package_available_at(root)
+}
+
+fn extract_runtime_archive(archive_path: &Path, destination: &Path) -> Result<(), String> {
+    let archive_file = fs::File::open(archive_path)
+        .map_err(|error| format!("无法读取内嵌 DSH 运行时归档：{error}"))?;
+    let decoder = flate2::read::GzDecoder::new(archive_file);
+    let mut archive = tar::Archive::new(decoder);
+    let entries = archive
+        .entries()
+        .map_err(|error| format!("无法读取 DSH 运行时归档目录：{error}"))?;
+    for entry in entries {
+        let mut entry = entry.map_err(|error| format!("读取 DSH 运行时归档条目失败：{error}"))?;
+        let entry_path = entry
+            .path()
+            .map_err(|error| format!("读取 DSH 运行时归档路径失败：{error}"))?;
+        let entry_name = entry_path.to_string_lossy();
+        if !is_safe_runtime_entry(&entry_name) {
+            return Err(format!("拒绝不安全的 DSH 运行时归档路径：{entry_name}"));
+        }
+        let entry_type = entry.header().entry_type();
+        if !(entry_type.is_dir() || entry_type.is_file()) {
+            return Err(format!("拒绝 DSH 运行时归档中的特殊文件：{entry_name}"));
+        }
+        let target = destination.join(entry_path.as_ref());
+        entry
+            .unpack(&target)
+            .map_err(|error| format!("解压 DSH 运行时文件失败 {}：{error}", target.display()))?;
+    }
+    Ok(())
+}
+
+fn materialize_bundled_runtime(app: &AppHandle) -> Result<PathBuf, String> {
+    let resource_dir = runtime_resource_dir(app)?;
+    let archive_path = resource_dir.join(BUNDLED_DSH_ARCHIVE);
+    let manifest_path = resource_dir.join(BUNDLED_DSH_MANIFEST);
+    let manifest: Value = serde_json::from_str(
+        &fs::read_to_string(&manifest_path)
+            .map_err(|error| format!("无法读取内嵌 DSH 运行时清单：{error}"))?,
+    )
+    .map_err(|error| format!("内嵌 DSH 运行时清单无效：{error}"))?;
+    if !is_bundled_runtime_manifest(&manifest) || !runtime_manifest_matches_host(&manifest) {
+        return Err("内嵌 DSH 运行时版本、平台或入口清单不匹配，请重新安装 Deeptop".to_string());
+    }
+    if !archive_path.is_file() {
+        return Err(format!(
+            "内嵌 DSH 运行时归档缺失：{}",
+            archive_path.display()
+        ));
+    }
+    let cache_root = runtime_cache_root(app)?;
+    fs::create_dir_all(&cache_root)
+        .map_err(|error| format!("无法创建 DSH 运行时缓存目录：{error}"))?;
+    let key = runtime_cache_key(&manifest)?;
+    let cache = cache_root.join(&key);
+    if is_runtime_cache_ready(&cache, &manifest) {
+        return Ok(cache);
+    }
+    let temporary = cache_root.join(format!(".{key}.tmp-{}", std::process::id()));
+    fs::remove_dir_all(&temporary).ok();
+    fs::create_dir_all(&temporary)
+        .map_err(|error| format!("无法创建 DSH 运行时临时缓存：{error}"))?;
+    let result = (|| {
+        extract_runtime_archive(&archive_path, &temporary)?;
+        let extracted_manifest_path = temporary.join(BUNDLED_DSH_MANIFEST);
+        let extracted: Value = serde_json::from_str(
+            &fs::read_to_string(&extracted_manifest_path)
+                .map_err(|error| format!("解压后的 DSH 清单无法读取：{error}"))?,
+        )
+        .map_err(|error| format!("解压后的 DSH 清单无效：{error}"))?;
+        if extracted != manifest || !is_runtime_cache_ready_without_marker(&temporary, &manifest) {
+            return Err("解压后的 DSH 运行时校验失败".to_string());
+        }
+        fs::write(temporary.join(RUNTIME_CACHE_MARKER), &key)
+            .map_err(|error| format!("无法写入 DSH 运行时完成标记：{error}"))?;
+        Ok::<(), String>(())
+    })();
+    if let Err(error) = result {
+        fs::remove_dir_all(&temporary).ok();
+        return Err(error);
+    }
+    if is_runtime_cache_ready(&cache, &manifest) {
+        fs::remove_dir_all(&temporary).ok();
+        return Ok(cache);
+    }
+    fs::remove_dir_all(&cache).ok();
+    fs::rename(&temporary, &cache).map_err(|error| format!("无法提交 DSH 运行时缓存：{error}"))?;
+    Ok(cache)
+}
+
+fn is_runtime_cache_ready_without_marker(root: &Path, manifest: &Value) -> bool {
+    fs::read_to_string(root.join(BUNDLED_DSH_MANIFEST))
+        .ok()
+        .and_then(|content| serde_json::from_str::<Value>(&content).ok())
+        .is_some_and(|cached| cached == *manifest)
+        && root.join(BUNDLED_DSH_ENTRY).is_file()
+        && dsh_package_available_at(root)
+}
+
 fn executable_from_path(name: &str) -> Option<PathBuf> {
     env::var_os("PATH")
         .into_iter()
@@ -614,44 +822,11 @@ fn node_executable() -> Result<PathBuf, String> {
     executable_from_path(name).ok_or_else(|| "未找到 Node.js，请先安装 Node.js 后重试".to_string())
 }
 
-/// Return the unpacked Tauri resource root that contains the immutable DSH
-/// runtime bundled with this Deeptop build. Runtime state must stay in DSH_HOME;
-/// this directory is only read to load DSH code and dependencies.
+/// Materialize the immutable Tauri archive into a versioned local cache.
+/// Profile/session state remains in DSH_HOME; only this extracted code cache is
+/// recreated when the bundled source commit changes.
 fn bundled_dsh_runtime_root(app: &AppHandle) -> Result<PathBuf, String> {
-    let resource_dir = app
-        .path()
-        .resource_dir()
-        .map_err(|error| format!("无法定位应用资源目录：{error}"))?;
-    #[cfg(windows)]
-    let resource_dir = normalize_windows_resource_path(resource_dir);
-    let runtime = resource_dir.join(BUNDLED_DSH_RUNTIME_DIR);
-    let manifest_path = runtime.join("runtime-manifest.json");
-    let manifest = fs::read_to_string(&manifest_path).map_err(|error| {
-        format!(
-            "内嵌 DSH 运行时缺失或损坏：无法读取清单 {}：{error}。请重新安装 Deeptop；不会回退到系统 npm、PATH 或网络下载。",
-            manifest_path.display()
-        )
-    })?;
-    let manifest: Value = serde_json::from_str(&manifest)
-        .map_err(|error| format!("内嵌 DSH 运行时清单无效：{error}"))?;
-    if !is_bundled_runtime_manifest(&manifest) {
-        return Err("内嵌 DSH 运行时版本或入口清单不匹配，请重新安装 Deeptop".to_string());
-    }
-    let package_manifest = dsh_package_manifest_at(&runtime);
-    let entry = runtime.join(BUNDLED_DSH_ENTRY);
-    if !dsh_package_available_at(&runtime) {
-        return Err(format!(
-            "内嵌 DSH 运行时缺失或损坏：未找到有效包清单 {}。请重新安装 Deeptop。",
-            package_manifest.display()
-        ));
-    }
-    if !entry.is_file() {
-        return Err(format!(
-            "内嵌 DSH 运行时缺失启动入口 {}。请重新安装 Deeptop。",
-            entry.display()
-        ));
-    }
-    Ok(runtime)
+    materialize_bundled_runtime(app)
 }
 
 fn bundled_dsh_package_label(runtime: &Path) -> Result<String, String> {
@@ -701,6 +876,12 @@ fn is_bundled_runtime_manifest(manifest: &Value) -> bool {
         && manifest.get("packageName").and_then(Value::as_str) == Some(BUNDLED_DSH_PACKAGE)
         && manifest.get("packageVersion").and_then(Value::as_str) == Some(BUNDLED_DSH_VERSION)
         && manifest.get("entry").and_then(Value::as_str) == Some(BUNDLED_DSH_ENTRY)
+        && manifest
+            .get("sourceCommit")
+            .and_then(Value::as_str)
+            .is_some_and(|value| {
+                value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+            })
 }
 
 fn dsh_package_manifest_at(root: &Path) -> PathBuf {
@@ -2176,8 +2357,8 @@ fn open_themes_directory() -> Result<(), String> {
 mod tests {
     use super::{
         bound_log_text, format_log_line, format_utc_datetime, is_bundled_runtime_manifest,
-        is_dsh_package_manifest, validated_connection_url, DshRuntimeLog, LogStore,
-        MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES,
+        is_dsh_package_manifest, is_safe_runtime_entry, validated_connection_url, DshRuntimeLog,
+        LogStore, MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES,
     };
 
     #[cfg(windows)]
@@ -2203,6 +2384,15 @@ mod tests {
     }
 
     #[test]
+    fn accepts_safe_runtime_archive_entries_and_rejects_escapes() {
+        assert!(is_safe_runtime_entry("node_modules/@deepseek-ai/dsh/lib/bin.js"));
+        assert!(!is_safe_runtime_entry("../escape"));
+        assert!(!is_safe_runtime_entry("/absolute"));
+        assert!(!is_safe_runtime_entry("C:/escape"));
+        assert!(!is_safe_runtime_entry(r"node_modules\\escape"));
+    }
+
+    #[test]
     fn accepts_the_dsh_package_manifest() {
         assert!(is_dsh_package_manifest(r#"{"name":"@deepseek-ai/dsh"}"#));
     }
@@ -2214,6 +2404,7 @@ mod tests {
             "packageName": "@deepseek-ai/dsh",
             "packageVersion": "0.1.0-rc.7",
             "entry": "node_modules/@deepseek-ai/dsh/lib/bin.js",
+            "sourceCommit": "99f6f02fecdb7dff40c3fbc9470f5907c29f74ca",
         });
         assert!(is_bundled_runtime_manifest(&manifest));
         assert!(!is_bundled_runtime_manifest(&serde_json::json!({

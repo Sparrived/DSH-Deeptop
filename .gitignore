@@ -3,6 +3,8 @@ dist/
 # Generated from the reviewed vendor/dsh submodule before Tauri builds.
 src-tauri/resources/dsh-runtime/
 src-tauri/resources/dsh-runtime.*/
+src-tauri/resources/dsh-runtime.tar.gz
+src-tauri/resources/dsh-runtime-manifest.json
 release-assets/
 src-tauri/target/
 src-tauri/target-desktop-build/
