@@ -1028,10 +1028,26 @@ fn materialize_bundled_runtime(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|error| format!("无法创建 DSH 运行时临时缓存：{error}"))?;
     let result = (|| {
         extract_runtime_archive(&archive_path, &temporary)?;
+        // The manifest is bundled as a separate Tauri resource and was already
+        // validated above. Materialize that authoritative copy explicitly after
+        // extraction so a tar implementation/path quirk cannot leave the cache
+        // without its completion metadata on Windows.
         let extracted_manifest_path = temporary.join(BUNDLED_DSH_MANIFEST);
+        let serialized_manifest = serde_json::to_vec_pretty(&manifest)
+            .map_err(|error| format!("无法编码内嵌 DSH 运行时清单：{error}"))?;
+        fs::write(&extracted_manifest_path, serialized_manifest).map_err(|error| {
+            format!(
+                "无法写入解压后的 DSH 清单 {}：{error}",
+                extracted_manifest_path.display()
+            )
+        })?;
         let extracted: Value = serde_json::from_str(
-            &fs::read_to_string(&extracted_manifest_path)
-                .map_err(|error| format!("解压后的 DSH 清单无法读取：{error}"))?,
+            &fs::read_to_string(&extracted_manifest_path).map_err(|error| {
+                format!(
+                    "解压后的 DSH 清单无法读取 {}：{error}",
+                    extracted_manifest_path.display()
+                )
+            })?,
         )
         .map_err(|error| format!("解压后的 DSH 清单无效：{error}"))?;
         if extracted != manifest || !is_runtime_cache_ready_without_marker(&temporary, &manifest) {
@@ -2711,6 +2727,29 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(&root);
         let _ = std::fs::remove_file(&archive_path);
+    }
+
+    #[test]
+    fn extracts_the_bundled_runtime_archive_manifest_and_entry() {
+        let archive = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("resources")
+            .join("dsh-runtime.tar.gz");
+        assert!(archive.is_file(), "bundled runtime archive is missing");
+        let root = std::env::temp_dir().join(format!(
+            "deeptop-bundled-runtime-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        extract_runtime_archive(&archive, &root).expect("extract bundled runtime archive");
+        assert!(root.join("runtime-manifest.json").is_file());
+        assert!(root
+            .join("node_modules/@deepseek-ai/dsh/lib/bin.js")
+            .is_file());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
