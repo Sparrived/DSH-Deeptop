@@ -40,7 +40,7 @@ Tauri window
 
 Tauri runtime
   -> locate the fixed DSH source build in the compressed Tauri `dsh-runtime.tar.gz` resource
-  -> safely extract and reuse an app-local cache keyed by source commit/platform/arch
+  -> safely extract and reuse an app-local cache keyed by source commit/platform/arch/tree digest
   -> run the cached `@deepseek-ai/dsh/lib/bin.js` through system Node.js
   -> keep Profile, sessions, logs and settings in `$DSH_HOME`; never write to resources
      -> desktop Profile + Cordis services

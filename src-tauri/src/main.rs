@@ -11,12 +11,14 @@ use std::{
         mpsc, Arc, Mutex,
     },
     thread,
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use fs2::FileExt;
 use notify_rust::{Notification as DesktopNotification, NotificationResponse};
 use serde::Serialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 mod about;
@@ -38,6 +40,7 @@ const MAX_AUTO_RESTARTS: u32 = 3;
 /// Base delay for the first auto-restart; each consecutive crash doubles it.
 const AUTO_RESTART_BASE_DELAY: Duration = Duration::from_millis(1000);
 const BUNDLED_DSH_VERSION: &str = "0.1.0-rc.7";
+const BUNDLED_DSH_SOURCE_COMMIT: &str = "99f6f02fecdb7dff40c3fbc9470f5907c29f74ca";
 const BRIDGE_PACKAGE_JSON: &str = include_str!("../../deeptop-bridge/package.json");
 const BRIDGE_PATCH: &str = include_str!("../../deeptop-bridge/cordis.patch.yml");
 const BRIDGE_ENTRY: &str = include_str!("../../deeptop-bridge/index.mjs");
@@ -621,8 +624,8 @@ fn materialize_desktop_profile() -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(windows)]
-fn normalize_windows_resource_path(path: PathBuf) -> PathBuf {
+#[cfg(all(windows, test))]
+fn normalize_windows_resource_path_for_display(path: PathBuf) -> PathBuf {
     let value = path.to_string_lossy();
     if let Some(rest) = value.strip_prefix(r"\\?\UNC\") {
         return PathBuf::from(format!(r"\\{rest}"));
@@ -654,13 +657,9 @@ fn runtime_arch() -> &'static str {
 }
 
 fn runtime_resource_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let resource_dir = app
-        .path()
+    app.path()
         .resource_dir()
-        .map_err(|error| format!("无法定位应用资源目录：{error}"))?;
-    #[cfg(windows)]
-    let resource_dir = normalize_windows_resource_path(resource_dir);
-    Ok(resource_dir)
+        .map_err(|error| format!("无法定位应用资源目录：{error}"))
 }
 
 fn runtime_manifest_matches_host(manifest: &Value) -> bool {
@@ -669,23 +668,128 @@ fn runtime_manifest_matches_host(manifest: &Value) -> bool {
 }
 
 fn runtime_cache_root(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path()
+    let root = app
+        .path()
         .app_local_data_dir()
         .map(|path| path.join(BUNDLED_DSH_RUNTIME_DIR))
-        .map_err(|error| format!("无法定位 DSH 运行时缓存目录：{error}"))
+        .map_err(|error| format!("无法定位 DSH 运行时缓存目录：{error}"))?;
+    fs::create_dir_all(&root)
+        .map_err(|error| format!("无法创建 DSH 运行时缓存目录 {}：{error}", root.display()))?;
+    if is_runtime_reparse_point(&root) {
+        return Err(format!(
+            "拒绝使用重解析点作为 DSH 运行时缓存目录：{}",
+            root.display()
+        ));
+    }
+    Ok(root)
 }
 
 fn runtime_cache_key(manifest: &Value) -> Result<String, String> {
     let commit = manifest
         .get("sourceCommit")
         .and_then(Value::as_str)
-        .filter(|value| value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .filter(|value| {
+            value.len() == 40
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+        })
         .ok_or_else(|| "内嵌 DSH 清单缺少有效源码提交".to_string())?;
+    let digest = runtime_manifest_tree_sha256(manifest)
+        .ok_or_else(|| "内嵌 DSH 清单缺少有效运行时树摘要".to_string())?;
     Ok(format!(
-        "{commit}-{}-{}",
+        "{commit}-{}-{}-{}",
         runtime_platform(),
-        runtime_arch()
+        runtime_arch(),
+        &digest[..16]
     ))
+}
+
+fn lock_runtime_cache(cache_root: &Path) -> Result<fs::File, String> {
+    let lock_path = cache_root.join(".lock");
+    if is_runtime_reparse_point(&lock_path) {
+        return Err(format!(
+            "拒绝使用重解析点作为 DSH 运行时缓存锁：{}",
+            lock_path.display()
+        ));
+    }
+    let lock = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&lock_path)
+        .map_err(|error| format!("无法打开 DSH 运行时缓存锁 {}：{error}", lock_path.display()))?;
+    lock.lock_exclusive()
+        .map_err(|error| format!("无法取得 DSH 运行时缓存锁：{error}"))?;
+    Ok(lock)
+}
+
+fn cleanup_runtime_temporary_caches(cache_root: &Path, key: &str) {
+    let prefix = format!(".{key}.tmp-");
+    let Ok(entries) = fs::read_dir(cache_root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if entry.file_name().to_string_lossy().starts_with(&prefix) {
+            remove_runtime_path(&entry.path());
+        }
+    }
+}
+
+fn remove_runtime_path(path: &Path) {
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return;
+    };
+    if is_runtime_reparse_point(path) {
+        if metadata.file_type().is_dir() {
+            fs::remove_dir(path).ok();
+        } else {
+            fs::remove_file(path).ok();
+        }
+    } else if metadata.file_type().is_dir() {
+        fs::remove_dir_all(path).ok();
+    } else {
+        fs::remove_file(path).ok();
+    }
+}
+
+fn quarantine_invalid_runtime_cache(cache: &Path) {
+    if fs::symlink_metadata(cache).is_err() {
+        return;
+    }
+    let suffix = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let quarantine = cache.with_file_name(format!(
+        "{}.invalid-{suffix}",
+        cache
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("runtime")
+    ));
+    if fs::rename(cache, &quarantine).is_ok() {
+        remove_runtime_path(&quarantine);
+    } else {
+        remove_runtime_path(cache);
+    }
+}
+
+#[cfg(windows)]
+fn is_runtime_reparse_point(path: &Path) -> bool {
+    use std::os::windows::fs::MetadataExt;
+
+    fs::symlink_metadata(path)
+        .map(|metadata| metadata.file_attributes() & 0x400 != 0)
+        .unwrap_or(false)
+}
+
+#[cfg(not(windows))]
+fn is_runtime_reparse_point(path: &Path) -> bool {
+    fs::symlink_metadata(path)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false)
 }
 
 fn is_safe_runtime_entry(name: &str) -> bool {
@@ -701,7 +805,87 @@ fn is_safe_runtime_entry(name: &str) -> bool {
         })
 }
 
+fn update_tree_digest(hash: &mut Sha256, root: &Path, relative: &str) -> Result<(), String> {
+    let mut entries = fs::read_dir(root)
+        .map_err(|error| format!("无法读取 DSH 运行时缓存目录 {}：{error}", root.display()))?
+        .map(|entry| {
+            entry
+                .map(|entry| {
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    (name, entry)
+                })
+                .map_err(|error| format!("无法读取 DSH 运行时缓存条目：{error}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    entries.sort_by(|left, right| left.0.as_bytes().cmp(right.0.as_bytes()));
+    for (name, entry) in entries {
+        if relative.is_empty()
+            && (name == "runtime-manifest.json"
+                || name == RUNTIME_CACHE_MARKER
+                || name == ".complete.tmp")
+        {
+            continue;
+        }
+        let child_relative = if relative.is_empty() {
+            name.clone()
+        } else {
+            format!("{relative}/{name}")
+        };
+        let file_type = entry
+            .file_type()
+            .map_err(|error| format!("无法读取 DSH 运行时条目类型 {child_relative}：{error}"))?;
+        if is_runtime_reparse_point(&entry.path())
+            || file_type.is_symlink()
+            || (!file_type.is_dir() && !file_type.is_file())
+        {
+            return Err(format!(
+                "DSH 运行时缓存包含不支持的文件类型：{child_relative}"
+            ));
+        }
+        if file_type.is_dir() {
+            hash.update(format!("D\n{child_relative}\n").as_bytes());
+            update_tree_digest(hash, &entry.path(), &child_relative)?;
+        } else {
+            hash.update(format!("F\n{child_relative}\n").as_bytes());
+            let mut file = fs::File::open(entry.path())
+                .map_err(|error| format!("无法读取 DSH 运行时文件 {child_relative}：{error}"))?;
+            let mut buffer = [0_u8; 64 * 1024];
+            loop {
+                let count = file.read(&mut buffer).map_err(|error| {
+                    format!("无法读取 DSH 运行时文件 {child_relative}：{error}")
+                })?;
+                if count == 0 {
+                    break;
+                }
+                hash.update(&buffer[..count]);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn runtime_tree_sha256(root: &Path) -> Result<String, String> {
+    let mut hash = Sha256::new();
+    update_tree_digest(&mut hash, root, "")?;
+    Ok(format!("{:x}", hash.finalize()))
+}
+
+fn runtime_manifest_tree_sha256(manifest: &Value) -> Option<&str> {
+    manifest
+        .get("treeSha256")
+        .and_then(Value::as_str)
+        .filter(|value| {
+            value.len() == 64
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+        })
+}
+
 fn is_runtime_cache_ready(root: &Path, manifest: &Value) -> bool {
+    if is_runtime_reparse_point(root) {
+        return false;
+    }
     let Ok(key) = runtime_cache_key(manifest) else {
         return false;
     };
@@ -715,6 +899,8 @@ fn is_runtime_cache_ready(root: &Path, manifest: &Value) -> bool {
             .is_some_and(|cached| cached == *manifest)
         && root.join(BUNDLED_DSH_ENTRY).is_file()
         && dsh_package_available_at(root)
+        && runtime_manifest_tree_sha256(manifest)
+            .is_some_and(|expected| runtime_tree_sha256(root).ok().as_deref() == Some(expected))
 }
 
 fn extract_runtime_archive(archive_path: &Path, destination: &Path) -> Result<(), String> {
@@ -730,8 +916,10 @@ fn extract_runtime_archive(archive_path: &Path, destination: &Path) -> Result<()
         let entry_path = entry
             .path()
             .map_err(|error| format!("读取 DSH 运行时归档路径失败：{error}"))?;
-        let entry_name = entry_path.to_string_lossy();
-        if !is_safe_runtime_entry(&entry_name) {
+        let entry_name = entry_path
+            .to_str()
+            .ok_or_else(|| "拒绝包含非 UTF-8 路径的 DSH 运行时归档".to_string())?;
+        if !is_safe_runtime_entry(entry_name) {
             return Err(format!("拒绝不安全的 DSH 运行时归档路径：{entry_name}"));
         }
         let entry_type = entry.header().entry_type();
@@ -739,6 +927,14 @@ fn extract_runtime_archive(archive_path: &Path, destination: &Path) -> Result<()
             return Err(format!("拒绝 DSH 运行时归档中的特殊文件：{entry_name}"));
         }
         let target = destination.join(entry_path.as_ref());
+        if !target.starts_with(destination) {
+            return Err(format!("拒绝超出 DSH 运行时缓存目录的路径：{entry_name}"));
+        }
+        if target.parent().is_some_and(is_runtime_reparse_point)
+            || is_runtime_reparse_point(&target)
+        {
+            return Err(format!("拒绝写入重解析点路径：{}", target.display()));
+        }
         entry
             .unpack(&target)
             .map_err(|error| format!("解压 DSH 运行时文件失败 {}：{error}", target.display()))?;
@@ -767,13 +963,20 @@ fn materialize_bundled_runtime(app: &AppHandle) -> Result<PathBuf, String> {
     let cache_root = runtime_cache_root(app)?;
     fs::create_dir_all(&cache_root)
         .map_err(|error| format!("无法创建 DSH 运行时缓存目录：{error}"))?;
+    let _cache_lock = lock_runtime_cache(&cache_root)?;
     let key = runtime_cache_key(&manifest)?;
     let cache = cache_root.join(&key);
     if is_runtime_cache_ready(&cache, &manifest) {
         return Ok(cache);
     }
-    let temporary = cache_root.join(format!(".{key}.tmp-{}", std::process::id()));
-    fs::remove_dir_all(&temporary).ok();
+    quarantine_invalid_runtime_cache(&cache);
+    cleanup_runtime_temporary_caches(&cache_root, &key);
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let temporary = cache_root.join(format!(".{key}.tmp-{}-{nonce}", std::process::id()));
+    remove_runtime_path(&temporary);
     fs::create_dir_all(&temporary)
         .map_err(|error| format!("无法创建 DSH 运行时临时缓存：{error}"))?;
     let result = (|| {
@@ -787,30 +990,54 @@ fn materialize_bundled_runtime(app: &AppHandle) -> Result<PathBuf, String> {
         if extracted != manifest || !is_runtime_cache_ready_without_marker(&temporary, &manifest) {
             return Err("解压后的 DSH 运行时校验失败".to_string());
         }
-        fs::write(temporary.join(RUNTIME_CACHE_MARKER), &key)
-            .map_err(|error| format!("无法写入 DSH 运行时完成标记：{error}"))?;
+        let marker = temporary.join(RUNTIME_CACHE_MARKER);
+        let marker_temp = temporary.join(format!("{RUNTIME_CACHE_MARKER}.tmp"));
+        let mut marker_file = fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&marker_temp)
+            .map_err(|error| format!("无法创建 DSH 运行时完成标记：{error}"))?;
+        marker_file
+            .write_all(key.as_bytes())
+            .and_then(|_| marker_file.sync_all())
+            .map_err(|error| format!("无法落盘 DSH 运行时完成标记：{error}"))?;
+        fs::rename(&marker_temp, &marker)
+            .map_err(|error| format!("无法提交 DSH 运行时完成标记：{error}"))?;
         Ok::<(), String>(())
     })();
     if let Err(error) = result {
-        fs::remove_dir_all(&temporary).ok();
+        remove_runtime_path(&temporary);
         return Err(error);
     }
     if is_runtime_cache_ready(&cache, &manifest) {
-        fs::remove_dir_all(&temporary).ok();
+        remove_runtime_path(&temporary);
         return Ok(cache);
     }
-    fs::remove_dir_all(&cache).ok();
-    fs::rename(&temporary, &cache).map_err(|error| format!("无法提交 DSH 运行时缓存：{error}"))?;
-    Ok(cache)
+    match fs::rename(&temporary, &cache) {
+        Ok(()) => Ok(cache),
+        Err(_error) if is_runtime_cache_ready(&cache, &manifest) => {
+            remove_runtime_path(&temporary);
+            Ok(cache)
+        }
+        Err(error) => {
+            remove_runtime_path(&temporary);
+            Err(format!("无法提交 DSH 运行时缓存：{error}"))
+        }
+    }
 }
 
 fn is_runtime_cache_ready_without_marker(root: &Path, manifest: &Value) -> bool {
+    if is_runtime_reparse_point(root) {
+        return false;
+    }
     fs::read_to_string(root.join(BUNDLED_DSH_MANIFEST))
         .ok()
         .and_then(|content| serde_json::from_str::<Value>(&content).ok())
         .is_some_and(|cached| cached == *manifest)
         && root.join(BUNDLED_DSH_ENTRY).is_file()
         && dsh_package_available_at(root)
+        && runtime_manifest_tree_sha256(manifest)
+            .is_some_and(|expected| runtime_tree_sha256(root).ok().as_deref() == Some(expected))
 }
 
 fn executable_from_path(name: &str) -> Option<PathBuf> {
@@ -883,9 +1110,9 @@ fn is_bundled_runtime_manifest(manifest: &Value) -> bool {
         && manifest
             .get("sourceCommit")
             .and_then(Value::as_str)
-            .is_some_and(|value| {
-                value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
-            })
+            .is_some_and(|value| value == BUNDLED_DSH_SOURCE_COMMIT)
+        && runtime_manifest_matches_host(manifest)
+        && runtime_manifest_tree_sha256(manifest).is_some()
 }
 
 fn dsh_package_manifest_at(root: &Path) -> PathBuf {
@@ -2361,29 +2588,28 @@ fn open_themes_directory() -> Result<(), String> {
 mod tests {
     use super::{
         bound_log_text, format_log_line, format_utc_datetime, is_bundled_runtime_manifest,
-        is_dsh_package_manifest, is_safe_runtime_entry, validated_connection_url, DshRuntimeLog,
-        LogStore, MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES,
+        is_dsh_package_manifest, is_safe_runtime_entry, runtime_arch, runtime_platform,
+        runtime_tree_sha256, validated_connection_url, DshRuntimeLog, LogStore, MAX_LOG_ENTRIES,
+        MAX_LOG_TEXT_BYTES, RUNTIME_CACHE_MARKER,
     };
 
     #[cfg(windows)]
-    use super::normalize_windows_resource_path;
+    use super::normalize_windows_resource_path_for_display;
 
     #[cfg(windows)]
     #[test]
-    fn normalizes_windows_extended_resource_paths() {
+    fn normalizes_windows_extended_resource_paths_for_display_only() {
         assert_eq!(
-            normalize_windows_resource_path(std::path::PathBuf::from(r"\\?\C:\Deeptop\resources")),
+            normalize_windows_resource_path_for_display(std::path::PathBuf::from(
+                r"\\?\C:\Deeptop\resources"
+            )),
             std::path::PathBuf::from(r"C:\Deeptop\resources")
         );
         assert_eq!(
-            normalize_windows_resource_path(std::path::PathBuf::from(
+            normalize_windows_resource_path_for_display(std::path::PathBuf::from(
                 r"\\?\UNC\server\share\resources"
             )),
             std::path::PathBuf::from(r"\\server\share\resources")
-        );
-        assert_eq!(
-            normalize_windows_resource_path(std::path::PathBuf::from(r"C:\Deeptop\resources")),
-            std::path::PathBuf::from(r"C:\Deeptop\resources")
         );
     }
 
@@ -2399,6 +2625,26 @@ mod tests {
     }
 
     #[test]
+    fn runtime_tree_digest_changes_when_runtime_content_changes() {
+        let root =
+            std::env::temp_dir().join(format!("deeptop-runtime-tree-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("nested")).expect("create digest test directory");
+        std::fs::write(root.join("nested/file.js"), "one").expect("write digest test file");
+        let first = runtime_tree_sha256(&root).expect("hash first tree");
+        std::fs::write(root.join("nested/file.js"), "two").expect("rewrite digest test file");
+        let second = runtime_tree_sha256(&root).expect("hash second tree");
+        assert_ne!(first, second);
+        std::fs::write(root.join("runtime-manifest.json"), "ignored").expect("write manifest");
+        std::fs::write(root.join(RUNTIME_CACHE_MARKER), "ignored").expect("write marker");
+        assert_eq!(
+            second,
+            runtime_tree_sha256(&root).expect("hash metadata tree")
+        );
+        std::fs::remove_dir_all(root).expect("remove digest test directory");
+    }
+
+    #[test]
     fn accepts_the_dsh_package_manifest() {
         assert!(is_dsh_package_manifest(r#"{"name":"@deepseek-ai/dsh"}"#));
     }
@@ -2411,6 +2657,9 @@ mod tests {
             "packageVersion": "0.1.0-rc.7",
             "entry": "node_modules/@deepseek-ai/dsh/lib/bin.js",
             "sourceCommit": "99f6f02fecdb7dff40c3fbc9470f5907c29f74ca",
+            "platform": runtime_platform(),
+            "arch": runtime_arch(),
+            "treeSha256": "0123456789012345678901234567890123456789012345678901234567890123",
         });
         assert!(is_bundled_runtime_manifest(&manifest));
         assert!(!is_bundled_runtime_manifest(&serde_json::json!({

@@ -57,10 +57,10 @@ Rust 启动器在 `src-tauri/src/main.rs` 中内嵌以下资源：
 Rust 通过 Tauri `resource_dir()` 定位压缩 `dsh-runtime.tar.gz` 和配套清单，校验版本、平台、架构后，将归档安全解压到应用本地数据目录中按源码提交命名的缓存；缓存完成后直接启动系统 Node.js：
 
 ```text
-node <app-local-data>/dsh-runtime/<source-commit>-<platform>-<arch>/node_modules/@deepseek-ai/dsh/lib/bin.js --profile desktop
+node <app-local-data>/dsh-runtime/<source-commit>-<platform>-<arch>-<tree-digest-prefix>/node_modules/@deepseek-ai/dsh/lib/bin.js --profile desktop
 ```
 
-归档只允许普通文件和目录，拒绝绝对路径、`..`、反斜杠、符号链接、硬链接和其他特殊条目；临时目录完成校验后才写入 `.complete` 并提交为版本缓存。
+归档只允许普通文件和目录，拒绝绝对路径、`..`、反斜杠、符号链接、硬链接和其他特殊条目；源码构建阶段拒绝链接，缓存启动前重新计算 `treeSha256`，临时目录完成校验并将 `.complete` 原子提交后才作为最终缓存。缓存创建使用可释放的跨进程文件锁，失败的临时目录会在下次启动时清理。
 
 进程环境包括：
 

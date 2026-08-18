@@ -245,7 +245,7 @@ Rust 将 Bridge 帧转发为 `deeptop-bridge-event`，React 再通过 `bridge-ev
 ### DSH 未就绪
 
 1. 检查运行时 Inspector 的状态和诊断文本。
-2. 确认 Node.js 在 `PATH` 中可用，并检查安装包的 `dsh-runtime.tar.gz`、`dsh-runtime-manifest.json`、应用本地数据中的版本缓存和 CLI 入口清单。
+2. 确认 Node.js 在 `PATH` 中可用，并检查安装包的 `dsh-runtime.tar.gz`、`dsh-runtime-manifest.json`、应用本地数据中的版本缓存（目录名包含源码提交、平台、架构和摘要前缀）和 CLI 入口清单；若缓存被篡改或 `treeSha256` 不匹配，启动器会删除该缓存并重新解压。
 3. 确认 `DSH_HOME` 可写。
 4. 检查 `$DSH_HOME/profiles/desktop/package.json` 和 `cordis.patch.yml` 是否为有效内容。
 5. 刷新 DSH 运行时，观察新的启动日志。

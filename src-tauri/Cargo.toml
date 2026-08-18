@@ -17,8 +17,10 @@ notify-rust = "4.18.0"
 rfd = "0.15"
 portable-pty = "0.9.0"
 arboard = { version = "3.4", default-features = false }
+fs2 = "0.4"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 semver = "1"
+sha2 = "0.10"
 tar = "0.4"
 flate2 = "1"
 tokio = { version = "1", features = ["macros", "sync"] }

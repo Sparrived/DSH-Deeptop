@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -34,6 +35,33 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
+function treeSha256(rootPath) {
+  const hash = createHash("sha256");
+  function visit(directory, relativeDirectory = "") {
+    const entries = fs.readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
+      Buffer.from(left.name).compare(Buffer.from(right.name)),
+    );
+    for (const entry of entries) {
+      const relative = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
+      if (relative === "runtime-manifest.json" || relative === ".complete") continue;
+      const absolute = path.join(directory, entry.name);
+      const stat = fs.lstatSync(absolute);
+      if (stat.isSymbolicLink()) throw new Error(`内嵌运行时禁止符号链接：${relative}`);
+      if (stat.isDirectory()) {
+        hash.update(`D\n${relative}\n`);
+        visit(absolute, relative);
+      } else if (stat.isFile()) {
+        hash.update(`F\n${relative}\n`);
+        hash.update(fs.readFileSync(absolute));
+      } else {
+        throw new Error(`内嵌运行时包含不支持的文件类型：${relative}`);
+      }
+    }
+  }
+  visit(rootPath);
+  return hash.digest("hex");
+}
+
 function gitOutput(args) {
   const result = spawnSync("git", args, { cwd: sourceRoot, encoding: "utf8", windowsHide: true });
   if (result.error) throw result.error;
@@ -52,8 +80,25 @@ function isRuntimeReady(manifest, packageVersion) {
     manifest?.platform === process.platform &&
     manifest?.arch === process.arch &&
     fs.existsSync(archivePath) &&
-    fs.existsSync(manifestPath)
+    fs.existsSync(manifestPath) &&
+    typeof manifest?.treeSha256 === "string" &&
+    /^[0-9a-f]{64}$/.test(manifest.treeSha256)
   );
+}
+
+function assertNoLinks(rootPath, label) {
+  function visit(directory, relativeDirectory = "") {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const relative = relativeDirectory ? path.join(relativeDirectory, entry.name) : entry.name;
+      const absolute = path.join(directory, entry.name);
+      const stat = fs.lstatSync(absolute);
+      if (stat.isSymbolicLink()) {
+        throw new Error(`${label} 禁止符号链接或 junction：${relative}`);
+      }
+      if (stat.isDirectory()) visit(absolute, relative);
+    }
+  }
+  visit(rootPath);
 }
 
 function packagePathForName(packageName) {
@@ -61,6 +106,7 @@ function packagePathForName(packageName) {
 }
 
 function copyRuntimePackage(packageSource, packageName) {
+  assertNoLinks(packageSource, `源码包 ${packageName}`);
   const packageTarget = packagePathForName(packageName);
   fs.rmSync(packageTarget, { recursive: true, force: true });
   fs.cpSync(packageSource, packageTarget, {
@@ -208,6 +254,7 @@ try {
     sourceRoot,
     { CI: "true" },
   );
+  assertNoLinks(deployRoot, "pnpm deploy 产物");
 
   const bundledPackageRoot = path.join(temporaryRoot, "node_modules", "@deepseek-ai", "dsh");
   fs.mkdirSync(bundledPackageRoot, { recursive: true });
@@ -262,6 +309,7 @@ try {
     platform: process.platform,
     arch: process.arch,
     entry,
+    treeSha256: treeSha256(temporaryRoot),
   };
   fs.writeFileSync(path.join(temporaryRoot, "runtime-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 

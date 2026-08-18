@@ -33,6 +33,9 @@ if (
 if (!/^[0-9a-f]{40}$/.test(manifest.sourceCommit)) {
   throw new Error(`内嵌 DSH 清单缺少固定源码提交：${manifest.sourceCommit}`);
 }
+if (!/^[0-9a-f]{64}$/.test(manifest.treeSha256)) {
+  throw new Error(`内嵌 DSH 清单缺少运行时树摘要：${manifest.treeSha256}`);
+}
 
 // The archive is extracted and checked by the Rust bridge. This command only
 // checks the compressed resource can be enumerated on the build host; staging

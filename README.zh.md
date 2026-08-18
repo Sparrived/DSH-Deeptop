@@ -96,7 +96,7 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 3. 将内置 `deeptop-bridge` 写入 `$DSH_HOME/profiles/node_modules/deeptop-bridge`，因此无需全局安装该 Bridge。
 4. 保留用户已有的 desktop Profile Bundle 和 `$DSH_HOME/profiles/desktop/cordis.patch.yml` 修改。
 5. 从 Tauri 安装包的压缩 `dsh-runtime.tar.gz` 和清单读取固定版本的 DSH 源码构建产物和完整依赖树。
-6. 将归档安全解压到按源码提交、平台和架构命名的应用本地数据缓存；缓存使用 `.complete` 标记，只有完整校验后才会复用，更新时保留旧版本缓存以便回滚。
+6. 将归档安全解压到按源码提交、平台、架构和运行时树摘要命名的应用本地数据缓存；缓存使用 `.complete` 标记，并在启动前重新计算树摘要，只有完整校验后才会复用，更新时保留旧版本缓存以便回滚。
 7. 通过系统 Node.js 直接执行缓存中的 `@deepseek-ai/dsh/lib/bin.js`，不调用 npm、PATH 中的 `dsh`、全局安装、npm/npx 缓存或 registry。
 8. 安装包资源只读；Profile、会话、日志和设置仍写入 `$DSH_HOME`，然后等待 Bridge 返回 `deeptop/1` 的 `ready` 帧。
 
