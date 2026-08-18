@@ -903,11 +903,43 @@ fn is_runtime_cache_ready(root: &Path, manifest: &Value) -> bool {
             .is_some_and(|expected| runtime_tree_sha256(root).ok().as_deref() == Some(expected))
 }
 
+fn runtime_archive_target(destination: &Path, entry_path: &Path) -> Result<PathBuf, String> {
+    let mut target = destination.to_path_buf();
+    let mut has_name = false;
+    for component in entry_path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::Normal(name) => {
+                target.push(name);
+                has_name = true;
+            }
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                return Err(format!(
+                    "拒绝不安全的 DSH 运行时归档路径：{}",
+                    entry_path.display()
+                ));
+            }
+        }
+    }
+    if !has_name {
+        return Ok(destination.to_path_buf());
+    }
+    Ok(target)
+}
+
 fn extract_runtime_archive(archive_path: &Path, destination: &Path) -> Result<(), String> {
     let archive_file = fs::File::open(archive_path)
         .map_err(|error| format!("无法读取内嵌 DSH 运行时归档：{error}"))?;
     let decoder = flate2::read::GzDecoder::new(archive_file);
     let mut archive = tar::Archive::new(decoder);
+    fs::create_dir_all(destination)
+        .map_err(|error| format!("无法创建 DSH 运行时临时目录：{error}"))?;
+    // Canonicalize the destination once. On Windows this yields the extended
+    // path form, preserving extraction of deeply nested node_modules paths
+    // without paying tar's canonicalization cost for every archive entry.
+    let destination = destination
+        .canonicalize()
+        .map_err(|error| format!("无法定位 DSH 运行时临时目录：{error}"))?;
     let entries = archive
         .entries()
         .map_err(|error| format!("无法读取 DSH 运行时归档目录：{error}"))?;
@@ -926,8 +958,8 @@ fn extract_runtime_archive(archive_path: &Path, destination: &Path) -> Result<()
         if !(entry_type.is_dir() || entry_type.is_file()) {
             return Err(format!("拒绝 DSH 运行时归档中的特殊文件：{entry_name}"));
         }
-        let target = destination.join(entry_path.as_ref());
-        if !target.starts_with(destination) {
+        let target = runtime_archive_target(&destination, entry_path.as_ref())?;
+        if !target.starts_with(&destination) {
             return Err(format!("拒绝超出 DSH 运行时缓存目录的路径：{entry_name}"));
         }
         if target.parent().is_some_and(is_runtime_reparse_point)
@@ -935,13 +967,24 @@ fn extract_runtime_archive(archive_path: &Path, destination: &Path) -> Result<()
         {
             return Err(format!("拒绝写入重解析点路径：{}", target.display()));
         }
-        entry
-            // Use the archive-relative unpack API instead of passing a target
-            // path to Entry::unpack. The generated tar contains `./`-prefixed
-            // paths; unpack_in normalizes those components consistently on
-            // Windows and Unix before creating the destination file.
-            .unpack_in(destination)
-            .map_err(|error| format!("解压 DSH 运行时文件失败 {}：{error}", target.display()))?;
+        if entry_type.is_dir() {
+            fs::create_dir_all(&target).map_err(|error| {
+                format!("解压 DSH 运行时目录失败 {}：{error}", target.display())
+            })?;
+        } else {
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent).map_err(|error| {
+                    format!("创建 DSH 运行时文件目录失败 {}：{error}", parent.display())
+                })?;
+            }
+            // The archive has already been restricted to regular files and the
+            // destination is a fresh private directory. Direct unpack avoids
+            // tar's per-entry canonicalization, which otherwise makes a 20k+
+            // file runtime appear permanently stuck on Windows.
+            entry.unpack(&target).map_err(|error| {
+                format!("解压 DSH 运行时文件失败 {}：{error}", target.display())
+            })?;
+        }
     }
     Ok(())
 }
