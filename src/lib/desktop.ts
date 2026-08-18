@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import packageInfo from "../../package.json";
+import { parseExternalLaunchPayload, type ExternalLaunchRequest } from "./external-launch";
+export type { ExternalLaunchRequest } from "./external-launch";
 
 export const DSH_PACKAGE = "@deepseek-ai/dsh（内嵌运行时）";
 export const DEEPTOP_VERSION = packageInfo.version;
@@ -230,6 +232,13 @@ export interface DshSettingsDescription {
   namespaces: DshSettingsNamespace[];
 }
 
+export interface WindowsContextMenuStatus {
+  supported: boolean;
+  enabled: boolean;
+  managed: boolean;
+  message: string;
+}
+
 export interface DshProvider {
   provider: string;
   displayName: string;
@@ -434,6 +443,35 @@ export async function listenToNotificationClick(handler: (sessionId: string) => 
 
 export async function listenToSingleInstance(handler: () => void): Promise<UnlistenFn> {
   return listen("single-instance", () => handler());
+}
+
+export async function listenToExternalLaunch(handler: (request: ExternalLaunchRequest) => void): Promise<UnlistenFn> {
+  return listen<unknown>("external-launch", (event) => {
+    const request = parseExternalLaunchPayload(event.payload);
+    if (request) handler(request);
+  });
+}
+
+export async function listPendingExternalLaunches(): Promise<ExternalLaunchRequest[]> {
+  if (!isTauri()) return [];
+  const pending = await invoke<unknown>("list_pending_external_launches");
+  if (!Array.isArray(pending)) return [];
+  return pending.map(parseExternalLaunchPayload).filter((request): request is ExternalLaunchRequest => request !== null);
+}
+
+export async function acknowledgePendingExternalLaunch(paths: string[]): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("acknowledge_pending_external_launch", { paths });
+}
+
+export async function getWindowsContextMenuStatus(): Promise<WindowsContextMenuStatus> {
+  if (!isTauri()) return { supported: false, enabled: false, managed: false, message: "资源管理器右键菜单仅支持 Windows" };
+  return invoke<WindowsContextMenuStatus>("get_windows_context_menu_status");
+}
+
+export async function setWindowsContextMenuEnabled(enabled: boolean): Promise<WindowsContextMenuStatus> {
+  if (!isTauri()) throw new Error("资源管理器右键菜单仅在 Windows 桌面端可用");
+  return invoke<WindowsContextMenuStatus>("set_windows_context_menu_enabled", { enabled });
 }
 
 export class DshApiError extends Error {

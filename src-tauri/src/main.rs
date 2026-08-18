@@ -22,7 +22,9 @@ use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 mod about;
+mod external_launch;
 mod terminal;
+mod windows_context_menu;
 
 const DSH_PROFILE: &str = "desktop";
 const BUNDLED_DSH_PACKAGE: &str = "@deepseek-ai/dsh";
@@ -59,6 +61,7 @@ const PROFILE_PATCH_TEMPLATE: &str = include_str!("../../deeptop-bridge/profile.
 const PROFILE_PNPM_WORKSPACE: &str =
     "packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n";
 const MAX_PENDING_OPEN_SESSIONS: usize = 16;
+const MAX_PENDING_EXTERNAL_LAUNCHES: usize = 16;
 /// Max in-memory runtime log entries kept for export and recent diagnostics.
 const MAX_LOG_ENTRIES: usize = 3000;
 /// Keep the initial log-viewer payload small enough for the WebView to render quickly.
@@ -320,6 +323,7 @@ struct BridgeManager {
     state: Arc<Mutex<BridgeState>>,
     next_request_id: Arc<AtomicU64>,
     pending_open_sessions: Arc<Mutex<VecDeque<String>>>,
+    pending_external_launches: Arc<Mutex<VecDeque<external_launch::ExternalLaunchRequest>>>,
     logs: Arc<Mutex<LogStore>>,
     log_writer: LogWriter,
 }
@@ -350,6 +354,30 @@ impl BridgeManager {
     fn acknowledge_pending_open_session(&self, session_id: &str) {
         if let Ok(mut pending) = self.pending_open_sessions.lock() {
             pending.retain(|item| item != session_id);
+        }
+    }
+
+    fn enqueue_external_launch(&self, request: external_launch::ExternalLaunchRequest) {
+        let Ok(mut pending) = self.pending_external_launches.lock() else {
+            return;
+        };
+        pending.retain(|item| item.paths != request.paths);
+        pending.push_back(request);
+        while pending.len() > MAX_PENDING_EXTERNAL_LAUNCHES {
+            pending.pop_front();
+        }
+    }
+
+    fn list_external_launches(&self) -> Vec<external_launch::ExternalLaunchRequest> {
+        self.pending_external_launches
+            .lock()
+            .map(|pending| pending.iter().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    fn acknowledge_external_launch(&self, paths: &[String]) {
+        if let Ok(mut pending) = self.pending_external_launches.lock() {
+            pending.retain(|item| item.paths != paths);
         }
     }
 }
@@ -1843,6 +1871,18 @@ fn check_dsh(app: AppHandle, runtime: State<'_, BridgeManager>) -> DshStatus {
 }
 
 #[tauri::command]
+fn get_windows_context_menu_status() -> windows_context_menu::ContextMenuStatus {
+    windows_context_menu::status()
+}
+
+#[tauri::command]
+fn set_windows_context_menu_enabled(
+    enabled: bool,
+) -> Result<windows_context_menu::ContextMenuStatus, String> {
+    windows_context_menu::set_enabled(enabled)
+}
+
+#[tauri::command]
 fn refresh_dsh(app: AppHandle, runtime: State<'_, BridgeManager>) -> DshStatus {
     runtime.restart(app);
     runtime.status()
@@ -1854,6 +1894,16 @@ fn focus_main_window(app: &AppHandle) {
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
+}
+
+fn publish_external_launch(
+    app: &AppHandle,
+    runtime: &BridgeManager,
+    request: external_launch::ExternalLaunchRequest,
+) {
+    runtime.enqueue_external_launch(request.clone());
+    focus_main_window(app);
+    let _ = app.emit("external-launch", request);
 }
 
 fn validated_connection_url(value: &str) -> Result<String, String> {
@@ -1920,6 +1970,18 @@ fn publish_open_session(app: &AppHandle, runtime: &BridgeManager, session_id: St
 #[tauri::command]
 fn list_pending_open_sessions(runtime: State<'_, BridgeManager>) -> Vec<String> {
     runtime.list_pending_open_sessions()
+}
+
+#[tauri::command]
+fn list_pending_external_launches(
+    runtime: State<'_, BridgeManager>,
+) -> Vec<external_launch::ExternalLaunchRequest> {
+    runtime.list_external_launches()
+}
+
+#[tauri::command]
+fn acknowledge_pending_external_launch(runtime: State<'_, BridgeManager>, paths: Vec<String>) {
+    runtime.acknowledge_external_launch(&paths);
 }
 
 #[tauri::command]
@@ -2904,14 +2966,23 @@ mod tests {
 }
 
 fn main() {
-    let prepare_runtime = env::args().any(|argument| argument == "--prepare-bundled-runtime");
+    let args = env::args().collect::<Vec<_>>();
+    let prepare_runtime = args
+        .iter()
+        .any(|argument| argument == "--prepare-bundled-runtime");
     let mut builder = tauri::Builder::default();
     if !prepare_runtime {
         // This plugin must be registered first so a second launch is forwarded
         // before any runtime or window setup can create another instance.
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+        builder = builder.plugin(tauri_plugin_single_instance::init(move |app, args, cwd| {
             focus_main_window(app);
-            let _ = app.emit("single-instance", json!({ "args": args, "cwd": cwd }));
+            let source = external_launch::source_for_args(&args);
+            if let Some(request) = external_launch::parse(&args, Path::new(&cwd), source) {
+                let runtime = app.state::<BridgeManager>().inner().clone();
+                publish_external_launch(app, &runtime, request);
+            } else {
+                let _ = app.emit("single-instance", json!({ "args": args, "cwd": cwd }));
+            }
         }));
     }
     builder = builder
@@ -2934,11 +3005,18 @@ fn main() {
             } else {
                 let runtime = app.state::<BridgeManager>().inner().clone();
                 runtime.start(app.handle().clone());
+                let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                let source = external_launch::source_for_args(&args);
+                if let Some(request) = external_launch::parse(&args, &cwd, source) {
+                    publish_external_launch(app.handle(), &runtime, request);
+                }
             }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             check_dsh,
+            get_windows_context_menu_status,
+            set_windows_context_menu_enabled,
             about::check_for_updates,
             about::cancel_update_check,
             about::open_project_url,
@@ -2946,6 +3024,8 @@ fn main() {
             refresh_dsh,
             open_nodejs_download,
             list_pending_open_sessions,
+            list_pending_external_launches,
+            acknowledge_pending_external_launch,
             acknowledge_pending_open_session,
             send_system_notification,
             bridge_request,
