@@ -589,6 +589,18 @@ fn materialize_desktop_profile() -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(windows)]
+fn normalize_windows_resource_path(path: PathBuf) -> PathBuf {
+    let value = path.to_string_lossy();
+    if let Some(rest) = value.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{rest}"));
+    }
+    if let Some(rest) = value.strip_prefix(r"\\?\") {
+        return PathBuf::from(rest);
+    }
+    path
+}
+
 fn executable_from_path(name: &str) -> Option<PathBuf> {
     env::var_os("PATH")
         .into_iter()
@@ -610,6 +622,8 @@ fn bundled_dsh_runtime_root(app: &AppHandle) -> Result<PathBuf, String> {
         .path()
         .resource_dir()
         .map_err(|error| format!("无法定位应用资源目录：{error}"))?;
+    #[cfg(windows)]
+    let resource_dir = normalize_windows_resource_path(resource_dir);
     let runtime = resource_dir.join(BUNDLED_DSH_RUNTIME_DIR);
     let manifest_path = runtime.join("runtime-manifest.json");
     let manifest = fs::read_to_string(&manifest_path).map_err(|error| {
@@ -2165,6 +2179,28 @@ mod tests {
         is_dsh_package_manifest, validated_connection_url, DshRuntimeLog, LogStore,
         MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES,
     };
+
+    #[cfg(windows)]
+    use super::normalize_windows_resource_path;
+
+    #[cfg(windows)]
+    #[test]
+    fn normalizes_windows_extended_resource_paths() {
+        assert_eq!(
+            normalize_windows_resource_path(std::path::PathBuf::from(r"\\?\C:\Deeptop\resources")),
+            std::path::PathBuf::from(r"C:\Deeptop\resources")
+        );
+        assert_eq!(
+            normalize_windows_resource_path(std::path::PathBuf::from(
+                r"\\?\UNC\server\share\resources"
+            )),
+            std::path::PathBuf::from(r"\\server\share\resources")
+        );
+        assert_eq!(
+            normalize_windows_resource_path(std::path::PathBuf::from(r"C:\Deeptop\resources")),
+            std::path::PathBuf::from(r"C:\Deeptop\resources")
+        );
+    }
 
     #[test]
     fn accepts_the_dsh_package_manifest() {
