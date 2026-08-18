@@ -91,7 +91,7 @@ export function SettingsGeneralPanel({
 
       <div className="settings-block">
         <div className="settings-block-heading"><div><h3>右键启动</h3><p>在 Windows 资源管理器中添加“使用 Deeptop 启动”，从选中的文件或文件夹打开对应工作目录。</p></div></div>
-        {contextMenuStatus?.supported ? <label className="settings-preference-row"><span><strong>资源管理器右键菜单</strong><small>{contextMenuStatus.message} · 修改后可能需要重新打开资源管理器窗口</small></span><span className="settings-plugin-toggle"><input type="checkbox" checked={contextMenuStatus.enabled} disabled={contextMenuUpdating} aria-label="启用资源管理器右键菜单" onChange={(event) => void onSetContextMenuEnabled(event.target.checked)} /><span aria-hidden="true" /></span></label> : <p className="settings-empty">{contextMenuStatus?.message ?? "正在检查 Windows 右键菜单状态…"}</p>}
+        {contextMenuStatus?.supported ? <div className="settings-preference-row"><span><strong>资源管理器右键菜单</strong><small>{contextMenuStatus.message} · 修改后可能需要重新打开资源管理器窗口</small></span><label className="settings-plugin-toggle" aria-label="启用资源管理器右键菜单"><input type="checkbox" checked={contextMenuStatus.enabled} disabled={contextMenuUpdating} onChange={(event) => void onSetContextMenuEnabled(event.target.checked)} /><span aria-hidden="true" /></label></div> : <p className="settings-empty">{contextMenuStatus?.message ?? "正在检查 Windows 右键菜单状态…"}</p>}
       </div>
 
       <div className="settings-block">

@@ -399,6 +399,8 @@ function App() {
   const sessionsRef = useRef<DshSessionSummary[]>(sessions);
   sessionsRef.current = sessions;
   const openSessionRef = useRef<(session: DshSessionSummary) => Promise<boolean>>(() => Promise.resolve(false));
+  const chooseWorkspaceRef = useRef<(path: string) => Promise<void>>(() => Promise.resolve());
+  const syncConversationToWorkspaceRef = useRef<(path: string) => Promise<void>>(() => Promise.resolve());
   const openingNotificationSessionsRef = useRef(new Set<string>());
   const runtimeAvailableRef = useRef(desktop && status.runtimeAvailable);
   // DSH crash recovery tracking: remembers that we observed a down period and
@@ -1644,7 +1646,7 @@ function App() {
     if (!path) throw new Error("右键启动没有提供有效工作目录");
     const known = workspacesRef.current.find((item) => sameWorkspacePath(item.path, path));
     if (known) {
-      await chooseWorkspace(known.path);
+      await chooseWorkspaceRef.current(known.path);
     } else {
       const result = await bridgeRequest<{ workspace: DshWorkspace }>("workspace.create", { path });
       workspaceSelectionInitializedRef.current = true;
@@ -1652,7 +1654,7 @@ function App() {
       setWorkspaces((current) => current.some((item) => item.workspaceId === result.workspace.workspaceId)
         ? current.map((item) => item.workspaceId === result.workspace.workspaceId ? result.workspace : item)
         : [result.workspace, ...current]);
-      await syncConversationToWorkspace(result.workspace.path);
+      await syncConversationToWorkspaceRef.current(result.workspace.path);
     }
     setNotice(`已从路径启动 Deeptop：${path}`);
   }
@@ -1914,6 +1916,9 @@ function App() {
       setErrorNotice(errorText(error));
     }
   }
+
+  chooseWorkspaceRef.current = chooseWorkspace;
+  syncConversationToWorkspaceRef.current = syncConversationToWorkspace;
 
   async function chooseWorkspace(path: string) {
     workspaceSelectionInitializedRef.current = true;
