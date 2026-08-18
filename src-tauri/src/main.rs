@@ -936,7 +936,11 @@ fn extract_runtime_archive(archive_path: &Path, destination: &Path) -> Result<()
             return Err(format!("拒绝写入重解析点路径：{}", target.display()));
         }
         entry
-            .unpack(&target)
+            // Use the archive-relative unpack API instead of passing a target
+            // path to Entry::unpack. The generated tar contains `./`-prefixed
+            // paths; unpack_in normalizes those components consistently on
+            // Windows and Unix before creating the destination file.
+            .unpack_in(destination)
             .map_err(|error| format!("解压 DSH 运行时文件失败 {}：{error}", target.display()))?;
     }
     Ok(())
@@ -2587,10 +2591,10 @@ fn open_themes_directory() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        bound_log_text, format_log_line, format_utc_datetime, is_bundled_runtime_manifest,
-        is_dsh_package_manifest, is_safe_runtime_entry, runtime_arch, runtime_platform,
-        runtime_tree_sha256, validated_connection_url, DshRuntimeLog, LogStore, MAX_LOG_ENTRIES,
-        MAX_LOG_TEXT_BYTES, RUNTIME_CACHE_MARKER,
+        bound_log_text, extract_runtime_archive, format_log_line, format_utc_datetime,
+        is_bundled_runtime_manifest, is_dsh_package_manifest, is_safe_runtime_entry, runtime_arch,
+        runtime_platform, runtime_tree_sha256, validated_connection_url, DshRuntimeLog, LogStore,
+        MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES, RUNTIME_CACHE_MARKER,
     };
 
     #[cfg(windows)]
@@ -2622,6 +2626,48 @@ mod tests {
         assert!(!is_safe_runtime_entry("/absolute"));
         assert!(!is_safe_runtime_entry("C:/escape"));
         assert!(!is_safe_runtime_entry(r"node_modules\\escape"));
+    }
+
+    #[test]
+    fn extracts_dot_prefixed_archive_entries_into_destination_root() {
+        let root = std::env::temp_dir().join(format!(
+            "deeptop-runtime-archive-test-{}",
+            std::process::id()
+        ));
+        let archive_path = root.with_extension("tar.gz");
+        let destination = root.join("extracted");
+        let source = root.join("source");
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_file(&archive_path);
+        std::fs::create_dir_all(&source).expect("create archive source");
+        std::fs::create_dir_all(&destination).expect("create extraction destination");
+        std::fs::write(source.join("runtime-manifest.json"), "{\"format\":1}\n")
+            .expect("write archive manifest");
+        std::fs::write(source.join("payload.txt"), "payload").expect("write archive payload");
+        let archive_file = std::fs::File::create(&archive_path).expect("create archive");
+        let encoder = flate2::write::GzEncoder::new(archive_file, flate2::Compression::default());
+        let mut builder = tar::Builder::new(encoder);
+        builder
+            .append_dir_all(".", &source)
+            .expect("append archive source");
+        builder
+            .into_inner()
+            .expect("finish tar")
+            .finish()
+            .expect("finish gzip");
+
+        extract_runtime_archive(&archive_path, &destination).expect("extract archive");
+        assert_eq!(
+            std::fs::read_to_string(destination.join("runtime-manifest.json"))
+                .expect("read extracted manifest"),
+            "{\"format\":1}\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(destination.join("payload.txt")).expect("read payload"),
+            "payload"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_file(&archive_path);
     }
 
     #[test]
