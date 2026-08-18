@@ -1,6 +1,6 @@
 {
   "name": "deeptop",
-  "version": "0.1.2-dev.3",
+  "version": "0.1.2-dev.4",
   "private": true,
   "type": "module",
   "description": "Deeptop, a lightweight native desktop client for DeepSeek Harness.",
