@@ -1,11 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const runtimeRoot = path.join(root, "src-tauri", "resources", "dsh-runtime");
-const manifestPath = path.join(runtimeRoot, "runtime-manifest.json");
-const packagePath = path.join(runtimeRoot, "node_modules", "@deepseek-ai", "dsh", "package.json");
+const resourcesRoot = path.join(root, "src-tauri", "resources");
+const archivePath = path.join(resourcesRoot, "dsh-runtime.tar.gz");
+const manifestPath = path.join(resourcesRoot, "dsh-runtime-manifest.json");
 const entry = "node_modules/@deepseek-ai/dsh/lib/bin.js";
 
 function readJson(filePath) {
@@ -16,13 +17,9 @@ function readJson(filePath) {
   }
 }
 
-function assertFile(relativePath, label) {
-  const filePath = path.join(runtimeRoot, relativePath);
-  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
-    throw new Error(`内嵌 DSH 缺少${label}：${filePath}`);
-  }
+if (!fs.existsSync(archivePath) || !fs.statSync(archivePath).isFile()) {
+  throw new Error(`内嵌 DSH 运行时归档不存在：${archivePath}`);
 }
-
 const manifest = readJson(manifestPath);
 if (
   manifest.format !== 1 ||
@@ -37,36 +34,17 @@ if (!/^[0-9a-f]{40}$/.test(manifest.sourceCommit)) {
   throw new Error(`内嵌 DSH 清单缺少固定源码提交：${manifest.sourceCommit}`);
 }
 
-const dshPackage = readJson(packagePath);
-if (dshPackage.name !== "@deepseek-ai/dsh" || dshPackage.version !== manifest.packageVersion) {
-  throw new Error(`内嵌 DSH 包版本不匹配：${dshPackage.name}@${dshPackage.version}`);
-}
-if (typeof dshPackage.bin?.dsh !== "string" || dshPackage.bin.dsh !== "lib/bin.js") {
-  throw new Error("内嵌 DSH CLI 清单缺少安全的 dsh 入口");
-}
-
-function assertNoLinks(directory) {
-  for (const item of fs.readdirSync(directory, { withFileTypes: true })) {
-    const itemPath = path.join(directory, item.name);
-    const stat = fs.lstatSync(itemPath);
-    if (stat.isSymbolicLink()) {
-      throw new Error(`内嵌 DSH 运行时不能包含符号链接：${itemPath}`);
-    }
-    if (stat.isDirectory()) assertNoLinks(itemPath);
-  }
+// The archive is extracted and checked by the Rust bridge. This command only
+// checks the compressed resource can be enumerated on the build host; staging
+// checks in sync-dsh-runtime.mjs cover the required package entries before it is
+// compressed.
+const archiveCheck = spawnSync("tar", ["-tzf", archivePath], {
+  cwd: root,
+  stdio: "ignore",
+  windowsHide: true,
+});
+if (archiveCheck.error || archiveCheck.status !== 0) {
+  throw new Error(`内嵌 DSH 运行时归档无法读取：${archivePath}`);
 }
 
-assertNoLinks(runtimeRoot);
-
-for (const relativePath of [
-  entry,
-  "DSH-LICENSE",
-  "node_modules/@deepseek-ai/cosmokit/package.json",
-  "node_modules/@deepseek-ai/schemastery/package.json",
-  "node_modules/@deepseek-ai/cordis-plugin-group/package.json",
-  "node_modules/@deepseek-ai/dsh-host-apiproxy/package.json",
-]) {
-  assertFile(relativePath, "必要文件");
-}
-
-console.log(`✅ 内嵌 DSH 校验通过：${manifest.packageVersion} @ ${manifest.sourceCommit}`);
+console.log(`✅ 内嵌 DSH 压缩运行时校验通过：${manifest.packageVersion} @ ${manifest.sourceCommit}`);

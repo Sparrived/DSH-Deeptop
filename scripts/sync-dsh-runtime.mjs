@@ -5,7 +5,10 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourceRoot = path.join(root, "vendor", "dsh");
-const outputRoot = path.join(root, "src-tauri", "resources", "dsh-runtime");
+const resourcesRoot = path.join(root, "src-tauri", "resources");
+const archivePath = path.join(resourcesRoot, "dsh-runtime.tar.gz");
+const manifestPath = path.join(resourcesRoot, "dsh-runtime-manifest.json");
+const legacyOutputRoot = path.join(resourcesRoot, "dsh-runtime");
 const sourceNodeModules = path.join(sourceRoot, "node_modules");
 const cliManifestPath = path.join(sourceRoot, "apps", "cli", "package.json");
 const entry = "node_modules/@deepseek-ai/dsh/lib/bin.js";
@@ -48,11 +51,97 @@ function isRuntimeReady(manifest, packageVersion) {
     manifest?.entry === entry &&
     manifest?.platform === process.platform &&
     manifest?.arch === process.arch &&
-    fs.existsSync(path.join(outputRoot, entry)) &&
-    fs.existsSync(path.join(outputRoot, "node_modules", "@deepseek-ai", "cosmokit", "package.json")) &&
-    fs.existsSync(path.join(outputRoot, "node_modules", "@deepseek-ai", "schemastery", "package.json")) &&
-    fs.existsSync(path.join(outputRoot, "node_modules", "@deepseek-ai", "cordis-plugin-group", "package.json"))
+    fs.existsSync(archivePath) &&
+    fs.existsSync(manifestPath)
   );
+}
+
+function packagePathForName(packageName) {
+  return path.join(temporaryRoot, "node_modules", ...packageName.split("/"));
+}
+
+function copyRuntimePackage(packageSource, packageName) {
+  const packageTarget = packagePathForName(packageName);
+  fs.rmSync(packageTarget, { recursive: true, force: true });
+  fs.cpSync(packageSource, packageTarget, {
+    recursive: true,
+    dereference: true,
+    filter(source) {
+      const relative = path.relative(packageSource, source);
+      if (!relative) return true;
+      const parts = relative.split(path.sep);
+      if (parts.includes("node_modules") || parts.includes("tests") || parts.includes("src") || parts.includes(".cache")) {
+        return false;
+      }
+      return parts[0] === "lib" || parts[0] === "config" || parts[0] === "bin" || parts.length === 1;
+    },
+  });
+}
+
+function copyWorkspacePackages(workspaceRoot) {
+  const manifests = [];
+  function visit(directory) {
+    for (const item of fs.readdirSync(directory, { withFileTypes: true })) {
+      if (item.name === "node_modules" || item.name === ".git" || item.name === ".cache") continue;
+      const itemPath = path.join(directory, item.name);
+      if (item.isDirectory()) {
+        visit(itemPath);
+      } else if (item.isFile() && item.name === "package.json") {
+        manifests.push(itemPath);
+      }
+    }
+  }
+  visit(workspaceRoot);
+  for (const manifestPath of manifests) {
+    const packageManifest = readJson(manifestPath);
+    if (typeof packageManifest.name !== "string" || !packageManifest.name.startsWith("@deepseek-ai/")) continue;
+    if (packageManifest.name === "@deepseek-ai/dsh") continue;
+    const main = typeof packageManifest.main === "string" ? packageManifest.main : "";
+    const sourceRoot = path.dirname(manifestPath);
+    const sourceMain = main ? path.join(sourceRoot, main) : undefined;
+    const targetRoot = packagePathForName(packageManifest.name);
+    const targetManifest = path.join(targetRoot, "package.json");
+    const targetMain = main ? path.join(targetRoot, main) : undefined;
+
+    // pnpm deploy already contains the correct host artifact for packages that
+    // are part of the CLI production closure. Do not overwrite it with the
+    // source tree's client-only lib/types output (clientBundle packages such as
+    // Typert registry intentionally do not emit lib/index.js in the source
+    // workspace). Copy only a built source package that deploy omitted, or when
+    // the existing deployed package is incomplete.
+    if (main && !fs.existsSync(sourceMain)) continue;
+    if (fs.existsSync(targetManifest) && (!main || fs.existsSync(targetMain))) continue;
+    copyRuntimePackage(sourceRoot, packageManifest.name);
+  }
+}
+
+function ensureClientBundleHostEntries() {
+  const packageNames = [
+    "@deepseek-ai/dsh-typert-registry",
+    "@deepseek-ai/dsh-api-gateway",
+  ];
+  for (const packageName of packageNames) {
+    const packageRoot = packagePathForName(packageName);
+    const packageManifest = readJson(path.join(packageRoot, "package.json"));
+    const hostEntry = path.join(packageRoot, "lib", "index.js");
+    const generatedEntry = path.join(packageRoot, "lib", "types", "index.js");
+    if (!fs.existsSync(hostEntry)) {
+      if (!fs.existsSync(generatedEntry)) {
+        throw new Error(`内嵌运行时缺少 ${packageName} 的可执行 Host 入口`);
+      }
+      fs.writeFileSync(
+        hostEntry,
+        'export * from "./types/index.js";\nexport { default } from "./types/index.js";\n',
+      );
+    }
+    const invariant = path.join(packageRoot, "lib", "invariant.js");
+    const generatedInvariant = path.join(packageRoot, "lib", "types", "invariant.js");
+    if (!fs.existsSync(invariant) && fs.existsSync(generatedInvariant)) {
+      fs.writeFileSync(invariant, 'export * from "./types/invariant.js";\n');
+    }
+    packageManifest.main = "lib/index.js";
+    fs.writeFileSync(path.join(packageRoot, "package.json"), `${JSON.stringify(packageManifest, null, 2)}\n`);
+  }
 }
 
 if (!fs.existsSync(path.join(sourceRoot, ".git")) && !fs.existsSync(path.join(root, ".gitmodules"))) {
@@ -70,8 +159,7 @@ if (dirty) {
   throw new Error("vendor/dsh 工作区不是干净的；请提交或还原源码改动后再生成发布运行时");
 }
 
-const currentManifestPath = path.join(outputRoot, "runtime-manifest.json");
-const currentManifest = fs.existsSync(currentManifestPath) ? readJson(currentManifestPath) : null;
+const currentManifest = fs.existsSync(manifestPath) ? readJson(manifestPath) : null;
 if (isRuntimeReady(currentManifest, packageVersion)) {
   console.log(`✅ 内嵌 DSH 已是最新：${packageVersion} @ ${sourceCommit}`);
   process.exit(0);
@@ -94,10 +182,12 @@ if (!fs.existsSync(cliEntry)) {
   throw new Error(`DSH 源码构建完成但没有找到 CLI 入口：${cliEntry}`);
 }
 
-const temporaryRoot = `${outputRoot}.tmp-${process.pid}`;
-const deployRoot = `${outputRoot}.deploy-${process.pid}`;
+const temporaryRoot = path.join(resourcesRoot, `dsh-runtime.build-${process.pid}`);
+const deployRoot = path.join(resourcesRoot, `dsh-runtime.deploy-${process.pid}`);
+const temporaryArchive = `${archivePath}.tmp-${process.pid}`;
 fs.rmSync(temporaryRoot, { recursive: true, force: true });
 fs.rmSync(deployRoot, { recursive: true, force: true });
+fs.rmSync(temporaryArchive, { force: true });
 fs.mkdirSync(temporaryRoot, { recursive: true });
 
 try {
@@ -137,28 +227,11 @@ try {
   });
 
   // pnpm deploy resolves registry packages but omits workspace-only packages.
-  // Copy every built package from the DSH source's vendor workspace into the
-  // flat runtime tree; the profile may import any of these host plugins.
-  const vendorPackages = fs.readdirSync(path.join(sourceRoot, "vendor"), { withFileTypes: true });
-  for (const vendorPackage of vendorPackages) {
-    if (!vendorPackage.isDirectory()) continue;
-    const packageSource = path.join(sourceRoot, "vendor", vendorPackage.name);
-    const packageManifestPath = path.join(packageSource, "package.json");
-    if (!fs.existsSync(packageManifestPath)) continue;
-    const packageManifest = readJson(packageManifestPath);
-    if (typeof packageManifest.name !== "string" || !packageManifest.name.startsWith("@deepseek-ai/")) continue;
-    const packageParts = packageManifest.name.split("/");
-    const packageTarget = path.join(temporaryRoot, "node_modules", ...packageParts);
-    fs.rmSync(packageTarget, { recursive: true, force: true });
-    fs.cpSync(packageSource, packageTarget, {
-      recursive: true,
-      dereference: true,
-      filter(source) {
-        const relative = path.relative(packageSource, source);
-        return !relative || !relative.split(path.sep).some((part) => part === "node_modules" || part === ".cache");
-      },
-    });
-  }
+  // Copy every built @deepseek-ai workspace package recursively. The previous
+  // top-level vendor-only copy missed packages nested under packages/*/*,
+  // causing profile boot to fail with cascading ERR_MODULE_NOT_FOUND errors.
+  copyWorkspacePackages(sourceRoot);
+  ensureClientBundleHostEntries();
 
   const runtimePackage = {
     name: "deeptop-dsh-runtime",
@@ -192,11 +265,19 @@ try {
   };
   fs.writeFileSync(path.join(temporaryRoot, "runtime-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 
-  fs.rmSync(outputRoot, { recursive: true, force: true });
-  fs.renameSync(temporaryRoot, outputRoot);
-  console.log(`✅ 已生成内嵌 DSH：${packageVersion} @ ${sourceCommit}`);
+  // Ship one compressed immutable resource instead of tens of thousands of
+  // installer files. The Rust bridge extracts it once into a versioned cache.
+  // Windows 10/11, macOS, Linux, and the GitHub runners all provide tar.
+  run("tar", ["-czf", temporaryArchive, "-C", temporaryRoot, "."], root);
+  fs.rmSync(archivePath, { force: true });
+  fs.renameSync(temporaryArchive, archivePath);
+  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  fs.rmSync(legacyOutputRoot, { recursive: true, force: true });
+  console.log(`✅ 已生成压缩内嵌 DSH：${packageVersion} @ ${sourceCommit}`);
 } catch (error) {
   fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  fs.rmSync(temporaryArchive, { force: true });
   throw error;
 } finally {
   fs.rmSync(deployRoot, { recursive: true, force: true });

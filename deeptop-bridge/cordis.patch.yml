@@ -36,9 +36,6 @@
     - id: message-annotations
       name: 'deeptop-bridge/message-annotations'
 
-    - id: session-log-download
-      name: '@deepseek-ai/dsh-session-log-export'
-
     - id: session-stats
       name: '@deepseek-ai/dsh-session-stats'
 
