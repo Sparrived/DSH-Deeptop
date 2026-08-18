@@ -86,14 +86,25 @@ function isRuntimeReady(manifest, packageVersion) {
   );
 }
 
-function assertNoLinks(rootPath, label) {
+function isPathWithin(rootPath, candidatePath) {
+  const relative = path.relative(rootPath, candidatePath);
+  return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
+function assertNoLinks(rootPath, label, shouldSkip = () => false) {
+  const realRootPath = fs.realpathSync(rootPath);
   function visit(directory, relativeDirectory = "") {
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
       const relative = relativeDirectory ? path.join(relativeDirectory, entry.name) : entry.name;
+      if (shouldSkip(relative)) continue;
       const absolute = path.join(directory, entry.name);
       const stat = fs.lstatSync(absolute);
       if (stat.isSymbolicLink()) {
-        throw new Error(`${label} 禁止符号链接或 junction：${relative}`);
+        const target = fs.realpathSync(absolute);
+        if (!isPathWithin(realRootPath, target)) {
+          throw new Error(`${label} 包含指向根目录外部的符号链接或 junction：${relative}`);
+        }
+        continue;
       }
       if (stat.isDirectory()) visit(absolute, relative);
     }
@@ -106,7 +117,9 @@ function packagePathForName(packageName) {
 }
 
 function copyRuntimePackage(packageSource, packageName) {
-  assertNoLinks(packageSource, `源码包 ${packageName}`);
+  assertNoLinks(packageSource, `源码包 ${packageName}`, (relative) =>
+    relative.split(path.sep).some((part) => ["node_modules", "tests", "src", ".cache"].includes(part)),
+  );
   const packageTarget = packagePathForName(packageName);
   fs.rmSync(packageTarget, { recursive: true, force: true });
   fs.cpSync(packageSource, packageTarget, {
