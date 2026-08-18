@@ -558,7 +558,11 @@ fn migrate_desktop_profile_patch(path: &Path) -> Result<(), String> {
     if !content.contains("dsh-session-log-export") {
         return Ok(());
     }
-    let newline = if content.contains("\r\n") { "\r\n" } else { "\n" };
+    let newline = if content.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
     let lines = content.lines().collect::<Vec<_>>();
     let mut filtered = Vec::with_capacity(lines.len());
     let mut remove_name = false;
@@ -2385,7 +2389,9 @@ mod tests {
 
     #[test]
     fn accepts_safe_runtime_archive_entries_and_rejects_escapes() {
-        assert!(is_safe_runtime_entry("node_modules/@deepseek-ai/dsh/lib/bin.js"));
+        assert!(is_safe_runtime_entry(
+            "node_modules/@deepseek-ai/dsh/lib/bin.js"
+        ));
         assert!(!is_safe_runtime_entry("../escape"));
         assert!(!is_safe_runtime_entry("/absolute"));
         assert!(!is_safe_runtime_entry("C:/escape"));
