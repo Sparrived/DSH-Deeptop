@@ -157,7 +157,7 @@ npm run version:check
 
 `npm run build` 实际执行 `tsc --noEmit && vite build`；`npm run tauri:dev` 会按 Tauri 配置先启动 Vite，`npm run tauri:build` 会构建原生应用和已启用的 bundle。准备发布时使用 `npm run version:set -- 0.2.0`，它会同步更新 npm、Bridge、Tauri 和 Cargo 清单。每次修改至少运行 `npm run build` 与 `npm test`；修改 Bridge 或重试逻辑时同时运行对应专项测试。
 
-内嵌 DSH 来自 `vendor/dsh` 子模块锁定的 DeepSeek Harness 提交；构建脚本会先构建 Host 产物，再生成无 workspace 链接的压缩 `dsh-runtime.tar.gz` 资源和旁车清单。升级 DSH 时应更新子模块指针、运行时清单，并重新验证归档、缓存解压、Profile、ApiProxy 方法、Remote 契约和事件投影。
+内嵌 DSH 来自 `vendor/dsh` 子模块锁定的 DeepSeek Harness 提交；构建脚本会先构建 Host 产物，再生成无 workspace 链接的压缩 `dsh-runtime.tar.gz` 资源和配套清单。升级 DSH 时应更新子模块指针、运行时清单，并重新验证归档、缓存解压、Profile、ApiProxy 方法、Remote 契约和事件投影。
 
 ## 扩展桌面 Profile
 

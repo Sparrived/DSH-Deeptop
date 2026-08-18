@@ -54,7 +54,7 @@ Rust 启动器在 `src-tauri/src/main.rs` 中内嵌以下资源：
 
 ### 2.2 DSH 子进程
 
-Rust 通过 Tauri `resource_dir()` 定位压缩 `dsh-runtime.tar.gz` 和旁车清单，校验版本、平台、架构后，将归档安全解压到应用本地数据目录中按源码提交命名的缓存；缓存完成后直接启动系统 Node.js：
+Rust 通过 Tauri `resource_dir()` 定位压缩 `dsh-runtime.tar.gz` 和配套清单，校验版本、平台、架构后，将归档安全解压到应用本地数据目录中按源码提交命名的缓存；缓存完成后直接启动系统 Node.js：
 
 ```text
 node <app-local-data>/dsh-runtime/<source-commit>-<platform>-<arch>/node_modules/@deepseek-ai/dsh/lib/bin.js --profile desktop
