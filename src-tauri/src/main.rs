@@ -644,8 +644,8 @@ fn bundled_dsh_package_label(runtime: &Path) -> Result<String, String> {
     let manifest = dsh_package_manifest_at(runtime);
     let raw = fs::read_to_string(&manifest)
         .map_err(|error| format!("无法读取内嵌 DSH 清单 {}：{error}", manifest.display()))?;
-    let package: Value = serde_json::from_str(&raw)
-        .map_err(|error| format!("内嵌 DSH 清单无效：{error}"))?;
+    let package: Value =
+        serde_json::from_str(&raw).map_err(|error| format!("内嵌 DSH 清单无效：{error}"))?;
     let version = package
         .get("version")
         .and_then(Value::as_str)
@@ -2162,8 +2162,8 @@ fn open_themes_directory() -> Result<(), String> {
 mod tests {
     use super::{
         bound_log_text, format_log_line, format_utc_datetime, is_bundled_runtime_manifest,
-        is_dsh_package_manifest, validated_connection_url, DshRuntimeLog, LogStore, MAX_LOG_ENTRIES,
-        MAX_LOG_TEXT_BYTES,
+        is_dsh_package_manifest, validated_connection_url, DshRuntimeLog, LogStore,
+        MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES,
     };
 
     #[test]
