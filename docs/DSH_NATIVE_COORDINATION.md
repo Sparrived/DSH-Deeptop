@@ -50,15 +50,17 @@ Rust 启动器在 `src-tauri/src/main.rs` 中内嵌以下资源：
 5. 只在用户文件不存在时创建 `cordis.patch.yml`；
 6. 将 Bridge 内容写到 `$DSH_HOME/profiles/node_modules/deeptop-bridge`。
 
-这样桌面端可以按 Profile 解析 Bridge，同时又不会覆盖用户的 desktop Profile 扩展。运行时资源来自安装包内的固定 DSH 源码构建，资源目录只读；系统 Node.js 直接执行该资源中的 `@deepseek-ai/dsh/lib/bin.js`，不会使用 PATH、全局 npm、`$DSH_HOME` prefix、npm/npx 缓存或 registry。
+这样桌面端可以按 Profile 解析 Bridge，同时又不会覆盖用户的 desktop Profile 扩展。运行时资源来自安装包内的固定 DSH 源码构建，资源目录只读；系统 Node.js 只执行归档解压缓存中的 `@deepseek-ai/dsh/lib/bin.js`，不会使用 PATH、全局 npm、`$DSH_HOME` prefix、npm/npx 缓存或 registry。
 
 ### 2.2 DSH 子进程
 
-Rust 通过 Tauri `resource_dir()` 定位 `dsh-runtime`，校验运行时清单、入口和包版本后直接启动系统 Node.js：
+Rust 通过 Tauri `resource_dir()` 定位压缩 `dsh-runtime.tar.gz` 和旁车清单，校验版本、平台、架构后，将归档安全解压到应用本地数据目录中按源码提交命名的缓存；缓存完成后直接启动系统 Node.js：
 
 ```text
-node <resource-dir>/dsh-runtime/node_modules/@deepseek-ai/dsh/lib/bin.js --profile desktop
+node <app-local-data>/dsh-runtime/<source-commit>-<platform>-<arch>/node_modules/@deepseek-ai/dsh/lib/bin.js --profile desktop
 ```
+
+归档只允许普通文件和目录，拒绝绝对路径、`..`、反斜杠、符号链接、硬链接和其他特殊条目；临时目录完成校验后才写入 `.complete` 并提交为版本缓存。
 
 进程环境包括：
 

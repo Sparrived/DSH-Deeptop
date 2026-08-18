@@ -95,9 +95,10 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 2. 创建 `$DSH_HOME/profiles/desktop`，写入或补齐 desktop Profile 清单。
 3. 将内置 `deeptop-bridge` 写入 `$DSH_HOME/profiles/node_modules/deeptop-bridge`，因此无需全局安装该 Bridge。
 4. 保留用户已有的 desktop Profile Bundle 和 `$DSH_HOME/profiles/desktop/cordis.patch.yml` 修改。
-5. 从 Tauri 安装包的 `dsh-runtime` 资源读取固定版本的 DSH 源码构建产物和完整依赖树。
-6. 通过系统 Node.js 直接执行内嵌 `@deepseek-ai/dsh/lib/bin.js`，不调用 npm、PATH 中的 `dsh`、全局安装、npm/npx 缓存或 registry。
-7. 运行时资源只读；Profile、会话、日志和设置仍写入 `$DSH_HOME`，然后等待 Bridge 返回 `deeptop/1` 的 `ready` 帧。
+5. 从 Tauri 安装包的压缩 `dsh-runtime.tar.gz` 和清单读取固定版本的 DSH 源码构建产物和完整依赖树。
+6. 将归档安全解压到按源码提交、平台和架构命名的应用本地数据缓存；缓存使用 `.complete` 标记，只有完整校验后才会复用，更新时保留旧版本缓存以便回滚。
+7. 通过系统 Node.js 直接执行缓存中的 `@deepseek-ai/dsh/lib/bin.js`，不调用 npm、PATH 中的 `dsh`、全局安装、npm/npx 缓存或 registry。
+8. 安装包资源只读；Profile、会话、日志和设置仍写入 `$DSH_HOME`，然后等待 Bridge 返回 `deeptop/1` 的 `ready` 帧。
 
 选定工作区后，桌面端会将其作为 `session.create({ cwd })` 的工作目录传给 DSH；它不会把桌面项目目录隐式当成所有会话的工作区。Storage、Session Persistence 和 Profile 数据仍由 DSH 按自身配置管理。
 
@@ -156,7 +157,7 @@ npm run version:check
 
 `npm run build` 实际执行 `tsc --noEmit && vite build`；`npm run tauri:dev` 会按 Tauri 配置先启动 Vite，`npm run tauri:build` 会构建原生应用和已启用的 bundle。准备发布时使用 `npm run version:set -- 0.2.0`，它会同步更新 npm、Bridge、Tauri 和 Cargo 清单。每次修改至少运行 `npm run build` 与 `npm test`；修改 Bridge 或重试逻辑时同时运行对应专项测试。
 
-内嵌 DSH 来自 `vendor/dsh` 子模块锁定的 DeepSeek Harness 提交；构建脚本会先构建 Host 产物，再生成无 workspace 链接的 `dsh-runtime` 资源。升级 DSH 时应更新子模块指针、运行时清单，并重新验证 Profile、ApiProxy 方法、Remote 契约和事件投影。
+内嵌 DSH 来自 `vendor/dsh` 子模块锁定的 DeepSeek Harness 提交；构建脚本会先构建 Host 产物，再生成无 workspace 链接的压缩 `dsh-runtime.tar.gz` 资源和旁车清单。升级 DSH 时应更新子模块指针、运行时清单，并重新验证归档、缓存解压、Profile、ApiProxy 方法、Remote 契约和事件投影。
 
 ## 扩展桌面 Profile
 
@@ -225,7 +226,7 @@ Deeptop 通过系统 `PATH` 中的 Node.js 直接执行安装包内嵌的 DSH Ja
 
 ### DSH 启动失败或停留在“正在启动”
 
-打开运行时 Inspector 查看 DSH 状态和诊断信息，确认 `DSH_HOME` 可写、安装包的 `dsh-runtime/runtime-manifest.json` 与 DSH 入口完整、desktop Profile 的 JSON/YAML 没有被破坏。修改 Profile 后可通过应用的刷新运行时操作重新启动 DSH。
+打开运行时 Inspector 查看 DSH 状态和诊断信息，确认 `DSH_HOME` 可写、安装包的 `dsh-runtime.tar.gz` 与 `dsh-runtime-manifest.json` 完整，应用本地数据中的版本缓存已生成且包含 DSH 入口，desktop Profile 的 JSON/YAML 没有被破坏。修改 Profile 后可通过应用的刷新运行时操作重新启动 DSH。
 
 ### 浏览器预览没有会话
 

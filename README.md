@@ -80,7 +80,7 @@ npm ci
 npm run tauri:dev
 ```
 
-启动后等待内嵌 DSH 运行时就绪，再选择或创建工作区、配置 Provider 与凭据，然后新建会话开始工作。Deeptop 会从安装包的 `dsh-runtime` 资源启动固定版本的 DSH；用户的 PATH、全局 npm、npm 缓存和 registry 不会替换或安装运行时。安装包仍使用系统 Node.js 执行内嵌 JavaScript；缺少 Node.js 时会显示可重试的原生错误。
+启动后等待内嵌 DSH 运行时就绪，再选择或创建工作区、配置 Provider 与凭据，然后新建会话开始工作。Deeptop 会从安装包的压缩 `dsh-runtime.tar.gz` 资源启动固定版本的 DSH，并将按源码提交、平台和架构命名的解压缓存复用于后续启动与更新；用户的 PATH、全局 npm、npm 缓存和 registry 不会替换或安装运行时。安装包仍使用系统 Node.js 执行内嵌 JavaScript；缺少 Node.js 时会显示可重试的原生错误。
 
 > `npm run dev` 仅启动 Vite 预览，缺少 Tauri Bridge 和 DSH 子进程。它适合调整布局，不应用于验证会话、文件或系统集成功能。
 

@@ -160,4 +160,4 @@ Release workflow 使用 `tauri build --ci --no-sign`，当前流程生成**未�
 - **Windows 开发版 MSI 构建失败**：Windows MSI 不接受 `dev` 这样的非数字 prerelease identifier；工作流会自动为开发版只构建 NSIS，稳定版仍构建 NSIS + MSI。
 - **开发版未显示为 Pre-release**：检查 Tag 是否包含 `-` prerelease 段，例如 `v0.1.1-dev.1`；稳定版本号不能强制选择 `development` 通道。
 - **macOS 打开受阻**：这是未签名/未公证包的预期行为，不是构建失败；完成 Apple 签名和公证后再用于正式分发。
-- **DSH 运行时问题**：构建矩阵会先从 `vendor/dsh` 子模块生成并校验平台对应的 `dsh-runtime`；应用运行时只通过系统 Node.js 执行安装包内嵌入口，不访问 npm registry，也不回退到 PATH 或全局 npm。
+- **DSH 运行时问题**：构建矩阵会先从 `vendor/dsh` 子模块生成并校验平台对应的压缩 `dsh-runtime.tar.gz`；应用首次启动时由 Rust 安全解压到按源码提交、平台和架构命名的本地缓存，后续更新复用匹配缓存；运行时只通过系统 Node.js 执行缓存入口，不访问 npm registry，也不回退到 PATH 或全局 npm。

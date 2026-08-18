@@ -39,8 +39,9 @@ Tauri window
         WorkspaceGroup.tsx and WorkspacePicker.tsx sidebar subdomains
 
 Tauri runtime
-  -> locate the fixed DSH source build in the Tauri `dsh-runtime` resource
-  -> run the bundled `@deepseek-ai/dsh/lib/bin.js` through system Node.js
+  -> locate the fixed DSH source build in the compressed Tauri `dsh-runtime.tar.gz` resource
+  -> safely extract and reuse an app-local cache keyed by source commit/platform/arch
+  -> run the cached `@deepseek-ai/dsh/lib/bin.js` through system Node.js
   -> keep Profile, sessions, logs and settings in `$DSH_HOME`; never write to resources
      -> desktop Profile + Cordis services
         -> deeptop-bridge plugin
