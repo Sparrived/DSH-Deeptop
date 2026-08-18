@@ -29,6 +29,7 @@ const BUNDLED_DSH_PACKAGE: &str = "@deepseek-ai/dsh";
 const BUNDLED_DSH_RUNTIME_DIR: &str = "dsh-runtime";
 const BUNDLED_DSH_ARCHIVE: &str = "dsh-runtime.tar.gz";
 const BUNDLED_DSH_MANIFEST: &str = "dsh-runtime-manifest.json";
+const RUNTIME_ARCHIVE_MANIFEST: &str = "runtime-manifest.json";
 const BUNDLED_DSH_ENTRY: &str = "node_modules/@deepseek-ai/dsh/lib/bin.js";
 const RUNTIME_CACHE_MARKER: &str = ".complete";
 const NODEJS_DOWNLOAD_URL: &str = "https://nodejs.org/en/download";
@@ -893,7 +894,7 @@ fn is_runtime_cache_ready(root: &Path, manifest: &Value) -> bool {
         .ok()
         .as_deref()
         == Some(key.as_str())
-        && fs::read_to_string(root.join(BUNDLED_DSH_MANIFEST))
+        && fs::read_to_string(root.join(RUNTIME_ARCHIVE_MANIFEST))
             .ok()
             .and_then(|content| serde_json::from_str::<Value>(&content).ok())
             .is_some_and(|cached| cached == *manifest)
@@ -1032,7 +1033,7 @@ fn materialize_bundled_runtime(app: &AppHandle) -> Result<PathBuf, String> {
         // validated above. Materialize that authoritative copy explicitly after
         // extraction so a tar implementation/path quirk cannot leave the cache
         // without its completion metadata on Windows.
-        let extracted_manifest_path = temporary.join(BUNDLED_DSH_MANIFEST);
+        let extracted_manifest_path = temporary.join(RUNTIME_ARCHIVE_MANIFEST);
         let serialized_manifest = serde_json::to_vec_pretty(&manifest)
             .map_err(|error| format!("无法编码内嵌 DSH 运行时清单：{error}"))?;
         fs::write(&extracted_manifest_path, serialized_manifest).map_err(|error| {
@@ -1050,8 +1051,12 @@ fn materialize_bundled_runtime(app: &AppHandle) -> Result<PathBuf, String> {
             })?,
         )
         .map_err(|error| format!("解压后的 DSH 清单无效：{error}"))?;
-        if extracted != manifest || !is_runtime_cache_ready_without_marker(&temporary, &manifest) {
-            return Err("解压后的 DSH 运行时校验失败".to_string());
+        if extracted != manifest {
+            return Err("解压后的 DSH 清单与资源清单不一致".to_string());
+        }
+        let validation_message = runtime_cache_validation_message(&temporary, &manifest);
+        if !validation_message.is_empty() {
+            return Err(format!("解压后的 DSH 运行时校验失败：{validation_message}"));
         }
         let marker = temporary.join(RUNTIME_CACHE_MARKER);
         let marker_temp = temporary.join(format!("{RUNTIME_CACHE_MARKER}.tmp"));
@@ -1089,18 +1094,36 @@ fn materialize_bundled_runtime(app: &AppHandle) -> Result<PathBuf, String> {
     }
 }
 
-fn is_runtime_cache_ready_without_marker(root: &Path, manifest: &Value) -> bool {
+fn runtime_cache_validation_message(root: &Path, manifest: &Value) -> String {
     if is_runtime_reparse_point(root) {
-        return false;
+        return format!("运行时缓存目录是重解析点：{}", root.display());
     }
-    fs::read_to_string(root.join(BUNDLED_DSH_MANIFEST))
+    let expected_manifest = manifest;
+    let cached_manifest = fs::read_to_string(root.join(RUNTIME_ARCHIVE_MANIFEST))
         .ok()
-        .and_then(|content| serde_json::from_str::<Value>(&content).ok())
-        .is_some_and(|cached| cached == *manifest)
-        && root.join(BUNDLED_DSH_ENTRY).is_file()
-        && dsh_package_available_at(root)
-        && runtime_manifest_tree_sha256(manifest)
-            .is_some_and(|expected| runtime_tree_sha256(root).ok().as_deref() == Some(expected))
+        .and_then(|content| serde_json::from_str::<Value>(&content).ok());
+    if cached_manifest.as_ref() != Some(expected_manifest) {
+        return format!(
+            "运行时缓存清单不一致：{}",
+            root.join(RUNTIME_ARCHIVE_MANIFEST).display()
+        );
+    }
+    let entry = root.join(BUNDLED_DSH_ENTRY);
+    if !entry.is_file() {
+        return format!("运行时入口不存在：{}", entry.display());
+    }
+    let package_manifest = dsh_package_manifest_at(root);
+    if !dsh_package_available_at(root) {
+        return format!("DSH 包清单不存在或无效：{}", package_manifest.display());
+    }
+    let Some(expected_tree) = runtime_manifest_tree_sha256(manifest) else {
+        return "运行时清单缺少有效树摘要".to_string();
+    };
+    match runtime_tree_sha256(root) {
+        Ok(actual_tree) if actual_tree == expected_tree => String::new(),
+        Ok(actual_tree) => format!("运行时树摘要不一致：期望 {expected_tree}，实际 {actual_tree}"),
+        Err(error) => format!("读取运行时树失败：{error}"),
+    }
 }
 
 fn executable_from_path(name: &str) -> Option<PathBuf> {
@@ -2652,8 +2675,9 @@ mod tests {
     use super::{
         bound_log_text, extract_runtime_archive, format_log_line, format_utc_datetime,
         is_bundled_runtime_manifest, is_dsh_package_manifest, is_safe_runtime_entry, runtime_arch,
-        runtime_platform, runtime_tree_sha256, validated_connection_url, DshRuntimeLog, LogStore,
-        MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES, RUNTIME_CACHE_MARKER,
+        runtime_cache_validation_message, runtime_platform, runtime_tree_sha256,
+        validated_connection_url, DshRuntimeLog, LogStore, MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES,
+        RUNTIME_CACHE_MARKER,
     };
 
     #[cfg(windows)]
@@ -2745,6 +2769,22 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&root);
         extract_runtime_archive(&archive, &root).expect("extract bundled runtime archive");
+        let manifest: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(root.join("runtime-manifest.json"))
+                .expect("read extracted runtime manifest"),
+        )
+        .expect("parse extracted runtime manifest");
+        assert_eq!(
+            runtime_tree_sha256(&root).expect("hash extracted runtime"),
+            manifest["treeSha256"]
+                .as_str()
+                .expect("manifest tree digest")
+        );
+        assert_eq!(
+            runtime_cache_validation_message(&root, &manifest),
+            "",
+            "extracted runtime should satisfy the cache validator"
+        );
         assert!(root.join("runtime-manifest.json").is_file());
         assert!(root
             .join("node_modules/@deepseek-ai/dsh/lib/bin.js")
