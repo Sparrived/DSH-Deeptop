@@ -7,7 +7,7 @@ use std::{
     path::{Component, Path, PathBuf},
     process::{Command, Output, Stdio},
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc, Arc, Mutex,
     },
     thread,
@@ -329,6 +329,7 @@ struct BridgeManager {
     next_request_id: Arc<AtomicU64>,
     pending_open_sessions: Arc<Mutex<VecDeque<String>>>,
     pending_external_launches: Arc<Mutex<VecDeque<external_launch::ExternalLaunchRequest>>>,
+    pending_window_close: Arc<AtomicBool>,
     logs: Arc<Mutex<LogStore>>,
     log_writer: LogWriter,
 }
@@ -384,6 +385,14 @@ impl BridgeManager {
         if let Ok(mut pending) = self.pending_external_launches.lock() {
             pending.retain(|item| item.paths != paths);
         }
+    }
+
+    fn request_window_close(&self) -> bool {
+        !self.pending_window_close.swap(true, Ordering::AcqRel)
+    }
+
+    fn clear_window_close(&self) {
+        self.pending_window_close.store(false, Ordering::Release);
     }
 }
 
@@ -1905,14 +1914,25 @@ fn set_window_behavior_settings(
 #[tauri::command]
 fn resolve_window_close(
     app: AppHandle,
+    runtime: State<'_, BridgeManager>,
     behavior: window_behavior::CloseBehavior,
 ) -> Result<(), String> {
-    let previous = window_behavior::load(&app)?;
+    let previous = match window_behavior::load(&app) {
+        Ok(settings) => settings,
+        Err(error) => {
+            runtime.clear_window_close();
+            return Err(error);
+        }
+    };
     let settings = window_behavior::WindowBehaviorSettings {
         minimize_to_tray: previous.minimize_to_tray,
         close_behavior: behavior.clone(),
     };
-    window_behavior::save(&app, &settings)?;
+    if let Err(error) = window_behavior::save(&app, &settings) {
+        runtime.clear_window_close();
+        return Err(error);
+    }
+    runtime.clear_window_close();
     match behavior {
         window_behavior::CloseBehavior::HideToTray => {
             if let Err(error) = hide_main_window(&app) {
@@ -1931,6 +1951,16 @@ fn resolve_window_close(
             Err("关闭行为不能设置为询问".to_string())
         }
     }
+}
+
+#[tauri::command]
+fn list_pending_window_close(runtime: State<'_, BridgeManager>) -> bool {
+    runtime.pending_window_close.load(Ordering::Acquire)
+}
+
+#[tauri::command]
+fn cancel_window_close(runtime: State<'_, BridgeManager>) {
+    runtime.clear_window_close();
 }
 
 fn hide_main_window(app: &AppHandle) -> Result<(), String> {
@@ -2000,13 +2030,16 @@ fn install_window_behavior_handlers(app: &AppHandle) -> Result<(), String> {
         .get_webview_window("main")
         .ok_or_else(|| "找不到 Deeptop 主窗口".to_string())?;
     let app_handle = app.clone();
+    let runtime = app.state::<BridgeManager>().inner().clone();
     window.on_window_event(move |event| {
         if let WindowEvent::CloseRequested { api, .. } = event {
             let settings = window_behavior::load(&app_handle).unwrap_or_default();
             match settings.close_behavior {
                 window_behavior::CloseBehavior::Ask => {
                     api.prevent_close();
-                    let _ = app_handle.emit("window-close-requested", ());
+                    if runtime.request_window_close() {
+                        let _ = app_handle.emit("window-close-requested", ());
+                    }
                 }
                 window_behavior::CloseBehavior::HideToTray => {
                     api.prevent_close();
@@ -3135,6 +3168,8 @@ fn main() {
             get_window_behavior_settings,
             set_window_behavior_settings,
             resolve_window_close,
+            list_pending_window_close,
+            cancel_window_close,
             about::check_for_updates,
             about::cancel_update_check,
             about::open_project_url,

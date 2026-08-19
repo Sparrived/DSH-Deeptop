@@ -500,6 +500,16 @@ export async function resolveWindowClose(behavior: Exclude<CloseBehavior, "ask">
   await invoke("resolve_window_close", { behavior });
 }
 
+export async function listPendingWindowClose(): Promise<boolean> {
+  if (!isTauri()) return false;
+  return invoke<boolean>("list_pending_window_close");
+}
+
+export async function cancelWindowClose(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("cancel_window_close");
+}
+
 export class DshApiError extends Error {
   readonly code: string;
   readonly details?: unknown;

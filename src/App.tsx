@@ -52,6 +52,8 @@ import {
   getWindowBehaviorSettings,
   setWindowBehaviorSettings,
   resolveWindowClose,
+  listPendingWindowClose,
+  cancelWindowClose,
   listenToWindowCloseRequested,
   type CloseBehavior,
   type WindowBehaviorSettings,
@@ -492,7 +494,10 @@ function App() {
     closeRequestPendingRef.current = true;
     try {
       const behavior = windowBehavior.closeBehavior === "ask" ? await requestCloseBehavior() : windowBehavior.closeBehavior;
-      if (!behavior) return;
+      if (!behavior) {
+        await cancelWindowClose();
+        return;
+      }
       await resolveWindowClose(behavior);
       setWindowBehavior((current) => ({ ...current, closeBehavior: behavior }));
     } catch (error) {
@@ -671,6 +676,7 @@ function App() {
     void getWindowBehaviorSettings().then(normalizeWindowBehavior).then(setWindowBehavior).catch((error) => setErrorNotice(`读取窗口行为设置失败：${errorText(error)}`));
     let unlisten: UnlistenFn | undefined;
     void listenToWindowCloseRequested(() => { requestWindowCloseRef.current(); }).then((cleanup) => { unlisten = cleanup; });
+    void listPendingWindowClose().then((pending) => { if (pending) requestWindowCloseRef.current(); }).catch(() => undefined);
     return () => { unlisten?.(); };
   }, [desktop]);
 
