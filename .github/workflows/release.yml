@@ -120,7 +120,7 @@ jobs:
             development_bundles: nsis
           - platform: linux
             arch: x64
-            runner: ubuntu-latest
+            runner: ubuntu-22.04
             bundles: deb,appimage
           - platform: macos
             arch: x64
@@ -141,14 +141,16 @@ jobs:
 
       - name: Install Linux dependencies
         if: matrix.platform == 'linux'
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y \
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install --no-install-recommends -y \
             build-essential \
             file \
             libayatana-appindicator3-dev \
             libssl-dev \
-            libwebkit2gtk-4.1-dev \
+            libwebkit2gtk-4.0-dev \
             libxdo-dev \
             librsvg2-dev \
             patchelf
