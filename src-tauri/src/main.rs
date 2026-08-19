@@ -1363,7 +1363,7 @@ impl BridgeManager {
             }
             state.generation += 1;
             state.phase = RuntimePhase::Checking;
-            state.message = "正在检查内嵌 DSH 运行时...".to_string();
+            state.message = "正在检查 DeepSeek Harness 运行时...".to_string();
             state.auto_restart_pending = false;
             state.generation
         };
@@ -1435,7 +1435,7 @@ impl BridgeManager {
                     return false;
                 }
                 state.phase = RuntimePhase::Starting;
-                state.message = "正在启动内嵌 DSH...".to_string();
+                state.message = "正在启动DeepSeek Harness...".to_string();
                 true
             })
             .unwrap_or(false);

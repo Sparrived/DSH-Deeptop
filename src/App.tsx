@@ -276,7 +276,7 @@ function App() {
   const desktop = isTauri();
   applyFrontendVisualResetOnce();
   const [status, setStatus] = useState<DshStatus>(() => desktop
-    ? { ...demoStatus, runtimeStarting: true, message: "正在检查 DSH 安装..." }
+    ? { ...demoStatus, runtimeStarting: true, message: "正在检查DeepSeek Harness..." }
     : demoStatus);
   const [sessions, setSessions] = useState<DshSessionSummary[]>([]);
   const [archivedSessionIds, setArchivedSessionIds] = useState<Set<string>>(new Set());

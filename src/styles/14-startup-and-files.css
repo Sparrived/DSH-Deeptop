@@ -202,7 +202,7 @@
 
 .startup-status-list {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   border-top: 1px solid rgba(181, 220, 211, 0.13);
   border-bottom: 1px solid rgba(181, 220, 211, 0.13);
 }

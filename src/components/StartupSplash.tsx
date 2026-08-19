@@ -28,9 +28,9 @@ export function StartupSplash({
 }: StartupSplashProps) {
   const failed = !status.runtimeStarting && !status.runtimeAvailable;
   const phase = failed ? "error" : status.runtimeStarting ? "start" : "check";
-  const phaseLabel = failed ? "RUNTIME UNAVAILABLE" : status.runtimeStarting ? "STARTING BUNDLED RUNTIME" : "CHECKING BUNDLED RUNTIME";
-  const phaseTitle = failed ? "DSH 暂时无法启动" : status.runtimeStarting ? "正在启动内嵌 DSH" : "正在检查内嵌运行时";
-  const phaseDescription = status.message || (failed ? "启动过程被中断，请检查环境后重试。" : "正在等待 DSH 桌面宿主就绪...");
+  const phaseLabel = failed ? "RUNTIME UNAVAILABLE" : status.runtimeStarting ? "STARTING DEEPSEEK HARNESS" : "CHECKING DEEPSEEK HARNESS";
+  const phaseTitle = failed ? "DeepSeek Harness 暂时无法启动" : status.runtimeStarting ? "正在启动DeepSeek Harness" : "正在检查 DeepSeek Harness";
+  const phaseDescription = status.message || (failed ? "启动过程被中断，请检查环境后重试。" : "正在等待 DeepSeek Harness 桌面宿主就绪...");
   const logViewportRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const viewport = logViewportRef.current;
@@ -38,8 +38,7 @@ export function StartupSplash({
   }, [logs]);
   const statusDetails = [
     { label: "Node.js", active: status.nodeAvailable, detail: status.nodeAvailable ? "已发现" : "未找到" },
-    { label: "内嵌 DSH", active: status.packageAvailable, detail: status.packageAvailable ? "已校验" : "等待校验" },
-    { label: "网络安装", active: true, detail: "未使用" },
+    { label: "DeepSeek Harness", active: status.packageAvailable, detail: status.packageAvailable ? "已校验" : "等待校验" },
     { label: "Desktop bridge", active: status.runtimeAvailable, detail: status.runtimeAvailable ? "已连接" : status.runtimeStarting ? "连接中" : "等待中" },
   ];
   const screenStyle = { "--startup-phase": `"${phase}"` } as CSSProperties;
@@ -57,7 +56,7 @@ export function StartupSplash({
           <WindowControls windowMaximized={windowMaximized} onMinimize={onMinimize} onToggleMaximize={onToggleMaximize} onClose={onClose} />
         </div>
       </header>
-      <section className="startup-content" aria-label="DSH 启动画面">
+      <section className="startup-content" aria-label="DeepSeek Harness 启动画面">
         <div className="startup-rule" />
         <div className="startup-heading-row">
           <p className="startup-kicker">{phaseLabel}</p>
@@ -90,7 +89,7 @@ export function StartupSplash({
         </section>
         {failed ? (
           <div className="startup-actions">
-            <button className="startup-retry" onClick={onRetry}>重新启动 DSH</button>
+            <button className="startup-retry" onClick={onRetry}>重新启动 DeepSeek Harness</button>
             {!status.nodeAvailable && <button className="startup-nodejs" onClick={onOpenNodejsDownload}>安装 Node.js</button>}
           </div>
         ) : (
