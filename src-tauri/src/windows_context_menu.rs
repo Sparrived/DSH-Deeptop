@@ -18,7 +18,7 @@ pub struct ContextMenuStatus {
 mod platform {
     use super::{ContextMenuStatus, COMMAND_VALUE, MANAGED_VALUE, MENU_KEY, MENU_LABEL};
     use crate::external_launch::{CONTEXT_MENU_DIRECTORY_MARKER, CONTEXT_MENU_FILE_MARKER};
-    use std::{io, path::PathBuf};
+    use std::{io, path::Path};
     use winreg::{
         enums::{HKEY_CURRENT_USER, KEY_WRITE},
         RegKey,
@@ -164,7 +164,7 @@ mod platform {
         }
     }
 
-    fn quote_command(executable: &PathBuf, argument: &str, marker: &str) -> String {
+    fn quote_command(executable: &Path, argument: &str, marker: &str) -> String {
         let executable = executable.to_string_lossy().replace('"', "");
         format!("\"{executable}\" \"{marker}\" \"{argument}\"")
     }
@@ -193,12 +193,7 @@ mod platform {
         Ok(())
     }
 
-    fn write_entry(
-        path: &str,
-        argument: &str,
-        marker: &str,
-        executable: &Path,
-    ) -> io::Result<()> {
+    fn write_entry(path: &str, argument: &str, marker: &str, executable: &Path) -> io::Result<()> {
         let (parent_path, leaf) = split_parent(path);
         let (parent, _) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(parent_path)?;
         let (key, _) = parent.create_subkey(leaf)?;
