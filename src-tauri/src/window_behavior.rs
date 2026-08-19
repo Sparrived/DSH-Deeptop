@@ -60,8 +60,16 @@ pub fn save(app: &AppHandle, settings: &WindowBehaviorSettings) -> Result<(), St
         .map_err(|error| format!("写入窗口行为配置失败：{error}"))?;
     if path.exists() {
         let backup = path.with_extension("json.bak");
-        let _ = fs::remove_file(&backup);
-        fs::rename(&path, &backup).map_err(|error| format!("准备替换窗口行为配置失败：{error}"))?;
+        if let Err(error) = fs::remove_file(&backup) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                let _ = fs::remove_file(&temporary);
+                return Err(format!("清理旧窗口行为备份失败：{error}"));
+            }
+        }
+        if let Err(error) = fs::rename(&path, &backup) {
+            let _ = fs::remove_file(&temporary);
+            return Err(format!("准备替换窗口行为配置失败：{error}"));
+        }
         if let Err(error) = fs::rename(&temporary, &path) {
             let _ = fs::rename(&backup, &path);
             let _ = fs::remove_file(&temporary);
