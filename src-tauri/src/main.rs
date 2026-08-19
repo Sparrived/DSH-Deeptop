@@ -19,11 +19,16 @@ use notify_rust::{Notification as DesktopNotification, NotificationResponse};
 use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{
+    menu::{Menu, MenuItemBuilder},
+    tray::{TrayIconBuilder, TrayIconEvent},
+    AppHandle, Emitter, Manager, State, WindowEvent,
+};
 
 mod about;
 mod external_launch;
 mod terminal;
+mod window_behavior;
 mod windows_context_menu;
 
 const DSH_PROFILE: &str = "desktop";
@@ -1883,6 +1888,61 @@ fn set_windows_context_menu_enabled(
 }
 
 #[tauri::command]
+fn get_window_behavior_settings(
+    app: AppHandle,
+) -> Result<window_behavior::WindowBehaviorSettings, String> {
+    window_behavior::get_window_behavior_settings(app)
+}
+
+#[tauri::command]
+fn set_window_behavior_settings(
+    app: AppHandle,
+    settings: window_behavior::WindowBehaviorSettings,
+) -> Result<window_behavior::WindowBehaviorSettings, String> {
+    window_behavior::set_window_behavior_settings(app, settings)
+}
+
+#[tauri::command]
+fn resolve_window_close(
+    app: AppHandle,
+    behavior: window_behavior::CloseBehavior,
+) -> Result<(), String> {
+    let previous = window_behavior::load(&app)?;
+    let settings = window_behavior::WindowBehaviorSettings {
+        minimize_to_tray: previous.minimize_to_tray,
+        close_behavior: behavior.clone(),
+    };
+    window_behavior::save(&app, &settings)?;
+    match behavior {
+        window_behavior::CloseBehavior::HideToTray => {
+            if let Err(error) = hide_main_window(&app) {
+                let _ = window_behavior::save(&app, &previous);
+                Err(error)
+            } else {
+                Ok(())
+            }
+        }
+        window_behavior::CloseBehavior::Exit => {
+            app.exit(0);
+            Ok(())
+        }
+        window_behavior::CloseBehavior::Ask => {
+            let _ = window_behavior::save(&app, &previous);
+            Err("关闭行为不能设置为询问".to_string())
+        }
+    }
+}
+
+fn hide_main_window(app: &AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "找不到 Deeptop 主窗口".to_string())?;
+    window
+        .hide()
+        .map_err(|error| format!("隐藏 Deeptop 窗口失败：{error}"))
+}
+
+#[tauri::command]
 fn refresh_dsh(app: AppHandle, runtime: State<'_, BridgeManager>) -> DshStatus {
     runtime.restart(app);
     runtime.status()
@@ -1904,6 +1964,59 @@ fn publish_external_launch(
     runtime.enqueue_external_launch(request.clone());
     focus_main_window(app);
     let _ = app.emit("external-launch", request);
+}
+
+fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
+    let show = MenuItemBuilder::with_id("show-main-window", "打开 Deeptop").build(app)?;
+    let quit = MenuItemBuilder::with_id("quit-deeptop", "退出 Deeptop").build(app)?;
+    let menu = Menu::with_items(app, &[&show, &quit])?;
+    let app_handle = app.clone();
+    let tray_app = app.clone();
+    let icon = app
+        .default_window_icon()
+        .cloned()
+        .ok_or_else(|| tauri::Error::AssetNotFound("Deeptop 图标未配置".to_string()))?;
+    TrayIconBuilder::with_id("main-tray")
+        .icon(icon)
+        .menu(&menu)
+        .tooltip("Deeptop")
+        .show_menu_on_left_click(true)
+        .on_menu_event(move |app, event| match event.id().as_ref() {
+            "show-main-window" => focus_main_window(app),
+            "quit-deeptop" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(move |_, event| {
+            if matches!(event, TrayIconEvent::DoubleClick { .. }) {
+                focus_main_window(&app_handle);
+            }
+        })
+        .build(&tray_app)?;
+    Ok(())
+}
+
+fn install_window_behavior_handlers(app: &AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "找不到 Deeptop 主窗口".to_string())?;
+    let app_handle = app.clone();
+    window.on_window_event(move |event| {
+        if let WindowEvent::CloseRequested { api, .. } = event {
+            let settings = window_behavior::load(&app_handle).unwrap_or_default();
+            match settings.close_behavior {
+                window_behavior::CloseBehavior::Ask => {
+                    api.prevent_close();
+                    let _ = app_handle.emit("window-close-requested", ());
+                }
+                window_behavior::CloseBehavior::HideToTray => {
+                    api.prevent_close();
+                    let _ = hide_main_window(&app_handle);
+                }
+                window_behavior::CloseBehavior::Exit => {}
+            }
+        }
+    });
+    Ok(())
 }
 
 fn validated_connection_url(value: &str) -> Result<String, String> {
@@ -3003,6 +3116,8 @@ fn main() {
                 };
                 app.handle().exit(exit_code);
             } else {
+                setup_tray(app.handle()).map_err(|error| format!("创建系统托盘失败：{error}"))?;
+                install_window_behavior_handlers(app.handle())?;
                 let runtime = app.state::<BridgeManager>().inner().clone();
                 runtime.start(app.handle().clone());
                 let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -3017,6 +3132,9 @@ fn main() {
             check_dsh,
             get_windows_context_menu_status,
             set_windows_context_menu_enabled,
+            get_window_behavior_settings,
+            set_window_behavior_settings,
+            resolve_window_close,
             about::check_for_updates,
             about::cancel_update_check,
             about::open_project_url,
