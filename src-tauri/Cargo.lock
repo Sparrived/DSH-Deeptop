@@ -799,7 +799,7 @@ dependencies = [
 
 [[package]]
 name = "deeptop"
-version = "0.1.3-dev.1"
+version = "0.1.3-dev.2"
 dependencies = [
  "arboard",
  "flate2",
