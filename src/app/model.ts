@@ -44,4 +44,6 @@ export type {
   WindowMenu,
   WorkflowView,
   WorkspaceViewMode,
+  WorkingIndicatorEffect,
+  WorkingIndicatorSettings,
 } from "./model-types";

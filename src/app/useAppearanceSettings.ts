@@ -6,6 +6,7 @@ import type {
   BackgroundSettings,
   BackgroundZone,
 } from "./model-types";
+import { defaultWorkingIndicator, normalizeWorkingIndicator } from "./working-indicator";
 import {
   ensureThemeFiles,
   openThemesDirectory as openThemesDirectoryCommand,
@@ -75,6 +76,7 @@ export const defaultAppearance: AppearanceSettings = {
   codeFontFamily: '"Cascadia Mono", Consolas, monospace',
   messageFontSize: 15,
   messageLineHeight: 1.7,
+  workingIndicator: defaultWorkingIndicator,
   backgrounds: defaultBackgrounds(),
   customCss: "",
   customCssName: "",
@@ -174,6 +176,7 @@ function readAppearanceSettings(): AppearanceSettings {
       codeFontFamily: typeof value.codeFontFamily === "string" && value.codeFontFamily.trim() ? value.codeFontFamily : defaultAppearance.codeFontFamily,
       messageFontSize: boundedNumber(value.messageFontSize, defaultAppearance.messageFontSize, 14, 18),
       messageLineHeight: boundedNumber(value.messageLineHeight, defaultAppearance.messageLineHeight, 1.35, 2.2),
+      workingIndicator: normalizeWorkingIndicator(value.workingIndicator),
       backgrounds: migrateBackgrounds(value),
       customCss,
       customCssName: customCss && typeof value.customCssName === "string" ? value.customCssName : "",
@@ -209,6 +212,8 @@ export function useAppearanceSettings({ onNotice, onError }: UseAppearanceSettin
   const [reloadToken, setReloadToken] = useState(0);
 
   function updateAppearance(patch: Partial<AppearanceSettings>) {
+    // Field-level edits may temporarily contain an empty line while the user types;
+    // persisted values are normalized again when the app starts or imports a config.
     setAppearance((current) => ({ ...current, ...patch }));
   }
 
@@ -420,6 +425,7 @@ export function useAppearanceSettings({ onNotice, onError }: UseAppearanceSettin
   function resetAppearance() {
     setAppearance((current) => ({
       ...defaultAppearance,
+      workingIndicator: { ...defaultWorkingIndicator, texts: [...defaultWorkingIndicator.texts] },
       themeCssPath: themeFilesInfo ? themeFilesInfo.monokaiPro : current.themeCssPath,
     }));
     setAppThemeState("monokai-pro");
@@ -446,6 +452,7 @@ export function useAppearanceSettings({ onNotice, onError }: UseAppearanceSettin
       "--mono": appearance.codeFontFamily,
       "--message-font-size": `${appearance.messageFontSize}px`,
       "--message-line-height": String(appearance.messageLineHeight),
+      "--working-indicator-color": appearance.workingIndicator.color,
       "--app-background-image": backgroundUrl("global"),
       "--app-background-opacity": String(appearance.backgrounds.global.opacity),
       "--app-background-blur": `${appearance.backgrounds.global.blur}px`,

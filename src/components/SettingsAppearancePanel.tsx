@@ -1,5 +1,5 @@
-import { useRef, type ComponentProps } from "react";
-import type { AppearanceSettings, AppearanceSection } from "../app/model";
+import { useRef, type ComponentProps, type CSSProperties } from "react";
+import type { AppearanceSettings, AppearanceSection, WorkingIndicatorEffect } from "../app/model";
 import type { AppTheme, ThemeMode } from "../app/model";
 import { SettingsBackgroundPanel } from "./SettingsBackgroundPanel";
 
@@ -165,6 +165,19 @@ export function SettingsAppearancePanel({
             <label className="settings-preference-row"><span><strong>消息字号</strong><small>{appearance.messageFontSize}px</small></span><span className="appearance-range-control"><input type="range" min="14" max="18" step="1" value={appearance.messageFontSize} onChange={(event) => onUpdate({ messageFontSize: Number(event.target.value) })} /><output>{appearance.messageFontSize}px</output></span></label>
             <label className="settings-preference-row"><span><strong>消息行距</strong><small>{appearance.messageLineHeight.toFixed(2)}</small></span><span className="appearance-range-control"><input type="range" min="1.35" max="2.2" step="0.05" value={appearance.messageLineHeight} onChange={(event) => onUpdate({ messageLineHeight: Number(event.target.value) })} /><output>{appearance.messageLineHeight.toFixed(2)}</output></span></label>
           </div>
+        </div>
+      )}
+
+      {section === "typography" && (
+        <div className="settings-block working-indicator-settings">
+          <div className="settings-block-heading"><div><h3>运行中提示</h3><p>模型工作时显示的提示语。每行一条，运行期间会按顺序轮换。</p></div></div>
+          <div className="settings-preference-list">
+            <label className="appearance-custom-field"><span>提示文本（支持多文本轮换）</span><textarea value={appearance.workingIndicator.texts.join("\n")} onChange={(event) => onUpdate({ workingIndicator: { ...appearance.workingIndicator, texts: event.target.value.split(/\r?\n/) } })} placeholder="Deep diving...\n整理上下文…\n正在执行工具" rows={4} maxLength={1500} /></label>
+            <label className="settings-preference-row"><span><strong>文本颜色</strong><small>{appearance.workingIndicator.color}</small></span><span className="appearance-color-control"><input type="color" value={appearance.workingIndicator.color} onChange={(event) => onUpdate({ workingIndicator: { ...appearance.workingIndicator, color: event.target.value } })} /><code>{appearance.workingIndicator.color}</code></span></label>
+            <label className="settings-preference-row"><span><strong>文字特效</strong><small>仅作用于运行中提示，不改变消息正文</small></span><select value={appearance.workingIndicator.effect} onChange={(event) => onUpdate({ workingIndicator: { ...appearance.workingIndicator, effect: event.target.value as WorkingIndicatorEffect } })}><option value="shimmer">流光</option><option value="pulse">呼吸</option><option value="glow">发光</option><option value="none">静态</option></select></label>
+            {appearance.workingIndicator.texts.length > 1 && <label className="settings-preference-row"><span><strong>轮换速度</strong><small>{(appearance.workingIndicator.rotationInterval / 1000).toFixed(1)} 秒切换一次</small></span><span className="appearance-range-control"><input type="range" min="1200" max="10000" step="100" value={appearance.workingIndicator.rotationInterval} onChange={(event) => onUpdate({ workingIndicator: { ...appearance.workingIndicator, rotationInterval: Number(event.target.value) } })} /><output>{(appearance.workingIndicator.rotationInterval / 1000).toFixed(1)}s</output></span></label>}
+          </div>
+          <div className="working-indicator-preview" style={{ "--working-indicator-color": appearance.workingIndicator.color } as CSSProperties}><span className={`effect-${appearance.workingIndicator.effect}`}>{appearance.workingIndicator.texts.find((text) => text.trim()) || "Deep diving..."}</span><small>预览</small></div>
         </div>
       )}
 

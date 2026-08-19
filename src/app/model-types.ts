@@ -36,11 +36,21 @@ export type BackgroundConfig = {
 /** 按区域组织的背景图设置集合。 */
 export type BackgroundSettings = Record<BackgroundZone, BackgroundConfig>;
 
+export type WorkingIndicatorEffect = "none" | "shimmer" | "pulse" | "glow";
+
+export type WorkingIndicatorSettings = {
+  texts: string[];
+  color: string;
+  effect: WorkingIndicatorEffect;
+  rotationInterval: number;
+};
+
 export type AppearanceSettings = {
   fontFamily: string;
   codeFontFamily: string;
   messageFontSize: number;
   messageLineHeight: number;
+  workingIndicator: WorkingIndicatorSettings;
   backgrounds: BackgroundSettings;
   customCss: string;
   customCssName: string;

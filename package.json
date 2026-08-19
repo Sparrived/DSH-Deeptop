@@ -21,7 +21,7 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "test": "node --test scripts/generate-release-notes.test.mjs scripts/installer-hooks.test.mjs src/lib/message-entities.test.mjs src/lib/external-launch.test.mjs src/app/window-behavior.test.mjs deeptop-bridge/routes.test.mjs src/app/session-runtime-state.test.mjs src/app/message-retry.test.mjs src/app/message-model.test.mjs src/app/ui-model.test.mjs src/app/keyboard-shortcut.test.mjs src/app/context-menu.test.mjs src/app/trajectory.test.mjs src/app/settings-model.test.mjs src/app/session-timing.test.mjs src/app/update-model.test.mjs",
+    "test": "node --test scripts/generate-release-notes.test.mjs scripts/installer-hooks.test.mjs src/app/working-indicator.test.mjs src/lib/message-entities.test.mjs src/lib/external-launch.test.mjs src/app/window-behavior.test.mjs deeptop-bridge/routes.test.mjs src/app/session-runtime-state.test.mjs src/app/message-retry.test.mjs src/app/message-model.test.mjs src/app/ui-model.test.mjs src/app/keyboard-shortcut.test.mjs src/app/context-menu.test.mjs src/app/trajectory.test.mjs src/app/settings-model.test.mjs src/app/session-timing.test.mjs src/app/update-model.test.mjs",
     "test:bridge": "node --test deeptop-bridge/routes.test.mjs",
     "test:release-notes": "node --test scripts/generate-release-notes.test.mjs",
     "test:retry": "node --test src/app/message-retry.test.mjs",

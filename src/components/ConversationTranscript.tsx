@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type RefObject, type UIEvent } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject, type UIEvent } from "react";
 import type { DshHistoryEntry, DshMessageAnnotationItem, DshPreset, DshSessionSummary } from "../lib/desktop";
 import { MarkdownContent } from "../lib/markdown";
 import { PopupDialog } from "./PopupDialog";
@@ -13,7 +13,8 @@ import {
   type DiffSummary,
   type TranscriptItem,
 } from "../app/model";
-import type { MessageStats, TranscriptImage } from "../app/model";
+import type { MessageStats, TranscriptImage, WorkingIndicatorSettings } from "../app/model";
+import { workingIndicatorTextAt } from "../app/working-indicator";
 
 type ConversationTranscriptProps = {
   scrollRef: RefObject<HTMLDivElement | null>;
@@ -24,6 +25,7 @@ type ConversationTranscriptProps = {
   activeSessionId: string | null;
   activeRunning: boolean;
   loading: boolean;
+  workingIndicator: WorkingIndicatorSettings;
   historyHasMore: boolean;
   historyLoadingOlder: boolean;
   transcriptFollowing: boolean;
@@ -54,6 +56,28 @@ function diffTextLines(text: string) {
   if (!text) return [];
   const body = text.endsWith("\n") ? text.slice(0, -1) : text;
   return body ? body.split("\n") : [];
+}
+
+function WorkingIndicator({ settings }: { settings: WorkingIndicatorSettings }) {
+  const [index, setIndex] = useState(0);
+  const texts = settings.texts.map((text) => text.trim()).filter(Boolean);
+  const safeSettings = texts.length > 0 ? { ...settings, texts } : { ...settings, texts: ["Deep diving..."] };
+
+  useEffect(() => {
+    setIndex(0);
+  }, [settings.texts.join("\u0000")]);
+
+  useEffect(() => {
+    if (texts.length < 2) return;
+    const timer = window.setInterval(() => setIndex((current) => current + 1), settings.rotationInterval);
+    return () => window.clearInterval(timer);
+  }, [settings.rotationInterval, texts.length]);
+
+  return (
+    <div className={`agent-working effect-${settings.effect}`} role="status" aria-live="polite" style={{ "--working-indicator-color": settings.color } as CSSProperties}>
+      <span>{workingIndicatorTextAt(safeSettings, index)}</span>
+    </div>
+  );
 }
 
 function formatToolCall(text: string) {
@@ -433,6 +457,7 @@ export function ConversationTranscript({
   activeSessionId,
   activeRunning,
   loading,
+  workingIndicator,
   historyHasMore,
   historyLoadingOlder,
   transcriptFollowing,
@@ -526,7 +551,7 @@ export function ConversationTranscript({
                onOpenUrl={onOpenUrl}
             />
           ))}
-          {(loading || activeRunning) && <div className="agent-working" role="status" aria-live="polite">Deep diving...</div>}
+          {(loading || activeRunning) && <WorkingIndicator settings={workingIndicator} />}
            <div ref={endRef} />
         </div>
       )}

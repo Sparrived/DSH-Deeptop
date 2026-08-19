@@ -959,6 +959,22 @@
 @media (max-width: 640px) { .settings-navigation-group-toggle { padding-inline: 6px; } .settings-navigation-subnav { margin-left: 7px; padding-left: 7px; } .appearance-subpage-grid { grid-template-columns: 1fr; } .appearance-subpage-card { min-height: 72px; } .appearance-import-export { justify-content: flex-start; } .appearance-import-export > span { width: 100%; margin-right: 0; } .appearance-import-export .settings-header-action { flex: 1 1 0; } }
 @media (prefers-reduced-motion: reduce) { .settings-navigation-chevron { transition: none; } }
 
+/* Running indicator: one quiet customization surface for copy, color, and motion. */
+.agent-working { color: var(--working-indicator-color, var(--accent)); background: none; -webkit-text-fill-color: currentColor; background-clip: initial; animation: none; }
+.agent-working > span { display: inline-block; color: var(--working-indicator-color, var(--accent)); }
+.agent-working.effect-shimmer > span { color: transparent; background: linear-gradient(100deg, var(--working-indicator-color, var(--accent)) 35%, color-mix(in srgb, var(--working-indicator-color, var(--accent)) 35%, white) 50%, var(--working-indicator-color, var(--accent)) 65%); background-size: 220% 100%; background-clip: text; -webkit-background-clip: text; animation: dsh-custom-indicator-shimmer 1.8s linear infinite; }
+.agent-working.effect-pulse > span { animation: dsh-custom-indicator-pulse 1.6s ease-in-out infinite; }
+.agent-working.effect-glow > span { text-shadow: 0 0 10px color-mix(in srgb, var(--working-indicator-color, var(--accent)) 70%, transparent); }
+.working-indicator-preview { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 13px 14px; border: 1px solid var(--line); background: var(--surface-soft); color: var(--working-indicator-color, var(--accent)); font-size: 14px; }
+.working-indicator-preview small { color: var(--ink-faint); font-size: 11px; }
+.appearance-custom-field textarea { min-height: 88px; resize: vertical; }
+.appearance-color-control { display: inline-flex; align-items: center; gap: 8px; }
+.appearance-color-control input[type="color"] { width: 34px; height: 28px; padding: 2px; border: 1px solid var(--line-strong); background: transparent; }
+.appearance-color-control code { color: var(--ink-muted); font: 11px/1 var(--mono); }
+@keyframes dsh-custom-indicator-shimmer { to { background-position: -120% 0; } }
+@keyframes dsh-custom-indicator-pulse { 0%, 100% { opacity: .48; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .agent-working.effect-shimmer > span, .agent-working.effect-pulse > span { animation: none; } }
+
 /* About surface: use the project's quiet workbench language, with one strong D-mark. */
 .settings-about-page { gap: 20px; }
 .about-identity { min-width: 0; display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 18px; padding: 18px; border: 1px solid var(--line-strong); background: color-mix(in srgb, var(--accent) 6%, var(--surface-raised)); }
