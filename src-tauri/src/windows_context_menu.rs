@@ -197,7 +197,7 @@ mod platform {
         path: &str,
         argument: &str,
         marker: &str,
-        executable: &PathBuf,
+        executable: &Path,
     ) -> io::Result<()> {
         let (parent_path, leaf) = split_parent(path);
         let (parent, _) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(parent_path)?;
