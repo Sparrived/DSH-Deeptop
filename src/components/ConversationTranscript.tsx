@@ -14,7 +14,7 @@ import {
   type TranscriptItem,
 } from "../app/model";
 import type { MessageStats, TranscriptImage, WorkingIndicatorSettings } from "../app/model";
-import { workingIndicatorTextAt } from "../app/working-indicator";
+import { normalizeWorkingIndicator, workingIndicatorTextAt } from "../app/working-indicator";
 
 type ConversationTranscriptProps = {
   scrollRef: RefObject<HTMLDivElement | null>;
@@ -60,22 +60,22 @@ function diffTextLines(text: string) {
 
 function WorkingIndicator({ settings }: { settings: WorkingIndicatorSettings }) {
   const [index, setIndex] = useState(0);
-  const texts = settings.texts.map((text) => text.trim()).filter(Boolean);
-  const safeSettings = texts.length > 0 ? { ...settings, texts } : { ...settings, texts: ["Deep diving..."] };
+  const safeSettings = useMemo(() => normalizeWorkingIndicator(settings), [settings]);
+  const textKey = safeSettings.texts.join("\u0000");
 
   useEffect(() => {
     setIndex(0);
-  }, [settings.texts.join("\u0000")]);
+  }, [textKey]);
 
   useEffect(() => {
-    if (texts.length < 2) return;
-    const timer = window.setInterval(() => setIndex((current) => current + 1), settings.rotationInterval);
+    if (safeSettings.texts.length < 2) return;
+    const timer = window.setInterval(() => setIndex((current) => current + 1), safeSettings.rotationInterval);
     return () => window.clearInterval(timer);
-  }, [settings.rotationInterval, texts.length]);
+  }, [safeSettings.rotationInterval, safeSettings.texts.length, textKey]);
 
   return (
-    <div className={`agent-working effect-${settings.effect}`} role="status" aria-live="polite" style={{ "--working-indicator-color": settings.color } as CSSProperties}>
-      <span>{workingIndicatorTextAt(safeSettings, index)}</span>
+    <div className={`agent-working effect-${safeSettings.effect}`} role="status" aria-label="模型正在工作" style={{ "--working-indicator-color": safeSettings.color } as CSSProperties}>
+      <span aria-hidden="true">{workingIndicatorTextAt(safeSettings, index)}</span>
     </div>
   );
 }
