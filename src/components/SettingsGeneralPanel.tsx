@@ -1,4 +1,4 @@
-import type { DshPreset, DshSettingsDescription, DshSettingsNamespace, WindowsContextMenuStatus } from "../lib/desktop";
+import type { CloseBehavior, DshPreset, DshSettingsDescription, DshSettingsNamespace, WindowBehaviorSettings, WindowsContextMenuStatus } from "../lib/desktop";
 import { presetDisplayName } from "../app/model";
 import type { DshHostModelCatalog, ModelSelection } from "../app/model";
 
@@ -24,7 +24,11 @@ type SettingsGeneralPanelProps = {
   pluginSettings: DshSettingsNamespace[];
   contextMenuStatus: WindowsContextMenuStatus | null;
   contextMenuUpdating: boolean;
+  windowBehavior: WindowBehaviorSettings;
+  windowBehaviorSupported: boolean;
+  windowBehaviorUpdating: boolean;
   onSetContextMenuEnabled: (enabled: boolean) => void | Promise<void>;
+  onUpdateWindowBehavior: (patch: Partial<WindowBehaviorSettings>) => void | Promise<void>;
   onOpenDocument: () => void | Promise<void>;
   onSetDefaultPreset: (id: string) => void | Promise<void>;
   onSetDefaultModel: (selection: ModelSelection) => void | Promise<void>;
@@ -46,7 +50,11 @@ export function SettingsGeneralPanel({
   pluginSettings,
   contextMenuStatus,
   contextMenuUpdating,
+  windowBehavior,
+  windowBehaviorSupported,
+  windowBehaviorUpdating,
   onSetContextMenuEnabled,
+  onUpdateWindowBehavior,
   onOpenDocument,
   onSetDefaultPreset,
   onSetDefaultModel,
@@ -92,6 +100,14 @@ export function SettingsGeneralPanel({
       <div className="settings-block">
         <div className="settings-block-heading"><div><h3>右键启动</h3><p>在 Windows 资源管理器中添加“使用 Deeptop 启动”，从选中的文件或文件夹打开对应工作目录。</p></div></div>
         {contextMenuStatus?.supported ? <div className="settings-preference-row"><span><strong>资源管理器右键菜单</strong><small>{contextMenuStatus.message} · 修改后可能需要重新打开资源管理器窗口</small></span><label className="settings-plugin-toggle" aria-label="启用资源管理器右键菜单"><input type="checkbox" checked={contextMenuStatus.enabled} disabled={contextMenuUpdating} onChange={(event) => void onSetContextMenuEnabled(event.target.checked)} /><span aria-hidden="true" /></label></div> : <p className="settings-empty">{contextMenuStatus?.message ?? "正在检查 Windows 右键菜单状态…"}</p>}
+      </div>
+
+      <div className="settings-block">
+        <div className="settings-block-heading"><div><h3>窗口与托盘</h3><p>关闭或最小化窗口后，Deeptop 可以继续在系统托盘后台运行。</p></div></div>
+        {windowBehaviorSupported ? <div className="settings-preference-list">
+          <div className="settings-preference-row"><span><strong>最小化到托盘</strong><small>点击最小化按钮时隐藏窗口，并保留后台任务与托盘入口。</small></span><label className="settings-plugin-toggle" aria-label="启用最小化到托盘"><input type="checkbox" checked={windowBehavior.minimizeToTray} disabled={windowBehaviorUpdating} onChange={(event) => void onUpdateWindowBehavior({ minimizeToTray: event.target.checked })} /><span aria-hidden="true" /></label></div>
+          <div className="settings-preference-row"><span><strong>关闭窗口时</strong><small>首次关闭会询问；选择后会记录为后续默认行为。</small></span><select disabled={windowBehaviorUpdating} value={windowBehavior.closeBehavior} onChange={(event) => void onUpdateWindowBehavior({ closeBehavior: event.target.value as CloseBehavior })}><option value="ask">首次关闭时询问</option><option value="hide-to-tray">隐藏到托盘并继续运行</option><option value="exit">退出 Deeptop</option></select></div>
+        </div> : <p className="settings-empty">窗口托盘行为仅在 Deeptop 桌面端可用。</p>}
       </div>
 
       <div className="settings-block">

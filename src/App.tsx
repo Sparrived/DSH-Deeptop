@@ -27,6 +27,7 @@ import { PopupDialog } from "./components/PopupDialog";
 import { PluginInstallDialog, type PluginInstallDraft } from "./components/PluginInstallDialog";
 import { useProviderSettings } from "./app/useProviderSettings";
 import { useWindowControls } from "./app/useWindowControls";
+import { normalizeWindowBehavior } from "./app/window-behavior";
 import { routeBridgeEvent } from "./app/bridge-event-handler";
 import {
   bridgeRequest,
@@ -48,6 +49,12 @@ import {
   acknowledgePendingExternalLaunch,
   getWindowsContextMenuStatus,
   setWindowsContextMenuEnabled,
+  getWindowBehaviorSettings,
+  setWindowBehaviorSettings,
+  resolveWindowClose,
+  listenToWindowCloseRequested,
+  type CloseBehavior,
+  type WindowBehaviorSettings,
   openExternalUrl,
   openConnectionUrl,
   openLogsDirectory,
@@ -193,6 +200,10 @@ type PopupRequest =
       kind: "confirm";
       message: string;
       resolve: (value: boolean) => void;
+    }
+  | {
+      kind: "close-behavior";
+      resolve: (value: Exclude<CloseBehavior, "ask"> | null) => void;
     }
   | {
       kind: "prompt";
@@ -359,6 +370,8 @@ function App() {
   const [settings, setSettings] = useState<DshSettingsDescription | null>(null);
   const [contextMenuStatus, setContextMenuStatus] = useState<WindowsContextMenuStatus | null>(null);
   const [contextMenuUpdating, setContextMenuUpdating] = useState(false);
+  const [windowBehavior, setWindowBehavior] = useState<WindowBehaviorSettings>({ minimizeToTray: false, closeBehavior: "ask" });
+  const [windowBehaviorUpdating, setWindowBehaviorUpdating] = useState(false);
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft | null>(null);
   const [goal, setGoal] = useState<DshGoalProjection | null | undefined>(undefined);
   const [goalDraft, setGoalDraft] = useState("");
@@ -388,6 +401,8 @@ function App() {
   const [popupValue, setPopupValue] = useState("");
   const popupQueueRef = useRef<PopupRequest[]>([]);
   const activePopupRequestRef = useRef<PopupRequest | null>(null);
+  const requestWindowCloseRef = useRef<() => void>(() => undefined);
+  const closeRequestPendingRef = useRef(false);
   const transcriptEnd = useRef<HTMLDivElement | null>(null);
   const transcriptScroll = useRef<HTMLDivElement | null>(null);
   const draggedSessionRef = useRef<string | null>(null);
@@ -466,10 +481,45 @@ function App() {
     });
   }
 
-  function settlePopup(value: boolean | string | null) {
+  function requestCloseBehavior() {
+    return new Promise<Exclude<CloseBehavior, "ask"> | null>((resolve) => {
+      enqueuePopupRequest({ kind: "close-behavior", resolve });
+    });
+  }
+
+  async function requestWindowClose() {
+    if (!desktop || closeRequestPendingRef.current) return;
+    closeRequestPendingRef.current = true;
+    try {
+      const behavior = windowBehavior.closeBehavior === "ask" ? await requestCloseBehavior() : windowBehavior.closeBehavior;
+      if (!behavior) return;
+      await resolveWindowClose(behavior);
+      setWindowBehavior((current) => ({ ...current, closeBehavior: behavior }));
+    } catch (error) {
+      setErrorNotice(`关闭窗口失败：${errorText(error)}`);
+    } finally {
+      closeRequestPendingRef.current = false;
+    }
+  }
+
+  async function updateWindowBehavior(patch: Partial<WindowBehaviorSettings>) {
+    const next = { ...windowBehavior, ...patch };
+    setWindowBehaviorUpdating(true);
+    try {
+      setWindowBehavior(await setWindowBehaviorSettings(next));
+      setNotice("窗口行为设置已保存");
+    } catch (error) {
+      setErrorNotice(`窗口行为设置保存失败：${errorText(error)}`);
+    } finally {
+      setWindowBehaviorUpdating(false);
+    }
+  }
+
+  function settlePopup(value: boolean | string | Exclude<CloseBehavior, "ask"> | null) {
     const current = activePopupRequestRef.current;
     if (!current) return;
     if (current.kind === "confirm") current.resolve(value === true);
+    else if (current.kind === "close-behavior") current.resolve(value === "hide-to-tray" || value === "exit" ? value : null);
     else current.resolve(typeof value === "string" ? value : null);
     const next = popupQueueRef.current.shift() ?? null;
     activePopupRequestRef.current = next;
@@ -483,7 +533,8 @@ function App() {
     toggleWindowMaximize,
     minimizeWindow,
     closeWindow,
-  } = useWindowControls({ desktop, onError: setErrorNotice });
+  } = useWindowControls({ desktop, minimizeToTray: windowBehavior.minimizeToTray, onCloseRequested: () => requestWindowCloseRef.current(), onError: setErrorNotice });
+  requestWindowCloseRef.current = requestWindowClose;
   const {
     appearance,
     appearanceStyle,
@@ -614,6 +665,14 @@ function App() {
       setRetryingMessageSeq(null);
     }
   }, [activeSessionId]);
+
+  useEffect(() => {
+    if (!desktop) return;
+    void getWindowBehaviorSettings().then(normalizeWindowBehavior).then(setWindowBehavior).catch((error) => setErrorNotice(`读取窗口行为设置失败：${errorText(error)}`));
+    let unlisten: UnlistenFn | undefined;
+    void listenToWindowCloseRequested(() => { requestWindowCloseRef.current(); }).then((cleanup) => { unlisten = cleanup; });
+    return () => { unlisten?.(); };
+  }, [desktop]);
 
   useEffect(() => {
     selectedSubagentRef.current = selectedSubagentId;
@@ -3531,7 +3590,11 @@ function App() {
                     pluginSettings={pluginSettings}
                      contextMenuStatus={contextMenuStatus}
                      contextMenuUpdating={contextMenuUpdating}
+                     windowBehavior={windowBehavior}
+                     windowBehaviorSupported={desktop}
+                     windowBehaviorUpdating={windowBehaviorUpdating}
                      onSetContextMenuEnabled={setContextMenuEnabled}
+                     onUpdateWindowBehavior={updateWindowBehavior}
                     onOpenDocument={() => bridgeRequest("settings.openDocument").then(() => setNotice("已打开 DSH 配置文件")).catch((error) => setErrorNotice(errorText(error)))}
                     onSetDefaultPreset={setDefaultPreset}
                     onSetDefaultModel={setDefaultModel}
@@ -3625,7 +3688,18 @@ function App() {
       >
         <p className="popup-confirm-message">{popupRequest.message}</p>
       </PopupDialog>}
-      {popupRequest?.kind === "prompt" && <PopupDialog
+      {popupRequest?.kind === "close-behavior" && <PopupDialog
+         title="关闭 Deeptop"
+         eyebrow="DSH / 窗口行为"
+         description="这是第一次关闭窗口，请选择之后关闭按钮的默认行为。你仍可在设置的“通用”中修改。"
+         className="popup-close-behavior-dialog"
+         role="alertdialog"
+         onClose={() => settlePopup(null)}
+         footer={<><button type="button" onClick={() => settlePopup(null)}>取消</button><button type="button" onClick={() => settlePopup("hide-to-tray")}>后台运行</button><button type="button" className="confirm" onClick={() => settlePopup("exit")}>退出程序</button></>}
+       >
+         <div className="close-behavior-options"><div className="close-behavior-option"><strong>后台运行</strong><span>隐藏窗口到系统托盘，DSH 任务继续运行。</span></div><div className="close-behavior-option"><strong>退出程序</strong><span>关闭 Deeptop 和后台运行中的 DSH。</span></div></div>
+       </PopupDialog>}
+       {popupRequest?.kind === "prompt" && <PopupDialog
         title={popupRequest.title}
         eyebrow="DSH / 输入"
         description={popupRequest.description}

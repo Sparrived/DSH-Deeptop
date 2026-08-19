@@ -8,6 +8,13 @@ export const DSH_PACKAGE = "@deepseek-ai/dsh（内嵌运行时）";
 export const DEEPTOP_VERSION = packageInfo.version;
 export const DEEPTOP_PROJECT_URL = "https://github.com/Sparrived/DSH-Deeptop";
 
+export type CloseBehavior = "ask" | "hide-to-tray" | "exit";
+
+export interface WindowBehaviorSettings {
+  minimizeToTray: boolean;
+  closeBehavior: CloseBehavior;
+}
+
 export interface DshStatus {
   dshHome: string;
   runtimeDirectory: string;
@@ -452,6 +459,10 @@ export async function listenToExternalLaunch(handler: (request: ExternalLaunchRe
   });
 }
 
+export async function listenToWindowCloseRequested(handler: () => void): Promise<UnlistenFn> {
+  return listen("window-close-requested", () => handler());
+}
+
 export async function listPendingExternalLaunches(): Promise<ExternalLaunchRequest[]> {
   if (!isTauri()) return [];
   const pending = await invoke<unknown>("list_pending_external_launches");
@@ -472,6 +483,21 @@ export async function getWindowsContextMenuStatus(): Promise<WindowsContextMenuS
 export async function setWindowsContextMenuEnabled(enabled: boolean): Promise<WindowsContextMenuStatus> {
   if (!isTauri()) throw new Error("资源管理器右键菜单仅在 Windows 桌面端可用");
   return invoke<WindowsContextMenuStatus>("set_windows_context_menu_enabled", { enabled });
+}
+
+export async function getWindowBehaviorSettings(): Promise<WindowBehaviorSettings> {
+  if (!isTauri()) return { minimizeToTray: false, closeBehavior: "ask" };
+  return invoke<WindowBehaviorSettings>("get_window_behavior_settings");
+}
+
+export async function setWindowBehaviorSettings(settings: WindowBehaviorSettings): Promise<WindowBehaviorSettings> {
+  if (!isTauri()) throw new Error("窗口行为设置仅在 Deeptop 桌面端可用");
+  return invoke<WindowBehaviorSettings>("set_window_behavior_settings", { settings });
+}
+
+export async function resolveWindowClose(behavior: Exclude<CloseBehavior, "ask">): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("resolve_window_close", { behavior });
 }
 
 export class DshApiError extends Error {

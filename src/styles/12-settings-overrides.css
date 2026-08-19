@@ -484,7 +484,32 @@
 .popup-form-dialog .popup-window { width: min(500px, 100%); }
 .popup-permission-dialog .popup-window { width: min(560px, 100%); }
 .popup-confirm-dialog .popup-window,
-.popup-prompt-dialog .popup-window { width: min(520px, 100%); }
+.popup-prompt-dialog .popup-window,
+.popup-close-behavior-dialog .popup-window { width: min(560px, 100%); }
+
+.close-behavior-options {
+  display: grid;
+  gap: 10px;
+}
+
+.close-behavior-option {
+  display: grid;
+  gap: 4px;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-raised, var(--paper-deep)) 76%, transparent);
+}
+
+.close-behavior-option strong {
+  color: var(--ink-strong, var(--ink));
+  font-size: 13px;
+}
+
+.close-behavior-option span {
+  color: var(--ink-muted, var(--muted));
+  font-size: 12px;
+  line-height: 1.55;
+}
 
 .popup-provider-dialog .popup-window { width: min(680px, 100%); }
 .popup-provider-dialog .popup-body { padding: 0; }

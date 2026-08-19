@@ -5,10 +5,12 @@ import { errorText } from "./settings-model";
 
 type UseWindowControlsOptions = {
   desktop: boolean;
+  minimizeToTray: boolean;
+  onCloseRequested: () => void;
   onError: (message: string) => void;
 };
 
-export function useWindowControls({ desktop, onError }: UseWindowControlsOptions) {
+export function useWindowControls({ desktop, minimizeToTray, onCloseRequested, onError }: UseWindowControlsOptions) {
   const [windowMaximized, setWindowMaximized] = useState(false);
 
   useEffect(() => {
@@ -45,19 +47,18 @@ export function useWindowControls({ desktop, onError }: UseWindowControlsOptions
   async function minimizeWindow() {
     if (!desktop) return;
     try {
-      await getCurrentWindow().minimize();
+      if (minimizeToTray) {
+        await getCurrentWindow().hide();
+      } else {
+        await getCurrentWindow().minimize();
+      }
     } catch (error) {
       onError(errorText(error));
     }
   }
 
-  async function closeWindow() {
-    if (!desktop) return;
-    try {
-      await getCurrentWindow().close();
-    } catch (error) {
-      onError(errorText(error));
-    }
+  function closeWindow() {
+    if (desktop) onCloseRequested();
   }
 
   return { windowMaximized, startWindowDrag, toggleWindowMaximize, minimizeWindow, closeWindow };
