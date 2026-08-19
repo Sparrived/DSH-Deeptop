@@ -30,7 +30,6 @@ pub struct UpdateCheckManager {
     download_generation: Arc<AtomicU64>,
     download_cancel_sender: Arc<Mutex<Option<oneshot::Sender<()>>>>,
     download_commit_lock: Arc<Mutex<()>>,
-    download_context: Arc<Mutex<Option<(String, String)>>>,
     verified_update: Arc<Mutex<Option<VerifiedUpdate>>>,
 }
 
@@ -42,7 +41,6 @@ impl Default for UpdateCheckManager {
             download_generation: Arc::new(AtomicU64::new(0)),
             download_cancel_sender: Arc::new(Mutex::new(None)),
             download_commit_lock: Arc::new(Mutex::new(())),
-            download_context: Arc::new(Mutex::new(None)),
             verified_update: Arc::new(Mutex::new(None)),
         }
     }
@@ -70,9 +68,6 @@ impl UpdateCheckManager {
 
     fn begin_download(&self) -> (u64, oneshot::Receiver<()>) {
         self.cancel_download();
-        if let Ok(mut context) = self.download_context.lock() {
-            *context = None;
-        }
         let generation = self.download_generation.fetch_add(1, Ordering::SeqCst) + 1;
         let (sender, receiver) = oneshot::channel();
         if let Ok(mut current) = self.download_cancel_sender.lock() {
@@ -89,28 +84,9 @@ impl UpdateCheckManager {
                 let _ = sender.send(());
             }
         }
-        if let Ok(mut context) = self.download_context.lock() {
-            *context = None;
-        }
         if let Ok(mut verified) = self.verified_update.lock() {
             *verified = None;
         }
-    }
-
-    fn set_download_context(&self, release_tag: String, asset_name: String) {
-        if let Ok(mut context) = self.download_context.lock() {
-            *context = Some((release_tag, asset_name));
-        }
-    }
-
-    fn download_context(&self) -> (Option<String>, Option<String>) {
-        self.download_context
-            .lock()
-            .ok()
-            .and_then(|context| context.clone())
-            .map_or((None, None), |(release_tag, asset_name)| {
-                (Some(release_tag), Some(asset_name))
-            })
     }
 
     fn is_cancelled(&self, generation: u64) -> bool {
@@ -513,10 +489,6 @@ async fn download_update_inner(
     if updates.is_download_cancelled(generation) {
         return Err("更新下载已取消".to_string());
     }
-    updates.set_download_context(
-        selected.release.tag_name.clone(),
-        selected.asset.name.clone(),
-    );
     let directory = update_cache_dir(&app, &selected.release.tag_name)?;
     let final_path = directory.join(&selected.asset.name);
     let partial_path = directory.join(format!("{}.part", selected.asset.name));
@@ -670,7 +642,6 @@ pub async fn download_update(
     match download_update_inner(app.clone(), args, updates.clone()).await {
         Ok(()) => Ok(()),
         Err(error) => {
-            let (context_release_tag, context_asset_name) = updates.download_context();
             emit_progress(
                 &app,
                 UpdateDownloadProgress {
@@ -680,8 +651,8 @@ pub async fn download_update(
                         "failed"
                     }
                     .to_string(),
-                    release_tag: context_release_tag.or(Some(requested_release_tag)),
-                    asset_name: context_asset_name,
+                    release_tag: Some(requested_release_tag),
+                    asset_name: None,
                     downloaded_bytes: None,
                     total_bytes: None,
                     percent: None,
