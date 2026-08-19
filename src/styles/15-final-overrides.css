@@ -962,7 +962,7 @@
 /* Running indicator: one quiet customization surface for copy, color, and motion. */
 .agent-working { color: var(--working-indicator-color, var(--accent)); background: none; -webkit-text-fill-color: currentColor; background-clip: initial; animation: none; }
 .agent-working > span { display: inline-block; color: var(--working-indicator-color, var(--accent)); }
-.agent-working.effect-shimmer > span { color: transparent; background: linear-gradient(100deg, var(--working-indicator-color, var(--accent)) 35%, color-mix(in srgb, var(--working-indicator-color, var(--accent)) 35%, white) 50%, var(--working-indicator-color, var(--accent)) 65%); background-size: 220% 100%; background-clip: text; -webkit-background-clip: text; animation: dsh-custom-indicator-shimmer 1.8s linear infinite; }
+.agent-working.effect-shimmer > span { color: transparent; background: linear-gradient(100deg, var(--working-indicator-color, var(--accent)) 35%, color-mix(in srgb, var(--working-indicator-color, var(--accent)) 35%, white) 50%, var(--working-indicator-color, var(--accent)) 65%); background-size: 220% 100%; background-position: 100% 50%; background-clip: text; -webkit-background-clip: text; animation: dsh-custom-indicator-shimmer 2.4s ease-in-out infinite; }
 .agent-working.effect-pulse > span { animation: dsh-custom-indicator-pulse 1.6s ease-in-out infinite; }
 .agent-working.effect-glow > span { text-shadow: 0 0 10px color-mix(in srgb, var(--working-indicator-color, var(--accent)) 70%, transparent); }
 .working-indicator-preview { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 13px 14px; border: 1px solid var(--line); background: var(--surface-soft); color: var(--working-indicator-color, var(--accent)); font-size: 14px; }
@@ -971,7 +971,10 @@
 .appearance-color-control { display: inline-flex; align-items: center; gap: 8px; }
 .appearance-color-control input[type="color"] { width: 34px; height: 28px; padding: 2px; border: 1px solid var(--line-strong); background: transparent; }
 .appearance-color-control code { color: var(--ink-muted); font: 11px/1 var(--mono); }
-@keyframes dsh-custom-indicator-shimmer { to { background-position: -120% 0; } }
+@keyframes dsh-custom-indicator-shimmer {
+  0%, 100% { background-position: 100% 50%; }
+  50% { background-position: 0% 50%; }
+}
 @keyframes dsh-custom-indicator-pulse { 0%, 100% { opacity: .48; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .agent-working.effect-shimmer > span, .agent-working.effect-pulse > span { animation: none; } }
 
