@@ -163,6 +163,18 @@ test('persists workspace-scoped session pins and decorates workspace listings', 
       routeDesktopRequest(ctx, 'workspace.setSessionPinned', { workspaceId: workspace.id, sessionId: 'session-unknown', pinned: true }, signal),
       /not accounted/,
     )
+    await routeDesktopRequest(ctx, 'workspace.setSessionPinned', { workspaceId: workspace.id, sessionId: 'session-1', pinned: true }, signal)
+    const movedWorkspace = { ...workspace, id: 'workspace-moved', sessionIds: [], attachSession: async sessionId => movedWorkspace.sessionIds.unshift(sessionId) }
+    const moveContext = {
+      ...ctx,
+      get: key => key === 'dshHome' ? root : key === 'workspaceRegistry' ? {
+        list: () => [workspace, movedWorkspace],
+        get: id => id === movedWorkspace.id ? movedWorkspace : id === workspace.id ? workspace : undefined,
+      } : undefined,
+    }
+    await routeDesktopRequest(moveContext, 'workspace.attachSession', { workspaceId: movedWorkspace.id, sessionId: 'session-1' }, signal)
+    const afterMove = await routeDesktopRequest(ctx, 'workspace.list', {}, signal)
+    assert.deepEqual(afterMove.result.value.items[0].pinnedSessionIds, [])
   } finally {
     await removePath(root, { recursive: true, force: true })
   }

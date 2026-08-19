@@ -11,7 +11,7 @@ export type PromptMode = "queue" | "steer";
 export type ModelMenuPane = "root" | "model" | "effort";
 export type ModelSelection = { provider: string; model: string; reasoningEffort?: string };
 export type WindowMenu = "project" | "edit";
-export type SessionAction = "rename" | "fork" | "archive" | "export" | "exportZip";
+export type SessionAction = "rename" | "fork" | "archive" | "export" | "exportZip" | "pin";
 export type WorkspaceViewMode = "grouped" | "flat";
 export type ThemeMode = "system" | "light" | "dark";
 /** 主题选择器：内置 Monokai Pro / One Dark（每个主题文件同时含浅色与深色两套配色），或使用自定义外部 CSS 路径。 */

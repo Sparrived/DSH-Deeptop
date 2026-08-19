@@ -2578,6 +2578,7 @@ function App() {
 
   function requestSessionAction(action: SessionAction, session: DshSessionSummary) {
     setSessionContextMenu(null);
+    if (action === "pin") { void toggleSessionPin(session); return; }
     if (action === "archive") { setConfirmAction({ action, session }); return; }
     if (action === "fork") { void forkSession(session.sessionId); return; }
     if (action === "export") { void exportSession(session.sessionId); return; }

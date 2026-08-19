@@ -170,7 +170,11 @@ async function attachWorkspaceSession(ctx, payload) {
   if (!workspace || typeof workspace.attachSession !== 'function') {
     throw new Error(`workspace "${payload.workspaceId}" not found`)
   }
+  const previousWorkspace = typeof registry.list === 'function'
+    ? registry.list().find(item => item?.id !== workspace.id && item?.sessionIds?.includes(payload.sessionId))
+    : undefined
   await workspace.attachSession(payload.sessionId)
+  if (previousWorkspace !== undefined) await clearSessionPins(ctx, payload.sessionId)
   const pins = await readSessionPinStore(ctx)
   return { workspace: workspaceSnapshot(workspace, pins[workspace.id]) }
 }

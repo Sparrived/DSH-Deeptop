@@ -116,13 +116,10 @@ export function SessionSidebar({
 
   function orderSessions(items: DshSessionSummary[]) {
     if (!dragPreviewRank) return items;
-    const pinned = new Set(workspaceGroup.workspace?.pinnedSessionIds ?? []);
-    return [...items].sort((left, right) => {
-      const pinDifference = Number(pinned.has(right.sessionId)) - Number(pinned.has(left.sessionId));
-      if (pinDifference !== 0) return pinDifference;
-      return (dragPreviewRank.get(left.sessionId) ?? Number.MAX_SAFE_INTEGER)
-        - (dragPreviewRank.get(right.sessionId) ?? Number.MAX_SAFE_INTEGER);
-    });
+    return [...items].sort((left, right) => (
+      (dragPreviewRank.get(left.sessionId) ?? Number.MAX_SAFE_INTEGER)
+      - (dragPreviewRank.get(right.sessionId) ?? Number.MAX_SAFE_INTEGER)
+    ));
   }
 
   function handleDragOverSessionChange(targetSessionId: string | null) {
@@ -167,6 +164,7 @@ export function SessionSidebar({
     pending={pendingSessionIds.has(session.sessionId)}
     snippet={searchResultById.get(session.sessionId)}
     pinned={Boolean(workspaceBySessionId.get(session.sessionId)?.pinnedSessionIds?.includes(session.sessionId))}
+    canPin={Boolean(workspaceBySessionId.get(session.sessionId)) && !search.trim()}
     canDrag={Boolean(workspaceBySessionId.get(session.sessionId))}
     dragDisabled={Boolean(search.trim()) || dragCommitPending}
     dragOver={dragOverSessionId === session.sessionId}
@@ -245,6 +243,7 @@ export function SessionSidebar({
 
       {!archiveOpen && sessionContextMenu && createPortal(
         <div className="session-context-menu" style={{ left: sessionContextMenu.x, top: sessionContextMenu.y }} role="menu" onMouseDown={(event) => event.stopPropagation()}>
+          {workspaceBySessionId.has(sessionContextMenu.session.sessionId) && !search.trim() && <button role="menuitem" onClick={() => onRequestSessionAction("pin", sessionContextMenu.session)}>{workspaceBySessionId.get(sessionContextMenu.session.sessionId)?.pinnedSessionIds?.includes(sessionContextMenu.session.sessionId) ? "取消置顶" : "在此工作区置顶"}</button>}
           <button role="menuitem" onClick={() => onRequestSessionAction("rename", sessionContextMenu.session)}>重命名</button>
           <button role="menuitem" onClick={() => onRequestSessionAction("fork", sessionContextMenu.session)}>分叉会话</button>
           <button role="menuitem" onClick={() => onRequestSessionAction("export", sessionContextMenu.session)}>导出 JSON</button>

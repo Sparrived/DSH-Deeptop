@@ -58,6 +58,7 @@ interface SessionRowProps {
   pending: boolean;
   snippet?: string;
   pinned: boolean;
+  canPin: boolean;
   canDrag: boolean;
   dragDisabled: boolean;
   dragOver: boolean;
@@ -77,6 +78,7 @@ export function SessionRow({
   pending,
   snippet,
   pinned,
+  canPin,
   canDrag,
   dragDisabled,
   dragOver,
@@ -237,13 +239,14 @@ export function SessionRow({
 
   return <>
     <div
-      className={`session-row session-status-${status}${active ? " active" : ""}${dragOver ? " drag-over" : ""}${canDrag ? " has-pin is-draggable" : ""}${dragDisabled ? " drag-disabled" : ""}${pressed ? " pressed" : ""}${dragging ? " dragging" : ""}`}
+      className={`session-row session-status-${status}${active ? " active" : ""}${dragOver ? " drag-over" : ""}${canPin ? " has-pin" : ""}${canDrag ? " is-draggable" : ""}${dragDisabled ? " drag-disabled" : ""}${pressed ? " pressed" : ""}${dragging ? " dragging" : ""}`}
       data-session-id={session.sessionId}
       data-session-pinned={pinned ? "true" : "false"}
       data-session-status={status}
       aria-label={`会话状态：${sessionStatusLabels[status]}`}
       onContextMenu={(event) => {
         event.preventDefault();
+        if (pointerDragRef.current) return;
         onContextMenu(session, event.clientX, event.clientY);
       }}
     >
@@ -264,13 +267,15 @@ export function SessionRow({
       >
         <span className="session-row-copy"><strong>{displayTitle(session)}</strong><small className={snippet ? "session-search-snippet" : undefined}>{detail}</small></span>
       </button>
-      {canDrag && <button
+      {canPin && <button
         type="button"
         className={`session-row-pin${pinned ? " is-pinned" : ""}`}
         title={pinned ? "取消置顶" : "在此工作区置顶"}
         aria-label={pinned ? "取消置顶" : "在此工作区置顶"}
         aria-pressed={pinned}
+        onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => {
+          event.preventDefault();
           event.stopPropagation();
           void onTogglePin(session);
         }}
