@@ -1,7 +1,5 @@
 # Deeptop 项目 Agent 指令
 
-本文件是仓库根目录的 `AGENTS.md`。DSH 默认候选文件名是 `AGENTS.md` 与 `CLAUDE.md`，不是 `Agent.md`；请保持文件名不变。桌面端默认 `standard` Agent Preset 已包含 `@deepseek-ai/dsh-agent-instructions`，因此以本仓库根目录或其子目录作为会话 `cwd` 创建新会话时，DSH 会在首个有效步骤前自动载入本文件。若会话使用其他工作区路径，本文件不属于该会话的项目指令链；需要跨项目生效的规则应放在 `$DSH_HOME/AGENTS.md`，不要复制到各项目。
-
 ## 项目定位与边界
 
 - Deeptop 是 Tauri + React 原生桌面客户端；DSH/Cordis 负责 Agent、Session、Tool、Model、Workspace、Skill、Goal、Provider、持久化和领域事件。
