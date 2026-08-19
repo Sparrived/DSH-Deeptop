@@ -1,11 +1,12 @@
-import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject, type UIEvent } from "react";
-import type { DshHistoryEntry, DshMessageAnnotationItem, DshPreset, DshSessionSummary } from "../lib/desktop";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject, type UIEvent } from "react";
+import { isFilePath, type DshHistoryEntry, type DshMessageAnnotationItem, type DshPreset, type DshSessionSummary } from "../lib/desktop";
 import { MarkdownContent } from "../lib/markdown";
 import { PopupDialog } from "./PopupDialog";
 import { TrajectoryView } from "./TrajectoryView";
 import {
   formatClock,
   formatTokens,
+  sessionPath,
   imageSource,
   presetDescription,
   presetDisplayName,
@@ -346,6 +347,7 @@ type TranscriptArticleProps = {
   onRetryMessage?: (seq: number) => void | Promise<void>;
   onForkSession: (sessionId: string, seq?: number) => void | Promise<void>;
   onOpenPath: (path: string) => void | Promise<void>;
+  onCheckPath: (path: string) => Promise<boolean>;
   onOpenUrl: (url: string) => void | Promise<void>;
 };
 
@@ -363,6 +365,7 @@ function TranscriptArticleView({
   onRetryMessage,
   onForkSession,
   onOpenPath,
+  onCheckPath,
   onOpenUrl,
 }: TranscriptArticleProps) {
   const diff = activeDiff(item);
@@ -407,7 +410,7 @@ function TranscriptArticleView({
               <pre className="message-text">{item.text}</pre>
             </div>
           </details>
-        ) : <MarkdownContent text={item.text} reveal={streamingAssistant} onOpenPath={onOpenPath} onOpenUrl={onOpenUrl} />}
+        ) : <MarkdownContent text={item.text} reveal={streamingAssistant} onOpenPath={onOpenPath} onCheckPath={onCheckPath} onOpenUrl={onOpenUrl} />}
         {item.kind === "assistant" && <MessageStatsLine stats={item.stats} />}
         {(item.kind === "user" || item.kind === "assistant") && (
           <div className="message-actions">
@@ -484,6 +487,10 @@ export function ConversationTranscript({
   onOpenUrl,
 }: ConversationTranscriptProps) {
   const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null);
+  const checkPath = useCallback(async (path: string) => {
+    if (!activeSession?.cwd) return false;
+    return isFilePath(sessionPath(activeSession.cwd, path));
+  }, [activeSession?.cwd]);
 
   function handleScroll(event: UIEvent<HTMLDivElement>) {
     const target = event.currentTarget;
@@ -548,6 +555,7 @@ export function ConversationTranscript({
               onRetryMessage={onRetryMessage}
               onForkSession={onForkSession}
                onOpenPath={onOpenSessionPath}
+               onCheckPath={checkPath}
                onOpenUrl={onOpenUrl}
             />
           ))}

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { modelSupportsImages, promptContentParts, insertComposerText, formatRuntimeLog, formatRuntimeLogs, runtimeLogMatches } from "./ui-model.ts";
+import { modelSupportsImages, promptContentParts, insertComposerText, formatRuntimeLog, formatRuntimeLogs, runtimeLogMatches, sessionPath } from "./ui-model.ts";
 
 test("allows image prompts when the provider omits modality metadata", () => {
   assert.equal(modelSupportsImages({ id: "model", name: "Model" }), true);
@@ -34,6 +34,12 @@ test("inserts a file path at the caret with readable separators", () => {
     selectionStart: 10,
     selectionEnd: 10,
   });
+});
+
+test("resolves relative message paths with the session platform separator", () => {
+  assert.equal(sessionPath("C:\\repo", "src/App.tsx"), "C:\\repo\\src\\App.tsx");
+  assert.equal(sessionPath("/workspace/repo", "src\\App.tsx"), "/workspace/repo/src/App.tsx");
+  assert.equal(sessionPath("/workspace/repo", "README.md"), "/workspace/repo/README.md");
 });
 
 test("formats runtime log lines with UTC timestamps", () => {

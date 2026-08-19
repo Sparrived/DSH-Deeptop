@@ -1,5 +1,5 @@
 import ReactMarkdown, { type Components } from "react-markdown";
-import { isValidElement, memo, useState, type HTMLAttributes, type ReactNode } from "react";
+import { isValidElement, memo, useEffect, useState, type HTMLAttributes, type ReactNode } from "react";
 import { SKIP, visit } from "unist-util-visit";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
@@ -54,16 +54,39 @@ function MarkdownCodeBlock({ children, ...props }: HTMLAttributes<HTMLPreElement
 
 type MarkdownEntityActions = {
   onOpenPath?: (path: string) => void | Promise<void>;
+  onCheckPath?: (path: string) => Promise<boolean>;
   onOpenUrl?: (url: string) => void | Promise<void>;
 };
 
-function MessageEntityLink({ href, children, onOpenPath, onOpenUrl }: { href?: string; children?: ReactNode } & MarkdownEntityActions) {
+function MessageEntityLink({ href, children, onOpenPath, onCheckPath, onOpenUrl }: { href?: string; children?: ReactNode } & MarkdownEntityActions) {
   const path = href ? decodeFileLink(href) : null;
   const url = href && /^(?:https?):/i.test(href) ? href : null;
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [isFile, setIsFile] = useState(false);
+  const [checkedPath, setCheckedPath] = useState<string | null>(null);
   const label = path ? pathLabel(path) : url ? { name: entityHost(url), directory: "连接" } : null;
-  if (!label || (!path && !url)) return <span className="markdown-link-disabled">{children}</span>;
+
+  useEffect(() => {
+    if (!path || !onCheckPath) return;
+    let active = true;
+    void onCheckPath(path).then((value) => {
+      if (active) {
+        setCheckedPath(path);
+        setIsFile(value);
+      }
+    }).catch(() => {
+      if (active) {
+        setCheckedPath(path);
+        setIsFile(false);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [onCheckPath, path]);
+
+  if (!label || (!path && !url) || (path && (checkedPath !== path || !isFile))) return <span className="markdown-link-disabled">{children}</span>;
 
   async function open() {
     const action = path ? onOpenPath : onOpenUrl;
@@ -96,7 +119,7 @@ function createMarkdownComponents(actions: MarkdownEntityActions): Components {
   a: ({ children, href, node, ...props }) => {
     if (!href) return <span className="markdown-link-disabled">{children}</span>;
     if (decodeFileLink(href) || /^(?:https?):/i.test(href)) {
-      return <MessageEntityLink href={href} onOpenPath={actions.onOpenPath} onOpenUrl={actions.onOpenUrl}>{children}</MessageEntityLink>;
+      return <MessageEntityLink href={href} onOpenPath={actions.onOpenPath} onCheckPath={actions.onCheckPath} onOpenUrl={actions.onOpenUrl}>{children}</MessageEntityLink>;
     }
     return <span className="markdown-link-disabled">{children}</span>;
   },
@@ -120,9 +143,9 @@ function createMarkdownComponents(actions: MarkdownEntityActions): Components {
 // Memoized: while a stream advances, the transcript re-renders on every frame
 // but only the actively streaming message's `text` changes. Skipping the
 // others avoids re-parsing every previous message's markdown on each token.
-export const MarkdownContent = memo(function MarkdownContent({ text, className = "message-text", reveal = false, onOpenPath, onOpenUrl }: { text: string; className?: string; reveal?: boolean } & MarkdownEntityActions) {
+export const MarkdownContent = memo(function MarkdownContent({ text, className = "message-text", reveal = false, onOpenPath, onCheckPath, onOpenUrl }: { text: string; className?: string; reveal?: boolean } & MarkdownEntityActions) {
   const contentClassName = reveal ? `${className} model-text-reveal` : className;
-  const components = createMarkdownComponents({ onOpenPath, onOpenUrl });
+  const components = createMarkdownComponents({ onOpenPath, onCheckPath, onOpenUrl });
   return (
     <div className={contentClassName}>
       <ReactMarkdown

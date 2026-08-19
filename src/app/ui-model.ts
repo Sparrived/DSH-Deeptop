@@ -125,7 +125,10 @@ export function runtimeLabel(status: DshStatus) {
 
 export function sessionPath(cwd: string | undefined, path: string) {
   if (/^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(path) || !cwd) return path;
-  return `${cwd.replace(/[\\/]+$/, "")}\\${path.replace(/^[\\/]+/, "")}`;
+  const separator = cwd.includes("\\") ? "\\" : "/";
+  const base = cwd.replace(/[\\/]+$/, "");
+  const relative = path.replace(/^[\\/]+/, "").replace(/[\\/]+/g, separator);
+  return `${base}${separator}${relative}`;
 }
 
 export function pathBasename(path: string) {

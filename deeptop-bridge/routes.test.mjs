@@ -453,6 +453,17 @@ test('rejects invalid native session ZIP requests before contacting DSH', async 
   assert.equal(called, false)
 })
 
+test('keeps message file-card validation on the native Tauri command', async () => {
+  const transcript = await readFile(join(import.meta.dirname, '..', 'src', 'components', 'ConversationTranscript.tsx'), 'utf8')
+  const desktop = await readFile(join(import.meta.dirname, '..', 'src', 'lib', 'desktop.ts'), 'utf8')
+  const native = await readFile(join(import.meta.dirname, '..', 'src-tauri', 'src', 'main.rs'), 'utf8')
+  assert.match(transcript, /onCheckPath=\{checkPath\}/)
+  assert.match(desktop, /invoke<boolean>\("is_file_path", \{ path \}\)/)
+  assert.match(native, /fn is_file_path\(path: String\) -> bool/)
+  assert.match(native, /metadata\.is_file\(\)/)
+  assert.match(transcript, /isFilePath\(sessionPath\(activeSession\.cwd, path\)\)/)
+})
+
 test('keeps file export in the native save bridge instead of browser downloads', async () => {
   const app = await readFile(join(import.meta.dirname, '..', 'src', 'App.tsx'), 'utf8')
   const desktop = await readFile(join(import.meta.dirname, '..', 'src', 'lib', 'desktop.ts'), 'utf8')

@@ -2706,6 +2706,14 @@ fn reveal_in_explorer(path: String) -> Result<(), String> {
         .map_err(|error| format!("无法在文件管理器中显示 {}：{error}", target.display()))
 }
 
+/// 判断路径是否解析为一个普通文件；不存在、目录和其他文件系统对象均返回 false。
+#[tauri::command]
+fn is_file_path(path: String) -> bool {
+    fs::metadata(PathBuf::from(path))
+        .map(|metadata| metadata.is_file())
+        .unwrap_or(false)
+}
+
 /// 删除工作区内的文件或文件夹（递归）。
 #[tauri::command]
 fn delete_workspace_path(path: String) -> Result<(), String> {
@@ -2882,8 +2890,8 @@ fn open_themes_directory() -> Result<(), String> {
 mod tests {
     use super::{
         bound_log_text, extract_runtime_archive, format_log_line, format_utc_datetime,
-        is_bundled_runtime_manifest, is_dsh_package_manifest, is_safe_runtime_entry, runtime_arch,
-        runtime_cache_validation_message, runtime_platform, runtime_tree_sha256,
+        is_bundled_runtime_manifest, is_dsh_package_manifest, is_file_path, is_safe_runtime_entry,
+        runtime_arch, runtime_cache_validation_message, runtime_platform, runtime_tree_sha256,
         validated_connection_url, DshRuntimeLog, LogStore, MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES,
         RUNTIME_CACHE_MARKER,
     };
@@ -2906,6 +2914,29 @@ mod tests {
             )),
             std::path::PathBuf::from(r"\\server\share\resources")
         );
+    }
+
+    #[test]
+    fn identifies_regular_files_without_treating_directories_as_files() {
+        let root = std::env::temp_dir().join(format!(
+            "deeptop-file-path-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ));
+        let file = root.join("note.txt");
+        std::fs::create_dir_all(&root).expect("create file path test directory");
+        std::fs::write(&file, "text").expect("write file path test file");
+
+        assert!(is_file_path(file.to_string_lossy().into_owned()));
+        assert!(!is_file_path(root.to_string_lossy().into_owned()));
+        assert!(!is_file_path(
+            root.join("missing.txt").to_string_lossy().into_owned()
+        ));
+
+        std::fs::remove_dir_all(root).expect("remove file path test directory");
     }
 
     #[test]
@@ -3200,6 +3231,7 @@ fn main() {
             open_in_vscode,
             write_clipboard,
             reveal_in_explorer,
+            is_file_path,
             delete_workspace_path,
             create_workspace_folder,
             ensure_theme_files,
