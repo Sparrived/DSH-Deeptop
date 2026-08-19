@@ -140,6 +140,8 @@ export interface DshWorkspace {
   path: string;
   title: string;
   sessionIds: string[];
+  /** Session ids pinned within this workspace, in pinning order. */
+  pinnedSessionIds?: string[];
   createdAt: string;
   updatedAt: string;
 }

@@ -130,6 +130,44 @@ test('attaches an existing session through the official workspace entity', async
   assert.deepEqual(result.workspace.sessionIds, ['session-1'])
 })
 
+test('persists workspace-scoped session pins and decorates workspace listings', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-session-pins-'))
+  const workspace = {
+    id: 'workspace-pins',
+    path: 'D:/repo',
+    title: 'repo',
+    sessionIds: ['session-1', 'session-2'],
+  }
+  const ctx = {
+    get: key => key === 'dshHome' ? root : key === 'workspaceRegistry' ? { get: id => id === workspace.id ? workspace : undefined } : undefined,
+    apiProxy: {
+      workspace: {
+        list: async () => ({ result: { ok: true, value: { items: [{ workspaceId: workspace.id, sessionIds: [...workspace.sessionIds] }], archivedSessionIds: [] } } }),
+      },
+    },
+  }
+  try {
+    assert.deepEqual(
+      await routeDesktopRequest(ctx, 'workspace.setSessionPinned', { workspaceId: workspace.id, sessionId: 'session-2', pinned: true }, signal),
+      { workspaceId: workspace.id, pinnedSessionIds: ['session-2'] },
+    )
+    const listed = await routeDesktopRequest(ctx, 'workspace.list', {}, signal)
+    assert.deepEqual(listed.result.value.items[0].pinnedSessionIds, ['session-2'])
+    assert.deepEqual(
+      await routeDesktopRequest(ctx, 'workspace.setSessionPinned', { workspaceId: workspace.id, sessionId: 'session-2', pinned: false }, signal),
+      { workspaceId: workspace.id, pinnedSessionIds: [] },
+    )
+    const unlisted = await routeDesktopRequest(ctx, 'workspace.list', {}, signal)
+    assert.deepEqual(unlisted.result.value.items[0].pinnedSessionIds, [])
+    await assert.rejects(
+      routeDesktopRequest(ctx, 'workspace.setSessionPinned', { workspaceId: workspace.id, sessionId: 'session-unknown', pinned: true }, signal),
+      /not accounted/,
+    )
+  } finally {
+    await removePath(root, { recursive: true, force: true })
+  }
+})
+
 test('restores an archived session through the workspace registry state', async () => {
   let state = { initialized: true, workspaceIds: [], archivedSessionIds: ['session-1', 'session-2'] }
   const registry = {

@@ -57,11 +57,13 @@ interface SessionRowProps {
   indicator: SessionIndicator | "";
   pending: boolean;
   snippet?: string;
+  pinned: boolean;
   canDrag: boolean;
   dragDisabled: boolean;
   dragOver: boolean;
   draggedSessionRef: RefObject<string | null>;
   onOpen: (session: DshSessionSummary) => void | Promise<unknown>;
+  onTogglePin: (session: DshSessionSummary) => void | Promise<unknown>;
   onMoveBefore: (sessionId: string, beforeSessionId: string) => void | Promise<unknown>;
   onDragOverChange: (sessionId: string | null) => void;
   onSessionDragEnd: () => void;
@@ -74,11 +76,13 @@ export function SessionRow({
   indicator,
   pending,
   snippet,
+  pinned,
   canDrag,
   dragDisabled,
   dragOver,
   draggedSessionRef,
   onOpen,
+  onTogglePin,
   onMoveBefore,
   onDragOverChange,
   onSessionDragEnd,
@@ -102,7 +106,9 @@ export function SessionRow({
     }
 
     const rows = [...group.querySelectorAll<HTMLElement>(".session-row.is-draggable[data-session-id]")]
-      .filter((row) => row !== sourceElement && row.dataset.sessionId !== session.sessionId);
+      .filter((row) => row !== sourceElement
+        && row.dataset.sessionId !== session.sessionId
+        && row.dataset.sessionPinned === sourceElement.dataset.sessionPinned);
     if (rows.length === 0) return null;
 
     const target = rows.find((row) => {
@@ -231,8 +237,9 @@ export function SessionRow({
 
   return <>
     <div
-      className={`session-row session-status-${status}${active ? " active" : ""}${dragOver ? " drag-over" : ""}${canDrag ? " is-draggable" : ""}${dragDisabled ? " drag-disabled" : ""}${pressed ? " pressed" : ""}${dragging ? " dragging" : ""}`}
+      className={`session-row session-status-${status}${active ? " active" : ""}${dragOver ? " drag-over" : ""}${canDrag ? " has-pin is-draggable" : ""}${dragDisabled ? " drag-disabled" : ""}${pressed ? " pressed" : ""}${dragging ? " dragging" : ""}`}
       data-session-id={session.sessionId}
+      data-session-pinned={pinned ? "true" : "false"}
       data-session-status={status}
       aria-label={`会话状态：${sessionStatusLabels[status]}`}
       onContextMenu={(event) => {
@@ -257,6 +264,17 @@ export function SessionRow({
       >
         <span className="session-row-copy"><strong>{displayTitle(session)}</strong><small className={snippet ? "session-search-snippet" : undefined}>{detail}</small></span>
       </button>
+      {canDrag && <button
+        type="button"
+        className={`session-row-pin${pinned ? " is-pinned" : ""}`}
+        title={pinned ? "取消置顶" : "在此工作区置顶"}
+        aria-label={pinned ? "取消置顶" : "在此工作区置顶"}
+        aria-pressed={pinned}
+        onClick={(event) => {
+          event.stopPropagation();
+          void onTogglePin(session);
+        }}
+      >{pinned ? "◆" : "◇"}</button>}
     </div>
     {dragGhost && createPortal(
       <div

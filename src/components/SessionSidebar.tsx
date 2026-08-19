@@ -59,6 +59,7 @@ type SessionSidebarProps = {
   dragOverSessionId: string | null;
   draggedSessionRef: RefObject<string | null>;
   onOpenSession: (session: DshSessionSummary) => void | Promise<unknown>;
+  onToggleSessionPin: (session: DshSessionSummary) => void | Promise<unknown>;
   onMoveSessionBefore: (sessionId: string, beforeSessionId: string) => void | Promise<unknown>;
   onDragOverSessionChange: (sessionId: string | null) => void;
   onSessionDragEnd: () => void;
@@ -98,6 +99,7 @@ export function SessionSidebar({
   dragOverSessionId,
   draggedSessionRef,
   onOpenSession,
+  onToggleSessionPin,
   onMoveSessionBefore,
   onDragOverSessionChange,
   onSessionDragEnd,
@@ -114,10 +116,13 @@ export function SessionSidebar({
 
   function orderSessions(items: DshSessionSummary[]) {
     if (!dragPreviewRank) return items;
-    return [...items].sort((left, right) => (
-      (dragPreviewRank.get(left.sessionId) ?? Number.MAX_SAFE_INTEGER)
-      - (dragPreviewRank.get(right.sessionId) ?? Number.MAX_SAFE_INTEGER)
-    ));
+    const pinned = new Set(workspaceGroup.workspace?.pinnedSessionIds ?? []);
+    return [...items].sort((left, right) => {
+      const pinDifference = Number(pinned.has(right.sessionId)) - Number(pinned.has(left.sessionId));
+      if (pinDifference !== 0) return pinDifference;
+      return (dragPreviewRank.get(left.sessionId) ?? Number.MAX_SAFE_INTEGER)
+        - (dragPreviewRank.get(right.sessionId) ?? Number.MAX_SAFE_INTEGER);
+    });
   }
 
   function handleDragOverSessionChange(targetSessionId: string | null) {
@@ -161,11 +166,13 @@ export function SessionSidebar({
     indicator={sessionIndicators[session.sessionId] ?? "idle"}
     pending={pendingSessionIds.has(session.sessionId)}
     snippet={searchResultById.get(session.sessionId)}
+    pinned={Boolean(workspaceBySessionId.get(session.sessionId)?.pinnedSessionIds?.includes(session.sessionId))}
     canDrag={Boolean(workspaceBySessionId.get(session.sessionId))}
     dragDisabled={Boolean(search.trim()) || dragCommitPending}
     dragOver={dragOverSessionId === session.sessionId}
     draggedSessionRef={draggedSessionRef}
     onOpen={onOpenSession}
+    onTogglePin={onToggleSessionPin}
     onMoveBefore={handleMoveSessionBefore}
     onDragOverChange={handleDragOverSessionChange}
     onSessionDragEnd={handleSessionDragEnd}

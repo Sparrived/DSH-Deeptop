@@ -789,6 +789,14 @@ textarea:focus-visible {
   grid-template-columns: 18px minmax(0, 1fr);
 }
 
+.session-row.has-pin {
+  grid-template-columns: minmax(0, 1fr) 26px;
+}
+
+.session-row.has-pin.is-draggable {
+  grid-template-columns: 18px minmax(0, 1fr) 26px;
+}
+
 .session-row-grip {
   width: 18px;
   min-height: 24px;
@@ -875,6 +883,36 @@ textarea:focus-visible {
   align-items: center;
   padding: 7px 10px;
   text-align: left;
+}
+
+.session-row-pin {
+  align-self: center;
+  justify-self: center;
+  width: 24px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--rail-muted);
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0;
+  transition: color 120ms ease, opacity 120ms ease, transform 120ms ease;
+}
+
+.session-row:hover .session-row-pin,
+.session-row-pin:focus-visible,
+.session-row-pin.is-pinned {
+  opacity: 1;
+}
+
+.session-row-pin:hover,
+.session-row-pin.is-pinned {
+  color: var(--accent);
+}
+
+.session-row-pin:hover {
+  transform: translateY(-1px);
 }
 
 .session-row::after,

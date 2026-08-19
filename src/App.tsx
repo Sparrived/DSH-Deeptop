@@ -881,9 +881,11 @@ function App() {
   const selectedWorkspaceSessions = useMemo(() => {
     const visibleById = new Map(visibleSessions.map((session) => [session.sessionId, session]));
     if (selectedWorkspace) {
+      const pinned = new Set(selectedWorkspace.pinnedSessionIds ?? []);
       return selectedWorkspace.sessionIds
         .map((sessionId) => visibleById.get(sessionId))
-        .filter((session): session is DshSessionSummary => session !== undefined);
+        .filter((session): session is DshSessionSummary => session !== undefined)
+        .sort((left, right) => Number(pinned.has(right.sessionId)) - Number(pinned.has(left.sessionId)));
     }
     return visibleSessions.filter((session) => !workspaceBySessionId.has(session.sessionId));
   }, [selectedWorkspace, visibleSessions, workspaceBySessionId]);
@@ -2062,7 +2064,9 @@ function App() {
         workspaceId: item.workspaceId,
         title: title.trim(),
       });
-      setWorkspaces((current) => current.map((workspaceItem) => workspaceItem.workspaceId === item.workspaceId ? result.workspace : workspaceItem));
+      setWorkspaces((current) => current.map((workspaceItem) => workspaceItem.workspaceId === item.workspaceId
+        ? { ...result.workspace, pinnedSessionIds: result.workspace.pinnedSessionIds ?? workspaceItem.pinnedSessionIds }
+        : workspaceItem));
       setNotice("工作区已重命名");
     } catch (error) {
       setErrorNotice(errorText(error));
@@ -2143,6 +2147,40 @@ function App() {
     } catch (error) {
       if (announce) setErrorNotice(errorText(error));
     }
+  }
+
+  async function performToggleSessionPin(session: DshSessionSummary) {
+    if (!desktop) return;
+    const currentWorkspace = workspacesRef.current.find((item) => item.sessionIds.includes(session.sessionId));
+    if (!currentWorkspace) {
+      setNotice("未分组会话不能置顶");
+      return;
+    }
+    const pinned = new Set(currentWorkspace.pinnedSessionIds ?? []);
+    const nextPinned = !pinned.has(session.sessionId);
+    try {
+      const result = await bridgeRequest<{ workspaceId: string; pinnedSessionIds: string[] }>("workspace.setSessionPinned", {
+        workspaceId: currentWorkspace.workspaceId,
+        sessionId: session.sessionId,
+        pinned: nextPinned,
+      });
+      const nextWorkspaces = workspacesRef.current.map((item) => item.workspaceId === result.workspaceId
+        ? { ...item, pinnedSessionIds: result.pinnedSessionIds }
+        : item);
+      workspacesRef.current = nextWorkspaces;
+      setWorkspaces(nextWorkspaces);
+      setNotice(nextPinned ? "会话已置顶" : "会话已取消置顶");
+    } catch (error) {
+      setErrorNotice(errorText(error));
+    }
+  }
+
+  function toggleSessionPin(session: DshSessionSummary) {
+    const mutation = workspaceMutationQueueRef.current
+      .catch(() => undefined)
+      .then(() => performToggleSessionPin(session));
+    workspaceMutationQueueRef.current = mutation.then(() => undefined, () => undefined);
+    return mutation;
   }
 
   function moveSessionBefore(sessionId: string, beforeSessionId: string, announce = true) {
@@ -3348,6 +3386,7 @@ function App() {
           dragOverSessionId={dragOverSessionId}
           draggedSessionRef={draggedSessionRef}
           onOpenSession={openSession}
+          onToggleSessionPin={toggleSessionPin}
           onMoveSessionBefore={moveSessionBefore}
           onDragOverSessionChange={(sessionId) => setDragOverSessionId(sessionId)}
           onSessionDragEnd={() => setDragOverSessionId(null)}
