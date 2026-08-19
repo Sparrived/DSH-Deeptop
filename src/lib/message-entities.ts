@@ -15,7 +15,7 @@ export const FILE_LINK_PREFIX = "deeptop-file:";
 
 const URL_PATTERN = /https?:\/\/[^\s<>{}|\\^`[\]"'，。；：！？、）》】]+/gi;
 const WINDOWS_PATH_PATTERN = /(?<![\w])(?:[A-Za-z]:[\\/](?:[^\s<>:"|?*，。；：！？、）》】]+[\\/]?)+|\\\\[^\s<>:"|?*，。；：！？、）》】]+(?:[\\/][^\s<>:"|?*，。；：！？、）》】]+)+)/g;
-const UNIX_PATH_PATTERN = /(?<![\w.])\/(?:[^\s<>:"'`，。；：！？、）》】]+\/)*[^\s<>:"'`，。；：！？、）》】]+/g;
+const UNIX_PATH_PATTERN = /(?<![\w.\p{L}])\/(?:[^\s<>:"'`，。；：！？、）》】]+\/)*[^\s<>:"'`，。；：！？、）》】]+/gu;
 const RELATIVE_PATH_PATTERN = /(?<![\w./-])(?:\.\.?[\\/])?(?:[A-Za-z0-9_@-]+[\\/])+[A-Za-z0-9_.@-]+/g;
 const PATH_EXTENSION_PATTERN = /\.(?:[a-z0-9]{1,12})$/i;
 const TRAILING_PUNCTUATION = /[.,;:!?，。；：！？、）》】》'"`]+$/;
@@ -30,7 +30,17 @@ function trimEntity(value: string): string {
 
 function looksLikePath(value: string): boolean {
   if (value.length < 3 || /[\n\r]/.test(value)) return false;
-  if (/^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\") || value.startsWith("/")) return true;
+  if (/^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\")) return true;
+  if (value.startsWith("/")) {
+    // A slash in Chinese prose often looks like a one-segment Unix path
+    // (for example, "项目/图层后才能添加字段"). Keep such fragments as text,
+    // while retaining conventional ASCII paths such as /tmp and multi-segment
+    // paths such as /workspace/project.
+    const segments = value.split("/").filter(Boolean);
+    return PATH_EXTENSION_PATTERN.test(value)
+      || segments.length >= 2
+      || /[A-Za-z0-9_@-]/.test(segments[0] ?? "");
+  }
   return (value.startsWith("./") || value.startsWith("../") || value.startsWith(".\\") || value.startsWith("..\\") || value.includes("/"))
     && (PATH_EXTENSION_PATTERN.test(value) || value.startsWith("./") || value.startsWith("../") || value.startsWith(".\\") || value.startsWith("..\\"));
 }
