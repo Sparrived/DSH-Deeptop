@@ -208,7 +208,7 @@ test('stops a running archived session before deleting its artifact', async () =
   }
 
   try {
-    const result = await routeDesktopRequest({
+    const context = new Proxy({
       apiProxy: {
         sessions: {
           cancel: async request => {
@@ -223,7 +223,13 @@ test('stops a running archived session before deleting its artifact', async () =
         sessionPersistence: persistence,
         sessions: { get: () => live ? {} : undefined },
       })[key],
-    }, 'workspace.deleteArchivedSession', { sessionId: 'session-running' }, signal)
+    }, {
+      get(target, property, receiver) {
+        if (property === 'sessionStopTimeoutMs') throw new Error('cannot get property "sessionStopTimeoutMs" without inject')
+        return Reflect.get(target, property, receiver)
+      },
+    })
+    const result = await routeDesktopRequest(context, 'workspace.deleteArchivedSession', { sessionId: 'session-running' }, signal)
 
     assert.deepEqual(result, { deleted: true, archivedSessionIds: [] })
     assert.deepEqual(cancelPayload, { sessionId: 'session-running' })
@@ -255,11 +261,11 @@ test('does not delete a running archived session when cancellation cannot stop i
   try {
     await assert.rejects(
       routeDesktopRequest({
-        sessionStopTimeoutMs: 0,
         apiProxy: { sessions: { cancel: async () => ({ ok: true }) } },
         get: key => ({
           workspaceRegistry: registry,
           sessionPersistence: persistence,
+          sessionStopTimeoutMs: 0,
           sessions: { get: () => ({}) },
         })[key],
       }, 'workspace.deleteArchivedSession', { sessionId: 'session-stuck' }, signal),

@@ -153,7 +153,7 @@ function parentSessionIdFromAgent(agent) {
 }
 
 async function waitForSessionStopped(ctx, sessionId, signal) {
-  const configuredTimeout = Number(ctx.sessionStopTimeoutMs)
+  const configuredTimeout = Number(ctx.get?.('sessionStopTimeoutMs'))
   const timeoutMs = Number.isFinite(configuredTimeout) ? Math.max(0, configuredTimeout) : 5000
   const deadline = Date.now() + timeoutMs
   for (;;) {
