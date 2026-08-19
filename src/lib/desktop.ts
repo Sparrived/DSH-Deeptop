@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import packageInfo from "../../package.json";
 import { parseExternalLaunchPayload, type ExternalLaunchRequest } from "./external-launch";
+import type { NativeUpdateDownloadProgress, UpdateChannel } from "../app/update-model";
 export type { ExternalLaunchRequest } from "./external-launch";
 
 export const DSH_PACKAGE = "@deepseek-ai/dsh（内嵌运行时）";
@@ -569,32 +570,62 @@ export async function refreshDsh(): Promise<DshStatus> {
 
 export interface NativeUpdateResult {
   currentVersion: string;
+  channel: UpdateChannel;
   latestVersion: string | null;
   releaseTag: string | null;
   releaseName: string | null;
   releaseUrl: string | null;
+  assetName: string | null;
+  assetSize: number | null;
+  sha256: string | null;
+  installSupported: boolean;
   updateAvailable: boolean;
 }
 
-/** Read the bundled desktop version and query the latest stable GitHub release through Rust. */
-export async function checkForUpdates(): Promise<NativeUpdateResult> {
+/** Query the selected GitHub release channel through the native host. */
+export async function checkForUpdates(channel: UpdateChannel): Promise<NativeUpdateResult> {
   if (!isTauri()) {
     return {
       currentVersion: packageInfo.version,
+      channel,
       latestVersion: null,
       releaseTag: null,
       releaseName: null,
       releaseUrl: null,
+      assetName: null,
+      assetSize: null,
+      sha256: null,
+      installSupported: false,
       updateAvailable: false,
     };
   }
-  return invoke<NativeUpdateResult>("check_for_updates");
+  return invoke<NativeUpdateResult>("check_for_updates", { args: { channel } });
 }
 
 /** Cancel the in-flight native update request; the network request is aborted by Rust. */
 export async function cancelUpdateCheck(): Promise<void> {
   if (!isTauri()) return;
   await invoke("cancel_update_check");
+}
+
+export async function downloadUpdate(channel: UpdateChannel, releaseTag: string): Promise<void> {
+  if (!isTauri()) throw new Error("更新下载只在 Deeptop 桌面端执行");
+  await invoke("download_update", { args: { channel, releaseTag } });
+}
+
+export async function cancelUpdateDownload(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("cancel_update_download");
+}
+
+export async function launchUpdateInstaller(): Promise<void> {
+  if (!isTauri()) throw new Error("更新安装只在 Deeptop 桌面端执行");
+  await invoke("launch_update_installer");
+}
+
+export async function listenToUpdateProgress(handler: (progress: NativeUpdateDownloadProgress) => void): Promise<UnlistenFn> {
+  if (!isTauri()) return () => undefined;
+  return listen<NativeUpdateDownloadProgress>("app-update-progress", (event) => handler(event.payload));
 }
 
 /** Open a project or release page with the OS default browser via the native host. */
@@ -784,6 +815,12 @@ export async function writeClipboard(text: string): Promise<void> {
 /** Reveal a path in the OS file manager. */
 export async function revealInExplorer(path: string): Promise<void> {
   await invoke("reveal_in_explorer", { path });
+}
+
+/** Check through the native host whether a path resolves to a regular file. */
+export async function isFilePath(path: string): Promise<boolean> {
+  if (!isTauri()) return false;
+  return invoke<boolean>("is_file_path", { path });
 }
 
 /** Permanently delete a file or folder (recursively for folders). */

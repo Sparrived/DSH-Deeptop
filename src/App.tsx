@@ -43,6 +43,10 @@ import {
   listenToNotificationClick,
   listenToRuntimeLog,
   listenToRuntimeStatus,
+  listenToUpdateProgress,
+  downloadUpdate,
+  cancelUpdateDownload,
+  launchUpdateInstaller,
   listenToSingleInstance,
   listenToExternalLaunch,
   listPendingExternalLaunches,
@@ -181,7 +185,7 @@ import { defaultWorkingIndicator, normalizeWorkingIndicator } from "./app/workin
 import { externalLaunchKey } from "./lib/external-launch";
 import { DEFAULT_PERMISSION_OPTIONS, isDefaultPermission, readStoredDefaultModel, readStoredDefaultPermission, writeStoredDefaultModel, writeStoredDefaultPermission, type DefaultPermission } from "./app/session-defaults";
 import { reconcileSessionIndicators } from "./app/session-runtime-state";
-import { updateCheckStateFromResult, updateCheckErrorMessage, type UpdateCheckState } from "./app/update-model";
+import { updateCheckStateFromResult, updateCheckErrorMessage, updateDownloadStateFromEvent, type UpdateChannel, type UpdateCheckState, type UpdateDownloadState } from "./app/update-model";
 
 const demoStatus: DshStatus = {
   dshHome: "",
@@ -381,8 +385,12 @@ function App() {
   const [presetView, setPresetView] = useState<{ id: string; content: string } | null>(null);
   const [presetCopy, setPresetCopy] = useState<{ from: string; id: string; name: string } | null>(null);
   const [surfaceLoading, setSurfaceLoading] = useState(false);
-  const [updateState, setUpdateState] = useState<UpdateCheckState>({ status: "idle" });
+  const [updateChannel, setUpdateChannel] = useState<UpdateChannel>(DEEPTOP_VERSION.includes("-") ? "development" : "stable");
+  const [updateState, setUpdateState] = useState<UpdateCheckState>({ status: "idle", channel: updateChannel });
+  const [updateDownloadState, setUpdateDownloadState] = useState<UpdateDownloadState>({ status: "idle" });
   const updateCheckRequestRef = useRef(0);
+  const updateDownloadRequestRef = useRef(0);
+  const updateDownloadReleaseRef = useRef<string | null>(null);
   const [renameTarget, setRenameTarget] = useState<DshSessionSummary | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [queue, setQueue] = useState<DshQueueItem[]>([]);
@@ -680,6 +688,19 @@ function App() {
     void listPendingWindowClose().then((pending) => { if (pending) requestWindowCloseRef.current(); }).catch(() => undefined);
     return () => { unlisten?.(); };
   }, [desktop]);
+
+  useEffect(() => {
+    if (!desktop) return;
+    let unlisten: UnlistenFn | undefined;
+    void listenToUpdateProgress((progress) => {
+      const expectedRelease = updateDownloadReleaseRef.current;
+      if (progress.releaseTag && (!expectedRelease || progress.releaseTag !== expectedRelease)) return;
+      if (!progress.releaseTag && (progress.phase === "failed" || progress.phase === "cancelled") && !expectedRelease) return;
+      setUpdateDownloadState(updateDownloadStateFromEvent(progress));
+    }).then((cleanup) => { unlisten = cleanup; });
+    return () => { unlisten?.(); };
+  }, [desktop]);
+
 
   useEffect(() => {
     selectedSubagentRef.current = selectedSubagentId;
@@ -3161,7 +3182,11 @@ function App() {
 
   function closeSettings() {
     updateCheckRequestRef.current += 1;
+    updateDownloadRequestRef.current += 1;
+    updateDownloadReleaseRef.current = null;
     void cancelUpdateCheck().catch(() => undefined);
+    void cancelUpdateDownload().catch(() => undefined);
+    setUpdateDownloadState({ status: "idle" });
     setShowInspector(false);
     setSettingsDraft(null);
     setPresetCopy(null);
@@ -3171,25 +3196,71 @@ function App() {
   async function checkForAppUpdates() {
     if (!desktop || updateState.status === "checking") return;
     const requestId = ++updateCheckRequestRef.current;
-    setUpdateState({ status: "checking" });
+    updateDownloadRequestRef.current += 1;
+    updateDownloadReleaseRef.current = null;
+    setUpdateDownloadState({ status: "idle" });
+    setUpdateState({ status: "checking", channel: updateChannel });
     try {
-      const result = await checkForUpdates();
+      const result = await checkForUpdates(updateChannel);
       if (requestId !== updateCheckRequestRef.current) return;
       setUpdateState(updateCheckStateFromResult(result));
     } catch (error) {
       if (requestId !== updateCheckRequestRef.current) return;
       if (String(error).includes("更新检查已取消")) {
-        setUpdateState({ status: "idle" });
+        setUpdateState({ status: "idle", channel: updateChannel });
         return;
       }
-      setUpdateState({ status: "error", message: updateCheckErrorMessage(error) });
+      setUpdateState({ status: "error", channel: updateChannel, message: updateCheckErrorMessage(error) });
     }
+  }
+
+  function changeUpdateChannel(channel: UpdateChannel) {
+    updateCheckRequestRef.current += 1;
+    updateDownloadRequestRef.current += 1;
+    setUpdateChannel(channel);
+    updateDownloadReleaseRef.current = null;
+    setUpdateState({ status: "idle", channel });
+    setUpdateDownloadState({ status: "idle" });
+    void cancelUpdateCheck().catch(() => undefined);
+    void cancelUpdateDownload().catch(() => undefined);
   }
 
   function cancelAppUpdateCheck() {
     updateCheckRequestRef.current += 1;
-    setUpdateState({ status: "idle" });
+    setUpdateState({ status: "idle", channel: updateChannel });
     void cancelUpdateCheck().catch((error) => setErrorNotice(errorText(error)));
+  }
+
+  async function downloadAppUpdate() {
+    if (!desktop || updateState.status !== "available" || updateDownloadState.status === "downloading") return;
+    const requestId = ++updateDownloadRequestRef.current;
+    updateDownloadReleaseRef.current = updateState.releaseTag;
+    setUpdateDownloadState({ status: "downloading", releaseTag: updateState.releaseTag, assetName: updateState.assetName, downloadedBytes: 0, totalBytes: updateState.assetSize, percent: 0 });
+    try {
+      await downloadUpdate(updateChannel, updateState.releaseTag);
+    } catch (error) {
+      if (requestId !== updateDownloadRequestRef.current) return;
+      if (String(error).includes("更新下载已取消")) {
+        setUpdateDownloadState({ status: "cancelled" });
+        return;
+      }
+      setUpdateDownloadState({ status: "error", message: updateCheckErrorMessage(error) });
+    }
+  }
+
+  function cancelAppUpdateDownload() {
+    updateDownloadRequestRef.current += 1;
+    updateDownloadReleaseRef.current = null;
+    setUpdateDownloadState({ status: "cancelled" });
+    void cancelUpdateDownload().catch((error) => setErrorNotice(errorText(error)));
+  }
+
+  function launchAppUpdate() {
+    if (updateDownloadState.status !== "ready") return;
+    setUpdateDownloadState({ status: "launching" });
+    void launchUpdateInstaller().catch((error) => {
+      setUpdateDownloadState({ status: "error", message: errorText(error) });
+    });
   }
 
   function openProjectPage() {
@@ -3353,7 +3424,7 @@ function App() {
                retryingMessageSeq={retryingMessageSeq}
               onForkSession={forkSession}
                onOpenUrl={openMessageUrl}
-              onOpenSessionPath={openSessionPath}
+                             onOpenSessionPath={openSessionPath}
             />
 
             <div className="left-dock-shelf" aria-label="工作区工具">
@@ -3549,9 +3620,15 @@ function App() {
                   {settingsSection === "about" && <SettingsAboutPanel
                      version={DEEPTOP_VERSION}
                      desktop={desktop}
-                     updateState={updateState}
+                     updateChannel={updateChannel}
+                      updateState={updateState}
+                      downloadState={updateDownloadState}
                      onCheckForUpdates={() => void checkForAppUpdates()}
-                     onCancelUpdateCheck={cancelAppUpdateCheck}
+                     onChannelChange={changeUpdateChannel}
+                      onCancelUpdateCheck={cancelAppUpdateCheck}
+                      onDownloadUpdate={() => void downloadAppUpdate()}
+                      onCancelDownload={cancelAppUpdateDownload}
+                      onLaunchInstaller={launchAppUpdate}
                      onOpenProject={openProjectPage}
                      onOpenRelease={openLatestRelease}
                    />}

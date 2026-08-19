@@ -3172,7 +3172,7 @@ fn main() {
             cancel_window_close,
             about::check_for_updates,
             about::cancel_update_check,
-            about::open_project_url,
+            about::download_update,`n            about::cancel_update_download,`n            about::launch_update_installer,`n            about::open_project_url,
             open_connection_url,
             refresh_dsh,
             open_nodejs_download,

@@ -804,6 +804,7 @@ dependencies = [
  "arboard",
  "flate2",
  "fs2",
+ "futures-util",
  "notify-rust",
  "portable-pty",
  "reqwest",
