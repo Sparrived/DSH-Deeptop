@@ -3256,10 +3256,10 @@ function App() {
   }
 
   function launchAppUpdate() {
-    if (updateDownloadState.status !== "ready") return;
+    if (updateDownloadState.status !== "ready" && !(updateDownloadState.status === "error" && updateDownloadState.canInstall)) return;
     setUpdateDownloadState({ status: "launching" });
     void launchUpdateInstaller().catch((error) => {
-      setUpdateDownloadState({ status: "error", message: errorText(error) });
+      setUpdateDownloadState({ status: "error", message: errorText(error), canInstall: true });
     });
   }
 

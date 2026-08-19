@@ -111,7 +111,7 @@ export function SettingsAboutPanel({
             {downloading && <button type="button" onClick={onCancelDownload}>取消下载</button>}
             {ready && <button type="button" className="confirm" onClick={onLaunchInstaller}>启动安装</button>}
             {updateFailed && <button type="button" onClick={onCheckForUpdates} disabled={!desktop}>重试</button>}
-            {downloadState.status === "error" && <button type="button" onClick={onDownloadUpdate} disabled={!desktop || !updateAvailable}>重新下载</button>}
+            {downloadState.status === "error" && downloadState.canInstall ? <button type="button" className="confirm" onClick={onLaunchInstaller}>重试安装</button> : downloadState.status === "error" && <button type="button" onClick={onDownloadUpdate} disabled={!desktop || !updateAvailable}>重新下载</button>}
           </div>
         </div>
       </section>

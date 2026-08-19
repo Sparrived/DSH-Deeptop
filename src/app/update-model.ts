@@ -40,7 +40,7 @@ export type UpdateDownloadState =
   | { status: "ready"; releaseTag: string; assetName: string; path: string; sha256: string }
   | { status: "cancelled" }
   | { status: "launching" }
-  | { status: "error"; message: string };
+  | { status: "error"; message: string; canInstall?: boolean };
 
 export type NativeUpdateDownloadProgress = {
   phase: UpdateDownloadState["status"] | "failed";
@@ -87,5 +87,5 @@ export function updateDownloadStateFromEvent(event: NativeUpdateDownloadProgress
   if (event.phase === "cancelled") return { status: "cancelled" };
   if (event.phase === "launching") return { status: "launching" };
   if (event.phase === "failed" || event.phase === "error") return { status: "error", message: event.message || "更新下载失败" };
-  return { status: "idle" };
+  return { status: "error", message: "更新进度事件格式无效" };
 }

@@ -57,6 +57,7 @@ test("download progress events become actionable states", () => {
     sha256: "b".repeat(64),
   });
   assert.deepEqual(updateDownloadStateFromEvent({ phase: "failed", message: "校验失败" }), { status: "error", message: "校验失败" });
+  assert.deepEqual(updateDownloadStateFromEvent({ phase: "downloading" }), { status: "error", message: "更新进度事件格式无效" });
 });
 
 test("update errors keep useful messages", () => {

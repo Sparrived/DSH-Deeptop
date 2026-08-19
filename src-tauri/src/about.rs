@@ -29,6 +29,8 @@ pub struct UpdateCheckManager {
     cancel_sender: Arc<Mutex<Option<oneshot::Sender<()>>>>,
     download_generation: Arc<AtomicU64>,
     download_cancel_sender: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+    download_commit_lock: Arc<Mutex<()>>,
+    download_context: Arc<Mutex<Option<(String, String)>>>,
     verified_update: Arc<Mutex<Option<VerifiedUpdate>>>,
 }
 
@@ -39,6 +41,8 @@ impl Default for UpdateCheckManager {
             cancel_sender: Arc::new(Mutex::new(None)),
             download_generation: Arc::new(AtomicU64::new(0)),
             download_cancel_sender: Arc::new(Mutex::new(None)),
+            download_commit_lock: Arc::new(Mutex::new(())),
+            download_context: Arc::new(Mutex::new(None)),
             verified_update: Arc::new(Mutex::new(None)),
         }
     }
@@ -66,6 +70,9 @@ impl UpdateCheckManager {
 
     fn begin_download(&self) -> (u64, oneshot::Receiver<()>) {
         self.cancel_download();
+        if let Ok(mut context) = self.download_context.lock() {
+            *context = None;
+        }
         let generation = self.download_generation.fetch_add(1, Ordering::SeqCst) + 1;
         let (sender, receiver) = oneshot::channel();
         if let Ok(mut current) = self.download_cancel_sender.lock() {
@@ -75,15 +82,35 @@ impl UpdateCheckManager {
     }
 
     fn cancel_download(&self) {
+        let _commit_lock = self.download_commit_lock.lock().ok();
         self.download_generation.fetch_add(1, Ordering::SeqCst);
         if let Ok(mut sender) = self.download_cancel_sender.lock() {
             if let Some(sender) = sender.take() {
                 let _ = sender.send(());
             }
         }
+        if let Ok(mut context) = self.download_context.lock() {
+            *context = None;
+        }
         if let Ok(mut verified) = self.verified_update.lock() {
             *verified = None;
         }
+    }
+
+    fn set_download_context(&self, release_tag: String, asset_name: String) {
+        if let Ok(mut context) = self.download_context.lock() {
+            *context = Some((release_tag, asset_name));
+        }
+    }
+
+    fn download_context(&self) -> (Option<String>, Option<String>) {
+        self.download_context
+            .lock()
+            .ok()
+            .and_then(|context| context.clone())
+            .map_or((None, None), |(release_tag, asset_name)| {
+                (Some(release_tag), Some(asset_name))
+            })
     }
 
     fn is_cancelled(&self, generation: u64) -> bool {
@@ -245,10 +272,19 @@ fn safe_asset_name(name: &str) -> bool {
         && !name.contains("..")
 }
 
-fn safe_github_download_url(url: &str) -> bool {
-    let value = url.trim();
-    value.starts_with("https://github.com/Sparrived/DSH-Deeptop/releases/download/")
-        && !value.contains(['\r', '\n', '"', '\''])
+fn safe_release_tag(tag: &str) -> bool {
+    !tag.is_empty()
+        && tag.len() <= 80
+        && tag
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_' | b'+'))
+}
+
+fn safe_github_download_url(url: &str, release_tag: &str, asset_name: &str) -> bool {
+    let expected = format!(
+        "https://github.com/Sparrived/DSH-Deeptop/releases/download/{release_tag}/{asset_name}"
+    );
+    url.trim() == expected
 }
 
 fn sha256_from_digest(digest: Option<&str>) -> Option<String> {
@@ -268,7 +304,10 @@ fn target_asset(release: &GithubRelease) -> Result<GithubAsset, String> {
         .find(|asset| asset.name.ends_with(suffix) && safe_asset_name(&asset.name))
         .cloned()
         .ok_or_else(|| format!("该版本没有当前平台的更新包：{suffix}"))?;
-    if !safe_github_download_url(&asset.browser_download_url) {
+    if !safe_release_tag(&release.tag_name) {
+        return Err("更新版本标签不受信任".to_string());
+    }
+    if !safe_github_download_url(&asset.browser_download_url, &release.tag_name, &asset.name) {
         return Err("更新包下载地址不受信任".to_string());
     }
     Ok(asset)
@@ -299,7 +338,11 @@ async fn resolve_asset_digest(
         .iter()
         .find(|candidate| candidate.name == "SHA256SUMS")
         .ok_or_else(|| format!("更新包缺少有效 SHA256：{}", asset.name))?;
-    if !safe_github_download_url(&manifest.browser_download_url) {
+    if !safe_github_download_url(
+        &manifest.browser_download_url,
+        &release.tag_name,
+        &manifest.name,
+    ) {
         return Err("SHA256 校验清单地址不受信任".to_string());
     }
     let client = github_client(UPDATE_CHECK_TIMEOUT, "update-checksum").await?;
@@ -326,6 +369,7 @@ fn release_candidates(
         .filter(|release| {
             !release.draft && release.prerelease == matches!(channel, UpdateChannel::Development)
         })
+        .filter(|release| safe_release_tag(&release.tag_name))
         .filter_map(|release| release_version(&release.tag_name).map(|version| (release, version)))
         .collect::<Vec<_>>();
     candidates.sort_by(|left, right| right.1.cmp(&left.1));
@@ -443,7 +487,7 @@ async fn select_release_for_download(
     channel: &UpdateChannel,
     release_tag: &str,
 ) -> Result<SelectedRelease, String> {
-    if release_tag.len() > 80 || release_tag.contains(['/', '\\', '\r', '\n']) {
+    if !safe_release_tag(release_tag) {
         return Err("更新版本标签无效".to_string());
     }
     let releases = fetch_releases().await?;
@@ -469,6 +513,10 @@ async fn download_update_inner(
     if updates.is_download_cancelled(generation) {
         return Err("更新下载已取消".to_string());
     }
+    updates.set_download_context(
+        selected.release.tag_name.clone(),
+        selected.asset.name.clone(),
+    );
     let directory = update_cache_dir(&app, &selected.release.tag_name)?;
     let final_path = directory.join(&selected.asset.name);
     let partial_path = directory.join(format!("{}.part", selected.asset.name));
@@ -546,6 +594,14 @@ async fn download_update_inner(
     file.flush()
         .map_err(|error| format!("保存更新包失败：{error}"))?;
     drop(file);
+    let _commit_lock = updates
+        .download_commit_lock
+        .lock()
+        .map_err(|_| "更新下载状态锁定失败".to_string())?;
+    if updates.is_download_cancelled(generation) {
+        let _ = fs::remove_file(&partial_path);
+        return Err("更新下载已取消".to_string());
+    }
     if downloaded != selected.asset.size {
         let _ = fs::remove_file(&partial_path);
         return Err("更新包下载不完整，大小校验失败".to_string());
@@ -569,8 +625,16 @@ async fn download_update_inner(
         let _ = fs::remove_file(&partial_path);
         return Err("更新包 SHA256 校验失败，已删除不完整文件".to_string());
     }
+    if updates.is_download_cancelled(generation) {
+        let _ = fs::remove_file(&partial_path);
+        return Err("更新下载已取消".to_string());
+    }
     fs::rename(&partial_path, &final_path)
         .map_err(|error| format!("保存已校验更新包失败：{error}"))?;
+    if updates.is_download_cancelled(generation) {
+        let _ = fs::remove_file(&final_path);
+        return Err("更新下载已取消".to_string());
+    }
     if let Ok(mut verified) = updates.verified_update.lock() {
         *verified = Some(VerifiedUpdate {
             release_tag: selected.release.tag_name.clone(),
@@ -602,9 +666,11 @@ pub async fn download_update(
     args: DownloadUpdateArgs,
     updates: State<'_, UpdateCheckManager>,
 ) -> Result<(), String> {
-    match download_update_inner(app.clone(), args, updates).await {
+    let requested_release_tag = args.release_tag.clone();
+    match download_update_inner(app.clone(), args, updates.clone()).await {
         Ok(()) => Ok(()),
         Err(error) => {
+            let (context_release_tag, context_asset_name) = updates.download_context();
             emit_progress(
                 &app,
                 UpdateDownloadProgress {
@@ -614,8 +680,8 @@ pub async fn download_update(
                         "failed"
                     }
                     .to_string(),
-                    release_tag: None,
-                    asset_name: None,
+                    release_tag: context_release_tag.or(Some(requested_release_tag)),
+                    asset_name: context_asset_name,
                     downloaded_bytes: None,
                     total_bytes: None,
                     percent: None,
@@ -775,7 +841,8 @@ pub fn open_project_url(url: String) -> Result<(), String> {
 mod tests {
     use super::{
         is_safe_external_url, release_candidates, release_version, safe_asset_name,
-        sha256_from_digest, sha256_from_manifest, GithubRelease, UpdateChannel, UpdateCheckManager,
+        safe_github_download_url, safe_release_tag, sha256_from_digest, sha256_from_manifest,
+        GithubRelease, UpdateChannel, UpdateCheckManager,
     };
 
     #[test]
@@ -836,6 +903,18 @@ mod tests {
 
     #[test]
     fn validates_update_asset_names_and_sha256_sources() {
+        assert!(safe_release_tag("v1.0.0-dev.1"));
+        assert!(!safe_release_tag("../v1.0.0"));
+        assert!(safe_github_download_url(
+            "https://github.com/Sparrived/DSH-Deeptop/releases/download/v1.0.0/update.exe",
+            "v1.0.0",
+            "update.exe"
+        ));
+        assert!(!safe_github_download_url(
+            "https://github.com/Sparrived/DSH-Deeptop/releases/download/v1.0.0/update.exe?download=1",
+            "v1.0.0",
+            "update.exe"
+        ));
         assert!(safe_asset_name("Deeptop-v1.0.0-windows-x64-setup.exe"));
         assert!(!safe_asset_name("../update.exe"));
         assert_eq!(
