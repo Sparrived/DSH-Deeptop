@@ -53,14 +53,45 @@
 
 .dock-frame-right .dock-frame-card { right: calc(100% + var(--right-surface-gap, 12px)); left: auto; }
 .dock-frame-left .dock-frame-card { right: auto; left: calc(100% + var(--right-surface-gap, 12px)); }
-.dock-frame-header { min-width: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px; border-bottom: 1px solid var(--line); background: var(--surface-soft); }
+.dock-frame-card {
+  transform: translate3d(var(--dock-position-x, 0px), var(--dock-position-y, 0px), 0);
+}
+
+.dock-frame-header {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-soft);
+  cursor: move;
+  touch-action: none;
+  user-select: none;
+}
+.dock-frame-header-dragging { cursor: grabbing; }
 .dock-frame-heading { min-width: 0; display: flex; align-items: flex-start; gap: 10px; }
 .dock-frame-header h2 { margin: 0; color: var(--ink-strong); font-size: 16px; line-height: 1.35; }
 .dock-frame-kicker { display: block; margin-bottom: 3px; color: var(--ink-faint); font-size: 11px; }
 .dock-frame-header-actions { display: flex; align-items: center; gap: 8px; }
 .dock-frame-total { color: var(--accent-deep); font-family: var(--mono); font-size: 13px; font-weight: 700; white-space: nowrap; }
-.dock-frame-toggle { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid var(--line-strong); background: transparent; color: var(--ink-muted); font-size: 18px; line-height: 1; }
-.dock-frame-toggle:hover { border-color: var(--accent); color: var(--accent-deep); }
+.dock-frame-toggle,
+.dock-frame-reset {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.dock-frame-toggle { font-size: 18px; }
+.dock-frame-toggle:hover,
+.dock-frame-reset:hover { border-color: var(--accent); color: var(--accent-deep); }
 .dock-frame-body { min-height: 0; flex: 1 1 auto; display: flex; flex-direction: column; overflow: hidden; background: var(--surface-raised); }
 
 /* UtilityDockShelf owns canonical right-side order. */

@@ -16,7 +16,7 @@ use std::{
 
 use fs2::FileExt;
 use notify_rust::{Notification as DesktopNotification, NotificationResponse};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tauri::{
@@ -26,6 +26,7 @@ use tauri::{
 };
 
 mod about;
+mod dock_position;
 mod external_launch;
 mod terminal;
 mod window_behavior;
@@ -1897,6 +1898,28 @@ fn set_windows_context_menu_enabled(
 }
 
 #[tauri::command]
+fn get_dock_position(
+    app: AppHandle,
+    id: String,
+) -> Result<Option<dock_position::DockPosition>, String> {
+    dock_position::get(app, id)
+}
+
+#[tauri::command]
+fn set_dock_position(
+    app: AppHandle,
+    id: String,
+    position: dock_position::DockPosition,
+) -> Result<(), String> {
+    dock_position::set(app, id, position)
+}
+
+#[tauri::command]
+fn reset_dock_position(app: AppHandle, id: String) -> Result<(), String> {
+    dock_position::reset(app, id)
+}
+
+#[tauri::command]
 fn get_window_behavior_settings(
     app: AppHandle,
 ) -> Result<window_behavior::WindowBehaviorSettings, String> {
@@ -3194,6 +3217,9 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             check_dsh,
+            get_dock_position,
+            set_dock_position,
+            reset_dock_position,
             get_windows_context_menu_status,
             set_windows_context_menu_enabled,
             get_window_behavior_settings,

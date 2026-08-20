@@ -17,6 +17,11 @@ export interface WindowBehaviorSettings {
   closeBehavior: CloseBehavior;
 }
 
+export interface DockPosition {
+  x: number;
+  y: number;
+}
+
 export interface DshStatus {
   dshHome: string;
   runtimeDirectory: string;
@@ -487,6 +492,23 @@ export async function getWindowsContextMenuStatus(): Promise<WindowsContextMenuS
 export async function setWindowsContextMenuEnabled(enabled: boolean): Promise<WindowsContextMenuStatus> {
   if (!isTauri()) throw new Error("资源管理器右键菜单仅在 Windows 桌面端可用");
   return invoke<WindowsContextMenuStatus>("set_windows_context_menu_enabled", { enabled });
+}
+
+export async function getDockPosition(id: string): Promise<DockPosition | null> {
+  if (!isTauri()) return null;
+  const position = await invoke<DockPosition | null>("get_dock_position", { id });
+  if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.y)) return null;
+  return position;
+}
+
+export async function setDockPosition(id: string, position: DockPosition): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("set_dock_position", { id, position });
+}
+
+export async function resetDockPosition(id: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("reset_dock_position", { id });
 }
 
 export async function getWindowBehaviorSettings(): Promise<WindowBehaviorSettings> {
