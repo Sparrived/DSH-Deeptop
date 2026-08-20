@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[cfg(windows)]
+use std::sync::atomic::AtomicU32;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     env, fs,
@@ -13,8 +15,6 @@ use std::{
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-#[cfg(windows)]
-use std::sync::atomic::AtomicU32;
 
 use fs2::FileExt;
 use notify_rust::{Notification as DesktopNotification, NotificationResponse};
@@ -2158,12 +2158,22 @@ fn validate_tray_session_menu(snapshot: &TraySessionMenuSnapshot) -> Result<(), 
 fn tray_menu_text(value: &str, fallback: &str, max_chars: usize) -> String {
     let compact = value
         .chars()
-        .map(|character| if character.is_control() { ' ' } else { character })
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
         .collect::<String>()
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ");
-    let source = if compact.is_empty() { fallback } else { &compact };
+    let source = if compact.is_empty() {
+        fallback
+    } else {
+        &compact
+    };
     let mut text = source.chars().take(max_chars).collect::<String>();
     if source.chars().count() > max_chars {
         text.pop();
@@ -2293,8 +2303,8 @@ fn build_tray_menu(
 
 #[cfg(windows)]
 fn tray_popup_height(snapshot: &TraySessionMenuSnapshot) -> u32 {
-    let section_count = usize::from(!snapshot.unread.is_empty())
-        + usize::from(!snapshot.recent.is_empty());
+    let section_count =
+        usize::from(!snapshot.unread.is_empty()) + usize::from(!snapshot.recent.is_empty());
     let session_count = snapshot.unread.len() + snapshot.recent.len();
     TRAY_POPUP_OUTER_HEIGHT
         + section_count as u32 * TRAY_POPUP_SECTION_HEIGHT
@@ -2326,8 +2336,7 @@ fn tray_popup_position(
     let margin = i64::from(TRAY_POPUP_SCREEN_MARGIN);
     let gap = i64::from(TRAY_POPUP_ANCHOR_GAP);
 
-    let ideal_x = (anchor_x + f64::from(anchor_width) / 2.0).round() as i64
-        - popup_width / 2;
+    let ideal_x = (anchor_x + f64::from(anchor_width) / 2.0).round() as i64 - popup_width / 2;
     let min_x = work_left + margin;
     let max_x = (work_right - popup_width - margin).max(min_x);
     let x = ideal_x.clamp(min_x, max_x);
@@ -2537,11 +2546,8 @@ fn open_tray_popup_session(
     }
     hide_tray_popup_window(&app)?;
     focus_main_window(&app);
-    app.emit(
-        "tray-session-open",
-        json!({ "sessionId": session_id }),
-    )
-    .map_err(|error| format!("打开托盘会话失败：{error}"))
+    app.emit("tray-session-open", json!({ "sessionId": session_id }))
+        .map_err(|error| format!("打开托盘会话失败：{error}"))
 }
 
 #[tauri::command]
@@ -3545,10 +3551,9 @@ mod tests {
         bound_log_text, extract_runtime_archive, format_log_line, format_utc_datetime,
         is_bundled_runtime_manifest, is_dsh_package_manifest, is_file_path, is_safe_runtime_entry,
         runtime_arch, runtime_cache_validation_message, runtime_platform, runtime_tree_sha256,
-        tray_menu_text, tray_session_label, validate_tray_session_menu,
-        validated_connection_url, DshRuntimeLog, LogStore, TraySessionMenuItem,
-        TraySessionMenuSnapshot, TraySessionStatus, MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES,
-        RUNTIME_CACHE_MARKER,
+        tray_menu_text, tray_session_label, validate_tray_session_menu, validated_connection_url,
+        DshRuntimeLog, LogStore, TraySessionMenuItem, TraySessionMenuSnapshot, TraySessionStatus,
+        MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES, RUNTIME_CACHE_MARKER,
     };
 
     #[cfg(windows)]
@@ -3817,7 +3822,10 @@ mod tests {
             tray_session_label(&item),
             "● 设计 && 检查 托盘 · DSH && Dee…"
         );
-        assert_eq!(tray_menu_text("  多余\t空格  ", "fallback", 16), "多余 空格");
+        assert_eq!(
+            tray_menu_text("  多余\t空格  ", "fallback", 16),
+            "多余 空格"
+        );
 
         let long = TraySessionMenuItem {
             session_id: "session-2".to_string(),
