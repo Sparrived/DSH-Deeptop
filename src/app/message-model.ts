@@ -346,8 +346,31 @@ export function readSessionStats(entries: DshHistoryEntry[], projections?: { val
   };
 }
 
+/** Format token counts for telemetry surfaces without hiding the raw scale. */
 export function formatTokens(value: number) {
-  return value >= 1000 ? `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k` : String(value);
+  if (!Number.isFinite(value)) return "0";
+  const absolute = Math.abs(value);
+  const sign = value < 0 ? "-" : "";
+  const units = [
+    { threshold: 1_000_000_000, suffix: "B" },
+    { threshold: 1_000_000, suffix: "M" },
+    { threshold: 1_000, suffix: "K" },
+  ];
+  let index = units.findIndex((unit) => absolute >= unit.threshold);
+  if (index < 0) return String(Math.round(value));
+  let scaled = absolute / units[index].threshold;
+  // Rounding 999.9K to 1000K is less useful than promoting it to 1M.
+  if (Number(compactTokenNumber(scaled)) >= 1_000 && index > 0) {
+    index -= 1;
+    scaled = absolute / units[index].threshold;
+  }
+  return `${sign}${compactTokenNumber(scaled)}${units[index].suffix}`;
+}
+
+function compactTokenNumber(value: number) {
+  const digits = value >= 100 ? 0 : value >= 10 ? 1 : 2;
+  const fixed = value.toFixed(digits);
+  return fixed.includes(".") ? fixed.replace(/0+$/u, "").replace(/\.$/u, "") : fixed;
 }
 
 export function contextPercent(stats: SessionStats) {

@@ -2,12 +2,16 @@ import { useMemo, useState, type CSSProperties } from "react";
 import type { SessionStats, TokenUsageDashboardData, TokenUsagePoint } from "../app/model-types";
 import { formatTokens } from "../app/model";
 import { tokenUsageDashboard, tokenUsagePercent } from "../app/token-usage";
+import { estimateTokenCost, formatUsd, modelPricing, modelPricingSnapshot } from "../app/model-pricing";
 import type { DshHistoryEntry } from "../lib/desktop";
 
 type TokenUsageDashboardProps = {
   entries: DshHistoryEntry[];
   sessionStats: SessionStats;
   active: boolean;
+  provider?: string;
+  model?: string;
+  onOpenPricingSource?: () => void | Promise<void>;
 };
 
 const COLORS = {
@@ -66,12 +70,14 @@ function EmptyChart() {
   return <div className="token-empty-chart"><span className="token-empty-grid" /><strong>等待模型返回 usage 数据</strong><p>完成一轮对话后，这里会显示每次回应的输入、输出与思考 token。</p></div>;
 }
 
-export function TokenUsageDashboard({ entries, sessionStats, active }: TokenUsageDashboardProps) {
+export function TokenUsageDashboard({ entries, sessionStats, active, provider, model, onOpenPricingSource }: TokenUsageDashboardProps) {
   const [range, setRange] = useState<"all" | "recent">("all");
   const data = useMemo(() => tokenUsageDashboard(entries, sessionStats), [entries, sessionStats]);
   const points = range === "recent" ? data.points.slice(-8) : data.points;
   const max = Math.max(1, ...points.map((point) => point.totalTokens));
   const totals = data.totals;
+  const pricing = useMemo(() => modelPricing(provider, model), [model, provider]);
+  const estimatedCost = useMemo(() => estimateTokenCost({ ...totals, uncachedInputTokens: totals.uncachedInputTokens }, pricing), [pricing, totals]);
   const contextPercent = sessionStats.contextLimit > 0 ? Math.min(100, (sessionStats.contextTokens / sessionStats.contextLimit) * 100) : 0;
   if (!active) return null;
   return <section className="token-dashboard" aria-label="Token 用量统计">
@@ -85,6 +91,12 @@ export function TokenUsageDashboard({ entries, sessionStats, active }: TokenUsag
       <Metric label="上下文占用" value={sessionStats.contextLimit ? Math.round(contextPercent) + "%" : formatTokens(sessionStats.contextTokens)} tone="#4aa98f" detail={sessionStats.contextLimit ? formatTokens(sessionStats.contextTokens) + " / " + formatTokens(sessionStats.contextLimit) : "未提供上限"} />
       <Metric label="缓存命中" value={Math.round(totals.cacheHitRate) + "%"} tone={COLORS.cacheRead} detail={formatTokens(totals.cacheReadTokens) + " read · " + formatTokens(totals.cacheWriteTokens) + " write"} />
       <Metric label="首 token" value={sessionStats.firstTokenMs ? sessionStats.firstTokenMs + " ms" : "—"} tone={COLORS.output} detail={sessionStats.decodeMs ? "解码 " + sessionStats.decodeMs + " ms" : "等待模型"} />
+    </div>
+
+    <div className="token-panel token-pricing-panel">
+      <div className="token-pricing-copy"><span className="token-section-label">ESTIMATED SPEND</span><strong>{formatUsd(estimatedCost)}</strong><p>{pricing ? "按当前会话已记录的 token 用量估算，不会调用模型或产生额外请求。" : "当前模型没有匹配到 models.dev 价格，仍会继续显示 token 统计。"}</p></div>
+      <div className="token-pricing-route"><span>当前路由</span><b>{provider && model ? `${provider} / ${model}` : "未选择模型"}</b><small>{pricing ? `${modelPricingSnapshot} · USD / 1M tokens` : "自定义模型可暂时显示为未定价"}</small>{onOpenPricingSource && <button type="button" onClick={() => void onOpenPricingSource()}>查看 models.dev ↗</button>}</div>
+      {pricing && <div className="token-pricing-rates"><span>输入 <b>{pricing.input === undefined ? "—" : `$${pricing.input}`}</b></span><span>输出 <b>{pricing.output === undefined ? "—" : `$${pricing.output}`}</b></span><span>缓存读 <b>{pricing.cacheRead === undefined ? "—" : `$${pricing.cacheRead}`}</b></span><span>缓存写 <b>{pricing.cacheWrite === undefined ? "—" : `$${pricing.cacheWrite}`}</b></span></div>}
     </div>
 
     <div className="token-dashboard-main">

@@ -61,6 +61,26 @@
 .token-composition-note i { display: inline-block; flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; }
 .token-metric-card strong { display: block; margin-top: 12px; color: var(--ink); font: 650 25px/1 var(--mono); letter-spacing: -.06em; }
 .token-metric-card small { display: block; margin-top: 7px; overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.token-pricing-panel {
+  display: grid;
+  grid-template-columns: minmax(170px, .8fr) minmax(220px, 1.2fr) minmax(260px, 1.6fr);
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 12px;
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--line));
+  background: linear-gradient(110deg, color-mix(in srgb, var(--accent) 10%, var(--paper)) 0%, color-mix(in srgb, var(--paper) 88%, transparent) 55%);
+}
+.token-pricing-copy strong { display: block; margin-top: 8px; color: var(--ink); font: 650 clamp(26px, 3vw, 36px)/1 var(--mono); letter-spacing: -.07em; }
+.token-pricing-copy p { max-width: 320px; margin: 8px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.token-pricing-route { display: grid; gap: 5px; min-width: 0; padding-left: 20px; border-left: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line)); }
+.token-pricing-route > span { color: var(--muted); font-size: 10px; }
+.token-pricing-route b { overflow: hidden; color: var(--ink); font: 600 12px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.token-pricing-route small { color: var(--muted); font: 9px var(--mono); }
+.token-pricing-route button { width: fit-content; margin-top: 4px; padding: 0; border: 0; background: transparent; color: var(--accent-deep); font-size: 10px; cursor: pointer; }
+.token-pricing-route button:hover { text-decoration: underline; }
+.token-pricing-rates { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.token-pricing-rates span { display: grid; gap: 4px; color: var(--muted); font-size: 9px; }
+.token-pricing-rates b { color: var(--ink); font: 600 11px var(--mono); }
 .token-dashboard-main { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr); gap: 12px; margin-bottom: 12px; }
 .token-panel { min-width: 0; padding: 19px; border-radius: 14px; }
 .token-panel-heading { margin-bottom: 16px; }
@@ -113,6 +133,8 @@
 .token-detail-section small { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; white-space: nowrap; }
 @media (max-width: 900px) {
   .token-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .token-pricing-panel { grid-template-columns: 1fr 1fr; }
+  .token-pricing-rates { grid-column: 1 / -1; }
   .token-dashboard-main { grid-template-columns: 1fr; }
 }
 @media (max-width: 620px) {
@@ -120,6 +142,9 @@
   .token-dashboard-head { display: block; }
   .token-head-actions { margin-top: 16px; }
   .token-metric-grid, .token-detail-grid { grid-template-columns: 1fr; }
+  .token-pricing-panel { grid-template-columns: 1fr; gap: 14px; }
+  .token-pricing-route { padding-left: 0; border-left: 0; border-top: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line)); padding-top: 14px; }
+  .token-pricing-rates { grid-column: auto; }
   .token-donut-wrap { display: grid; grid-template-columns: 1fr; align-items: start; justify-items: center; gap: 18px; }
   .token-legend { grid-template-columns: 1fr; width: 100%; }
   .token-context-visual { display: flex; flex-direction: column; align-items: flex-start; gap: 18px; }

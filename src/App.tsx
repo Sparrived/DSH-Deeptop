@@ -140,6 +140,7 @@ import {
   readSessionStats,
   recordValue,
   formatTokens,
+  modelPricingSourceUrl,
   contextForm,
   contextSummary,
   applyTodoSnapshot,
@@ -3560,6 +3561,10 @@ function AppContent() {
     void openExternalUrl(updateState.releaseUrl).catch((error) => setErrorNotice(errorText(error)));
   }
 
+  function openModelsDevPricing() {
+    void openExternalUrl(modelPricingSourceUrl).catch((error) => setErrorNotice(errorText(error)));
+  }
+
   function openSettings() {
     if (showInspector) {
       closeSettings();
@@ -3721,7 +3726,14 @@ function AppContent() {
                onOpenUrl={openMessageUrl}
                              onOpenSessionPath={openSessionPath}
             />}
-            <TokenUsageDashboard entries={history} sessionStats={sessionStats} active={tokenUsageOpen} />
+            <TokenUsageDashboard
+              entries={history}
+              sessionStats={sessionStats}
+              active={tokenUsageOpen}
+              provider={models?.current.provider}
+              model={models?.current.model}
+              onOpenPricingSource={openModelsDevPricing}
+            />
 
             <div className="left-dock-shelf" aria-label="工作区工具">
               <TerminalDock

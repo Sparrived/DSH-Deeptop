@@ -2,6 +2,7 @@ export * from "./transcript-model";
 export * from "./message-retry";
 export * from "./settings-model";
 export * from "./ui-model";
+export * from "./model-pricing";
 
 export type {
   AppearanceSection,
