@@ -5,8 +5,10 @@ export interface MissingAgentPresetInfo {
 
 /** Extract the explicit replacement choices from a missing-preset resume error. */
 export function missingAgentPresetInfo(error: unknown): MissingAgentPresetInfo | null {
-  const candidate = error as { details?: unknown };
-  const details = typeof candidate?.details === "object" && candidate.details !== null
+  const candidate = error as { code?: unknown; details?: unknown };
+  const details = candidate?.code !== "agent-preset-not-found"
+    ? null
+    : typeof candidate.details === "object" && candidate.details !== null
     ? candidate.details as Record<string, unknown>
     : null;
   const detailPreset = details?.agentPreset;

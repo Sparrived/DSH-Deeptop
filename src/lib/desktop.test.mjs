@@ -5,6 +5,7 @@ import { missingAgentPresetInfo } from "./missing-preset.ts";
 class DshApiError extends Error {
   constructor(message, details) {
     super(message);
+    this.code = "agent-preset-not-found";
     this.details = details;
   }
 }
