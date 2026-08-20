@@ -40,6 +40,7 @@ const GENERATED_HOST_ENTRY_PACKAGES = new Set([
   "@deepseek-ai/cordis",
   "@deepseek-ai/cosmokit",
   "@deepseek-ai/dsh-typert-protocol",
+  "@deepseek-ai/schemastery",
 ]);
 const force = process.argv.includes("--force");
 
@@ -269,6 +270,7 @@ function ensureClientBundleHostEntries() {
     "@deepseek-ai/cordis",
     "@deepseek-ai/cosmokit",
     "@deepseek-ai/dsh-typert-protocol",
+    "@deepseek-ai/schemastery",
     "@deepseek-ai/dsh-typert-registry",
     "@deepseek-ai/dsh-api-gateway",
   ];
@@ -297,6 +299,18 @@ function ensureClientBundleHostEntries() {
       fs.writeFileSync(invariant, 'export * from "./types/invariant.js";\n');
     }
     packageManifest.main = "lib/index.js";
+    if (packageName === "@deepseek-ai/schemastery") {
+      packageManifest.module = "lib/index.js";
+      packageManifest.exports = {
+        ".": {
+          types: "./lib/types/index.d.ts",
+          import: "./lib/index.js",
+          require: "./lib/index.js",
+        },
+        "./src/*": "./src/*",
+        "./package.json": "./package.json",
+      };
+    }
     fs.writeFileSync(path.join(packageRoot, "package.json"), `${JSON.stringify(packageManifest, null, 2)}\n`);
   }
 }
