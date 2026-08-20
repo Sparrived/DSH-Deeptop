@@ -38,6 +38,6 @@
 
 ## 发布规则
 
-只有用户明确要求发布或准备版本时才执行发布动作。发布前确认版本号、目标分支、工作区干净、每个模块已有提交，并完成 `npm run version:check`、JavaScript 测试、前端构建、Rust 检查和项目要求的发布构建。
+只有用户明确要求发布或准备版本时才执行发布动作。发布流程开始时，先确认当前分支和目标分支，并执行 `git pull --ff-only <remote> <branch>` 拉取云端最新提交；在云端同步完成前，不得生成发布说明、构建产物、创建 Tag 或执行发布命令。若拉取发生冲突、分支无法快进或出现其他需要人工判断的同步问题，必须立即停止发布，向用户说明具体原因和涉及文件，并提问确认解决方案；未获得用户明确选择且问题解决前，不得自行改冲突、覆盖工作区、rebase、重置或继续发布。同步成功后，再确认版本号、工作区干净、每个模块已有提交，并完成 `npm run version:check`、JavaScript 测试、前端构建、Rust 检查和项目要求的发布构建。
 
 使用 `npm run release:notes -- --tag <tag> --version <version> --output release-notes.md` 生成并人工检查中文发布说明；确认分类、破坏性变更、安装升级提示、commit 链接和完整对比链接正确。发布到 GitHub 时必须通过 `gh release create/edit --notes-file` 写入 Release 页面，不要只留下本地 notes 文件。发布完成后记录 Release URL、Tag、安装包/校验和及关键验证结果。

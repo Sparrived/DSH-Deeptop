@@ -26,11 +26,13 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 | 会话 | 已支持 | 持久化列表、历史恢复、历史向前分页、实时事件、重命名、搜索、分叉、归档、恢复和删除归档会话。 |
 | 对话 | 已支持 | assistant/reasoning 流式拼装、Markdown/GFM、图片附件、排队/steering（引导）提示、队列编辑/移除、停止和消息重试。重试会创建可恢复的前缀分支，不回滚原会话。 |
 | 工作区 | 已支持 | 原生目录选择、创建/重命名/删除、会话归属、分组和排序。选定路径会作为会话 `cwd` 传入 DSH。 |
-| 模型与 Provider | 有边界地支持 | Provider/模型目录、每会话模型选择、思考程度、上下文窗口和输入模态元数据、Provider 发现及自定义连接设置。Schema 驱动的 Provider 表单尚未完整实现。 |
+| 模型与 Provider | 有边界地支持 | Provider/模型目录、每会话模型选择、思考程度、上下文窗口和输入模态元数据、Provider 发现及自定义连接设置。RC8 的 `current`/`routable` 是发送准入依据，`groups` 仅用于候选展示；Schema 驱动的 Provider 表单尚未完整实现。 |
+| File/Session Reference | 已支持 | 使用 DSH RC8 官方 Host 服务提供 `@` 文件/目录候选和 canonical session mention；查询通过 Bridge 传递取消信号，React 不读取历史或构造会话快照。 |
+| 图片附件限制 | 已支持 | 从 `session.history` projection 和实时 projection 事件读取 RC8 `imageLimits`，在本地提前检查媒体类型、字节数、像素/边长、单条消息图片数和总大小；Host 仍是最终校验者。 |
 | 工具与交互 | 已支持 | 工具调用/结果、Workflow、Job、Todo、轨迹视图、单选/多选/自定义问题响应，以及审批响应。 |
 | 反馈与导出 | 部分支持 | 消息赞/踩和带版本的备注可用；会话 JSON/ZIP 导出可用，但 ZIP 当前通过 JSONL Bridge 以 Base64 传输，尚未采用原生流式下载。 |
 | 诊断与日志 | 支持 | DSH 运行时、Bridge 与前端错误堆栈按时间戳记录，持续写入 `$DSH_HOME/logs`，并可在 设置 → 日志 中查看、筛选和导出。 |
-| DSH 运行台 | 依赖 Profile 的能力 | Profile/插件清单、运行时检查器、Host 设置、Skill 目录、Agent Preset、Subagent 历史/追问/中断和 Goal 生命周期。可选域缺失时保持不可用，不伪造成功。 |
+| DSH 运行台 | 依赖 Profile 的能力 | Profile/插件清单、运行时检查器、Host 设置、Skill 目录、Agent Preset、Subagent 历史/追问/中断和 Goal 生命周期。可选域缺失时保持不可用，不伪造成功。运行时同时携带 RC8 的 `desktop-persistent-pwsh` 和 `desktop-agent-teams` 预设；前者为稳定可选能力，后者为私有实验能力，二者都不默认启用。 |
 | Skill 安装 | 已支持 | 输入框 `/skill` 候选，以及受审批保护的 GitHub 安装，支持直接下载和 sparse-git fallback。 |
 | Remote 与事件 | 已支持 | Typert Remote loopback 调用和官方 Host 事件转发；原生界面适配契约，不加载 WebUI Client Bundle。 |
 | 部分领域 | 开发中 | Permission 全局控制、Plan chip/Review、完整 Session Stats、递归 Subagent、Schema 设置、长会话虚拟化、完整媒体预览和本地化仍未完成。 |
@@ -44,7 +46,7 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 1. 运行 `npm run tauri:dev`，等待运行时指示器显示 DSH 已就绪。开发启动会从 `vendor/dsh` 构建并同步固定提交的内嵌运行时；应用启动不会使用 PATH 中的 `dsh`、npm 全局安装、`DSH_HOME` prefix、npm/npx 缓存或 registry。
 2. 打开设置/运行台；如果当前 Profile 提供对应域，配置 Provider 和凭据。凭据通过 DSH API 写入，不要把密钥放进仓库或 Profile 补丁。
 3. 选择或创建工作区。选定目录会作为新建会话的 `cwd`，不会自动修改已有会话的工作目录。
-4. 创建会话、选择模型并发送提示。运行中需要追加上下文时，可使用 queue 或 steering 模式。
+4. 创建会话、选择模型并发送提示。运行中需要追加上下文时，可使用 queue 或 steering 模式。输入 `@` 可通过 DSH RC8 File/Session Reference 选择文件、目录或会话；带空格的路径使用引号候选。
 5. 在原生交互面板中处理审批和问题响应。问题可以根据 DSH 事件支持单选、多选或自定义文本。
 6. 使用 `/skill` 获取 Skill 候选，通过 Subagent 和 Goal 面板使用对应 DSH 工作流，并用运行时 Inspector 检查 Profile/插件能力。
 7. 使用会话操作执行重试、分叉、归档、恢复、导出或删除。刷新运行时会重启 DSH 子进程，等待中的请求可能失败。
@@ -98,7 +100,8 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 5. 从 Tauri 安装包的压缩 `dsh-runtime.tar.gz` 和清单读取固定版本的 DSH 源码构建产物和完整依赖树。
 6. 将归档安全解压到按源码提交、平台、架构和运行时树摘要命名的应用本地数据缓存；缓存使用 `.complete` 标记，并在启动前重新计算树摘要，只有完整校验后才会复用，更新时保留旧版本缓存以便回滚。
 7. 通过系统 Node.js 直接执行缓存中的 `@deepseek-ai/dsh/lib/bin.js`，不调用 npm、PATH 中的 `dsh`、全局安装、npm/npx 缓存或 registry。
-8. 安装包资源只读；Profile、会话、日志和设置仍写入 `$DSH_HOME`，然后等待 Bridge 返回 `deeptop/1` 的 `ready` 帧。
+8. 启动内嵌 DSH 前会检查已经运行的 desktop DSH 进程及其 `DSH_HOME`；如果确认占用同一目录，应用会暂停启动并显示冲突弹窗。用户可以保持旧进程运行，或仅终止弹窗列出的 DSH 进程后继续启动 Deeptop。
+9. 安装包资源只读；Profile、会话、日志和设置仍写入 `$DSH_HOME`，然后等待 Bridge 返回 `deeptop/1` 的 `ready` 帧。
 
 选定工作区后，桌面端会将其作为 `session.create({ cwd })` 的工作目录传给 DSH；它不会把桌面项目目录隐式当成所有会话的工作区。Storage、Session Persistence 和 Profile 数据仍由 DSH 按自身配置管理。
 
