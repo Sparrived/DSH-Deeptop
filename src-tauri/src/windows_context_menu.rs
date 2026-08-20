@@ -1,10 +1,5 @@
 use serde::Serialize;
 
-const MENU_LABEL: &str = "使用 Deeptop 启动";
-const MENU_KEY: &str = "Deeptop.Open";
-const MANAGED_VALUE: &str = "DeeptopManaged";
-const COMMAND_VALUE: &str = "DeeptopCommand";
-
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContextMenuStatus {
@@ -16,13 +11,18 @@ pub struct ContextMenuStatus {
 
 #[cfg(windows)]
 mod platform {
-    use super::{ContextMenuStatus, COMMAND_VALUE, MANAGED_VALUE, MENU_KEY, MENU_LABEL};
+    use super::ContextMenuStatus;
     use crate::external_launch::{CONTEXT_MENU_DIRECTORY_MARKER, CONTEXT_MENU_FILE_MARKER};
     use std::{io, path::Path};
     use winreg::{
         enums::{HKEY_CURRENT_USER, KEY_WRITE},
         RegKey,
     };
+
+    const MENU_LABEL: &str = "使用 Deeptop 启动";
+    const MENU_KEY: &str = "Deeptop.Open";
+    const MANAGED_VALUE: &str = "DeeptopManaged";
+    const COMMAND_VALUE: &str = "DeeptopCommand";
 
     const ENTRY_PATHS: [(&str, &str, &str); 3] = [
         (

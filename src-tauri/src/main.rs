@@ -2681,6 +2681,8 @@ fn setup_tray(app: &AppHandle) -> Result<(), String> {
         tray.with_inner_tray_icon(|inner| inner.set_show_menu_on_right_click(false))
             .map_err(|error| format!("接管系统托盘菜单失败：{error}"))?;
     }
+    #[cfg(not(windows))]
+    let _tray = tray;
     Ok(())
 }
 
