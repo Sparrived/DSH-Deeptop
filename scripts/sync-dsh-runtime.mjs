@@ -13,6 +13,29 @@ const legacyOutputRoot = path.join(resourcesRoot, "dsh-runtime");
 const sourceNodeModules = path.join(sourceRoot, "node_modules");
 const cliManifestPath = path.join(sourceRoot, "apps", "cli", "package.json");
 const entry = "node_modules/@deepseek-ai/dsh/lib/bin.js";
+const OPTIONAL_RUNTIME_PACKAGES = [
+  ["@deepseek-ai/dsh-file-reference", "packages/context/file-reference", true],
+  ["@deepseek-ai/dsh-file-reference-local", "packages/context/file-reference-local", true],
+  ["@deepseek-ai/dsh-session-reference", "packages/context/session-reference", true],
+  ["@deepseek-ai/dsh-tool-pwsh-persistent", "packages/shell/tool-pwsh-persistent", false],
+  ["@deepseek-ai/dsh-terminal", "packages/terminal/terminal", true],
+  ["@deepseek-ai/dsh-terminal-bash", "packages/terminal/terminal-bash", false],
+  ["@deepseek-ai/dsh-pwsh-local", "packages/shell/pwsh-local", true],
+  ["@deepseek-ai/dsh-subprocess", "packages/subprocess/subprocess", true],
+  ["@deepseek-ai/dsh-subprocess-local", "packages/subprocess/subprocess-local", true],
+  ["@deepseek-ai/dsh-sandbox", "packages/sandbox/sandbox", true],
+  ["@deepseek-ai/dsh-sandbox-policy", "packages/sandbox/sandbox-policy", true],
+  ["@deepseek-ai/dsh-sandbox-local", "packages/sandbox/sandbox-local", true],
+  ["@deepseek-ai/dsh-timeout", "packages/util/timeout", false],
+  ["@deepseek-ai/dsh-experimental-agent-team", "packages/experimental/agent-team", true],
+  ["@deepseek-ai/dsh-experimental-tool-agent-team", "packages/experimental/tool-agent-team", false],
+].map(([name, relativePath, defaultExport]) => ({
+  name,
+  sourcePath: path.join(sourceRoot, relativePath),
+  defaultExport,
+}));
+const DESKTOP_PRESET_SOURCE_ROOT = path.join(root, "deeptop-bridge", "presets");
+const DESKTOP_PRESETS = ["desktop-persistent-pwsh", "desktop-agent-teams"];
 const force = process.argv.includes("--force");
 
 function run(command, args, cwd, extraEnv = {}) {
@@ -76,6 +99,7 @@ function isRuntimeReady(manifest, packageVersion) {
     !force &&
     manifest?.sourceCommit === gitOutput(["rev-parse", "HEAD"]) &&
     manifest?.packageVersion === packageVersion &&
+    manifest?.runtimeFeatures === 2 &&
     manifest?.entry === entry &&
     manifest?.platform === process.platform &&
     manifest?.arch === process.arch &&
@@ -174,6 +198,67 @@ function copyWorkspacePackages(workspaceRoot) {
   }
 }
 
+function copyOptionalRuntimePackages() {
+  for (const optional of OPTIONAL_RUNTIME_PACKAGES) {
+    const sourceManifestPath = path.join(optional.sourcePath, "package.json");
+    if (!fs.existsSync(sourceManifestPath)) throw new Error(`缺少可选运行时包清单：${sourceManifestPath}`);
+    const sourceManifest = readJson(sourceManifestPath);
+    const sourceEntry = path.join(optional.sourcePath, "lib", "types", "index.js");
+    if (!fs.existsSync(sourceEntry)) {
+      throw new Error(`可选运行时包尚未生成 Host 入口：${optional.name}（${sourceEntry}）`);
+    }
+    copyRuntimePackage(optional.sourcePath, optional.name);
+    const packageRoot = packagePathForName(optional.name);
+    const packageManifest = readJson(path.join(packageRoot, "package.json"));
+    packageManifest.main = "lib/index.js";
+    fs.writeFileSync(path.join(packageRoot, "package.json"), `${JSON.stringify(packageManifest, null, 2)}\n`);
+    const exports = optional.defaultExport
+      ? `export * from "./types/index.js";\nexport { default } from "./types/index.js";\n`
+      : `export * from "./types/index.js";\n`;
+    fs.writeFileSync(path.join(packageRoot, "lib", "index.js"), exports);
+  }
+}
+
+function verifyOptionalRuntimeClosure() {
+  for (const optional of OPTIONAL_RUNTIME_PACKAGES) {
+    const packageRoot = packagePathForName(optional.name);
+    const packageManifestPath = path.join(packageRoot, "package.json");
+    if (!fs.existsSync(packageManifestPath)) throw new Error(`运行时缺少可选包：${optional.name}`);
+    const packageManifest = readJson(packageManifestPath);
+    const main = typeof packageManifest.main === "string" ? packageManifest.main : "lib/index.js";
+    if (!fs.existsSync(path.join(packageRoot, main))) throw new Error(`运行时缺少 ${optional.name} 入口：${main}`);
+  }
+  for (const presetId of DESKTOP_PRESETS) {
+    const presetPath = path.join(temporaryRoot, "node_modules", "@deepseek-ai", "dsh", "config", "agent-presets", presetId, "agent.cordis.yml");
+    if (!fs.existsSync(presetPath)) throw new Error(`运行时缺少 Agent Preset：${presetId}`);
+    const source = fs.readFileSync(presetPath, "utf8");
+    if (!source.split(/\r?\n/u).some((line) => line.trimStart().startsWith("- id:"))) throw new Error(`Agent Preset 没有有效的 id 行：${presetId}`);
+    for (const match of source.matchAll(/^\s+name:\s+['"]([^'"]+)['"]$/gmu)) {
+      const name = match[1];
+      if (!name.startsWith("../") && !name.startsWith("@deepseek-ai/")) continue;
+      const resolved = name.startsWith("../")
+        ? path.resolve(path.dirname(presetPath), name)
+        : packagePathForName(name);
+      if (resolved === undefined || !fs.existsSync(resolved)) throw new Error("Agent Preset " + presetId + " 引用的入口不可解析：" + name);
+    }
+  }
+  const names = JSON.stringify(OPTIONAL_RUNTIME_PACKAGES.map(({ name }) => name));
+  run(process.execPath, ["--input-type=module", "-e", `for (const name of ${names}) await import(name)`], temporaryRoot);
+}
+
+function copyDesktopPresets() {
+  const shippedRoot = path.join(temporaryRoot, "node_modules", "@deepseek-ai", "dsh", "config", "agent-presets");
+  for (const presetId of DESKTOP_PRESETS) {
+    const source = path.join(DESKTOP_PRESET_SOURCE_ROOT, presetId);
+    const target = path.join(shippedRoot, presetId);
+    if (!fs.existsSync(path.join(source, "agent.cordis.yml"))) {
+      throw new Error(`缺少 Deeptop preset：${source}`);
+    }
+    fs.rmSync(target, { recursive: true, force: true });
+    fs.cpSync(source, target, { recursive: true, dereference: true });
+  }
+}
+
 function ensureClientBundleHostEntries() {
   const packageNames = [
     "@deepseek-ai/dsh-typert-registry",
@@ -235,7 +320,25 @@ if (!fs.existsSync(sourceNodeModules) || !buildToolsReady) {
 const cliEntry = path.join(sourceRoot, "apps", "cli", "lib", "bin.js");
 if (!fs.existsSync(cliEntry) || force) {
   run(process.execPath, [path.join(sourceRoot, "node_modules", "typescript", "bin", "tsc"), "-b", "tsconfig.host.json"], sourceRoot);
-  run(process.execPath, [path.join(sourceRoot, "node_modules", "tsdown", "dist", "run.mjs"), "--env.DSH_BUILD_FACE", "host"], sourceRoot);
+  // Experimental Agent Teams is intentionally outside the official Host
+  // aggregate. Build its package artifacts explicitly so an opt-in desktop
+  // Profile can use the official service without changing vendor sources.
+  run(process.execPath, [
+    path.join(sourceRoot, "node_modules", "typescript", "bin", "tsc"),
+    "-b",
+    "packages/experimental/agent-team/tsconfig.json",
+    "packages/experimental/tool-agent-team/tsconfig.json",
+  ], sourceRoot);
+  // RC8 keeps the private repository root in the tsdown workspace, but it has no
+  // emitted lib/types entry. Build the published CLI workspace only; tsc has
+  // already emitted the host artifacts for its workspace dependencies.
+  run(process.execPath, [
+    path.join(sourceRoot, "node_modules", "tsdown", "dist", "run.mjs"),
+    "--env.DSH_BUILD_FACE",
+    "host",
+    "--filter",
+    "@deepseek-ai/dsh",
+  ], sourceRoot);
 }
 if (!fs.existsSync(cliEntry)) {
   throw new Error(`DSH 源码构建完成但没有找到 CLI 入口：${cliEntry}`);
@@ -291,6 +394,9 @@ try {
   // top-level vendor-only copy missed packages nested under packages/*/*,
   // causing profile boot to fail with cascading ERR_MODULE_NOT_FOUND errors.
   copyWorkspacePackages(sourceRoot);
+  copyOptionalRuntimePackages();
+  copyDesktopPresets();
+  verifyOptionalRuntimeClosure();
   ensureClientBundleHostEntries();
 
   const runtimePackage = {
@@ -314,6 +420,7 @@ try {
 
   const manifest = {
     format: 1,
+    runtimeFeatures: 2,
     packageName: "@deepseek-ai/dsh",
     packageVersion,
     sourceRepository: "https://github.com/deepseek-ai/deepseek-harness.git",
@@ -323,6 +430,8 @@ try {
     arch: process.arch,
     entry,
     treeSha256: treeSha256(temporaryRoot),
+    optionalPackages: OPTIONAL_RUNTIME_PACKAGES.map(({ name }) => name),
+    optionalPresets: DESKTOP_PRESETS,
   };
   fs.writeFileSync(path.join(temporaryRoot, "runtime-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 

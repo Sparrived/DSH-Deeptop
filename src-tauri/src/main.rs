@@ -33,6 +33,188 @@ mod terminal;
 mod window_behavior;
 mod windows_context_menu;
 
+#[cfg(windows)]
+mod windows_process_environment {
+    use std::{
+        ffi::c_void,
+        mem::{size_of, MaybeUninit},
+        path::PathBuf,
+    };
+
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, GetLastError, HANDLE},
+        System::{
+            Diagnostics::Debug::ReadProcessMemory,
+            Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ},
+        },
+    };
+
+    const PROCESS_BASIC_INFORMATION_CLASS: u32 = 0;
+    const MAX_ENVIRONMENT_BYTES: usize = 1024 * 1024;
+
+    #[repr(C)]
+    struct ProcessBasicInformation {
+        reserved1: *mut c_void,
+        peb_base_address: *mut c_void,
+        reserved2: [*mut c_void; 2],
+        unique_process_id: usize,
+        reserved3: *mut c_void,
+    }
+
+    struct ProcessHandle(HANDLE);
+
+    impl Drop for ProcessHandle {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                unsafe {
+                    CloseHandle(self.0);
+                }
+            }
+        }
+    }
+
+    #[link(name = "ntdll")]
+    unsafe extern "system" {
+        fn NtQueryInformationProcess(
+            process_handle: HANDLE,
+            process_information_class: u32,
+            process_information: *mut c_void,
+            process_information_length: u32,
+            return_length: *mut u32,
+        ) -> i32;
+    }
+
+    fn address(base: usize, offset: usize) -> Result<*const c_void, String> {
+        base.checked_add(offset)
+            .map(|value| value as *const c_void)
+            .ok_or_else(|| "读取 DSH 进程环境失败：远程地址溢出".to_string())
+    }
+
+    fn read_exact(handle: HANDLE, source: *const c_void, target: &mut [u8]) -> Result<(), String> {
+        let mut bytes_read = 0usize;
+        let success = unsafe {
+            ReadProcessMemory(
+                handle,
+                source,
+                target.as_mut_ptr().cast(),
+                target.len(),
+                &mut bytes_read,
+            )
+        };
+        if success == 0 {
+            return Err(format!(
+                "读取 DSH 进程环境失败：ReadProcessMemory 错误 {}",
+                unsafe { GetLastError() }
+            ));
+        }
+        if bytes_read != target.len() {
+            return Err("读取 DSH 进程环境失败：远程内存短读".to_string());
+        }
+        Ok(())
+    }
+
+    fn read_pointer(handle: HANDLE, source: *const c_void) -> Result<usize, String> {
+        let mut bytes = vec![0u8; size_of::<usize>()];
+        read_exact(handle, source, &mut bytes)?;
+        Ok(bytes
+            .iter()
+            .enumerate()
+            .fold(0usize, |value, (index, byte)| {
+                value | (*byte as usize) << (index * 8)
+            }))
+    }
+
+    fn parse_environment(bytes: &[u8]) -> Result<Option<PathBuf>, String> {
+        if bytes.len() % 2 != 0 {
+            return Err("读取 DSH 进程环境失败：环境块不是 UTF-16 对齐数据".to_string());
+        }
+        let units: Vec<u16> = bytes
+            .chunks_exact(2)
+            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .collect();
+        let mut dsh_home = None;
+        let mut user_profile = None;
+        for entry in units.split(|unit| *unit == 0) {
+            if entry.is_empty() {
+                break;
+            }
+            let entry = String::from_utf16(entry)
+                .map_err(|_| "读取 DSH 进程环境失败：环境块包含无效 UTF-16".to_string())?;
+            let Some((name, value)) = entry.split_once('=') else {
+                continue;
+            };
+            let value = value.trim();
+            if value.is_empty() {
+                continue;
+            }
+            match name.to_ascii_uppercase().as_str() {
+                "DSH_HOME" => dsh_home = Some(PathBuf::from(value)),
+                "USERPROFILE" => user_profile = Some(PathBuf::from(value)),
+                _ => {}
+            }
+        }
+        Ok(dsh_home.or_else(|| user_profile.map(|path| path.join(".dsh"))))
+    }
+
+    pub fn dsh_home(pid: u32) -> Result<Option<PathBuf>, String> {
+        let handle =
+            unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, 0, pid) };
+        if handle.is_null() {
+            return Err(format!(
+                "无法读取 DSH 进程 {pid} 的环境：OpenProcess 错误 {}",
+                unsafe { GetLastError() }
+            ));
+        }
+        let handle = ProcessHandle(handle);
+        let mut information = MaybeUninit::<ProcessBasicInformation>::zeroed();
+        let mut return_length = 0u32;
+        let status = unsafe {
+            NtQueryInformationProcess(
+                handle.0,
+                PROCESS_BASIC_INFORMATION_CLASS,
+                information.as_mut_ptr().cast(),
+                size_of::<ProcessBasicInformation>() as u32,
+                &mut return_length,
+            )
+        };
+        if status < 0 {
+            return Err(format!(
+                "无法读取 DSH 进程 {pid} 的环境：NtQueryInformationProcess 状态 0x{status:08x}"
+            ));
+        }
+        let information = unsafe { information.assume_init() };
+        if information.peb_base_address.is_null() {
+            return Err(format!("无法读取 DSH 进程 {pid} 的环境：PEB 不可用"));
+        }
+        let pointer_size = size_of::<usize>();
+        let parameters_offset = if pointer_size == 8 { 0x20 } else { 0x10 };
+        let environment_offset = if pointer_size == 8 { 0x80 } else { 0x48 };
+        let parameters = read_pointer(
+            handle.0,
+            address(information.peb_base_address as usize, parameters_offset)?,
+        )?;
+        if parameters == 0 {
+            return Err(format!("无法读取 DSH 进程 {pid} 的环境：进程参数不可用"));
+        }
+        let environment = read_pointer(handle.0, address(parameters, environment_offset)?)?;
+        if environment == 0 {
+            return Ok(None);
+        }
+
+        let mut bytes = Vec::new();
+        while bytes.len() < MAX_ENVIRONMENT_BYTES {
+            let chunk_size = 4096.min(MAX_ENVIRONMENT_BYTES - bytes.len());
+            let start = bytes.len();
+            bytes.resize(start + chunk_size, 0);
+            read_exact(handle.0, address(environment, start)?, &mut bytes[start..])?;
+            if bytes.windows(4).any(|window| window == [0, 0, 0, 0]) {
+                return parse_environment(&bytes);
+            }
+        }
+        Err(format!("无法读取 DSH 进程 {pid} 的环境：环境块超过限制"))
+    }
+}
+
 const DSH_PROFILE: &str = "desktop";
 const BUNDLED_DSH_PACKAGE: &str = "@deepseek-ai/dsh";
 const BUNDLED_DSH_RUNTIME_DIR: &str = "dsh-runtime";
@@ -49,8 +231,8 @@ const BRIDGE_TIMEOUT: Duration = Duration::from_secs(45);
 const MAX_AUTO_RESTARTS: u32 = 3;
 /// Base delay for the first auto-restart; each consecutive crash doubles it.
 const AUTO_RESTART_BASE_DELAY: Duration = Duration::from_millis(1000);
-const BUNDLED_DSH_VERSION: &str = "0.1.0-rc.7";
-const BUNDLED_DSH_SOURCE_COMMIT: &str = "99f6f02fecdb7dff40c3fbc9470f5907c29f74ca";
+const BUNDLED_DSH_VERSION: &str = "0.1.0-rc.8";
+const BUNDLED_DSH_SOURCE_COMMIT: &str = "a95eedc6034c323ece64536609174645c235f124";
 const BRIDGE_PACKAGE_JSON: &str = include_str!("../../deeptop-bridge/package.json");
 const BRIDGE_PATCH: &str = include_str!("../../deeptop-bridge/cordis.patch.yml");
 const BRIDGE_ENTRY: &str = include_str!("../../deeptop-bridge/index.mjs");
@@ -307,6 +489,7 @@ struct BridgeState {
     /// An auto-restart has been scheduled for the current crash; prevents double
     /// scheduling while the delayed restart thread is still waiting.
     auto_restart_pending: bool,
+    process_conflict: Option<DshProcessConflict>,
 }
 
 impl Default for BridgeState {
@@ -321,6 +504,7 @@ impl Default for BridgeState {
             pending: HashMap::new(),
             crash_count: 0,
             auto_restart_pending: false,
+            process_conflict: None,
         }
     }
 }
@@ -398,6 +582,21 @@ impl BridgeManager {
     }
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct DshProcessInfo {
+    pid: u32,
+    name: String,
+    command_line: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct DshProcessConflict {
+    dsh_home: String,
+    processes: Vec<DshProcessInfo>,
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DshStatus {
@@ -413,6 +612,7 @@ struct DshStatus {
     npm_available: bool,
     package_available: bool,
     message: String,
+    process_conflict: Option<DshProcessConflict>,
 }
 
 #[derive(Clone, Serialize)]
@@ -541,13 +741,20 @@ fn write_if_missing(path: &Path, content: &str) -> Result<(), String> {
 }
 
 fn ensure_desktop_profile_manifest(path: &Path) -> Result<(), String> {
+    let template: Value = serde_json::from_str(PROFILE_TEMPLATE)
+        .expect("embedded desktop profile must be valid JSON");
+    let required_dependencies = template
+        .get("dependencies")
+        .and_then(Value::as_object)
+        .cloned()
+        .ok_or_else(|| "embedded desktop Profile 的 dependencies 必须是对象".to_string())?;
     let mut manifest: Value = if path.exists() {
         let raw = fs::read_to_string(path)
             .map_err(|error| format!("无法读取 desktop Profile：{error}"))?;
         serde_json::from_str(&raw)
             .map_err(|error| format!("desktop Profile 的 package.json 无效：{error}"))?
     } else {
-        serde_json::from_str(PROFILE_TEMPLATE).expect("embedded desktop profile must be valid JSON")
+        template
     };
 
     let root = manifest
@@ -559,6 +766,13 @@ fn ensure_desktop_profile_manifest(path: &Path) -> Result<(), String> {
         .or_insert(Value::Bool(true));
     root.entry("dependencies".to_string())
         .or_insert_with(|| json!({}));
+    let dependencies = root
+        .get_mut("dependencies")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| "desktop Profile 的 dependencies 必须是对象".to_string())?;
+    for (name, version) in required_dependencies {
+        dependencies.insert(name.clone(), version.clone());
+    }
 
     let dsh = root
         .entry("dsh".to_string())
@@ -1286,19 +1500,258 @@ fn configure_process_group(command: &mut Command) {
     command.process_group(0);
 }
 
-fn terminate_process_tree(pid: u32) {
+fn process_command_line_matches_dsh(name: &str, command_line: &str) -> bool {
+    let process_name = name.trim().to_ascii_lowercase();
+    if process_name != "node" && process_name != "node.exe" {
+        return false;
+    }
+    let lower = command_line.to_ascii_lowercase();
+    let arguments: Vec<&str> = lower.split_whitespace().collect();
+    let desktop_profile = arguments.iter().enumerate().any(|(index, argument)| {
+        (*argument == "--profile" && arguments.get(index + 1) == Some(&"desktop"))
+            || *argument == "--profile=desktop"
+    });
+    let normalized = lower.replace('\\', "/");
+    let dsh_entry = normalized.contains("@deepseek-ai/dsh/")
+        || normalized.contains("/dsh/lib/bin.js")
+        || normalized.contains(" dsh/lib/bin.js");
+    dsh_entry && desktop_profile
+}
+
+#[cfg(windows)]
+fn process_dsh_home(pid: u32) -> Result<Option<PathBuf>, String> {
+    windows_process_environment::dsh_home(pid)
+}
+
+#[cfg(target_os = "linux")]
+fn process_dsh_home(pid: u32) -> Result<Option<PathBuf>, String> {
+    let bytes = fs::read(format!("/proc/{pid}/environ"))
+        .map_err(|error| format!("无法读取 DSH 进程 {pid} 的环境：{error}"))?;
+    let mut dsh_home = None;
+    let mut home = None;
+    for entry in bytes.split(|byte| *byte == 0) {
+        let Ok(entry) = std::str::from_utf8(entry) else {
+            continue;
+        };
+        let Some((name, value)) = entry.split_once('=') else {
+            continue;
+        };
+        if value.trim().is_empty() {
+            continue;
+        }
+        match name {
+            "DSH_HOME" => dsh_home = Some(PathBuf::from(value.trim())),
+            "HOME" => home = Some(PathBuf::from(value.trim())),
+            _ => {}
+        }
+    }
+    Ok(dsh_home.or_else(|| home.map(|path| path.join(".dsh"))))
+}
+
+#[cfg(target_os = "macos")]
+fn process_dsh_home(pid: u32) -> Result<Option<PathBuf>, String> {
+    let output = Command::new("ps")
+        .args(["eww", "-p", &pid.to_string(), "-o", "command="])
+        .output()
+        .map_err(|error| format!("无法读取 DSH 进程 {pid} 的环境：{error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "无法读取 DSH 进程 {pid} 的环境：{}",
+            decode_process_line(&output.stderr)
+        ));
+    }
+    let mut dsh_home = None;
+    let mut home = None;
+    for entry in decode_process_line(&output.stdout).split_whitespace() {
+        let Some((name, value)) = entry.split_once('=') else {
+            continue;
+        };
+        match name {
+            "DSH_HOME" if !value.trim().is_empty() => dsh_home = Some(PathBuf::from(value.trim())),
+            "HOME" if !value.trim().is_empty() => home = Some(PathBuf::from(value.trim())),
+            _ => {}
+        }
+    }
+    Ok(dsh_home.or_else(|| home.map(|path| path.join(".dsh"))))
+}
+
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
+fn process_dsh_home(_pid: u32) -> Result<Option<PathBuf>, String> {
+    Ok(None)
+}
+
+#[cfg(not(any(windows, unix)))]
+fn process_dsh_home(_pid: u32) -> Result<Option<PathBuf>, String> {
+    Ok(None)
+}
+
+fn dsh_homes_match(candidate: &Path) -> bool {
+    let expected = absolute_path(dsh_home());
+    let candidate = absolute_path(candidate.to_path_buf());
+    let expected = fs::canonicalize(&expected).unwrap_or(expected);
+    let candidate = fs::canonicalize(&candidate).unwrap_or(candidate);
+    if cfg!(windows) {
+        expected
+            .to_string_lossy()
+            .replace('/', "\\")
+            .trim_end_matches('\\')
+            .eq_ignore_ascii_case(
+                candidate
+                    .to_string_lossy()
+                    .replace('/', "\\")
+                    .trim_end_matches('\\'),
+            )
+    } else {
+        expected == candidate
+    }
+}
+
+fn list_external_dsh_processes() -> Result<Vec<DshProcessInfo>, String> {
+    #[cfg(windows)]
+    {
+        let mut command = Command::new("powershell.exe");
+        configure_hidden_process(&mut command);
+        let output = command
+            .args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                r#"$ErrorActionPreference='Stop'; Get-CimInstance Win32_Process | Where-Object { $_.Name -match '(?i)^node(?:\.exe)?$' -and $_.CommandLine -and $_.CommandLine -match '(?i)(dsh|@deepseek-ai)' -and $_.CommandLine -match '(?i)--profile\s+desktop' } | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"#,
+            ])
+            .output()
+            .map_err(|error| format!("无法检查 DSH 进程：{error}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "检查 DSH 进程失败：{}",
+                decode_process_line(&output.stderr)
+            ));
+        }
+        let text = decode_process_line(&output.stdout);
+        if text.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+        let value: Value = serde_json::from_str(text.trim())
+            .map_err(|error| format!("解析 DSH 进程列表失败：{error}"))?;
+        let values = match value {
+            Value::Array(values) => values,
+            other => vec![other],
+        };
+        let mut processes = Vec::new();
+        for item in values {
+            let Some(object) = item.as_object() else {
+                continue;
+            };
+            let Some(pid) = object
+                .get("ProcessId")
+                .and_then(Value::as_u64)
+                .and_then(|value| value.try_into().ok())
+            else {
+                continue;
+            };
+            let Some(name) = object.get("Name").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(command_line) = object.get("CommandLine").and_then(Value::as_str) else {
+                continue;
+            };
+            if process_command_line_matches_dsh(name, command_line)
+                && process_dsh_home(pid)?.is_some_and(|home| dsh_homes_match(&home))
+            {
+                processes.push(DshProcessInfo {
+                    pid,
+                    name: name.to_string(),
+                    command_line: command_line.to_string(),
+                });
+            }
+        }
+        return Ok(processes);
+    }
+
+    #[cfg(unix)]
+    {
+        let output = Command::new("ps")
+            .args(["-eo", "pid=,comm=,args="])
+            .output()
+            .map_err(|error| format!("无法检查 DSH 进程：{error}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "检查 DSH 进程失败：{}",
+                decode_process_line(&output.stderr)
+            ));
+        }
+        let mut processes = Vec::new();
+        for line in decode_process_line(&output.stdout).lines() {
+            let trimmed = line.trim();
+            let mut fields = trimmed.split_whitespace();
+            let Some(pid) = fields.next().and_then(|value| value.parse().ok()) else {
+                continue;
+            };
+            let Some(name) = fields.next() else {
+                continue;
+            };
+            let command_line = fields.collect::<Vec<_>>().join(" ");
+            if process_command_line_matches_dsh(name, &command_line)
+                && process_dsh_home(pid)?.is_some_and(|home| dsh_homes_match(&home))
+            {
+                processes.push(DshProcessInfo {
+                    pid,
+                    name: name.to_string(),
+                    command_line,
+                });
+            }
+        }
+        Ok(processes)
+    }
+}
+
+fn current_dsh_process_conflict() -> Result<Option<DshProcessConflict>, String> {
+    let processes = list_external_dsh_processes()?;
+    if processes.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(DshProcessConflict {
+            dsh_home: dsh_home().to_string_lossy().into_owned(),
+            processes,
+        }))
+    }
+}
+
+fn terminate_process_tree(pid: u32) -> Result<(), String> {
     #[cfg(windows)]
     {
         let mut command = Command::new("taskkill");
         command.args(["/PID", &pid.to_string(), "/T", "/F"]);
         configure_hidden_process(&mut command);
-        let _ = command.status();
+        let output = command
+            .output()
+            .map_err(|error| format!("无法终止 DSH 进程 {pid}：{error}"))?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(format!(
+                "终止 DSH 进程 {pid} 失败：{}",
+                decode_process_line(&output.stderr)
+            ))
+        }
     }
     #[cfg(unix)]
     {
-        let _ = Command::new("kill")
+        let group_status = Command::new("kill")
             .args(["-TERM", &format!("-{pid}")])
-            .status();
+            .status()
+            .map_err(|error| format!("无法终止 DSH 进程 {pid}：{error}"))?;
+        if group_status.success() {
+            return Ok(());
+        }
+        let process_status = Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .status()
+            .map_err(|error| format!("无法终止 DSH 进程 {pid}：{error}"))?;
+        process_status
+            .success()
+            .then_some(())
+            .ok_or_else(|| format!("终止 DSH 进程 {pid} 失败"))
     }
 }
 
@@ -1312,15 +1765,17 @@ fn pending_error(state: &mut BridgeState, message: String) {
 impl BridgeManager {
     fn status(&self) -> DshStatus {
         let state = self.state.lock();
-        let (runtime_available, runtime_starting, message, package_available) = match state {
-            Ok(state) => (
-                state.phase == RuntimePhase::Ready,
-                matches!(state.phase, RuntimePhase::Checking | RuntimePhase::Starting),
-                state.message.clone(),
-                state.package_available,
-            ),
-            Err(_) => (false, false, "DSH 启动状态不可用".to_string(), false),
-        };
+        let (runtime_available, runtime_starting, message, package_available, process_conflict) =
+            match state {
+                Ok(state) => (
+                    state.phase == RuntimePhase::Ready,
+                    matches!(state.phase, RuntimePhase::Checking | RuntimePhase::Starting),
+                    state.message.clone(),
+                    state.package_available,
+                    state.process_conflict.clone(),
+                ),
+                Err(_) => (false, false, "DSH 启动状态不可用".to_string(), false, None),
+            };
         DshStatus {
             dsh_home: dsh_home().to_string_lossy().into_owned(),
             runtime_directory: dsh_home().to_string_lossy().into_owned(),
@@ -1334,6 +1789,7 @@ impl BridgeManager {
             npm_available: false,
             package_available,
             message,
+            process_conflict,
         }
     }
 
@@ -1345,7 +1801,10 @@ impl BridgeManager {
         let should_start = self
             .state
             .lock()
-            .map(|state| matches!(state.phase, RuntimePhase::Idle | RuntimePhase::Failed))
+            .map(|state| {
+                matches!(state.phase, RuntimePhase::Idle)
+                    || (state.phase == RuntimePhase::Failed && state.process_conflict.is_none())
+            })
             .unwrap_or(false);
         if should_start {
             self.start(app.clone());
@@ -1367,6 +1826,7 @@ impl BridgeManager {
             state.phase = RuntimePhase::Checking;
             state.message = "正在检查 DeepSeek Harness 运行时...".to_string();
             state.auto_restart_pending = false;
+            state.process_conflict = None;
             state.generation
         };
         self.emit_status(&app);
@@ -1390,7 +1850,7 @@ impl BridgeManager {
             pid
         };
         if let Some(pid) = pid {
-            terminate_process_tree(pid);
+            let _ = terminate_process_tree(pid);
         }
     }
 
@@ -1402,6 +1862,12 @@ impl BridgeManager {
 
     fn prepare_and_launch(&self, app: AppHandle, generation: u64) {
         let result = (|| -> Result<DshLaunch, String> {
+            if let Some(conflict) = current_dsh_process_conflict()? {
+                if let Ok(mut state) = self.state.lock() {
+                    state.process_conflict = Some(conflict);
+                }
+                return Err("检测到同一 DSH_HOME 正被其他 DSH 使用".to_string());
+            }
             // Profile data remains user-owned in DSH_HOME. The DSH executable and
             // all of its dependencies are read exclusively from Tauri resources.
             materialize_desktop_profile()?;
@@ -1454,6 +1920,12 @@ impl BridgeManager {
                 label,
                 mut command,
             } = launch;
+            if let Some(conflict) = current_dsh_process_conflict()? {
+                if let Ok(mut state) = self.state.lock() {
+                    state.process_conflict = Some(conflict);
+                }
+                return Err("检测到同一 DSH_HOME 正被其他 DSH 使用".to_string());
+            }
             self.emit_runtime_log(
                 &app,
                 generation,
@@ -1505,7 +1977,7 @@ impl BridgeManager {
             })
             .unwrap_or(false);
         if !active {
-            terminate_process_tree(pid);
+            let _ = terminate_process_tree(pid);
             let _ = child.wait();
             return;
         }
@@ -1884,6 +2356,35 @@ impl BridgeManager {
 fn check_dsh(app: AppHandle, runtime: State<'_, BridgeManager>) -> DshStatus {
     runtime.ensure_started(&app);
     runtime.status()
+}
+
+#[tauri::command]
+fn terminate_dsh_processes(
+    pids: Vec<u32>,
+    runtime: State<'_, BridgeManager>,
+) -> Result<(), String> {
+    if pids.is_empty() {
+        return Err("没有可终止的 DSH 进程".to_string());
+    }
+    let candidates = list_external_dsh_processes()?;
+    let candidate_pids: std::collections::HashSet<u32> =
+        candidates.into_iter().map(|process| process.pid).collect();
+    let mut unique_pids = Vec::new();
+    for pid in pids {
+        if !candidate_pids.contains(&pid) {
+            return Err(format!("DSH 进程 {pid} 已退出或不是可识别的 DSH 进程"));
+        }
+        if !unique_pids.contains(&pid) {
+            unique_pids.push(pid);
+        }
+    }
+    for pid in unique_pids {
+        terminate_process_tree(pid)?;
+    }
+    if let Ok(mut state) = runtime.state.lock() {
+        state.process_conflict = None;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -2926,15 +3427,16 @@ fn open_themes_directory() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        bound_log_text, extract_runtime_archive, format_log_line, format_utc_datetime,
-        is_bundled_runtime_manifest, is_dsh_package_manifest, is_file_path, is_safe_runtime_entry,
-        runtime_arch, runtime_cache_validation_message, runtime_platform, runtime_tree_sha256,
+        bound_log_text, dsh_home, dsh_homes_match, extract_runtime_archive, format_log_line,
+        format_utc_datetime, is_bundled_runtime_manifest, is_dsh_package_manifest, is_file_path,
+        is_safe_runtime_entry, process_command_line_matches_dsh, runtime_arch,
+        runtime_cache_validation_message, runtime_platform, runtime_tree_sha256,
         validated_connection_url, DshRuntimeLog, LogStore, MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES,
         RUNTIME_CACHE_MARKER,
     };
 
     #[cfg(windows)]
-    use super::normalize_windows_resource_path_for_display;
+    use super::{normalize_windows_resource_path_for_display, process_dsh_home};
 
     #[cfg(windows)]
     #[test]
@@ -2951,6 +3453,42 @@ mod tests {
             )),
             std::path::PathBuf::from(r"\\server\share\resources")
         );
+    }
+
+    #[test]
+    fn recognizes_only_node_dsh_desktop_processes() {
+        assert!(process_command_line_matches_dsh(
+            "node.exe",
+            "node.exe C:\\tools\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js --profile desktop"
+        ));
+        assert!(!process_command_line_matches_dsh(
+            "pwsh.exe",
+            "pwsh -Command dsh --profile desktop"
+        ));
+        assert!(!process_command_line_matches_dsh(
+            "node.exe",
+            "node.exe C:\\tools\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js --profile headless"
+        ));
+        assert!(!process_command_line_matches_dsh(
+            "node.exe",
+            "node.exe C:\\tools\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js --profile desktoply"
+        ));
+    }
+
+    #[test]
+    fn matches_only_the_configured_dsh_home() {
+        let home = dsh_home();
+        assert!(dsh_homes_match(&home));
+        assert!(!dsh_homes_match(&home.join("different-dsh-home")));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn reads_the_current_process_dsh_home_from_its_environment() {
+        let home = process_dsh_home(std::process::id())
+            .expect("current process environment should be readable")
+            .expect("current process should have a home directory");
+        assert!(dsh_homes_match(&home));
     }
 
     #[test]
@@ -3098,9 +3636,9 @@ mod tests {
         let manifest = serde_json::json!({
             "format": 1,
             "packageName": "@deepseek-ai/dsh",
-            "packageVersion": "0.1.0-rc.7",
+            "packageVersion": "0.1.0-rc.8",
             "entry": "node_modules/@deepseek-ai/dsh/lib/bin.js",
-            "sourceCommit": "99f6f02fecdb7dff40c3fbc9470f5907c29f74ca",
+            "sourceCommit": "a95eedc6034c323ece64536609174645c235f124",
             "platform": runtime_platform(),
             "arch": runtime_arch(),
             "treeSha256": "0123456789012345678901234567890123456789012345678901234567890123",
@@ -3231,6 +3769,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             check_dsh,
+            terminate_dsh_processes,
             get_dock_position,
             set_dock_position,
             reset_dock_position,

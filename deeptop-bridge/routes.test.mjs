@@ -110,6 +110,29 @@ test('forwards an explicit session preset migration through the official fork AP
   })
 })
 
+test('routes RC8 file and session reference candidates through official services', async () => {
+  const agent = { id: 'session-target' };
+  const ctx = {
+    get: key => key === 'agents' ? { get: id => id === agent.id ? agent : undefined }
+      : key === 'fileReferences' ? { list: async (received, query, receivedSignal) => { assert.equal(received, agent); assert.equal(query, 'src/'); assert.equal(receivedSignal, signal); return [{ path: 'src/main.ts', kind: 'file' }]; } }
+      : key === 'sessionReferenceResolver' ? { remoteExportCandidates: async (received, query, receivedSignal) => { assert.equal(received, agent); assert.equal(query, 'notes'); assert.equal(receivedSignal, signal); return [{ sessionId: 'session-source', label: 'Notes', createdAt: 1, mention: '@[Notes](dsh-session:abc)' }]; } }
+      : undefined,
+  };
+  assert.deepEqual(await routeDesktopRequest(ctx, 'reference.files', { sessionId: agent.id, query: 'src/' }, signal), { items: [{ path: 'src/main.ts', kind: 'file' }] });
+  assert.deepEqual(await routeDesktopRequest(ctx, 'reference.sessions', { sessionId: agent.id, query: 'notes' }, signal), { items: [{ sessionId: 'session-source', label: 'Notes', createdAt: 1, mention: '@[Notes](dsh-session:abc)' }] });
+  await assert.rejects(routeDesktopRequest(ctx, 'reference.files', { sessionId: 'missing' }, signal), error => error.code === 'session-not-found');
+});
+
+test('rejects malformed and unavailable RC8 reference requests', async () => {
+  const agent = { id: 'session-target' };
+  const context = { get: key => key === 'agents' ? { get: id => id === agent.id ? agent : undefined } : undefined };
+  await assert.rejects(routeDesktopRequest(context, 'reference.files', { sessionId: agent.id, query: 'x'.repeat(257) }, signal), /no longer than 256/);
+  await assert.rejects(routeDesktopRequest(context, 'reference.files', { sessionId: agent.id }, signal), error => error.code === 'reference-unavailable');
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(routeDesktopRequest({ get: key => key === 'agents' ? { get: () => agent } : key === 'fileReferences' ? { list: async () => [] } : undefined }, 'reference.files', { sessionId: agent.id }, controller.signal), /aborted|cancel/i);
+});
+
 test('forwards image prompt content without changing the DSH wire shape', async () => {
   let received
   const ctx = {

@@ -67,6 +67,12 @@
       config:
         default: standard
 
+    - id: file-reference-local
+      name: '@deepseek-ai/dsh-file-reference-local'
+
+    - id: session-reference
+      name: '@deepseek-ai/dsh-session-reference'
+
     - id: desktop-bridge
       name: 'deeptop-bridge'
 

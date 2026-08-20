@@ -32,6 +32,34 @@ async function invokeRemote(ctx, payload, signal) {
   }
 }
 
+function referenceAgent(ctx, payload, method) {
+  if (!isRecord(payload) || typeof payload.sessionId !== 'string' || payload.sessionId.trim() === '') {
+    throw new Error(method + ' requires sessionId');
+  }
+  if (payload.query !== undefined && (typeof payload.query !== 'string' || payload.query.length > 256)) {
+    throw new Error(method + ' query must be a string no longer than 256 characters');
+  }
+  const agent = ctx.get?.('agents')?.get?.(payload.sessionId);
+  if (!agent) { const error = new Error('session ' + JSON.stringify(payload.sessionId) + ' not found'); error.code = 'session-not-found'; throw error; }
+  return agent;
+}
+
+async function referenceFiles(ctx, payload, signal) {
+  const agent = referenceAgent(ctx, payload, 'reference.files');
+  const service = ctx.get?.('fileReferences');
+  if (!service || typeof service.list !== 'function') { const error = new Error('file reference service is unavailable'); error.code = 'reference-unavailable'; throw error; }
+  signal?.throwIfAborted();
+  return { items: await service.list(agent, payload.query ?? '', signal) };
+}
+
+async function referenceSessions(ctx, payload, signal) {
+  const agent = referenceAgent(ctx, payload, 'reference.sessions');
+  const service = ctx.get?.('sessionReferenceResolver');
+  if (!service || typeof service.remoteExportCandidates !== 'function') { const error = new Error('session reference service is unavailable'); error.code = 'reference-unavailable'; throw error; }
+  signal?.throwIfAborted();
+  return { items: await service.remoteExportCandidates(agent, payload.query ?? '', signal) };
+}
+
 async function exportSessionZip(ctx, payload, signal) {
   if (!isRecord(payload)
     || typeof payload.sessionId !== 'string'
@@ -526,6 +554,8 @@ export async function routeDesktopRequest(ctx, method, payload, signal) {
     case 'session.create': return api.sessions.create(request)
     case 'session.history': return api.sessions.history(request)
     case 'session.models': return sessionModels(ctx, request)
+    case 'reference.files': return referenceFiles(ctx, payload, signal)
+    case 'reference.sessions': return referenceSessions(ctx, payload, signal)
     case 'session.selectModel': return api.sessions.selectModel(request)
     case 'session.rename': return api.sessions.rename(request)
     case 'session.fork': return api.sessions.fork(request)

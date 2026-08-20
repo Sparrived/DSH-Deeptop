@@ -1,0 +1,3 @@
+name: 持久 PowerShell
+description: Windows 会话级 PowerShell 持久终端；不替换 Deeptop 原生终端。
+order: 40

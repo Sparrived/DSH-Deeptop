@@ -1,0 +1,23 @@
+# Experimental Agent Teams is opt-in and is never part of Deeptop's default preset.
+# The two private RC8 packages are shipped in the runtime but are loaded only by
+# this explicit preset; the model-facing tool is scoped to the Team Lead realm.
+- id: agent-teams
+  name: cordis:group
+  group: true
+  isolate:
+    agentTeams: true
+  config:
+    - id: agent-teams-service
+      name: '../../../../dsh-experimental-agent-team/lib/index.js'
+      config:
+        maxMembers: 8
+        maxTasks: 256
+        maxPendingMessagesPerMember: 64
+        maxMessageBytes: 65536
+        disposalTimeoutMs: 5000
+
+    - id: tool-agent-team
+      name: '../../../../dsh-experimental-tool-agent-team/lib/index.js'
+      config:
+        freshProvider: spawn
+        forkProvider: fork

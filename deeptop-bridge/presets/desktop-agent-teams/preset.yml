@@ -1,0 +1,3 @@
+name: Agent Teams（实验）
+description: 显式启用 RC8 私有 Agent Teams；仅用于实验，不属于默认 Profile。
+order: 50
