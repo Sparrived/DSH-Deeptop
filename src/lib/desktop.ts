@@ -91,6 +91,23 @@ export interface DshSessionSummary {
   };
 }
 
+export type TraySessionStatus = "idle" | "running" | "unread" | "error";
+
+export interface TraySessionMenuItem {
+  sessionId: string;
+  title: string;
+  context?: string;
+  status: TraySessionStatus;
+}
+
+export interface TraySessionMenuSnapshot {
+  unread: TraySessionMenuItem[];
+  recent: TraySessionMenuItem[];
+  more: TraySessionMenuItem[];
+}
+
+export type TrayPopupAction = "newChat" | "showMain" | "quit";
+
 export type DshInputModality = "text" | "image";
 export type DshImageMediaType = "image/png" | "image/jpeg" | "image/webp" | "image/gif";
 
@@ -449,6 +466,48 @@ export async function listenToNotificationClick(handler: (sessionId: string) => 
     const sessionId = event.payload?.sessionId;
     if (typeof sessionId === "string" && sessionId.trim()) handler(sessionId);
   });
+}
+
+export async function updateTraySessionMenu(snapshot: TraySessionMenuSnapshot): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("update_tray_session_menu", { snapshot });
+}
+
+export async function getTrayPopupSnapshot(): Promise<TraySessionMenuSnapshot> {
+  if (!isTauri()) return { unread: [], recent: [], more: [] };
+  return invoke<TraySessionMenuSnapshot>("get_tray_popup_snapshot");
+}
+
+export async function listenToTrayPopupUpdates(
+  handler: (snapshot: TraySessionMenuSnapshot) => void,
+): Promise<UnlistenFn> {
+  return listen<TraySessionMenuSnapshot>("tray-popup-updated", (event) => handler(event.payload));
+}
+
+export async function openTrayPopupSession(sessionId: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("open_tray_popup_session", { sessionId });
+}
+
+export async function runTrayPopupAction(action: TrayPopupAction): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("run_tray_popup_action", { action });
+}
+
+export async function dismissTrayPopup(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("dismiss_tray_popup");
+}
+
+export async function listenToTraySessionOpen(handler: (sessionId: string) => void): Promise<UnlistenFn> {
+  return listen<{ sessionId?: unknown }>("tray-session-open", (event) => {
+    const sessionId = event.payload?.sessionId;
+    if (typeof sessionId === "string" && sessionId.trim()) handler(sessionId);
+  });
+}
+
+export async function listenToTrayNewChat(handler: () => void): Promise<UnlistenFn> {
+  return listen("tray-new-chat", () => handler());
 }
 
 export async function listenToSingleInstance(handler: () => void): Promise<UnlistenFn> {
