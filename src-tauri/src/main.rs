@@ -4091,10 +4091,10 @@ mod tests {
         bound_log_text, dsh_home, dsh_homes_match, extract_runtime_archive, format_log_line,
         format_utc_datetime, is_bundled_runtime_manifest, is_dsh_package_manifest, is_file_path,
         is_safe_runtime_entry, process_command_line_matches_dsh, runtime_arch,
-        runtime_cache_validation_message, runtime_platform, runtime_tree_sha256,
-        tray_menu_text, tray_session_label, validate_tray_session_menu, validated_connection_url,
-        DshRuntimeLog, LogStore, TraySessionMenuItem, TraySessionMenuSnapshot, TraySessionStatus,
-        MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES, RUNTIME_CACHE_MARKER,
+        runtime_cache_validation_message, runtime_platform, runtime_tree_sha256, tray_menu_text,
+        tray_session_label, validate_tray_session_menu, validated_connection_url, DshRuntimeLog,
+        LogStore, TraySessionMenuItem, TraySessionMenuSnapshot, TraySessionStatus, MAX_LOG_ENTRIES,
+        MAX_LOG_TEXT_BYTES, RUNTIME_CACHE_MARKER,
     };
 
     #[cfg(windows)]
