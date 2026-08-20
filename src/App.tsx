@@ -44,6 +44,8 @@ import {
   isTauri,
   listenToDiagnostic,
   listenToNotificationClick,
+  listenToTrayNewChat,
+  listenToTraySessionOpen,
   listenToRuntimeLog,
   listenToRuntimeStatus,
   listenToUpdateProgress,
@@ -73,6 +75,7 @@ import {
   pickWorkspace,
   listPendingOpenSessions,
   acknowledgePendingOpenSession,
+  updateTraySessionMenu,
   refreshDsh,
   terminateDshProcesses,
   isSessionLogCorruption,
@@ -198,6 +201,7 @@ import { defaultWorkingIndicator, normalizeWorkingIndicator } from "./app/workin
 import { externalLaunchKey } from "./lib/external-launch";
 import { DEFAULT_PERMISSION_OPTIONS, isDefaultPermission, readStoredDefaultModel, readStoredDefaultPermission, writeStoredDefaultModel, writeStoredDefaultPermission, type DefaultPermission } from "./app/session-defaults";
 import { reconcileSessionIndicators } from "./app/session-runtime-state";
+import { buildTraySessionMenu } from "./app/tray-model";
 import { updateCheckStateFromResult, updateCheckErrorMessage, updateDownloadStateFromEvent, type UpdateChannel, type UpdateCheckState, type UpdateDownloadState } from "./app/update-model";
 
 const demoStatus: DshStatus = {
@@ -980,6 +984,24 @@ function AppContent() {
     workspaces.forEach((item) => item.sessionIds.forEach((sessionId) => result.set(sessionId, item)));
     return result;
   }, [workspaces]);
+  const trayWorkspaceTitles = useMemo(() => new Map(
+    [...workspaceBySessionId].map(([sessionId, workspaceItem]) => [sessionId, workspaceItem.title]),
+  ), [workspaceBySessionId]);
+  const traySessionMenu = useMemo(() => buildTraySessionMenu(sessions, {
+    archivedSessionIds,
+    indicators: sessionIndicators,
+    pendingSessionIds,
+    activeSessionId,
+    workspaceTitles: trayWorkspaceTitles,
+  }), [activeSessionId, archivedSessionIds, pendingSessionIds, sessionIndicators, sessions, trayWorkspaceTitles]);
+
+  useEffect(() => {
+    if (!desktop) return;
+    void updateTraySessionMenu(traySessionMenu).catch((error) => {
+      setErrorNotice(`更新系统托盘失败：${errorText(error)}`);
+    });
+  }, [desktop, setErrorNotice, traySessionMenu]);
+
   const selectedWorkspace = useMemo(
     () => workspaces.find((item) => sameWorkspacePath(item.path, workspace)) ?? null,
     [workspace, workspaces],
@@ -2067,6 +2089,12 @@ function AppContent() {
     }).then((unlisten) => { cleanups.push(unlisten); });
     void listenToNotificationClick((sessionId) => {
       void openNotificationSession(sessionId).catch((error) => setErrorNotice(errorText(error)));
+    }).then((unlisten) => { cleanups.push(unlisten); });
+    void listenToTraySessionOpen((sessionId) => {
+      void openNotificationSession(sessionId).catch((error) => setErrorNotice(errorText(error)));
+    }).then((unlisten) => { cleanups.push(unlisten); });
+    void listenToTrayNewChat(() => {
+      startNewSession();
     }).then((unlisten) => { cleanups.push(unlisten); });
     void listenToSingleInstance(() => {
       setNotice("已切换到正在运行的 Deeptop");

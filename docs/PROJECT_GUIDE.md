@@ -64,6 +64,7 @@ npm run version:check
 5. 在 Interaction 面板处理 Approval 和 User Question；根据事件可执行单选、多选或自定义回答。
 6. 用 `/skill` 选择 Skill，通过 Subagent/Goal 面板使用对应能力，用 Runtime Inspector 查看 Profile、插件和路由。
 7. 通过会话操作执行 retry、fork、archive、restore、export 或删除。刷新 DSH 会重启子进程，pending request 可能失败，应重新加载当前状态。
+8. 从系统托盘的“未读”“最近”或“更多”入口恢复窗口并打开对应会话；“新会话”会回到空白输入页。Windows 使用固定宽度的 Deeptop WebView 弹窗并复用当前应用主题，弹窗不可用时回退到系统原生菜单。
 
 ## 3. 代码结构
 
@@ -74,7 +75,7 @@ npm run version:check
 | `src/app/` | 会话、消息、轨迹、事件、重试和设置等前端状态模型 |
 | `src/lib/desktop.ts` | Tauri 命令、Bridge 请求、事件类型和 DSH 数据类型 |
 | `src/lib/desktop-client-runtime.ts` | Remote loopback 调用和 Host Remote 事件订阅 |
-| `src-tauri/src/main.rs` | DSH 进程管理、Profile 物化、JSONL 请求/响应和诊断转发 |
+| `src-tauri/src/main.rs` | DSH 进程管理、Profile 物化、JSONL 请求/响应、系统托盘和诊断转发 |
 | `src-tauri/` | Tauri 应用配置和 Rust 工程 |
 | `deeptop-bridge/index.mjs` | Cordis 插件入口和服务依赖声明 |
 | `deeptop-bridge/bridge.mjs` | `deeptop/1` JSONL 协议、请求处理和事件转发 |
@@ -197,7 +198,7 @@ remote.invoke             plugin.list             respond
 - `mux`：Session、Agent、Projection 和会话相关事件；
 - `host`：Host 事件，包括 Remote 事件和 Host 生命周期/状态事件；stderr 与 Bridge diagnostic frame 通过独立的诊断通道转发。
 
-Rust 将 Bridge 帧转发为 `deeptop-bridge-event`，React 再通过 `bridge-event-handler.ts` 更新当前会话状态。运行时状态使用 `dsh-runtime-status`，诊断文本使用 `dsh-diagnostic`。
+Rust 将 Bridge 帧转发为 `deeptop-bridge-event`，React 再通过 `bridge-event-handler.ts` 更新当前会话状态。运行时状态使用 `dsh-runtime-status`，诊断文本使用 `dsh-diagnostic`。React 把现有会话指示器投影为有界的托盘快照；Windows 由 Rust 定位固定宽度的无边框 WebView，React 使用与主窗口相同的本地主题设置渲染快照，其他平台和弹窗创建失败时保留系统原生菜单。托盘入口按需加载独立的 JS 和 CSS，仅在快照、主题、尺寸或位置实际变化时更新；常规重复打开只显示并聚焦已预热的 WebView。会话与新建操作仍通过 `tray-session-open` 和 `tray-new-chat` 事件交回主窗口。
 
 ## 8. 原生扩展指南
 
