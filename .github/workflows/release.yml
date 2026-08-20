@@ -180,6 +180,10 @@ jobs:
       - name: Build and verify embedded DSH runtime
         run: npm run dsh:sync && npm run dsh:verify
 
+      - name: Clear Linux Rust build artifacts
+        if: matrix.platform == 'linux'
+        run: cargo clean --manifest-path src-tauri/Cargo.toml
+
       - name: Build Tauri bundles
         run: npm run tauri -- build --bundles ${{ needs.prepare.outputs.prerelease == 'true' && matrix.development_bundles || matrix.bundles }} --ci --no-sign
 
