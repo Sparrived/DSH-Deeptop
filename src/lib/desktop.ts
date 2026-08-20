@@ -4,6 +4,7 @@ import packageInfo from "../../package.json";
 import { parseExternalLaunchPayload, type ExternalLaunchRequest } from "./external-launch";
 import type { NativeUpdateDownloadProgress, UpdateChannel } from "../app/update-model";
 export type { ExternalLaunchRequest } from "./external-launch";
+export { missingAgentPresetInfo, type MissingAgentPresetInfo } from "./missing-preset";
 
 export const DSH_PACKAGE = "@deepseek-ai/dsh（内嵌运行时）";
 export const DEEPTOP_VERSION = packageInfo.version;

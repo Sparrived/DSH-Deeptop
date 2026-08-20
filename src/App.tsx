@@ -73,6 +73,7 @@ import {
   refreshDsh,
   isSessionLogCorruption,
   repairCorruptSession,
+  missingAgentPresetInfo,
   type DshBridgeEvent,
   type DshGoalProjection,
   type DshHistoryEntry,
@@ -202,6 +203,12 @@ const demoStatus: DshStatus = {
   message: "浏览器预览模式",
 };
 
+type PresetMigrationRequest = {
+  session: DshSessionSummary;
+  missingPreset: string;
+  availablePresetIds: string[];
+};
+
 type PopupRequest =
   | {
       kind: "confirm";
@@ -308,6 +315,9 @@ function App() {
   // 会话日志损坏（崩溃导致）时，记录当前无法打开的会话，用于展示“修复并重新打开”按钮。
   const [corruptSession, setCorruptSession] = useState<DshSessionSummary | null>(null);
   const [repairingSession, setRepairingSession] = useState(false);
+  const [presetMigration, setPresetMigration] = useState<PresetMigrationRequest | null>(null);
+  const [presetMigrationSelection, setPresetMigrationSelection] = useState("");
+  const [presetMigrationRunning, setPresetMigrationRunning] = useState(false);
   const [search, setSearch] = useState("");
   const [remoteSearchResults, setRemoteSearchResults] = useState<SessionSearchResult[] | null>(null);
   const [models, setModels] = useState<DshSessionModels | null>(null);
@@ -1528,6 +1538,8 @@ function App() {
     activeSessionRef.current = session.sessionId;
     contextProjectionRef.current = false;
     setCorruptSession(null);
+    setPresetMigration(null);
+    setPresetMigrationSelection("");
     setSessionIndicators((current) => ({ ...current, [session.sessionId]: "idle" }));
     setActiveSessionId(session.sessionId);
     setWorkspace(workspaces.find((item) => item.sessionIds.includes(session.sessionId))?.path ?? session.cwd ?? "");
@@ -1608,8 +1620,34 @@ function App() {
         // 重试一次；loadRequest 守卫保证此次的 loading 状态由重试自身管理。
         return openSession(session, false);
       }
-      if (isSessionLogCorruption(error)) setCorruptSession(session);
-      setErrorNotice(errorText(error));
+      if (loadRequest !== sessionLoadRequestRef.current || activeSessionRef.current !== session.sessionId) return false;
+      if (isSessionLogCorruption(error)) {
+        setCorruptSession(session);
+      } else {
+        const missing = missingAgentPresetInfo(error);
+        if (missing) {
+          let roster = presets;
+          try {
+            const rosterResult = await bridgeRequest<DshPresetRoster>("agentPreset.list");
+            roster = rosterResult.presets;
+            setPresets(rosterResult.presets);
+            setPresetAuthorable(rosterResult.authorable);
+            setPresetHasDocument(rosterResult.hasDocument);
+          } catch {
+            // The resume error still identifies the missing preset; without a fresh roster
+            // the dialog deliberately offers no replacement rather than guessing.
+          }
+          if (loadRequest !== sessionLoadRequestRef.current || activeSessionRef.current !== session.sessionId) return false;
+          const availablePresetIds = roster
+            .filter((preset) => !preset.broken && preset.id !== missing.missingPreset)
+            .map((preset) => preset.id);
+          setPresetMigration({ session, missingPreset: missing.missingPreset, availablePresetIds });
+          setPresetMigrationSelection(availablePresetIds[0] ?? "");
+          setErrorNotice(`会话依赖的 Agent Preset “${missing.missingPreset}”已不存在。请选择替代 Preset，以迁移副本后继续。原会话不会被修改。`);
+        } else {
+          setErrorNotice(errorText(error));
+        }
+      }
       return false;
     } finally {
       if (loadRequest === sessionLoadRequestRef.current) setLoading(false);
@@ -2406,6 +2444,39 @@ function App() {
       else setNotice("已创建分叉会话");
     } catch (error) {
       setErrorNotice(errorText(error));
+    }
+  }
+
+  async function migrateMissingPreset() {
+    if (!presetMigration || !presetMigrationSelection || presetMigrationRunning) return;
+    const replacement = presets.find((preset) => preset.id === presetMigrationSelection && !preset.broken);
+    if (!replacement) {
+      setErrorNotice("请选择当前可用的 Agent Preset");
+      return;
+    }
+    const confirmed = await requestConfirm(
+      `原会话引用的 Agent Preset “${presetMigration.missingPreset}”已被删除，无法按原配置恢复。将创建一个保留现有历史的新副本，并使用“${presetDisplayName(replacement.id, presets)}”（${replacement.id}）。原会话会保留不变。由于工具、提示词和能力可能不同，历史中的工具调用可能只能以兼容或通用形式显示，后续回复也可能不同。确认迁移并打开副本吗？`,
+    );
+    if (!confirmed) return;
+    setPresetMigrationRunning(true);
+    try {
+      const result = await bridgeRequest<{ sessionId: string }>("session.fork", {
+        sessionId: presetMigration.session.sessionId,
+        agentPreset: replacement.id,
+      });
+      const nextSessions = await loadSessions();
+      const migrated = nextSessions?.find((session) => session.sessionId === result.sessionId);
+      setPresetMigration(null);
+      if (migrated) {
+        await openSession(migrated, false);
+        setNotice(`已迁移为新会话副本（Preset：${presetDisplayName(replacement.id, presets)}）；原会话仍保留`);
+      } else {
+        setNotice("已创建迁移副本；原会话仍保留");
+      }
+    } catch (error) {
+      setErrorNotice(`迁移会话失败：${errorText(error)}。原会话未修改。`);
+    } finally {
+      setPresetMigrationRunning(false);
     }
   }
 
@@ -3802,6 +3873,20 @@ function App() {
          onPickEntry={pickPluginEntryForInstall}
          onSubmit={addPlugin}
        />}
+       {presetMigration && <PopupDialog
+         title="迁移到可用的 Agent Preset"
+         eyebrow="会话恢复 / 需要确认"
+         description={`会话“${presetMigration.session.sessionId}”无法恢复，因为它引用的 Preset “${presetMigration.missingPreset}”已不存在。`}
+         className="popup-form-dialog"
+         role="alertdialog"
+         onClose={() => { if (!presetMigrationRunning) setPresetMigration(null); }}
+         footer={<><button type="button" disabled={presetMigrationRunning} onClick={() => setPresetMigration(null)}>取消</button><button type="button" className="confirm" disabled={presetMigrationRunning || !presetMigrationSelection} onClick={() => void migrateMissingPreset()}>{presetMigrationRunning ? "正在创建副本…" : "确认迁移并打开副本"}</button></>}
+       >
+         <p>迁移会创建一个新的会话副本，保留原会话和已有历史；不会修改、覆盖或删除原会话。</p>
+         <p>不同 Preset 可能带来不同的工具、系统提示词和能力。历史中的工具调用可能只能以兼容或通用形式显示，迁移后的后续回复也可能不同。</p>
+         <label className="popup-field"><span>选择替代 Preset</span><select value={presetMigrationSelection} onChange={(event) => setPresetMigrationSelection(event.target.value)} disabled={presetMigrationRunning}><option value="" disabled>请选择</option>{presets.filter((preset) => !preset.broken && preset.id !== presetMigration?.missingPreset).map((preset) => <option value={preset.id} key={preset.id}>{presetDisplayName(preset.id, presets)}（{preset.id}）</option>)}</select></label>
+         {presetMigration.availablePresetIds.length > 0 && <small>检测到可用选项：{presetMigration.availablePresetIds.join("、")}</small>}
+       </PopupDialog>}
        {popupRequest?.kind === "confirm" && <PopupDialog
         title="请确认操作"
         eyebrow="DSH / 确认操作"

@@ -166,6 +166,8 @@ $DSH_HOME/profiles/desktop/cordis.patch.yml
 - Host ApiProxy 和 Cordis Host runner；
 - Agent Presets、Skill installer 和桌面 Bridge。
 
+如果历史会话引用的 Agent Preset 已被删除，桌面端不会静默改用其他 Preset；打开时会明确告知缺失项，用户选择可用替代项并确认后，才创建保留原历史的迁移副本。原会话保持不变，迁移副本可能因工具、系统提示词和能力不同而产生不同后续结果。
+
 部分工具在 Profile patch 中标记为 disabled，是为了避免与 `standard` Agent Preset 重复挂载，并不表示桌面端放弃这些 DSH 工具。Windows PowerShell、文件、搜索和 Job 等工具由现有 Preset 提供。
 
 ## 7. API 与事件使用方式

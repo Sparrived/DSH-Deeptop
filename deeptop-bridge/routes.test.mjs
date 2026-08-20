@@ -84,6 +84,32 @@ test('routes an allowlisted API method with a generated RPC id', async () => {
   assert.deepEqual(result.payload, { cwd: 'D:/repo' })
 })
 
+test('forwards an explicit session preset migration through the official fork API', async () => {
+  let received
+  const ctx = {
+    apiProxy: {
+      sessions: {
+        fork: async request => {
+          received = request
+          return { ok: true, value: { sessionId: 'session-migrated' } }
+        },
+      },
+    },
+  }
+
+  const result = await routeDesktopRequest(ctx, 'session.fork', {
+    sessionId: 'session-source',
+    agentPreset: 'standard',
+  }, signal)
+
+  assert.deepEqual(result, { ok: true, value: { sessionId: 'session-migrated' } })
+  assert.match(received.rpcId, /^[0-9a-f-]{36}$/)
+  assert.deepEqual(received.payload, {
+    sessionId: 'session-source',
+    agentPreset: 'standard',
+  })
+})
+
 test('forwards image prompt content without changing the DSH wire shape', async () => {
   let received
   const ctx = {
