@@ -103,8 +103,18 @@
 
 * {
   box-sizing: border-box;
-  user-select: none;
-  -webkit-user-select: none;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+/* Static UI copy is chrome, not document content. Keep editable fields
+   usable, while the only non-editable selectable surface is transcript text. */
+input,
+textarea,
+select,
+[contenteditable="true"] {
+  user-select: text !important;
+  -webkit-user-select: text !important;
 }
 
 html,
@@ -128,10 +138,24 @@ textarea {
   font: inherit;
 }
 
-.conversation-panel,
-.conversation-panel * {
-  user-select: text;
-  -webkit-user-select: text;
+/* Only transcript content is selectable. Interactive controls and supporting
+   conversation components (headers, docks, trajectory, and subagents) remain
+   chrome even though they live in the conversation column. */
+.conversation-transcript-stage .transcript-inner .message-text,
+.conversation-transcript-stage .transcript-inner .message-text *,
+.conversation-transcript-stage .transcript-inner .tool-call-arguments,
+.conversation-transcript-stage .transcript-inner .tool-result-part pre,
+.conversation-transcript-stage .transcript-inner .reasoning-body pre {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+.conversation-transcript-stage .transcript-inner .message-text button,
+.conversation-transcript-stage .transcript-inner .message-text input,
+.conversation-transcript-stage .transcript-inner .message-text select,
+.conversation-transcript-stage .transcript-inner .message-text textarea {
+  user-select: none !important;
+  -webkit-user-select: none !important;
 }
 
 button {

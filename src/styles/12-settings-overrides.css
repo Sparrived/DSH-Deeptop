@@ -341,14 +341,6 @@
   place-items: center;
   padding: 32px;
   color: var(--ink);
-  user-select: text;
-  -webkit-user-select: text;
-}
-
-.popup-modal,
-.popup-modal * {
-  user-select: text;
-  -webkit-user-select: text;
 }
 
 .popup-backdrop {

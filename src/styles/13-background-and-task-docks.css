@@ -1200,9 +1200,6 @@
   --task-collapsed-width: 44px;
 }
 
-.task-panel,
-.task-panel * { user-select: text; -webkit-user-select: text; }
-
 .task-panel {
   position: relative;
   width: var(--task-collapsed-width, 44px);

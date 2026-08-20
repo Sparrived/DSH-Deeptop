@@ -5,14 +5,6 @@
   display: grid;
   grid-template-rows: 58px minmax(0, 1fr) auto;
   background: var(--paper);
-  user-select: text;
-  -webkit-user-select: text;
-}
-
-.todo-panel,
-.todo-panel * {
-  user-select: text;
-  -webkit-user-select: text;
 }
 
 .todo-panel {
