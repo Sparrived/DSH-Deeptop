@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     env, fs,
     io::{BufRead, BufReader, Read, Write},
     path::{Component, Path, PathBuf},
@@ -13,16 +13,23 @@ use std::{
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+#[cfg(windows)]
+use std::sync::atomic::AtomicU32;
 
 use fs2::FileExt;
 use notify_rust::{Notification as DesktopNotification, NotificationResponse};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tauri::{
-    menu::{Menu, MenuItemBuilder},
+    menu::{Menu, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder},
     tray::{TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, State, WindowEvent,
+};
+#[cfg(windows)]
+use tauri::{
+    tray::{MouseButton, MouseButtonState},
+    LogicalSize, PhysicalPosition, WebviewUrl, WebviewWindowBuilder,
 };
 
 mod about;
@@ -67,6 +74,29 @@ const PROFILE_PNPM_WORKSPACE: &str =
     "packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n";
 const MAX_PENDING_OPEN_SESSIONS: usize = 16;
 const MAX_PENDING_EXTERNAL_LAUNCHES: usize = 16;
+const MAX_TRAY_SESSION_ITEMS: usize = 32;
+const MAX_TRAY_SESSION_ID_CHARS: usize = 256;
+const MAX_TRAY_SESSION_LABEL_CHARS: usize = 32;
+const MAX_TRAY_TITLE_CHARS: usize = 20;
+const MAX_TRAY_CONTEXT_CHARS: usize = 10;
+#[cfg(windows)]
+const TRAY_POPUP_WIDTH: u32 = 320;
+#[cfg(windows)]
+const TRAY_POPUP_OUTER_HEIGHT: u32 = 14;
+#[cfg(windows)]
+const TRAY_POPUP_SECTION_HEIGHT: u32 = 22;
+#[cfg(windows)]
+const TRAY_POPUP_SESSION_HEIGHT: u32 = 36;
+#[cfg(windows)]
+const TRAY_POPUP_MORE_HEIGHT: u32 = 36;
+#[cfg(windows)]
+const TRAY_POPUP_ACTIONS_HEIGHT: u32 = 115;
+#[cfg(windows)]
+const TRAY_POPUP_SCREEN_MARGIN: i32 = 8;
+#[cfg(windows)]
+const TRAY_POPUP_ANCHOR_GAP: i32 = 6;
+#[cfg(windows)]
+const TRAY_POPUP_BLUR_DELAY: Duration = Duration::from_millis(120);
 /// Max in-memory runtime log entries kept for export and recent diagnostics.
 const MAX_LOG_ENTRIES: usize = 3000;
 /// Keep the initial log-viewer payload small enough for the WebView to render quickly.
@@ -77,6 +107,107 @@ const MAX_LOG_TEXT_BYTES: usize = 16 * 1024;
 const MAX_LOG_FILE_BYTES: u64 = 4 * 1024 * 1024;
 /// Bound the asynchronous writer queue so a log storm cannot block the runtime.
 const LOG_WRITE_QUEUE_CAPACITY: usize = 1024;
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum TraySessionStatus {
+    Idle,
+    Running,
+    Unread,
+    Error,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct TraySessionMenuItem {
+    session_id: String,
+    title: String,
+    context: Option<String>,
+    status: TraySessionStatus,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+struct TraySessionMenuSnapshot {
+    unread: Vec<TraySessionMenuItem>,
+    recent: Vec<TraySessionMenuItem>,
+    more: Vec<TraySessionMenuItem>,
+}
+
+#[derive(Default)]
+struct TrayMenuState {
+    generation: AtomicU64,
+    session_ids: Mutex<HashMap<String, String>>,
+    snapshot: Mutex<TraySessionMenuSnapshot>,
+    #[cfg(windows)]
+    popup_visible: AtomicBool,
+    #[cfg(windows)]
+    popup_epoch: AtomicU64,
+    #[cfg(windows)]
+    popup_height: AtomicU32,
+    #[cfg(windows)]
+    popup_position: Mutex<Option<PhysicalPosition<i32>>>,
+}
+
+impl TrayMenuState {
+    fn next_generation(&self) -> u64 {
+        self.generation.fetch_add(1, Ordering::Relaxed)
+    }
+
+    fn session_id(&self, menu_id: &str) -> Option<String> {
+        self.session_ids.lock().ok()?.get(menu_id).cloned()
+    }
+
+    fn snapshot(&self) -> Result<TraySessionMenuSnapshot, String> {
+        self.snapshot
+            .lock()
+            .map(|snapshot| snapshot.clone())
+            .map_err(|_| "托盘会话快照不可用".to_string())
+    }
+
+    fn replace_snapshot(&self, snapshot: TraySessionMenuSnapshot) -> Result<(), String> {
+        *self
+            .snapshot
+            .lock()
+            .map_err(|_| "托盘会话快照不可用".to_string())? = snapshot;
+        Ok(())
+    }
+
+    fn snapshot_matches(&self, candidate: &TraySessionMenuSnapshot) -> Result<bool, String> {
+        self.snapshot
+            .lock()
+            .map(|snapshot| *snapshot == *candidate)
+            .map_err(|_| "托盘会话快照不可用".to_string())
+    }
+
+    #[cfg(windows)]
+    fn desired_popup_height(&self) -> Result<u32, String> {
+        self.snapshot
+            .lock()
+            .map(|snapshot| tray_popup_height(&snapshot))
+            .map_err(|_| "托盘会话快照不可用".to_string())
+    }
+
+    fn contains_session(&self, session_id: &str) -> Result<bool, String> {
+        let snapshot = self
+            .snapshot
+            .lock()
+            .map_err(|_| "托盘会话快照不可用".to_string())?;
+        Ok(snapshot
+            .unread
+            .iter()
+            .chain(snapshot.recent.iter())
+            .chain(snapshot.more.iter())
+            .any(|item| item.session_id.trim() == session_id))
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum TrayPopupAction {
+    NewChat,
+    ShowMain,
+    Quit,
+}
 
 #[cfg(windows)]
 #[link(name = "kernel32")]
@@ -1996,32 +2127,554 @@ fn publish_external_launch(
     let _ = app.emit("external-launch", request);
 }
 
-fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
-    let show = MenuItemBuilder::with_id("show-main-window", "打开 Deeptop").build(app)?;
-    let quit = MenuItemBuilder::with_id("quit-deeptop", "退出 Deeptop").build(app)?;
-    let menu = Menu::with_items(app, &[&show, &quit])?;
+fn validate_tray_session_menu(snapshot: &TraySessionMenuSnapshot) -> Result<(), String> {
+    let items = snapshot
+        .unread
+        .iter()
+        .chain(snapshot.recent.iter())
+        .chain(snapshot.more.iter());
+    let total = snapshot.unread.len() + snapshot.recent.len() + snapshot.more.len();
+    if total > MAX_TRAY_SESSION_ITEMS {
+        return Err(format!(
+            "托盘会话条目过多，最多允许 {MAX_TRAY_SESSION_ITEMS} 条"
+        ));
+    }
+    let mut session_ids = HashSet::with_capacity(total);
+    for item in items {
+        let session_id = item.session_id.trim();
+        if session_id.is_empty()
+            || session_id.chars().count() > MAX_TRAY_SESSION_ID_CHARS
+            || session_id.chars().any(char::is_control)
+        {
+            return Err("托盘会话 ID 无效".to_string());
+        }
+        if !session_ids.insert(session_id) {
+            return Err("托盘会话条目不能重复".to_string());
+        }
+    }
+    Ok(())
+}
+
+fn tray_menu_text(value: &str, fallback: &str, max_chars: usize) -> String {
+    let compact = value
+        .chars()
+        .map(|character| if character.is_control() { ' ' } else { character })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let source = if compact.is_empty() { fallback } else { &compact };
+    let mut text = source.chars().take(max_chars).collect::<String>();
+    if source.chars().count() > max_chars {
+        text.pop();
+        text.push('…');
+    }
+    text
+}
+
+fn tray_session_label(item: &TraySessionMenuItem) -> String {
+    let marker = match item.status {
+        TraySessionStatus::Idle => "",
+        TraySessionStatus::Running => "◉ ",
+        TraySessionStatus::Unread => "● ",
+        TraySessionStatus::Error => "⚠ ",
+    };
+    let context = item
+        .context
+        .as_deref()
+        .map(|value| tray_menu_text(value, "", MAX_TRAY_CONTEXT_CHARS))
+        .filter(|value| !value.is_empty());
+    let context_width = context
+        .as_ref()
+        .map(|value| " · ".chars().count() + value.chars().count())
+        .unwrap_or_default();
+    let title_width = MAX_TRAY_SESSION_LABEL_CHARS
+        .saturating_sub(marker.chars().count() + context_width)
+        .clamp(1, MAX_TRAY_TITLE_CHARS);
+    let title = tray_menu_text(&item.title, "未命名会话", title_width);
+    let label = match context {
+        Some(context) => format!("{marker}{title} · {context}"),
+        None => format!("{marker}{title}"),
+    };
+    debug_assert!(label.chars().count() <= MAX_TRAY_SESSION_LABEL_CHARS);
+    label.replace('&', "&&")
+}
+
+fn build_tray_menu(
+    app: &AppHandle,
+    snapshot: &TraySessionMenuSnapshot,
+    generation: u64,
+) -> Result<(Menu<tauri::Wry>, HashMap<String, String>), String> {
+    validate_tray_session_menu(snapshot)?;
+    let menu = Menu::new(app).map_err(|error| format!("创建托盘菜单失败：{error}"))?;
+    let mut session_ids = HashMap::new();
+    let mut item_index = 0usize;
+
+    if !snapshot.unread.is_empty() {
+        let heading = MenuItemBuilder::new("未读")
+            .enabled(false)
+            .build(app)
+            .map_err(|error| format!("创建托盘未读标题失败：{error}"))?;
+        menu.append(&heading)
+            .map_err(|error| format!("添加托盘未读标题失败：{error}"))?;
+        for item in &snapshot.unread {
+            let menu_id = format!("tray-session-{generation}-{item_index}");
+            item_index += 1;
+            let menu_item = MenuItemBuilder::with_id(menu_id.clone(), tray_session_label(item))
+                .build(app)
+                .map_err(|error| format!("创建托盘会话条目失败：{error}"))?;
+            menu.append(&menu_item)
+                .map_err(|error| format!("添加托盘会话条目失败：{error}"))?;
+            session_ids.insert(menu_id, item.session_id.trim().to_string());
+        }
+    }
+
+    if !snapshot.recent.is_empty() {
+        let heading = MenuItemBuilder::new("最近")
+            .enabled(false)
+            .build(app)
+            .map_err(|error| format!("创建托盘最近标题失败：{error}"))?;
+        menu.append(&heading)
+            .map_err(|error| format!("添加托盘最近标题失败：{error}"))?;
+        for item in &snapshot.recent {
+            let menu_id = format!("tray-session-{generation}-{item_index}");
+            item_index += 1;
+            let menu_item = MenuItemBuilder::with_id(menu_id.clone(), tray_session_label(item))
+                .build(app)
+                .map_err(|error| format!("创建托盘会话条目失败：{error}"))?;
+            menu.append(&menu_item)
+                .map_err(|error| format!("添加托盘会话条目失败：{error}"))?;
+            session_ids.insert(menu_id, item.session_id.trim().to_string());
+        }
+    }
+
+    if !snapshot.more.is_empty() {
+        let more = SubmenuBuilder::with_id(app, "more-sessions", "更多")
+            .build()
+            .map_err(|error| format!("创建托盘更多菜单失败：{error}"))?;
+        for item in &snapshot.more {
+            let menu_id = format!("tray-session-{generation}-{item_index}");
+            item_index += 1;
+            let menu_item = MenuItemBuilder::with_id(menu_id.clone(), tray_session_label(item))
+                .build(app)
+                .map_err(|error| format!("创建托盘更多会话失败：{error}"))?;
+            more.append(&menu_item)
+                .map_err(|error| format!("添加托盘更多会话失败：{error}"))?;
+            session_ids.insert(menu_id, item.session_id.trim().to_string());
+        }
+        menu.append(&more)
+            .map_err(|error| format!("添加托盘更多菜单失败：{error}"))?;
+    }
+
+    if item_index > 0 {
+        let separator = PredefinedMenuItem::separator(app)
+            .map_err(|error| format!("创建托盘分隔线失败：{error}"))?;
+        menu.append(&separator)
+            .map_err(|error| format!("添加托盘分隔线失败：{error}"))?;
+    }
+    let new_chat = MenuItemBuilder::with_id("new-deeptop-chat", "新会话")
+        .build(app)
+        .map_err(|error| format!("创建托盘新会话入口失败：{error}"))?;
+    let show = MenuItemBuilder::with_id("show-main-window", "打开 Deeptop")
+        .build(app)
+        .map_err(|error| format!("创建托盘窗口入口失败：{error}"))?;
+    let separator = PredefinedMenuItem::separator(app)
+        .map_err(|error| format!("创建托盘分隔线失败：{error}"))?;
+    let quit = MenuItemBuilder::with_id("quit-deeptop", "退出 Deeptop")
+        .build(app)
+        .map_err(|error| format!("创建托盘退出入口失败：{error}"))?;
+    menu.append(&new_chat)
+        .and_then(|_| menu.append(&show))
+        .and_then(|_| menu.append(&separator))
+        .and_then(|_| menu.append(&quit))
+        .map_err(|error| format!("添加托盘固定入口失败：{error}"))?;
+    Ok((menu, session_ids))
+}
+
+#[cfg(windows)]
+fn tray_popup_height(snapshot: &TraySessionMenuSnapshot) -> u32 {
+    let section_count = usize::from(!snapshot.unread.is_empty())
+        + usize::from(!snapshot.recent.is_empty());
+    let session_count = snapshot.unread.len() + snapshot.recent.len();
+    TRAY_POPUP_OUTER_HEIGHT
+        + section_count as u32 * TRAY_POPUP_SECTION_HEIGHT
+        + session_count as u32 * TRAY_POPUP_SESSION_HEIGHT
+        + u32::from(!snapshot.more.is_empty()) * TRAY_POPUP_MORE_HEIGHT
+        + TRAY_POPUP_ACTIONS_HEIGHT
+}
+
+#[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
+fn tray_popup_position(
+    anchor_x: f64,
+    anchor_y: f64,
+    anchor_width: u32,
+    anchor_height: u32,
+    popup_width: u32,
+    popup_height: u32,
+    work_x: i32,
+    work_y: i32,
+    work_width: u32,
+    work_height: u32,
+) -> PhysicalPosition<i32> {
+    let work_left = i64::from(work_x);
+    let work_top = i64::from(work_y);
+    let work_right = work_left + i64::from(work_width);
+    let work_bottom = work_top + i64::from(work_height);
+    let popup_width = i64::from(popup_width);
+    let popup_height = i64::from(popup_height);
+    let margin = i64::from(TRAY_POPUP_SCREEN_MARGIN);
+    let gap = i64::from(TRAY_POPUP_ANCHOR_GAP);
+
+    let ideal_x = (anchor_x + f64::from(anchor_width) / 2.0).round() as i64
+        - popup_width / 2;
+    let min_x = work_left + margin;
+    let max_x = (work_right - popup_width - margin).max(min_x);
+    let x = ideal_x.clamp(min_x, max_x);
+
+    let above = anchor_y.round() as i64 - popup_height - gap;
+    let below = (anchor_y + f64::from(anchor_height)).round() as i64 + gap;
+    let min_y = work_top + margin;
+    let max_y = (work_bottom - popup_height - margin).max(min_y);
+    let y = if above >= min_y { above } else { below }.clamp(min_y, max_y);
+
+    PhysicalPosition::new(x as i32, y as i32)
+}
+
+#[cfg(windows)]
+fn hide_tray_popup_window(app: &AppHandle) -> Result<(), String> {
+    let state = app.state::<TrayMenuState>();
+    state.popup_visible.store(false, Ordering::Release);
+    state.popup_epoch.fetch_add(1, Ordering::AcqRel);
+    if let Some(window) = app.get_webview_window("tray-popup") {
+        window
+            .hide()
+            .map_err(|error| format!("隐藏托盘弹窗失败：{error}"))?;
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn resize_tray_popup_if_needed(
+    popup: &tauri::WebviewWindow,
+    state: &TrayMenuState,
+    logical_height: u32,
+) -> Result<(), String> {
+    if state.popup_height.load(Ordering::Acquire) == logical_height {
+        return Ok(());
+    }
+    popup
+        .set_size(LogicalSize::new(
+            f64::from(TRAY_POPUP_WIDTH),
+            f64::from(logical_height),
+        ))
+        .map_err(|error| format!("调整托盘弹窗大小失败：{error}"))?;
+    state.popup_height.store(logical_height, Ordering::Release);
+    Ok(())
+}
+
+#[cfg(windows)]
+fn position_tray_popup_if_needed(
+    popup: &tauri::WebviewWindow,
+    state: &TrayMenuState,
+    position: PhysicalPosition<i32>,
+) -> Result<(), String> {
+    let mut current = state
+        .popup_position
+        .lock()
+        .map_err(|_| "托盘弹窗位置缓存不可用".to_string())?;
+    if current.as_ref() == Some(&position) {
+        return Ok(());
+    }
+    popup
+        .set_position(position)
+        .map_err(|error| format!("定位托盘弹窗失败：{error}"))?;
+    *current = Some(position);
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn hide_tray_popup_window(_app: &AppHandle) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(windows)]
+fn show_tray_popup(
+    app: &AppHandle,
+    anchor_x: f64,
+    anchor_y: f64,
+    anchor_width: u32,
+    anchor_height: u32,
+) -> Result<(), String> {
+    let state = app.state::<TrayMenuState>();
+    let popup = app
+        .get_webview_window("tray-popup")
+        .ok_or_else(|| "找不到 Deeptop 托盘弹窗".to_string())?;
+    let monitor = app
+        .monitor_from_point(anchor_x, anchor_y)
+        .map_err(|error| format!("无法定位托盘所在显示器：{error}"))?
+        .or_else(|| app.primary_monitor().ok().flatten())
+        .ok_or_else(|| "找不到可用显示器".to_string())?;
+    let scale_factor = monitor.scale_factor();
+    let logical_height = state.desired_popup_height()?;
+    let popup_width = (f64::from(TRAY_POPUP_WIDTH) * scale_factor).round() as u32;
+    let popup_height = (f64::from(logical_height) * scale_factor).round() as u32;
+    let work_area = monitor.work_area();
+    let position = tray_popup_position(
+        anchor_x,
+        anchor_y,
+        anchor_width,
+        anchor_height,
+        popup_width,
+        popup_height,
+        work_area.position.x,
+        work_area.position.y,
+        work_area.size.width,
+        work_area.size.height,
+    );
+
+    let result = (|| {
+        resize_tray_popup_if_needed(&popup, state.inner(), logical_height)?;
+        position_tray_popup_if_needed(&popup, state.inner(), position)?;
+        popup
+            .show()
+            .map_err(|error| format!("显示托盘弹窗失败：{error}"))?;
+        popup
+            .set_focus()
+            .map_err(|error| format!("聚焦托盘弹窗失败：{error}"))?;
+        Ok(())
+    })();
+
+    if result.is_ok() {
+        state.popup_epoch.fetch_add(1, Ordering::AcqRel);
+        state.popup_visible.store(true, Ordering::Release);
+    } else {
+        state.popup_visible.store(false, Ordering::Release);
+        let _ = popup.hide();
+    }
+    result
+}
+
+#[cfg(windows)]
+fn setup_tray_popup(app: &AppHandle) -> Result<(), String> {
+    let popup = WebviewWindowBuilder::new(
+        app,
+        "tray-popup",
+        WebviewUrl::App("index.html?tray-popup=1".into()),
+    )
+    .title("Deeptop")
+    .inner_size(
+        f64::from(TRAY_POPUP_WIDTH),
+        f64::from(TRAY_POPUP_OUTER_HEIGHT + TRAY_POPUP_ACTIONS_HEIGHT),
+    )
+    .resizable(false)
+    .decorations(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .shadow(true)
+    .visible(false)
+    .focused(false)
+    .build()
+    .map_err(|error| format!("创建主题托盘弹窗失败：{error}"))?;
+    app.state::<TrayMenuState>().popup_height.store(
+        TRAY_POPUP_OUTER_HEIGHT + TRAY_POPUP_ACTIONS_HEIGHT,
+        Ordering::Release,
+    );
+
+    let popup_app = app.clone();
+    popup.on_window_event(move |event| {
+        if !matches!(event, WindowEvent::Focused(false)) {
+            return;
+        }
+        let epoch = popup_app
+            .state::<TrayMenuState>()
+            .popup_epoch
+            .load(Ordering::Acquire);
+        let delayed_app = popup_app.clone();
+        thread::spawn(move || {
+            thread::sleep(TRAY_POPUP_BLUR_DELAY);
+            let main_thread_app = delayed_app.clone();
+            let _ = delayed_app.run_on_main_thread(move || {
+                let state = main_thread_app.state::<TrayMenuState>();
+                if state.popup_epoch.load(Ordering::Acquire) != epoch
+                    || !state.popup_visible.load(Ordering::Acquire)
+                {
+                    return;
+                }
+                let still_focused = main_thread_app
+                    .get_webview_window("tray-popup")
+                    .and_then(|window| window.is_focused().ok())
+                    .unwrap_or(false);
+                if !still_focused {
+                    let _ = hide_tray_popup_window(&main_thread_app);
+                }
+            });
+        });
+    });
+    Ok(())
+}
+
+#[tauri::command]
+fn get_tray_popup_snapshot(
+    state: State<'_, TrayMenuState>,
+) -> Result<TraySessionMenuSnapshot, String> {
+    state.snapshot()
+}
+
+#[tauri::command]
+fn open_tray_popup_session(
+    app: AppHandle,
+    state: State<'_, TrayMenuState>,
+    session_id: String,
+) -> Result<(), String> {
+    let session_id = session_id.trim();
+    if session_id.is_empty()
+        || session_id.chars().count() > MAX_TRAY_SESSION_ID_CHARS
+        || session_id.chars().any(char::is_control)
+        || !state.contains_session(session_id)?
+    {
+        return Err("托盘会话已失效，请重新打开菜单".to_string());
+    }
+    hide_tray_popup_window(&app)?;
+    focus_main_window(&app);
+    app.emit(
+        "tray-session-open",
+        json!({ "sessionId": session_id }),
+    )
+    .map_err(|error| format!("打开托盘会话失败：{error}"))
+}
+
+#[tauri::command]
+fn run_tray_popup_action(app: AppHandle, action: TrayPopupAction) -> Result<(), String> {
+    hide_tray_popup_window(&app)?;
+    match action {
+        TrayPopupAction::NewChat => {
+            focus_main_window(&app);
+            app.emit("tray-new-chat", ())
+                .map_err(|error| format!("新建托盘会话失败：{error}"))?;
+        }
+        TrayPopupAction::ShowMain => focus_main_window(&app),
+        TrayPopupAction::Quit => app.exit(0),
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn dismiss_tray_popup(app: AppHandle) -> Result<(), String> {
+    hide_tray_popup_window(&app)
+}
+
+#[tauri::command]
+fn update_tray_session_menu(
+    app: AppHandle,
+    state: State<'_, TrayMenuState>,
+    snapshot: TraySessionMenuSnapshot,
+) -> Result<(), String> {
+    if state.snapshot_matches(&snapshot)? {
+        return Ok(());
+    }
+    let generation = state.next_generation();
+    let (menu, session_ids) = build_tray_menu(&app, &snapshot, generation)?;
+    let tray = app
+        .tray_by_id("main-tray")
+        .ok_or_else(|| "找不到 Deeptop 系统托盘".to_string())?;
+    tray.set_menu(Some(menu))
+        .map_err(|error| format!("更新系统托盘失败：{error}"))?;
+    *state
+        .session_ids
+        .lock()
+        .map_err(|_| "托盘会话索引不可用".to_string())? = session_ids;
+    state.replace_snapshot(snapshot.clone())?;
+    if let Some(window) = app.get_webview_window("tray-popup") {
+        #[cfg(windows)]
+        if !state.popup_visible.load(Ordering::Acquire) {
+            let height = tray_popup_height(&snapshot);
+            if let Err(error) = resize_tray_popup_if_needed(&window, state.inner(), height) {
+                eprintln!("{error}；将在下次打开托盘时重试");
+            }
+        }
+        let _ = window.emit("tray-popup-updated", snapshot);
+    }
+    Ok(())
+}
+
+fn setup_tray(app: &AppHandle) -> Result<(), String> {
+    let (menu, _) = build_tray_menu(app, &TraySessionMenuSnapshot::default(), 0)?;
+    #[cfg(windows)]
+    let themed_popup_ready = match setup_tray_popup(app) {
+        Ok(()) => true,
+        Err(error) => {
+            eprintln!("{error}；将使用系统原生托盘菜单");
+            false
+        }
+    };
+    #[cfg(not(windows))]
+    let themed_popup_ready = false;
     let app_handle = app.clone();
     let tray_app = app.clone();
     let icon = app
         .default_window_icon()
         .cloned()
-        .ok_or_else(|| tauri::Error::AssetNotFound("Deeptop 图标未配置".to_string()))?;
-    TrayIconBuilder::with_id("main-tray")
+        .ok_or_else(|| "Deeptop 图标未配置".to_string())?;
+    let tray = TrayIconBuilder::with_id("main-tray")
         .icon(icon)
         .menu(&menu)
         .tooltip("Deeptop")
-        .show_menu_on_left_click(true)
+        .show_menu_on_left_click(!themed_popup_ready)
         .on_menu_event(move |app, event| match event.id().as_ref() {
+            "new-deeptop-chat" => {
+                focus_main_window(app);
+                let _ = app.emit("tray-new-chat", ());
+            }
             "show-main-window" => focus_main_window(app),
             "quit-deeptop" => app.exit(0),
-            _ => {}
-        })
-        .on_tray_icon_event(move |_, event| {
-            if matches!(event, TrayIconEvent::DoubleClick { .. }) {
-                focus_main_window(&app_handle);
+            menu_id => {
+                let state = app.state::<TrayMenuState>();
+                if let Some(session_id) = state.session_id(menu_id) {
+                    focus_main_window(app);
+                    let _ = app.emit("tray-session-open", json!({ "sessionId": session_id }));
+                }
             }
         })
-        .build(&tray_app)?;
+        .on_tray_icon_event(move |_, event| match event {
+            TrayIconEvent::DoubleClick { .. } => {
+                let _ = hide_tray_popup_window(&app_handle);
+                focus_main_window(&app_handle);
+            }
+            #[cfg(windows)]
+            TrayIconEvent::Click {
+                rect,
+                button: MouseButton::Left | MouseButton::Right,
+                button_state: MouseButtonState::Up,
+                ..
+            } if themed_popup_ready => {
+                let state = app_handle.state::<TrayMenuState>();
+                let anchor_position = rect.position.to_physical::<f64>(1.0);
+                let anchor_size = rect.size.to_physical::<u32>(1.0);
+                if state.popup_visible.load(Ordering::Acquire) {
+                    let _ = hide_tray_popup_window(&app_handle);
+                } else if let Err(error) = show_tray_popup(
+                    &app_handle,
+                    anchor_position.x,
+                    anchor_position.y,
+                    anchor_size.width,
+                    anchor_size.height,
+                ) {
+                    eprintln!("{error}；将使用系统原生托盘菜单");
+                    if let Some(tray) = app_handle.tray_by_id("main-tray") {
+                        let _ = tray.with_inner_tray_icon(|inner| inner.show_menu());
+                    }
+                }
+            }
+            _ => {}
+        })
+        .build(&tray_app)
+        .map_err(|error| format!("创建系统托盘失败：{error}"))?;
+    #[cfg(windows)]
+    if themed_popup_ready {
+        tray.with_inner_tray_icon(|inner| inner.set_show_menu_on_right_click(false))
+            .map_err(|error| format!("接管系统托盘菜单失败：{error}"))?;
+    }
     Ok(())
 }
 
@@ -2892,12 +3545,16 @@ mod tests {
         bound_log_text, extract_runtime_archive, format_log_line, format_utc_datetime,
         is_bundled_runtime_manifest, is_dsh_package_manifest, is_file_path, is_safe_runtime_entry,
         runtime_arch, runtime_cache_validation_message, runtime_platform, runtime_tree_sha256,
-        validated_connection_url, DshRuntimeLog, LogStore, MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES,
+        tray_menu_text, tray_session_label, validate_tray_session_menu,
+        validated_connection_url, DshRuntimeLog, LogStore, TraySessionMenuItem,
+        TraySessionMenuSnapshot, TraySessionStatus, MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES,
         RUNTIME_CACHE_MARKER,
     };
 
     #[cfg(windows)]
-    use super::normalize_windows_resource_path_for_display;
+    use super::{
+        normalize_windows_resource_path_for_display, tray_popup_height, tray_popup_position,
+    };
 
     #[cfg(windows)]
     #[test]
@@ -3140,6 +3797,93 @@ mod tests {
         assert!(validated_connection_url("javascript:alert(1)").is_err());
         assert!(validated_connection_url("https://").is_err());
     }
+
+    #[test]
+    fn validates_and_formats_tray_session_items() {
+        let item = TraySessionMenuItem {
+            session_id: "session-1".to_string(),
+            title: "设计 & 检查\n托盘".to_string(),
+            context: Some("DSH & Deeptop".to_string()),
+            status: TraySessionStatus::Unread,
+        };
+        let snapshot = TraySessionMenuSnapshot {
+            unread: vec![item.clone()],
+            recent: vec![],
+            more: vec![],
+        };
+
+        assert!(validate_tray_session_menu(&snapshot).is_ok());
+        assert_eq!(
+            tray_session_label(&item),
+            "● 设计 && 检查 托盘 · DSH && Dee…"
+        );
+        assert_eq!(tray_menu_text("  多余\t空格  ", "fallback", 16), "多余 空格");
+
+        let long = TraySessionMenuItem {
+            session_id: "session-2".to_string(),
+            title: "[MODE: UNRESTRICTED] FIRST-PASS NORMALIZATION".to_string(),
+            context: Some("Documents".to_string()),
+            status: TraySessionStatus::Running,
+        };
+        let label = tray_session_label(&long);
+        assert_eq!(label, "◉ [MODE: UNRESTRICT… · Documents");
+        assert_eq!(label.chars().count(), 32);
+    }
+
+    #[test]
+    fn rejects_duplicate_or_invalid_tray_session_ids() {
+        let item = TraySessionMenuItem {
+            session_id: "session-1".to_string(),
+            title: "会话".to_string(),
+            context: None,
+            status: TraySessionStatus::Idle,
+        };
+        let duplicate = TraySessionMenuSnapshot {
+            unread: vec![item.clone()],
+            recent: vec![item],
+            more: vec![],
+        };
+        assert!(validate_tray_session_menu(&duplicate).is_err());
+
+        let invalid = TraySessionMenuSnapshot {
+            unread: vec![TraySessionMenuItem {
+                session_id: "bad\nsession".to_string(),
+                title: "会话".to_string(),
+                context: None,
+                status: TraySessionStatus::Error,
+            }],
+            recent: vec![],
+            more: vec![],
+        };
+        assert!(validate_tray_session_menu(&invalid).is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn sizes_and_positions_the_themed_tray_popup_inside_the_work_area() {
+        let item = TraySessionMenuItem {
+            session_id: "session-1".to_string(),
+            title: "会话".to_string(),
+            context: None,
+            status: TraySessionStatus::Idle,
+        };
+        let snapshot = TraySessionMenuSnapshot {
+            unread: vec![item.clone()],
+            recent: vec![item.clone()],
+            more: vec![item],
+        };
+
+        assert_eq!(tray_popup_height(&TraySessionMenuSnapshot::default()), 129);
+        assert_eq!(tray_popup_height(&snapshot), 281);
+        assert_eq!(
+            tray_popup_position(1880.0, 1040.0, 32, 32, 320, 400, 0, 0, 1920, 1040),
+            tauri::PhysicalPosition::new(1592, 632)
+        );
+        assert_eq!(
+            tray_popup_position(100.0, 0.0, 32, 32, 320, 400, 0, 32, 1920, 1008),
+            tauri::PhysicalPosition::new(8, 40)
+        );
+    }
 }
 
 fn main() {
@@ -3164,6 +3908,7 @@ fn main() {
     }
     builder = builder
         .manage(BridgeManager::default())
+        .manage(TrayMenuState::default())
         .manage(about::UpdateCheckManager::default())
         .manage(terminal::TerminalManager::default())
         .setup(move |app| {
@@ -3214,6 +3959,11 @@ fn main() {
             list_pending_external_launches,
             acknowledge_pending_external_launch,
             acknowledge_pending_open_session,
+            update_tray_session_menu,
+            get_tray_popup_snapshot,
+            open_tray_popup_session,
+            run_tray_popup_action,
+            dismiss_tray_popup,
             send_system_notification,
             bridge_request,
             get_runtime_logs,

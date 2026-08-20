@@ -153,6 +153,7 @@ The Tauri process owns only native concerns:
 - materializing the desktop Profile and the embedded bridge files;
 - starting, stopping and restarting the DSH child process;
 - correlating JSONL requests and responses;
+- positioning the fixed-width Windows tray WebView and falling back to the native menu when it cannot be created;
 - forwarding runtime status and diagnostics to the window.
 
 It must not implement session behavior, tool execution, model routing or
