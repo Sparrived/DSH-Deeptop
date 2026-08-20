@@ -91,39 +91,59 @@ mod tests {
         values.iter().map(|value| (*value).to_string()).collect()
     }
 
+    fn path_text(path: &Path) -> String {
+        path.to_string_lossy().into_owned()
+    }
+
+    fn test_root() -> std::path::PathBuf {
+        std::env::temp_dir().join("deeptop-external-launch-tests")
+    }
+
     #[test]
     fn parses_directory_and_uses_it_as_cwd() {
+        let root = test_root();
+        let directory = root.join("demo");
+        let directory_text = path_text(&directory);
         let request = parse(
-            &args(&["Deeptop.exe", "--deeptop-directory", "C:\\Projects\\demo"]),
-            Path::new("C:\\"),
+            &args(&[
+                "Deeptop.exe",
+                "--deeptop-directory",
+                directory_text.as_str(),
+            ]),
+            &root,
             "test",
         )
         .unwrap();
-        assert_eq!(request.paths, vec!["C:\\Projects\\demo"]);
-        assert_eq!(request.cwd, "C:\\Projects\\demo");
+        assert_eq!(request.paths, vec![directory_text.clone()]);
+        assert_eq!(request.cwd, directory_text);
     }
 
     #[test]
     fn parses_file_and_uses_parent_as_cwd() {
+        let cwd = test_root().join("demo");
+        let expected_path = path_text(&cwd.join("README.md"));
+        let expected_cwd = path_text(&cwd);
         let request = parse(
             &args(&["Deeptop.exe", "--deeptop-file", "README.md"]),
-            Path::new("C:\\Projects\\demo"),
+            &cwd,
             "test",
         )
         .unwrap();
-        assert_eq!(request.paths, vec!["C:\\Projects\\demo\\README.md"]);
-        assert_eq!(request.cwd, "C:\\Projects\\demo");
+        assert_eq!(request.paths, vec![expected_path]);
+        assert_eq!(request.cwd, expected_cwd);
     }
 
     #[test]
     fn skips_flags_and_deduplicates_paths() {
+        let cwd = test_root();
+        let expected_path = path_text(&cwd.join("demo"));
         let request = parse(
             &args(&["Deeptop.exe", "--prepare-bundled-runtime", "demo", "demo"]),
-            Path::new("C:\\Projects"),
+            &cwd,
             "test",
         )
         .unwrap();
-        assert_eq!(request.paths, vec!["C:\\Projects\\demo"]);
+        assert_eq!(request.paths, vec![expected_path]);
     }
 
     #[test]
@@ -140,9 +160,10 @@ mod tests {
 
     #[test]
     fn returns_none_without_external_paths() {
+        let cwd = test_root();
         assert!(parse(
             &args(&["Deeptop.exe", "--prepare-bundled-runtime"]),
-            Path::new("C:\\"),
+            &cwd,
             "test"
         )
         .is_none());
