@@ -36,6 +36,7 @@ const OPTIONAL_RUNTIME_PACKAGES = [
 }));
 const DESKTOP_PRESET_SOURCE_ROOT = path.join(root, "deeptop-bridge", "presets");
 const DESKTOP_PRESETS = ["desktop-persistent-pwsh", "desktop-agent-teams"];
+const GENERATED_HOST_ENTRY_PACKAGES = new Set(["@deepseek-ai/dsh-typert-protocol"]);
 const force = process.argv.includes("--force");
 
 function run(command, args, cwd, extraEnv = {}) {
@@ -192,7 +193,7 @@ function copyWorkspacePackages(workspaceRoot) {
     // Typert registry intentionally do not emit lib/index.js in the source
     // workspace). Copy only a built source package that deploy omitted, or when
     // the existing deployed package is incomplete.
-    if (main && !fs.existsSync(sourceMain)) continue;
+    if (main && !fs.existsSync(sourceMain) && !GENERATED_HOST_ENTRY_PACKAGES.has(packageManifest.name)) continue;
     if (fs.existsSync(targetManifest) && (!main || fs.existsSync(targetMain))) continue;
     copyRuntimePackage(sourceRoot, packageManifest.name);
   }
@@ -261,6 +262,7 @@ function copyDesktopPresets() {
 
 function ensureClientBundleHostEntries() {
   const packageNames = [
+    "@deepseek-ai/dsh-typert-protocol",
     "@deepseek-ai/dsh-typert-registry",
     "@deepseek-ai/dsh-api-gateway",
   ];
@@ -273,10 +275,10 @@ function ensureClientBundleHostEntries() {
       if (!fs.existsSync(generatedEntry)) {
         throw new Error(`内嵌运行时缺少 ${packageName} 的可执行 Host 入口`);
       }
-      fs.writeFileSync(
-        hostEntry,
-        'export * from "./types/index.js";\nexport { default } from "./types/index.js";\n',
-      );
+      const exports = packageName === "@deepseek-ai/dsh-typert-protocol"
+        ? 'export * from "./types/index.js";\n'
+        : 'export * from "./types/index.js";\nexport { default } from "./types/index.js";\n';
+      fs.writeFileSync(hostEntry, exports);
     }
     const invariant = path.join(packageRoot, "lib", "invariant.js");
     const generatedInvariant = path.join(packageRoot, "lib", "types", "invariant.js");
@@ -396,8 +398,8 @@ try {
   copyWorkspacePackages(sourceRoot);
   copyOptionalRuntimePackages();
   copyDesktopPresets();
-  verifyOptionalRuntimeClosure();
   ensureClientBundleHostEntries();
+  verifyOptionalRuntimeClosure();
 
   const runtimePackage = {
     name: "deeptop-dsh-runtime",
