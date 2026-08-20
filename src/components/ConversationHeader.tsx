@@ -10,7 +10,9 @@ type ConversationHeaderProps = {
   noticeIsError: boolean;
   queueCount: number;
   trajectoryOpen: boolean;
+  tokenUsageOpen: boolean;
   onToggleTrajectory: () => void;
+  onToggleTokenUsage: () => void;
 };
 
 export function ConversationHeader({
@@ -21,7 +23,9 @@ export function ConversationHeader({
   noticeIsError,
   queueCount,
   trajectoryOpen,
+  tokenUsageOpen,
   onToggleTrajectory,
+  onToggleTokenUsage,
 }: ConversationHeaderProps) {
   const [noticeCopied, setNoticeCopied] = useState(false);
 
@@ -57,7 +61,10 @@ export function ConversationHeader({
           </button>
         )}
         {queueCount > 0 && <span className="queue-count">排队 {queueCount}</span>}
-        {activeSession && <button className={`header-action trajectory-toggle${trajectoryOpen ? " selected" : ""}`} onClick={onToggleTrajectory} title="查看当前会话轨迹" aria-pressed={trajectoryOpen}>轨迹</button>}
+        {activeSession && <>
+          <button className={"header-action trajectory-toggle" + (trajectoryOpen ? " selected" : "")} onClick={onToggleTrajectory} title="查看当前会话轨迹" aria-pressed={trajectoryOpen}>轨迹</button>
+          <button className={"header-action token-usage-toggle" + (tokenUsageOpen ? " selected" : "")} onClick={onToggleTokenUsage} title="查看当前会话 Token 用量" aria-pressed={tokenUsageOpen}>Token</button>
+        </>}
       </div>
     </header>
   );

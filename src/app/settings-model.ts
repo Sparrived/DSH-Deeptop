@@ -3,8 +3,32 @@ import type { ProviderSettingsPatch } from "./model-types";
 
 export function errorText(error: unknown) {
   if (error instanceof Error) {
-    const code = (error as Error & { code?: unknown }).code;
-    return typeof code === "string" ? `${code}: ${error.message}` : error.message;
+    const apiError = error as Error & { code?: unknown; details?: unknown };
+    const code = apiError.code;
+    const details = apiError.details && typeof apiError.details === "object" && !Array.isArray(apiError.details)
+      ? apiError.details as Record<string, unknown>
+      : undefined;
+    const reason = typeof details?.reason === "string" ? details.reason : undefined;
+    if (typeof code === "string" || reason !== undefined) {
+      const labels: Record<string, string> = {
+        "model-unavailable": "当前模型不可用，请检查 Provider 配置或切换模型",
+        "invalid-time-zone": "客户端时区无效，请重试",
+        "attachment-error": "图片未通过当前部署的限制",
+        IMAGE_DIMENSION_TOO_LARGE: "图片尺寸超过当前部署限制",
+        IMAGE_TOO_MANY_PIXELS: "图片像素数超过当前部署限制",
+        IMAGE_PIXELS_TOO_LARGE: "图片像素数超过当前部署限制",
+        IMAGE_TOO_LARGE: "图片大小超过当前部署限制",
+        TOO_MANY_IMAGES: "图片数量超过当前部署限制",
+        IMAGES_TOO_LARGE: "本条消息的图片总大小超过当前部署限制",
+        MESSAGE_IMAGE_BYTES_TOO_LARGE: "本条消息的图片总大小超过当前部署限制",
+        "reference-unavailable": "引用服务当前不可用",
+        "session-not-found": "目标会话不存在或已关闭",
+      };
+      const label = (reason ? labels[reason] : undefined) ?? (typeof code === "string" ? labels[code] : undefined);
+      if (label) return `${label}（${error.message}）`;
+      return typeof code === "string" ? `${code}: ${error.message}` : error.message;
+    }
+    return error.message;
   }
   return String(error);
 }

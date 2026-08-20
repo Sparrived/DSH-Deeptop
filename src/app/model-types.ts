@@ -111,10 +111,43 @@ export type MessageStats = {
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
+  reasoningTokens?: number;
+  uncachedInputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
   cacheHitRate?: number;
   runMs?: number;
   ttftMs?: number;
   tokensPerSecond?: number;
+};
+
+export type TokenUsageSource = "projection" | "history" | "none";
+
+export type TokenUsageBreakdown = {
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  totalTokens: number;
+  uncachedInputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  cacheHitRate: number;
+};
+
+export type TokenUsagePoint = TokenUsageBreakdown & {
+  key: string;
+  label: string;
+  time: number;
+  turn?: number;
+  step?: number;
+  runMs?: number;
+  ttftMs?: number;
+};
+
+export type TokenUsageDashboardData = {
+  totals: TokenUsageBreakdown;
+  points: TokenUsagePoint[];
+  hasHistoryUsage: boolean;
 };
 
 export type SubagentSession = {
@@ -189,17 +222,22 @@ export type CustomProviderDraft = {
 };
 
 export type ComposerCandidate = {
-  kind: "skill" | "command" | "subagent";
+  kind: "skill" | "command" | "subagent" | "file" | "session";
   id: string;
   label: string;
   detail?: string;
   insertText: string;
 };
 
+/** Composer sources opened by slash commands, subagents, or RC8 references. */
+export type ComposerTriggerKind = "skill" | "command" | "subagent" | "reference";
+
 export type ComposerTrigger = {
-  kind: ComposerCandidate["kind"];
+  kind: ComposerTriggerKind;
   query: string;
   start: number;
+  end?: number;
+  quoted?: boolean;
 };
 
 export type SessionSearchResult = {
@@ -215,9 +253,17 @@ export type ComposerAttachment = {
 };
 
 export type SessionStats = {
+  /** Source used for the session-wide token aggregate. */
+  tokenUsageSource?: TokenUsageSource;
+  /** Backward-compatible availability flag for existing callers. */
+  tokenUsageAvailable?: boolean;
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  reasoningTokens: number;
+  uncachedInputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   contextTokens: number;
   contextLimit: number;
   cacheHitRate: number;

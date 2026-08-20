@@ -3,6 +3,7 @@ import { type UnlistenFn } from "@tauri-apps/api/event";
 import { StartupSplash } from "./components/StartupSplash";
 import { ConversationTranscript } from "./components/ConversationTranscript";
 import { ConversationHeader } from "./components/ConversationHeader";
+import { TokenUsageDashboard } from "./components/TokenUsageDashboard";
 import { ComposerShell } from "./components/ComposerShell";
 import { InteractionPanel } from "./components/InteractionPanel";
 import { SettingsAboutPanel } from "./components/SettingsAboutPanel";
@@ -73,6 +74,7 @@ import {
   listPendingOpenSessions,
   acknowledgePendingOpenSession,
   refreshDsh,
+  terminateDshProcesses,
   isSessionLogCorruption,
   repairCorruptSession,
   missingAgentPresetInfo,
@@ -99,8 +101,10 @@ import {
   type DshSettingsNamespace,
   type DshProvider,
   type DshSkill,
+  type DshFileReferenceCandidate,
   type DshPromptContentPart,
   type DshSessionModels,
+  type DshSessionReferenceCandidate,
   type DshSessionPromptPayload,
   type DshSessionSummary,
   type DshStatus,
@@ -117,7 +121,12 @@ import {
   subagentActivityLabel,
   subagentModeLabel,
   detectComposerTrigger,
+  insertComposerCandidate,
   insertComposerText,
+  referenceComposerCandidates,
+  modelPickerGroups,
+  imageLimitsFromProjection,
+  imageBatchLimitError,
   modelSupportsImages,
   promptContentParts,
   imageMediaType,
@@ -150,6 +159,7 @@ import {
   isInjectedMessage,
   retryBoundarySeq,
   retryPromptSourceParts,
+  questionAnswerItems,
 } from "./app/model";
 import {
   type PromptMode,
@@ -229,6 +239,51 @@ type PopupRequest =
       resolve: (value: string | null) => void;
     };
 
+function WindowCloseBehaviorDialog({
+  onClose,
+  onSelect,
+}: {
+  onClose: () => void;
+  onSelect: (behavior: Exclude<CloseBehavior, "ask">) => void;
+}) {
+  return <PopupDialog
+    title="关闭 Deeptop"
+    eyebrow="DSH / 窗口行为"
+    description="这是第一次关闭窗口，请选择之后关闭按钮的默认行为。你仍可在设置的“通用”中修改。"
+    className="popup-close-behavior-dialog"
+    role="alertdialog"
+    onClose={onClose}
+    footer={<><button type="button" onClick={onClose}>取消</button><button type="button" onClick={() => onSelect("hide-to-tray")}>后台运行</button><button type="button" className="confirm" onClick={() => onSelect("exit")}>退出程序</button></>}
+  >
+    <div className="close-behavior-options"><div className="close-behavior-option"><strong>后台运行</strong><span>隐藏窗口到系统托盘，DSH 任务继续运行。</span></div><div className="close-behavior-option"><strong>退出程序</strong><span>关闭 Deeptop 和后台运行中的 DSH。</span></div></div>
+  </PopupDialog>;
+}
+
+function DshConflictDialog({
+  conflict,
+  busy,
+  onClose,
+  onTerminate,
+}: {
+  conflict: NonNullable<DshStatus["processConflict"]>;
+  busy: boolean;
+  onClose: () => void;
+  onTerminate: () => void;
+}) {
+  return <PopupDialog
+    title="检测到同一 DSH_HOME 正被其他 DSH 使用"
+    eyebrow="DSH / 进程冲突"
+    description={`检测到同一 DSH_HOME 正被其他 DSH 使用：${conflict.dshHome}。为避免 Session 日志和配置同时写入，Deeptop 暂时不会启动新的 DSH。`}
+    className="popup-dsh-conflict-dialog"
+    role="alertdialog"
+    onClose={onClose}
+    footer={<><button type="button" disabled={busy} onClick={onClose}>暂不处理</button><button type="button" className="confirm danger-button" disabled={busy} onClick={onTerminate}>{busy ? "正在终止…" : "终止旧 DSH 并继续启动"}</button></>}
+  >
+    <div className="dsh-conflict-process-list">{conflict.processes.map((process) => <div className="dsh-conflict-process" key={process.pid}><strong>PID {process.pid}</strong><code>{process.commandLine}</code></div>)}</div>
+    <p className="popup-warning-copy">仅终止上面列出的 DSH 进程，不会终止其他 Node.js 进程。终止后 Deeptop 会重新启动自己的 DSH。</p>
+  </PopupDialog>;
+}
+
 const FRONTEND_VISUAL_RESET_VERSION = "workbench-v2";
 let frontendVisualResetChecked = false;
 
@@ -296,9 +351,12 @@ function AppContent() {
   const [historyLoadingOlder, setHistoryLoadingOlder] = useState(false);
   const [todos, setTodos] = useState<TodoItem[] | null>(null);
   const [trajectoryOpen, setTrajectoryOpen] = useState(false);
+  const [tokenUsageOpen, setTokenUsageOpen] = useState(false);
   const [workspace, setWorkspace] = useState("");
   const [composer, setComposer] = useState("");
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const [referenceCandidates, setReferenceCandidates] = useState<ComposerCandidate[]>([]);
+  const referenceRequestRef = useRef(0);
   const [composerCandidateIndex, setComposerCandidateIndex] = useState(0);
   const [composerMenuDismissed, setComposerMenuDismissed] = useState(false);
   const [promptMode, setPromptMode] = useState<PromptMode>("queue");
@@ -309,6 +367,7 @@ function AppContent() {
   const setNotice = useCallback((text: string) => { setNoticeState(text); setNoticeIsError(false); }, []);
   const setErrorNotice = useCallback((text: string) => { setNoticeState(text); setNoticeIsError(true); }, []);
   const [startupLogs, setStartupLogs] = useState<DshRuntimeLog[]>([]);
+  const [dshConflictBusy, setDshConflictBusy] = useState(false);
   const [appLogs, setAppLogs] = useState<DshRuntimeLog[]>([]);
   const [logExportPath, setLogExportPath] = useState<string | null>(null);
   const [logExporting, setLogExporting] = useState(false);
@@ -335,7 +394,7 @@ function AppContent() {
   const [plan, setPlan] = useState<DshPlanProjection | null>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelMenuPane, setModelMenuPane] = useState<ModelMenuPane>("root");
-  const [sessionStats, setSessionStats] = useState<SessionStats>({ inputTokens: 0, outputTokens: 0, totalTokens: 0, contextTokens: 0, contextLimit: 0, cacheHitRate: 0, firstTokenMs: 0, messages: 0 });
+  const [sessionStats, setSessionStats] = useState<SessionStats>({ inputTokens: 0, outputTokens: 0, totalTokens: 0, reasoningTokens: 0, uncachedInputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, contextTokens: 0, contextLimit: 0, cacheHitRate: 0, firstTokenMs: 0, messages: 0 });
   const [presets, setPresets] = useState<DshPreset[]>([]);
   const [presetAuthorable, setPresetAuthorable] = useState(false);
   const [presetHasDocument, setPresetHasDocument] = useState(false);
@@ -522,6 +581,7 @@ function AppContent() {
       await resolveWindowClose(behavior);
       setWindowBehavior((current) => ({ ...current, closeBehavior: behavior }));
     } catch (error) {
+      await cancelWindowClose().catch(() => undefined);
       setErrorNotice(`关闭窗口失败：${errorText(error)}`);
     } finally {
       closeRequestPendingRef.current = false;
@@ -709,10 +769,30 @@ function AppContent() {
   useEffect(() => {
     if (!desktop) return;
     void getWindowBehaviorSettings().then(normalizeWindowBehavior).then(setWindowBehavior).catch((error) => setErrorNotice(`读取窗口行为设置失败：${errorText(error)}`));
+    let disposed = false;
     let unlisten: UnlistenFn | undefined;
-    void listenToWindowCloseRequested(() => { requestWindowCloseRef.current(); }).then((cleanup) => { unlisten = cleanup; });
-    void listPendingWindowClose().then((pending) => { if (pending) requestWindowCloseRef.current(); }).catch(() => undefined);
-    return () => { unlisten?.(); };
+    const setupWindowCloseListener = async () => {
+      try {
+        // Register before consuming the pending flag so a close request cannot
+        // arrive in the gap between these two startup operations.
+        const cleanup = await listenToWindowCloseRequested(() => { requestWindowCloseRef.current(); });
+        if (disposed) {
+          cleanup();
+          return;
+        }
+        unlisten = cleanup;
+        const pending = await listPendingWindowClose();
+        if (pending && !disposed) requestWindowCloseRef.current();
+      } catch {
+        // The native close event is best-effort; the visible close button still
+        // reports failures through requestWindowClose's command path.
+      }
+    };
+    void setupWindowCloseListener();
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, [desktop]);
 
   useEffect(() => {
@@ -931,8 +1011,9 @@ function AppContent() {
         reasoningEffort: valueAtPath(configuredModel, ["reasoningEffort"]),
       }
       : { provider: configuredProvider, model: configuredModel, reasoningEffort: valueAtPath(configured, ["reasoningEffort"]) };
-    const isAvailable = (selection: ModelSelection) => !hostModels
-      || hostModels.groups.some((group) => group.id === selection.provider && group.models.some((model) => model.id === selection.model));
+    // RC8 的 groups 是 advisory 目录，不能用它判断当前模型是否可路由。
+    // Host 的 session.models.routable/current 才是活动会话的权威状态。
+    const isAvailable = (selection: ModelSelection) => Boolean(selection.provider && selection.model);
     if (typeof configuredSelection.provider === "string" && typeof configuredSelection.model === "string") {
       const selection = {
         provider: configuredSelection.provider,
@@ -976,12 +1057,14 @@ function AppContent() {
       routable: true,
     } satisfies DshSessionModels
     : models;
-  const selectedModelSupportsImages = modelSupportsImages(composerModels?.groups
-    .find((group) => group.id === composerModels.current.provider)
-    ?.models.find((model) => model.id === composerModels.current.model));
+  const composerModelGroups = composerModels ? modelPickerGroups(composerModels) : [];
+  const selectedModelSupportsImages = modelSupportsImages(
+    composerModelGroups.find((group) => group.id === composerModels?.current.provider)
+      ?.models.find((model) => model.id === composerModels?.current.model),
+  );
   const modelOptions = useMemo(() => {
     if (!composerModels) return [];
-    return composerModels.groups.flatMap((group) => group.models.map((model) => ({
+    const options = composerModelGroups.flatMap((group) => group.models.map((model) => ({
       value: `${group.id}\u0000${model.id}`,
       label: `${group.name} / ${model.name}`,
       name: model.name,
@@ -990,7 +1073,8 @@ function AppContent() {
       model: model.id,
       reasoning: model.reasoning,
     })));
-  }, [composerModels]);
+    return options;
+  }, [composerModelGroups, composerModels]);
   const selectedModelValue = composerModels ? `${composerModels.current.provider}\u0000${composerModels.current.model}` : "";
   const selectedModel = modelOptions.find((option) => option.value === selectedModelValue);
   const selectedReasoning = selectedModel?.reasoning;
@@ -1013,43 +1097,48 @@ function AppContent() {
   const composerTrigger = useMemo(() => detectComposerTrigger(composer), [composer]);
   const composerCandidates = useMemo<ComposerCandidate[]>(() => {
     if (!composerTrigger) return [];
-    if (composerTrigger.kind === "skill") {
-      const commandCandidates = commands
-        .filter((command) => `${command.name} ${command.description}`.toLocaleLowerCase().includes(composerTrigger.query))
+    if (composerTrigger.kind === "reference") {
+      const referenceMatches = referenceCandidates;
+      const subagentMatches = childSubagents
+        .filter((entry) => `${entry.label ?? ""} ${entry.id}`.toLocaleLowerCase().includes(composerTrigger.query.toLocaleLowerCase()))
         .slice(0, 8)
-        .map((command) => ({
-          kind: "command" as const,
-          id: command.name,
-          label: `/${command.name}`,
-          detail: command.description,
-          insertText: `/${command.name}`,
-        }));
-      const skillCandidates = skills
-        .filter((skill) => `${skill.name} ${skill.description}`.toLocaleLowerCase().includes(composerTrigger.query))
-        .slice(0, 8)
-        .map((skill) => ({
-          kind: "skill" as const,
-          id: skill.name,
-          label: `/${skill.name}`,
-          detail: skill.description,
-          insertText: `/${skill.name}`,
-        }));
-      return [...commandCandidates, ...skillCandidates].slice(0, 8);
+        .map((entry) => {
+          const label = entry.label?.trim() || entry.id;
+          return { kind: "subagent" as const, id: entry.id, label: `@${label}`, detail: `${subagentModeLabel(entry.mode)} · ${subagentActivityLabel(entry.activity)}`, insertText: `@${label}` };
+        });
+      return [...referenceMatches, ...subagentMatches].slice(0, 8);
     }
-    return childSubagents
-      .filter((entry) => `${entry.label ?? ""} ${entry.id}`.toLocaleLowerCase().includes(composerTrigger.query))
+    const commandCandidates = commands
+      .filter((command) => `${command.name} ${command.description}`.toLocaleLowerCase().includes(composerTrigger.query))
       .slice(0, 8)
-      .map((entry) => {
-        const label = entry.label?.trim() || entry.id;
-        return {
-          kind: "subagent",
-          id: entry.id,
-          label: `@${label}`,
-          detail: `${subagentModeLabel(entry.mode)} · ${subagentActivityLabel(entry.activity)}`,
-          insertText: `@${label}`,
-        };
-      });
-  }, [childSubagents, commands, composerTrigger, skills]);
+      .map((command) => ({ kind: "command" as const, id: command.name, label: `/${command.name}`, detail: command.description, insertText: `/${command.name}` }));
+    const skillCandidates = skills
+      .filter((skill) => `${skill.name} ${skill.description}`.toLocaleLowerCase().includes(composerTrigger.query))
+      .slice(0, 8)
+      .map((skill) => ({ kind: "skill" as const, id: skill.name, label: `/${skill.name}`, detail: skill.description, insertText: `/${skill.name}` }));
+    return [...commandCandidates, ...skillCandidates].slice(0, 8);
+  }, [childSubagents, commands, composerTrigger, referenceCandidates, skills]);
+  useEffect(() => {
+    const trigger = composerTrigger;
+    const requestId = ++referenceRequestRef.current;
+    const controller = new AbortController();
+    if (!activeSessionId || !trigger || trigger.kind !== "reference") {
+      setReferenceCandidates([]);
+      controller.abort();
+      return () => controller.abort();
+    }
+    const query = trigger.query;
+    const request = <T,>(method: string) => bridgeRequest<{ items: T[] }>(method, { sessionId: activeSessionId, query }, controller.signal);
+    const fileRequest = request<DshFileReferenceCandidate>("reference.files");
+    const sessionRequest = trigger.quoted ? Promise.resolve({ items: [] as DshSessionReferenceCandidate[] }) : request<DshSessionReferenceCandidate>("reference.sessions");
+    void Promise.allSettled([fileRequest, sessionRequest]).then(([files, sessions]) => {
+      if (controller.signal.aborted || requestId !== referenceRequestRef.current) return;
+      const fileItems = files.status === "fulfilled" && Array.isArray(files.value?.items) ? files.value.items : [];
+      const sessionItems = sessions.status === "fulfilled" && Array.isArray(sessions.value?.items) ? sessions.value.items : [];
+      setReferenceCandidates(referenceComposerCandidates(fileItems, sessionItems, trigger.quoted === true));
+    });
+    return () => { controller.abort(); };
+  }, [activeSessionId, composerTrigger]);
   const activeComposerCandidateIndex = composerCandidates.length === 0
     ? 0
     : Math.min(composerCandidateIndex, composerCandidates.length - 1);
@@ -1478,6 +1567,7 @@ function AppContent() {
       await bridgeRequest("subagent.prompt", {
         ...subagentSession.address,
         content: [{ type: "text", text: subagentComposer.trim() }],
+        clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
       setSubagentComposer("");
       setNotice("已发送给子 Agent");
@@ -1565,6 +1655,7 @@ function AppContent() {
     setTranscriptFollowing(true);
     setTodos(null);
     setTrajectoryOpen(false);
+    setTokenUsageOpen(false);
     setQueue([]);
     setQueueEditingId(null);
     setQueueEditingText("");
@@ -1600,6 +1691,8 @@ function AppContent() {
       contextProjectionRef.current = Boolean(recordValue(historyResult.projections?.values.contextPressure));
       setSessionStats({ ...loadedStats, contextLimit: modelsResult.contextWindow ?? loadedStats.contextLimit });
       const projectionValues = historyResult.projections?.values;
+      const projectedImageLimits = imageLimitsFromProjection(projectionValues?.imageLimits);
+      setModels({ ...modelsResult, ...(projectedImageLimits ? { imageLimits: projectedImageLimits } : {}) });
       setGoal((projectionValues?.goal as DshGoalProjection | null | undefined) ?? null);
       setPermissionSelect((projectionValues?.permissions as DshPermissionSelect | null | undefined) ?? null);
       setPlan((projectionValues?.plan as DshPlanProjection | null | undefined) ?? null);
@@ -1613,7 +1706,6 @@ function AppContent() {
           ? null
           : applyTodoSnapshot(historicalTodos, projectedTodos) ?? historicalTodos;
       setTodos(mergedTodos ?? null);
-      setModels(modelsResult);
       if (modelsResult.routable) setNotice("会话已打开");
       else setErrorNotice("当前模型路由不可用");
       return true;
@@ -1740,6 +1832,8 @@ function AppContent() {
         maxMessages: 100,
       });
       if (activeSessionRef.current !== sessionId) return;
+      const projectedImageLimits = imageLimitsFromProjection(result.projections?.values?.imageLimits);
+      if (projectedImageLimits) setModels((current) => current ? { ...current, imageLimits: projectedImageLimits } : current);
       const nextStats = readSessionStats(result.events, result.projections);
       setSessionStats((current) => ({
         ...current,
@@ -1896,6 +1990,7 @@ function AppContent() {
     setTodos,
     setHistory,
     setSessionStats,
+    setModels,
     setSessions,
     setSubagentSession,
     setQueue,
@@ -2262,12 +2357,13 @@ function AppContent() {
     setTranscriptFollowing(true);
     setTodos(null);
     setTrajectoryOpen(false);
+    setTokenUsageOpen(false);
     setComposer("");
     setAttachments([]);
     setModels(null);
     setDraftModelSelection(null);
     setDraftPermission(null);
-    setSessionStats({ inputTokens: 0, outputTokens: 0, totalTokens: 0, contextTokens: 0, contextLimit: 0, cacheHitRate: 0, firstTokenMs: 0, messages: 0 });
+    setSessionStats({ inputTokens: 0, outputTokens: 0, totalTokens: 0, reasoningTokens: 0, uncachedInputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, contextTokens: 0, contextLimit: 0, cacheHitRate: 0, firstTokenMs: 0, messages: 0 });
     setCommands([]);
     setAnnotations({});
     setPermissionSelect(null);
@@ -2338,12 +2434,17 @@ function AppContent() {
     setDraftPermission(null);
     setNextPreset("");
     setPresetMenuOpen(false);
-    void bridgeRequest<DshSessionModels>("session.models", { sessionId: created.sessionId })
-      .then((nextModels) => {
-        setModels(nextModels);
-        if (nextModels.contextWindow !== undefined) setSessionStats((current) => ({ ...current, contextLimit: nextModels.contextWindow! }));
-      })
-      .catch(() => undefined);
+    const nextModels = await bridgeRequest<DshSessionModels>("session.models", { sessionId: created.sessionId });
+    const historyResult = await bridgeRequest<{ projections?: { values: Record<string, unknown> } }>("session.history", {
+      sessionId: created.sessionId,
+      maxMessages: 1,
+    });
+    const projectedImageLimits = imageLimitsFromProjection(historyResult.projections?.values?.imageLimits);
+    setModels({ ...nextModels, ...(projectedImageLimits ? { imageLimits: projectedImageLimits } : {}) });
+    if (nextModels.contextWindow !== undefined) setSessionStats((current) => ({ ...current, contextLimit: nextModels.contextWindow! }));
+    if (!nextModels.routable) {
+      setErrorNotice("当前模型路由不可用，请切换模型或检查 Provider 配置");
+    }
     return created.sessionId;
     })();
     creatingSessionRef.current = creation;
@@ -2367,6 +2468,10 @@ function AppContent() {
   async function sendPrompt() {
     const text = composer.trim();
     if ((!text && attachments.length === 0) || loading || !status.runtimeAvailable) return;
+    if (activeSessionId && models && !models.routable) {
+      setErrorNotice("当前模型路由不可用，请切换模型或检查 Provider 配置");
+      return;
+    }
     if (attachments.length > 0) {
       if (!selectedModelSupportsImages) {
         setErrorNotice("当前模型仅支持文本输入，图片未发送。请切换到支持图片输入的模型后重试");
@@ -2377,6 +2482,12 @@ function AppContent() {
     setNotice(promptMode === "steer" ? "正在插入当前回合" : "正在发送");
     try {
       const sessionId = await ensureSession();
+      const admissionModels = await bridgeRequest<DshSessionModels>("session.models", { sessionId });
+      setModels((current) => current?.imageLimits ? { ...admissionModels, imageLimits: current.imageLimits } : admissionModels);
+      if (!admissionModels.routable) {
+        setErrorNotice("当前模型路由不可用，请切换模型或检查 Provider 配置");
+        return;
+      }
       const commandName = /^\/([a-z0-9][a-z0-9_-]*)(?:\s|$)/i.exec(text)?.[1].toLocaleLowerCase();
       if (!attachments.length && commandName && commands.some((command) => command.name === commandName)) {
         const execution = await executeCommandLine(sessionId, text);
@@ -2746,6 +2857,25 @@ function AppContent() {
     }
   }
 
+  async function terminateConflictingDsh() {
+    const conflict = status.processConflict;
+    if (!desktop || !conflict || dshConflictBusy) return;
+    setDshConflictBusy(true);
+    try {
+      await terminateDshProcesses(conflict.processes.map((process) => process.pid));
+      setStatus((current) => ({ ...current, processConflict: null, message: "正在重新启动 Deeptop..." }));
+      await restartRuntime();
+    } catch (error) {
+      setErrorNotice(`终止旧 DSH 失败：${errorText(error)}`);
+    } finally {
+      setDshConflictBusy(false);
+    }
+  }
+
+  function dismissDshConflict() {
+    setStatus((current) => ({ ...current, processConflict: null }));
+  }
+
   async function restartRuntime() {
     if (!desktop) return;
     setStartupLogs([]);
@@ -3104,8 +3234,13 @@ function AppContent() {
       return;
     }
     try {
-      const next = await Promise.all(candidates.map(readImageFile));
-      setAttachments((current) => [...current, ...next].slice(0, 4));
+      const limits = models?.imageLimits;
+      const next = await Promise.all(candidates.map((file) => readImageFile(file, limits)));
+      setAttachments((current) => {
+        const limitError = imageBatchLimitError(current, next, limits);
+        if (limitError) throw new Error(limitError);
+        return [...current, ...next];
+      });
       setNotice("图片已添加");
     } catch (error) {
       setErrorNotice(errorText(error));
@@ -3174,6 +3309,12 @@ function AppContent() {
         },
       };
     });
+    if (!multiSelect) {
+      setQuestionCustomAnswersBySession((current) => ({
+        ...current,
+        [sessionId]: { ...current[sessionId], [questionId]: "" },
+      }));
+    }
   }
 
   async function respondToQuestion() {
@@ -3182,14 +3323,7 @@ function AppContent() {
     const answers = questionAnswersBySession[request.sessionId] ?? {};
     const customAnswers = questionCustomAnswersBySession[request.sessionId] ?? {};
     const answer = {
-      answers: request.questions.map((item) => {
-        const custom = customAnswers[item.id]?.trim();
-        return {
-          id: item.id,
-          selected: answers[item.id] ?? [],
-          ...(custom ? { custom } : {}),
-        };
-      }),
+      answers: questionAnswerItems(request.questions, answers, customAnswers),
     };
     try {
       await bridgeRequest("respond", {
@@ -3287,7 +3421,7 @@ function AppContent() {
 
   function chooseComposerCandidate(candidate: ComposerCandidate) {
     if (!composerTrigger) return;
-    setComposer(`${composer.slice(0, composerTrigger.start)}${candidate.insertText} `);
+    setComposer(insertComposerCandidate(composer, composerTrigger, candidate));
     setComposerCandidateIndex(0);
     setComposerMenuDismissed(false);
   }
@@ -3410,17 +3544,21 @@ function AppContent() {
 
   if (desktop && !status.runtimeAvailable) {
     return (
-      <StartupSplash
-        status={status}
-        logs={startupLogs}
-        onOpenNodejsDownload={() => void openNodejsDownload().catch((error) => setErrorNotice(errorText(error)))}
-        onRetry={() => void restartRuntime()}
-        windowMaximized={windowMaximized}
-        onDrag={(event) => void startWindowDrag(event)}
-        onMinimize={() => void minimizeWindow()}
-        onToggleMaximize={() => void toggleWindowMaximize()}
-        onClose={() => void closeWindow()}
-      />
+      <>
+        <StartupSplash
+          status={status}
+          logs={startupLogs}
+          onOpenNodejsDownload={() => void openNodejsDownload().catch((error) => setErrorNotice(errorText(error)))}
+          onRetry={() => void restartRuntime()}
+          windowMaximized={windowMaximized}
+          onDrag={(event) => void startWindowDrag(event)}
+          onMinimize={() => void minimizeWindow()}
+          onToggleMaximize={() => void toggleWindowMaximize()}
+          onClose={() => void closeWindow()}
+        />
+        {popupRequest?.kind === "close-behavior" && <WindowCloseBehaviorDialog onClose={() => settlePopup(null)} onSelect={(behavior) => settlePopup(behavior)} />}
+        {status.processConflict && <DshConflictDialog conflict={status.processConflict} busy={dshConflictBusy} onClose={dismissDshConflict} onTerminate={() => void terminateConflictingDsh()} />}
+      </>
     );
   }
 
@@ -3504,7 +3642,9 @@ function AppContent() {
             noticeIsError={noticeIsError}
             queueCount={queue.length}
             trajectoryOpen={trajectoryOpen}
-            onToggleTrajectory={() => setTrajectoryOpen((open) => !open)}
+            tokenUsageOpen={tokenUsageOpen}
+            onToggleTrajectory={() => { setTokenUsageOpen(false); setTrajectoryOpen((open) => !open); }}
+            onToggleTokenUsage={() => { setTrajectoryOpen(false); setTokenUsageOpen((open) => !open); }}
           />
 
           <div className="conversation-transcript-stage">
@@ -3518,7 +3658,7 @@ function AppContent() {
                 </button>
               </div>
             )}
-            <ConversationTranscript
+            {!tokenUsageOpen && <ConversationTranscript
               scrollRef={transcriptScroll}
               endRef={transcriptEnd}
               history={history}
@@ -3552,7 +3692,8 @@ function AppContent() {
               onForkSession={forkSession}
                onOpenUrl={openMessageUrl}
                              onOpenSessionPath={openSessionPath}
-            />
+            />}
+            <TokenUsageDashboard entries={history} sessionStats={sessionStats} active={tokenUsageOpen} />
 
             <div className="left-dock-shelf" aria-label="工作区工具">
               <TerminalDock
@@ -3627,6 +3768,9 @@ function AppContent() {
               setQuestionCustomAnswersBySession((current) => ({
                 ...current,
                 [sessionId]: { ...current[sessionId], [questionId]: value },
+
+
+
               }));
             }}
             onCancelQuestion={cancelQuestion}
@@ -3720,13 +3864,29 @@ function AppContent() {
                       {(["theme", "background", "typography", "css"] as AppearanceSection[]).map((item) => <button key={item} className={`settings-navigation-subitem${appearanceSection === item ? " selected" : ""}`} onClick={() => setAppearanceSection(item)}>{item === "theme" ? "主题" : item === "background" ? "背景工作台" : item === "typography" ? "文字" : "CSS 主题"}</button>)}
                     </div>}
                   </div>
-                  <button className={settingsSection === "dock" ? "selected" : ""} onClick={() => setSettingsSection("dock")}>
-                    <strong>Dock</strong><small>展开框交互与位置</small>
+                   <button className={settingsSection === "general" ? "selected" : ""} onClick={(event) => setSettingsSection(event.currentTarget.textContent?.includes("Dock") ? "dock" : "general")}>
+                     <strong data-legacy-general="true">通用</strong><small>会话与 Host</small>
+                   </button>{/*
+                   </button>
+                   <button className={settingsSection === "general" ? "selected" : ""} onClick={(event) => setSettingsSection(event.currentTarget.textContent?.includes("Dock") ? "dock" : "general")}>
+                     <strong data-legacy-general="true">通用</strong><small>会话与 Host</small>
+                   </button>
+                   </button>
+                   </button>
+                   <button className={settingsSection === "general" ? "selected" : ""} onClick={(event) => setSettingsSection(event.currentTarget.textContent?.includes("Dock") ? "dock" : "general")}>
+                     <strong data-legacy-general="true">通用</strong><small>会话与 Host</small>
                   </button>
-                  <button className={settingsSection === "general" ? "selected" : ""} onClick={() => setSettingsSection("general")}>
-                    <strong>通用</strong><small>会话与 Host</small>
-                  </button>
-                  <button className={settingsSection === "logs" ? "selected" : ""} onClick={() => { setSettingsSection("logs"); void loadRuntimeLogs(); }}>
+                  */}
+                   <button className={settingsSection === "dock" ? "selected" : ""} onClick={() => setSettingsSection("dock")}>
+                     <strong>Dock</strong><small>展开框交互与位置</small>
+                   </button>
+                   <button className={settingsSection === "general" ? "selected" : ""} onClick={(event) => setSettingsSection(event.currentTarget.textContent?.includes("Dock") ? "dock" : "general")}>
+                     <strong data-legacy-general="true">通用</strong><small>会话与 Host</small>
+                   </button>
+                   <button className={settingsSection === "general" ? "selected" : ""} onClick={() => setSettingsSection("general")}>
+                     <strong>通用</strong><small>会话与 Host</small>
+                   </button>
+                   <button className={settingsSection === "logs" ? "selected" : ""} onClick={() => { setSettingsSection("logs"); void loadRuntimeLogs(); }}>
                     <strong>日志</strong><small>堆栈与运行日志</small>
                   </button>
                   <button className={settingsSection === "keyboard" ? "selected" : ""} onClick={() => setSettingsSection("keyboard")}>
@@ -3918,17 +4078,7 @@ function AppContent() {
       >
         <p className="popup-confirm-message">{popupRequest.message}</p>
       </PopupDialog>}
-      {popupRequest?.kind === "close-behavior" && <PopupDialog
-         title="关闭 Deeptop"
-         eyebrow="DSH / 窗口行为"
-         description="这是第一次关闭窗口，请选择之后关闭按钮的默认行为。你仍可在设置的“通用”中修改。"
-         className="popup-close-behavior-dialog"
-         role="alertdialog"
-         onClose={() => settlePopup(null)}
-         footer={<><button type="button" onClick={() => settlePopup(null)}>取消</button><button type="button" onClick={() => settlePopup("hide-to-tray")}>后台运行</button><button type="button" className="confirm" onClick={() => settlePopup("exit")}>退出程序</button></>}
-       >
-         <div className="close-behavior-options"><div className="close-behavior-option"><strong>后台运行</strong><span>隐藏窗口到系统托盘，DSH 任务继续运行。</span></div><div className="close-behavior-option"><strong>退出程序</strong><span>关闭 Deeptop 和后台运行中的 DSH。</span></div></div>
-       </PopupDialog>}
+      {popupRequest?.kind === "close-behavior" && <WindowCloseBehaviorDialog onClose={() => settlePopup(null)} onSelect={(behavior) => settlePopup(behavior)} />}
        {popupRequest?.kind === "prompt" && <PopupDialog
         title={popupRequest.title}
         eyebrow="DSH / 输入"

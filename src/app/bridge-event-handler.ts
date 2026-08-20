@@ -11,10 +11,13 @@ import {
   type DshQueueItem,
   type DshSessionStatsProjection,
   type DshSessionEvent,
+  type DshSessionModels,
   type DshSessionSummary,
   type DshSubagentCatalog,
 } from "../lib/desktop";
 import { applyTodoSnapshot, isInjectedMessage, numberValue, readSessionStats, recordValue } from "./model";
+import { imageLimitsFromProjection } from "./ui-model";
+import { usageTokenBuckets } from "./message-model";
 import {
   markSessionError,
   removeSessionRecordEntry,
@@ -49,6 +52,7 @@ type BridgeEventHandlerContext = {
   setTodos: Dispatch<SetStateAction<TodoItem[] | null>>;
   setHistory: Dispatch<SetStateAction<DshHistoryEntry[]>>;
   setSessionStats: Dispatch<SetStateAction<SessionStats>>;
+  setModels: Dispatch<SetStateAction<DshSessionModels | null>>;
   setSessions: Dispatch<SetStateAction<DshSessionSummary[]>>;
   setSubagentSession: Dispatch<SetStateAction<SubagentSession | null>>;
   setQueue: Dispatch<SetStateAction<DshQueueItem[]>>;
@@ -114,16 +118,25 @@ function flushQueuedSessionEvents(context: BridgeEventHandlerContext) {
     const nextStats = readSessionStats(next);
     context.setSessionStats((currentStats) => {
       const hasUsageInBatch = batch.some((item) => eventHasUsage(item.event));
+      const hasHistoryAggregate = nextStats.tokenUsageSource === "history";
+      const hasTokenAggregate = nextStats.tokenUsageSource !== "none";
       return {
         ...currentStats,
         ...nextStats,
-        inputTokens: nextStats.inputTokens > 0 ? nextStats.inputTokens : currentStats.inputTokens,
-        outputTokens: nextStats.outputTokens > 0 ? nextStats.outputTokens : currentStats.outputTokens,
-        totalTokens: nextStats.totalTokens > 0 ? nextStats.totalTokens : currentStats.totalTokens,
+        inputTokens: hasTokenAggregate ? nextStats.inputTokens : currentStats.inputTokens,
+        outputTokens: hasTokenAggregate ? nextStats.outputTokens : currentStats.outputTokens,
+        totalTokens: hasTokenAggregate ? nextStats.totalTokens : currentStats.totalTokens,
+        reasoningTokens: hasTokenAggregate ? nextStats.reasoningTokens : currentStats.reasoningTokens,
+        uncachedInputTokens: hasTokenAggregate ? nextStats.uncachedInputTokens : currentStats.uncachedInputTokens,
+        cacheReadTokens: hasTokenAggregate ? nextStats.cacheReadTokens : currentStats.cacheReadTokens,
+        cacheWriteTokens: hasTokenAggregate ? nextStats.cacheWriteTokens : currentStats.cacheWriteTokens,
+        cacheHitRate: hasTokenAggregate ? nextStats.cacheHitRate : currentStats.cacheHitRate,
+        tokenUsageSource: hasTokenAggregate ? nextStats.tokenUsageSource : currentStats.tokenUsageSource,
+        tokenUsageAvailable: hasTokenAggregate ? nextStats.tokenUsageAvailable : currentStats.tokenUsageAvailable,
         // Keep the latest projected context value while the stream advances;
         // the history scan is only a fallback for runtimes that do not publish
         // contextPressure frames.
-        contextTokens: (!context.contextProjectionRef.current || hasUsageInBatch) && nextStats.contextTokens > 0
+        contextTokens: (!context.contextProjectionRef.current || hasUsageInBatch || hasHistoryAggregate) && nextStats.contextTokens > 0
           ? nextStats.contextTokens
           : currentStats.contextTokens,
         contextLimit: nextStats.contextLimit > 0 ? nextStats.contextLimit : currentStats.contextLimit,
@@ -158,6 +171,7 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
     selectedSubagentRef,
     setTodos,
     setSessionStats,
+    setModels,
     setSessions,
     setSubagentSession,
     setQueue,
@@ -215,24 +229,39 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
         }));
       }
       if (["tokenusage", "usage", "tokens"].includes(projectionKey) && projection) {
-        const uncachedInput = numberValue(projection.uncachedInputTokens ?? projection.uncached_input_tokens);
-        const cacheRead = numberValue(projection.cacheReadTokens ?? projection.cacheRead ?? projection.cache_read ?? projection.cachedInputTokens ?? projection.cached_input_tokens);
-        const cacheWrite = numberValue(projection.cacheWriteTokens ?? projection.cacheWrite ?? projection.cache_write ?? projection.cachedInputTokensCreation ?? projection.cached_input_tokens_creation);
+        const buckets = usageTokenBuckets(projection);
+        const uncachedInput = buckets.uncachedInput;
+        const cacheRead = buckets.cacheRead;
+        const cacheWrite = buckets.cacheWrite;
         const projectedInput = numberValue(projection.inputTokens ?? projection.input_tokens);
         const inputTokens = projectedInput ?? (uncachedInput === undefined ? undefined : uncachedInput + (cacheRead ?? 0) + (cacheWrite ?? 0));
         const outputTokens = numberValue(projection.outputTokens ?? projection.output_tokens);
+        const reasoningTokens = numberValue(projection.reasoningTokens ?? projection.reasoning_tokens ?? projection.reasoning);
         const projectedContext = numberValue(projection.projectedTokens ?? projection.contextTokens ?? projection.context_tokens);
         setSessionStats((current) => ({
           ...current,
+          tokenUsageSource: "projection",
+          tokenUsageAvailable: true,
           inputTokens: inputTokens ?? current.inputTokens,
           outputTokens: outputTokens ?? current.outputTokens,
-          cacheHitRate: cacheRead !== undefined || cacheWrite !== undefined
-            ? Math.min(100, ((cacheRead ?? 0) / ((uncachedInput ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0))) * 100)
+          reasoningTokens: reasoningTokens ?? current.reasoningTokens,
+          uncachedInputTokens: uncachedInput ?? current.uncachedInputTokens,
+          cacheReadTokens: cacheRead ?? current.cacheReadTokens,
+          cacheWriteTokens: cacheWrite ?? current.cacheWriteTokens,
+          cacheHitRate: uncachedInput !== undefined || cacheRead !== undefined || cacheWrite !== undefined
+            ? ((uncachedInput ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0)) > 0
+              ? Math.min(100, ((cacheRead ?? 0) / ((uncachedInput ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0))) * 100)
+              : 0
             : current.cacheHitRate,
           totalTokens: (inputTokens ?? current.inputTokens) + (outputTokens ?? current.outputTokens),
           contextTokens: projectedContext ?? current.contextTokens,
         }));
       }
+      return;
+    }
+    if (projectionKey === "imagelimits" && sessionId === activeSessionRef.current) {
+      const imageLimits = imageLimitsFromProjection(payload.value);
+      if (imageLimits) setModels((current) => current ? { ...current, imageLimits } : current);
       return;
     }
     if (projectionKey === "sessionstats" && sessionId === activeSessionRef.current) {

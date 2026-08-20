@@ -26,6 +26,17 @@ export interface DockSettings {
   autoCollapseOnOutsideClick: boolean;
 }
 
+export interface DshProcessInfo {
+  pid: number;
+  name: string;
+  commandLine: string;
+}
+
+export interface DshProcessConflict {
+  dshHome: string;
+  processes: DshProcessInfo[];
+}
+
 export interface DshStatus {
   dshHome: string;
   runtimeDirectory: string;
@@ -39,6 +50,7 @@ export interface DshStatus {
   npmAvailable: boolean;
   packageAvailable: boolean;
   message: string;
+  processConflict?: DshProcessConflict | null;
 }
 
 export type DshRuntimeLogStream =
@@ -116,6 +128,28 @@ export interface DshSessionPromptPayload {
   clientTimeZone?: string;
 }
 
+export interface DshImageAttachmentLimits {
+  maxImageBytes: number;
+  maxImagesPerMessage: number;
+  maxMessageImageBytes: number;
+  maxImagePixels: number;
+  maxImageDimension: number;
+  mediaTypes: string[];
+}
+
+export interface DshFileReferenceCandidate {
+  path: string;
+  kind: "file" | "directory";
+}
+
+export interface DshSessionReferenceCandidate {
+  sessionId: string;
+  label: string;
+  cwd?: string;
+  createdAt: number;
+  mention: string;
+}
+
 export interface DshModel {
   id: string;
   name: string;
@@ -143,6 +177,7 @@ export interface DshSessionModels extends DshModelCatalog {
   current: { provider: string; model: string; reasoningEffort?: string };
   contextWindow?: number;
   routable: boolean;
+  imageLimits?: DshImageAttachmentLimits;
 }
 
 export interface DshWorkspace {
@@ -329,10 +364,9 @@ export interface DshQuestion {
   question: string;
   header?: string;
   detail?: string;
-  intent?: string;
-  options?: Array<{ label: string; description?: string; recommended?: boolean }>;
+  intent?: { kind: "plan-review"; approve: string };
+  options?: Array<{ label: string; description?: string }>;
   multiSelect?: boolean;
-  custom?: boolean;
 }
 
 export interface DshQueueItem {
@@ -563,11 +597,17 @@ export class DshApiError extends Error {
   }
 }
 
-export async function bridgeRequest<T>(method: string, payload: Record<string, unknown> = {}): Promise<T> {
+export async function bridgeRequest<T>(method: string, payload: Record<string, unknown> = {}, signal?: AbortSignal): Promise<T> {
   if (!isTauri()) {
     throw new Error("Deeptop bridge 只在桌面端可用");
   }
-  const response = await invoke<DshRpcResponse<T> | T>("bridge_request", { method, payload });
+  if (signal?.aborted) throw signal.reason ?? new DOMException("请求已取消", "AbortError");
+  const request = invoke<DshRpcResponse<T> | T>("bridge_request", { method, payload });
+  const response = signal
+    ? await Promise.race([request, new Promise<never>((_, reject) => {
+      signal.addEventListener("abort", () => reject(signal.reason ?? new DOMException("请求已取消", "AbortError")), { once: true });
+    })])
+    : await request;
   if (!response || typeof response !== "object") return response as T;
   if (!("result" in response)) return response as T;
   const rpcResponse = response as DshRpcResponse<T>;
@@ -602,6 +642,11 @@ export async function pickWorkspace(): Promise<string | null> {
 
 export async function checkDsh(): Promise<DshStatus> {
   return invoke<DshStatus>("check_dsh");
+}
+
+export async function terminateDshProcesses(pids: number[]): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("terminate_dsh_processes", { pids });
 }
 
 export async function refreshDsh(): Promise<DshStatus> {

@@ -1,6 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { providerApiKeyEnvOp, providerSettingsOps } from "./settings-model.ts";
+import { errorText, providerApiKeyEnvOp, providerSettingsOps } from "./settings-model.ts";
+
+test("maps RC8 routing, timezone and image admission errors", () => {
+  const modelError = new Error("provider rejected model");
+  modelError.code = "model-unavailable";
+  assert.match(errorText(modelError), /当前模型不可用/);
+  const zoneError = new Error("invalid zone");
+  zoneError.code = "invalid-time-zone";
+  assert.match(errorText(zoneError), /客户端时区无效/);
+  const imageError = new Error("image rejected");
+  imageError.code = "attachment-error";
+  imageError.details = { reason: "IMAGE_TOO_MANY_PIXELS" };
+  assert.match(errorText(imageError), /图片像素数/);
+});
 
 const settingsPath = ["providers", "amkr-service"];
 const stored = {

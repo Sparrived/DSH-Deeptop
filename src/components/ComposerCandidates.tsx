@@ -21,7 +21,7 @@ export function ComposerCandidates({ candidates, triggerKind, dismissed, activeI
 
   return (
     <div className="composer-candidates" id="composer-candidates" role="listbox" aria-label="输入候选">
-      <div className="composer-candidates-heading">{triggerKind === "skill" ? "Command / Skill" : "Subagent"}</div>
+      <div className="composer-candidates-heading">{triggerKind === "skill" ? "Command / Skill" : triggerKind === "reference" ? "File / Session / Subagent" : "Subagent"}</div>
       {candidates.map((candidate, index) => (
         <button
           ref={(element) => { optionRefs.current[index] = element; }}

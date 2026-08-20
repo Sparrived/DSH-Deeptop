@@ -101,6 +101,14 @@ export function numberValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function firstNumber(...values: unknown[]) {
+  for (const value of values) {
+    const number = numberValue(value);
+    if (number !== undefined) return number;
+  }
+  return undefined;
+}
+
 function mergeRecords(left: Record<string, unknown> | undefined, right: Record<string, unknown> | undefined) {
   return left || right ? { ...left, ...right } : undefined;
 }
@@ -123,22 +131,48 @@ function hasTokenDelta(event: DshSessionEvent) {
     && ((typeof chunk.argumentsDelta === "string" && chunk.argumentsDelta !== "") || chunk.name !== undefined);
 }
 
+export type UsageTokenBuckets = {
+  uncachedInput?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  reasoning?: number;
+};
+
+export function usageTokenBuckets(usage: Record<string, unknown> | undefined): UsageTokenBuckets {
+  if (!usage) return {};
+  return {
+    uncachedInput: numberValue(usage.uncachedInputTokens ?? usage.uncached_input_tokens),
+    // A generic cached-input field is a read bucket. Providers that expose
+    // cache creation/write usage use the explicit *Creation alias below.
+    cacheRead: numberValue(usage.cacheReadTokens ?? usage.cacheRead ?? usage.cache_read ?? usage.cachedInputTokens ?? usage.cached_input_tokens),
+    cacheWrite: numberValue(usage.cacheWriteTokens ?? usage.cacheWrite ?? usage.cache_write ?? usage.cachedInputTokensCreation ?? usage.cached_input_tokens_creation),
+    reasoning: numberValue(usage.reasoningTokens ?? usage.reasoning_tokens ?? usage.reasoning),
+  };
+}
+
 function usageStats(usage: Record<string, unknown> | undefined): MessageStats {
   if (!usage) return {};
-  const uncachedInput = numberValue(usage.uncachedInputTokens ?? usage.uncached_input_tokens);
-  const cacheRead = numberValue(usage.cacheReadTokens ?? usage.cacheRead ?? usage.cache_read ?? usage.cachedInputTokens ?? usage.cached_input_tokens);
-  const cacheWrite = numberValue(usage.cacheWriteTokens ?? usage.cacheWrite ?? usage.cache_write ?? usage.cachedInputTokensCreation ?? usage.cached_input_tokens_creation);
+  const buckets = usageTokenBuckets(usage);
+  const uncachedInput = buckets.uncachedInput;
+  const cacheRead = buckets.cacheRead;
+  const cacheWrite = buckets.cacheWrite;
   const rawInput = numberValue(usage.inputTokens ?? usage.input_tokens);
   const hasCacheBuckets = uncachedInput !== undefined || cacheRead !== undefined || cacheWrite !== undefined;
-  const input = rawInput === undefined
-    ? (uncachedInput === undefined ? undefined : uncachedInput + (cacheRead ?? 0) + (cacheWrite ?? 0))
-    : rawInput + (hasCacheBuckets ? (cacheRead ?? 0) + (cacheWrite ?? 0) : 0);
+  // input_tokens is already the provider's input total when present; cache
+  // buckets are only a breakdown. Derive a total from buckets only when it is absent.
+  const input = rawInput ?? (uncachedInput === undefined ? undefined : uncachedInput + (cacheRead ?? 0) + (cacheWrite ?? 0));
   const output = numberValue(usage.outputTokens ?? usage.output_tokens);
-  const total = numberValue(usage.totalTokens ?? usage.total_tokens) ?? (input === undefined || output === undefined ? undefined : input + output);
+  // The dashboard defines total usage as input + output. Reasoning is a
+  // provider-reported subset of output, so it must not be added again.
+  const total = input === undefined || output === undefined ? undefined : input + output;
   return {
     ...(input === undefined ? {} : { inputTokens: input }),
     ...(output === undefined ? {} : { outputTokens: output }),
     ...(total === undefined ? {} : { totalTokens: total }),
+    ...(buckets.reasoning === undefined ? {} : { reasoningTokens: buckets.reasoning }),
+    ...(uncachedInput !== undefined ? { uncachedInputTokens: uncachedInput } : {}),
+    ...(cacheRead !== undefined ? { cacheReadTokens: cacheRead } : {}),
+    ...(cacheWrite !== undefined ? { cacheWriteTokens: cacheWrite } : {}),
     ...(hasCacheBuckets && input !== undefined && input > 0 ? { cacheHitRate: ((cacheRead ?? 0) / input) * 100 } : {}),
   };
 }
@@ -146,10 +180,15 @@ function usageStats(usage: Record<string, unknown> | undefined): MessageStats {
 export function assistantMessageStats(entries: DshHistoryEntry[]): Map<number, MessageStats> {
   const steps = new Map<string, { stepStartTime?: number; firstTokenTime?: number; usage?: Record<string, unknown> }>();
   const result = new Map<number, MessageStats>();
+  let fallbackIndex = 0;
+  let fallbackKey = `fallback/${fallbackIndex}`;
   for (const { event } of [...entries].sort((left, right) => left.event.seq - right.event.seq)) {
     const key = eventCoordinates(event);
-    const keyText = key ? `${key.turn}/${key.step}` : undefined;
-    if (!keyText) continue;
+    if (!key && event.type === "step/start") {
+      fallbackIndex += 1;
+      fallbackKey = `fallback/${fallbackIndex}`;
+    }
+    const keyText = key ? `${key.turn}/${key.step}` : fallbackKey;
     const state = steps.get(keyText) ?? {};
     if (event.type === "step/start") state.stepStartTime = event.time;
     if (hasTokenDelta(event) && state.firstTokenTime === undefined) state.firstTokenTime = event.time;
@@ -167,8 +206,54 @@ export function assistantMessageStats(entries: DshHistoryEntry[]): Map<number, M
       if (decodeMs > 0) stats.tokensPerSecond = stats.outputTokens / (decodeMs / 1000);
     }
     if (Object.keys(stats).length > 0) result.set(event.seq, stats);
+    if (!key) {
+      steps.delete(keyText);
+      fallbackIndex += 1;
+      fallbackKey = `fallback/${fallbackIndex}`;
+    }
   }
   return result;
+}
+
+function hasNumericTokenUsage(value: Record<string, unknown> | undefined) {
+  if (!value) return false;
+  return [
+    "inputTokens", "input_tokens", "outputTokens", "output_tokens", "totalTokens", "total_tokens",
+    "reasoningTokens", "reasoning_tokens", "uncachedInputTokens", "uncached_input_tokens",
+    "cacheReadTokens", "cache_read_tokens", "cacheRead", "cache_read", "cachedInputTokens", "cached_input_tokens",
+    "cacheWriteTokens", "cache_write_tokens", "cachedInputTokensCreation", "cached_input_tokens_creation",
+  ].some((key) => numberValue(value[key]) !== undefined);
+}
+
+function historyTokenAggregate(entries: DshHistoryEntry[]) {
+  const aggregate = {
+    inputTokens: 0,
+    outputTokens: 0,
+    reasoningTokens: 0,
+    totalTokens: 0,
+    uncachedInputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+  };
+  let available = false;
+  for (const stats of assistantMessageStats(entries).values()) {
+    const hasTokens = [
+      stats.inputTokens, stats.outputTokens, stats.totalTokens, stats.reasoningTokens,
+      stats.uncachedInputTokens, stats.cacheReadTokens, stats.cacheWriteTokens,
+    ].some((value) => value !== undefined);
+    if (!hasTokens) continue;
+    available = true;
+    const inputTokens = stats.inputTokens ?? 0;
+    const outputTokens = stats.outputTokens ?? 0;
+    aggregate.inputTokens += inputTokens;
+    aggregate.outputTokens += outputTokens;
+    aggregate.reasoningTokens += stats.reasoningTokens ?? 0;
+    aggregate.totalTokens += stats.totalTokens ?? inputTokens + outputTokens;
+    aggregate.uncachedInputTokens += stats.uncachedInputTokens ?? 0;
+    aggregate.cacheReadTokens += stats.cacheReadTokens ?? 0;
+    aggregate.cacheWriteTokens += stats.cacheWriteTokens ?? 0;
+  }
+  return { ...aggregate, available };
 }
 
 export function readSessionStats(entries: DshHistoryEntry[], projections?: { values: Record<string, unknown> }): SessionStats {
@@ -176,48 +261,79 @@ export function readSessionStats(entries: DshHistoryEntry[], projections?: { val
   const official = recordValue(values.sessionStats);
   const usage = recordValue(values.usage ?? values.tokenUsage ?? values.tokens);
   const pressure = recordValue(values.contextPressure);
-  const uncachedInput = numberValue(usage?.uncachedInputTokens ?? usage?.uncached_input_tokens);
-  const cacheRead = numberValue(usage?.cacheReadTokens ?? usage?.cacheRead ?? usage?.cache_read ?? usage?.cachedInputTokens) ?? 0;
-  const cacheWrite = numberValue(usage?.cacheWriteTokens ?? usage?.cacheWrite ?? usage?.cache_write) ?? 0;
-  const projectedInput = numberValue(usage?.inputTokens ?? usage?.input_tokens);
-  const billedInput = projectedInput ?? (uncachedInput === undefined ? undefined : uncachedInput + cacheRead + cacheWrite);
-  let inputTokens = billedInput ?? numberValue(values.inputTokens ?? values.input_tokens) ?? 0;
-  let outputTokens = numberValue(usage?.outputTokens ?? usage?.output_tokens ?? values.outputTokens ?? values.output_tokens) ?? 0;
-  const explicitTotalTokens = numberValue(usage?.totalTokens ?? usage?.total_tokens ?? values.totalTokens ?? values.total_tokens);
-  let totalTokens = explicitTotalTokens ?? inputTokens + outputTokens;
-  const explicitContextTokens = numberValue(pressure?.projectedTokens ?? pressure?.pressureTokens) ?? numberValue(values.contextTokens ?? values.context_tokens);
-  let contextTokens = explicitContextTokens ?? totalTokens;
-  let contextLimit = numberValue(pressure?.contextWindow) ?? numberValue(values.contextLimit ?? values.context_limit) ?? 0;
-  let firstTokenMs = numberValue(usage?.firstTokenMs ?? usage?.first_token_ms ?? usage?.ttft ?? values.firstTokenMs ?? values.first_token_ms ?? values.ttft) ?? 0;
+  const history = historyTokenAggregate(entries);
+  const projectionValues = { ...official, ...values, ...(usage ?? {}) };
+  const projectionHasTokens = hasNumericTokenUsage(projectionValues);
+  const projectedBuckets = usageTokenBuckets(projectionValues);
+  const projectionInput = firstNumber(
+    usage?.inputTokens, usage?.input_tokens,
+    values.inputTokens, values.input_tokens,
+    official?.inputTokens, official?.input_tokens,
+  );
+  const projectionOutput = firstNumber(
+    usage?.outputTokens, usage?.output_tokens,
+    values.outputTokens, values.output_tokens,
+    official?.outputTokens, official?.output_tokens,
+  );
+  const projectionReasoning = firstNumber(
+    projectedBuckets.reasoning, values.reasoningTokens, values.reasoning_tokens,
+    official?.reasoningTokens, official?.reasoning_tokens,
+  ) ?? 0;
+  const projectionUncachedInput = firstNumber(
+    projectedBuckets.uncachedInput, values.uncachedInputTokens, values.uncached_input_tokens,
+  ) ?? 0;
+  const projectionCacheRead = firstNumber(
+    projectedBuckets.cacheRead, values.cacheReadTokens, values.cache_read_tokens,
+  ) ?? 0;
+  const projectionCacheWrite = firstNumber(
+    projectedBuckets.cacheWrite, values.cacheWriteTokens, values.cache_write_tokens,
+  ) ?? 0;
+  const projectionInputTotal = projectionInput ?? projectionUncachedInput + projectionCacheRead + projectionCacheWrite;
+  const aggregate = projectionHasTokens
+    ? {
+        inputTokens: projectionInputTotal,
+        outputTokens: projectionOutput ?? 0,
+        reasoningTokens: projectionReasoning,
+        totalTokens: projectionInputTotal + (projectionOutput ?? 0),
+        uncachedInputTokens: projectionUncachedInput,
+        cacheReadTokens: projectionCacheRead,
+        cacheWriteTokens: projectionCacheWrite,
+      }
+    : history;
+  const explicitContextTokens = numberValue(pressure?.projectedTokens ?? pressure?.pressureTokens)
+    ?? numberValue(values.contextTokens ?? values.context_tokens);
+  const contextTokens = explicitContextTokens ?? aggregate.totalTokens;
+  let contextLimit = numberValue(pressure?.contextWindow)
+    ?? numberValue(values.contextLimit ?? values.context_limit) ?? 0;
+  let firstTokenMs = numberValue(
+    usage?.firstTokenMs ?? usage?.first_token_ms ?? usage?.ttft
+      ?? values.firstTokenMs ?? values.first_token_ms ?? values.ttft,
+  ) ?? 0;
   for (const { event } of entries) {
     if (event.type === "request/context") {
       const eventContextWindow = numberValue(event.data.contextWindow);
       if (eventContextWindow !== undefined) contextLimit = eventContextWindow;
     }
-    const chunk = recordValue(event.data.chunk);
-    const eventUsage = recordValue(event.data.usage ?? event.data.tokenUsage ?? chunk?.usage);
-    if (eventUsage) {
-      const eventUncachedInput = numberValue(eventUsage.uncachedInputTokens ?? eventUsage.uncached_input_tokens);
-      const eventCacheRead = numberValue(eventUsage.cacheReadTokens ?? eventUsage.cacheRead ?? eventUsage.cache_read ?? eventUsage.cachedInputTokens ?? eventUsage.cached_input_tokens) ?? 0;
-      const eventCacheWrite = numberValue(eventUsage.cacheWriteTokens ?? eventUsage.cacheWrite ?? eventUsage.cache_write ?? eventUsage.cachedInputTokensCreation ?? eventUsage.cached_input_tokens_creation) ?? 0;
-      const eventInput = numberValue(eventUsage.inputTokens ?? eventUsage.input_tokens) ?? (eventUncachedInput === undefined ? undefined : eventUncachedInput + eventCacheRead + eventCacheWrite);
-      const eventOutput = numberValue(eventUsage.outputTokens ?? eventUsage.output_tokens);
-      const eventFirstToken = numberValue(eventUsage.firstTokenMs ?? eventUsage.first_token_ms ?? eventUsage.ttft);
-      if (eventFirstToken !== undefined) firstTokenMs = eventFirstToken;
-      if (eventInput !== undefined) inputTokens = Math.max(inputTokens, eventInput);
-      if (eventOutput !== undefined) outputTokens = Math.max(outputTokens, eventOutput);
-    }
+    const usage = eventUsage(event);
+    const eventFirstToken = numberValue(usage?.firstTokenMs ?? usage?.first_token_ms ?? usage?.ttft);
+    if (eventFirstToken !== undefined) firstTokenMs = eventFirstToken;
   }
-  if (explicitTotalTokens === undefined) totalTokens = inputTokens + outputTokens;
-  if (explicitContextTokens === undefined) contextTokens = totalTokens;
+  const cacheDenominator = aggregate.uncachedInputTokens + aggregate.cacheReadTokens + aggregate.cacheWriteTokens;
+  const tokenUsageSource = projectionHasTokens ? "projection" : history.available ? "history" : "none";
   return {
-    inputTokens,
-    outputTokens,
-    totalTokens,
+    inputTokens: aggregate.inputTokens,
+    outputTokens: aggregate.outputTokens,
+    totalTokens: aggregate.totalTokens,
+    reasoningTokens: aggregate.reasoningTokens,
+    uncachedInputTokens: aggregate.uncachedInputTokens,
+    cacheReadTokens: aggregate.cacheReadTokens,
+    cacheWriteTokens: aggregate.cacheWriteTokens,
     contextTokens,
     contextLimit,
-    cacheHitRate: cacheRead + cacheWrite > 0 ? Math.min(100, (cacheRead / (cacheRead + cacheWrite + (uncachedInput ?? 0))) * 100) : 0,
+    cacheHitRate: cacheDenominator > 0 ? Math.min(100, (aggregate.cacheReadTokens / cacheDenominator) * 100) : 0,
     firstTokenMs,
+    tokenUsageSource,
+    tokenUsageAvailable: tokenUsageSource !== "none",
     messages: entries.filter(({ event }) => event.type === "user/message" || event.type === "assistant/message").length,
     ...(official ? {
       turns: numberValue(official.turns),

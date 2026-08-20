@@ -135,6 +135,11 @@
   border-color: var(--accent);
 }
 
+.question-custom-input {
+  min-height: 31px;
+  resize: none;
+}
+
 .question-detail {
   margin-top: 8px;
   color: var(--muted);

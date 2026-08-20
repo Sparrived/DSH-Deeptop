@@ -348,6 +348,13 @@
   background: var(--surface-raised);
 }
 
+/* Context metadata is untrusted path-sized text; keep it inside the card. */
+.injected-entry {
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
 /* Think keeps a restrained sweep while its label stays on the left. */
 .reasoning-entry {
   position: relative;
@@ -388,6 +395,7 @@
   align-items: center;
   gap: 9px;
   padding: 0 14px;
+  overflow: hidden;
   cursor: pointer;
   list-style: none;
 }
@@ -481,7 +489,10 @@
   white-space: nowrap;
 }
 
-.injected-summary { flex: 1; }
+/* A path can be the only trailing metadata. Let it shrink inside the card
+   instead of forcing the transcript wider than its viewport. */
+.injected-source { flex: 0 1 auto; }
+.injected-summary { flex: 1 1 auto; }
 
 .injected-body {
   max-height: 240px;
@@ -1331,6 +1342,11 @@
   background: var(--surface-raised);
   color: var(--ink);
   font-size: 14px;
+}
+
+.question-custom-input {
+  min-height: 34px;
+  resize: none;
 }
 
 .question-detail,

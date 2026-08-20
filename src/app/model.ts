@@ -14,6 +14,7 @@ export type {
   ComposerAttachment,
   ComposerCandidate,
   ComposerTrigger,
+  ComposerTriggerKind,
   CustomProviderDraft,
   DeliverableFileDiff,
   DiffHunk,

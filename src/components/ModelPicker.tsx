@@ -1,5 +1,6 @@
 import type { RefObject } from "react";
 import type { DshModel, DshSessionModels } from "../lib/desktop";
+import { modelPickerGroups } from "../app/ui-model";
 import type { ModelMenuPane } from "../app/model";
 
 type ReasoningChoice = {
@@ -42,6 +43,7 @@ export function ModelPicker({
   onChangeModel,
   onChangeReasoningEffort,
 }: ModelPickerProps) {
+  const groups = modelPickerGroups(models);
   return (
     <div className="model-picker" ref={menuRef}>
       <button
@@ -76,7 +78,7 @@ export function ModelPicker({
             <strong>模型</strong>
           </div>
           <div className="model-menu-list">
-            {models.groups.map((group) => <section className="model-menu-group" key={group.id}>
+            {groups.map((group) => <section className="model-menu-group" key={group.id}>
               <div className="model-menu-group-title">{group.name}</div>
               {group.models.map((model) => {
                 const value = `${group.id}\u0000${model.id}`;
@@ -90,7 +92,7 @@ export function ModelPicker({
                 </button>;
               })}
             </section>)}
-            {models.groups.length === 0 && <div className="model-menu-empty">暂无可用模型</div>}
+            {groups.length === 0 && <div className="model-menu-empty">暂无可用模型</div>}
           </div>
         </>}
         {menuPane === "effort" && selectedReasoning !== undefined && <>
