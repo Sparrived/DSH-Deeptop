@@ -1,0 +1,266 @@
+diff --git a/.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.md b/.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.md
+index 01ff631bc4..696f5b71db 100644
+--- a/.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.md
++++ b/.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.md
+@@ -34,6 +34,8 @@ The Host `session.fork` RPC accepts `atSeq` as an anchor within the desired turn
+ 
+ The Host creates the child through the agent registry with the selected seed and lineage, and pre-publication setup installs the latest logged provider, model, and reasoning target before the child can run. It then attaches the child to the source Workspace. An attachment failure returns `workspace-attach-failed` with the already-published child id; the client reconciles that child into its summary list before surfacing the error. The Session-row action uses the last completed turn, while a message action supplies its event seq; both open the child after success, and lineage expansion makes it visible beneath the source.
+ 
++The same RPC accepts an optional `agentPreset` for explicit recovery of a session whose recorded preset is unavailable. This mode copies the complete source event log rather than a completed-turn prefix, validates and mounts the requested replacement before publishing the child, records `agent-preset/selected` after the seed boundary, and leaves the source untouched. It is a migration copy, not an in-place composition change.
++
+ ## Alternatives considered
+ 
+ **Separate `ctx.sessionFork` service.** An earlier iteration shipped this as a separate service; it overfit the capability-seam pattern. The code had no swappable backend, no extra event surface, no independent ownership lifecycle, and no durable behavior beyond `ctx.sessions.create({ seed, meta })`. Keeping a separate package would make callers discover and install a second service just to perform policy around a session-store primitive.
+diff --git a/.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.zh.md b/.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.zh.md
+index 2a95a504db..40f3d6848a 100644
+--- a/.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.zh.md
++++ b/.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.zh.md
+@@ -34,6 +34,8 @@ Host 的 `session.fork` RPC 接受 `atSeq`，并将其视为所需轮次内的
+ 
+ Host 通过 agent（智能体）注册表，以选定的种子和谱系创建子会话；发布前 setup 会先安装日志中最新的提供方、模型和推理（reasoning）目标，子会话才能运行。随后，Host 将子会话附加到源 Workspace。若附加失败，则返回 `workspace-attach-failed` 及已发布的子会话 id；客户端先将该子会话对账到摘要列表，再向调用方报告错误。Session 行操作使用最后一个已完成轮次，消息操作则提供其事件 seq；两者都会在成功后打开子会话，展开谱系后可在源会话下看到它。
+ 
++同一个 RPC 还接受可选的 `agentPreset`，用于显式恢复所记录 Preset 已不可用的会话。此模式复制源会话的完整事件日志，而不是已完成轮次前缀；发布子会话前先校验并挂载替代 Preset，在种子边界之后记录 `agent-preset/selected`，并保持源会话不变。它是迁移副本，不是原地更换组合。
++
+ ## 曾考虑的替代方案
+ 
+ **独立的 `ctx.sessionFork` 服务。** 较早的一版迭代曾把它作为独立服务交付；它过度套用了能力 seam 模式。代码没有可替换的后端、没有额外的事件面、没有独立的所有权生命周期，也没有超出 `ctx.sessions.create({ seed, meta })` 的持久化行为。保留独立包会迫使调用方为了在会话存储原语之上执行一层策略而去发现并安装第二个服务。
+diff --git a/packages/host/apiproxy/src/api-proxy.ts b/packages/host/apiproxy/src/api-proxy.ts
+index ccb2d6d20c..d166fd1ecc 100644
+--- a/packages/host/apiproxy/src/api-proxy.ts
++++ b/packages/host/apiproxy/src/api-proxy.ts
+@@ -2277,7 +2277,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
+       },
+ 
+       async fork(request) {
+-        const { sessionId, atSeq } = request.payload
++        const { sessionId, atSeq, agentPreset } = request.payload
+         let source: SessionReadState
+         try {
+           source = await readSessionState(sessionId)
+@@ -2292,32 +2292,41 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
+           })
+         }
+         const events = source.events
+-        // An in-log anchor belongs to the turn containing it and must never
+-        // clip backward to an earlier completed turn. Omitted and past-end
+-        // anchors retain the last-completed-turn shortcut.
+-        const lastSeq = events.at(-1)?.seq ?? -1
+-        const anchoredBoundary = atSeq === undefined
+-          ? undefined
+-          : events.find(e => e.type === 'turn/end' && e.seq >= atSeq)
+-        const boundary = anchoredBoundary
+-          ?? (atSeq === undefined || atSeq > lastSeq
+-            ? events.findLast(e => e.type === 'turn/end')
+-            : undefined)
+-        if (boundary === undefined) {
+-          return err(request, {
+-            code: 'fork-unavailable',
+-            message: atSeq !== undefined && atSeq <= lastSeq
+-              ? `session "${sessionId}" has not completed the turn containing event ${String(atSeq)}`
+-              : `session "${sessionId}" has no completed turn to fork from`,
+-            details: { sessionId },
+-          })
++        // A preset migration is a full-history copy. It deliberately does not
++        // reuse the ordinary completed-turn fork cut: the user is recovering a
++        // session whose stored composition is unavailable, so dropping its
++        // later durable history would be an unexpected data loss.
++        let cut: number
++        if (agentPreset !== undefined) {
++          cut = events.length
++        } else {
++          // An in-log anchor belongs to the turn containing it and must never
++          // clip backward to an earlier completed turn. Omitted and past-end
++          // anchors retain the last-completed-turn shortcut.
++          const lastSeq = events.at(-1)?.seq ?? -1
++          const anchoredBoundary = atSeq === undefined
++            ? undefined
++            : events.find(e => e.type === 'turn/end' && e.seq >= atSeq)
++          const boundary = anchoredBoundary
++            ?? (atSeq === undefined || atSeq > lastSeq
++              ? events.findLast(e => e.type === 'turn/end')
++              : undefined)
++          if (boundary === undefined) {
++            return err(request, {
++              code: 'fork-unavailable',
++              message: atSeq !== undefined && atSeq <= lastSeq
++                ? `session "${sessionId}" has not completed the turn containing event ${String(atSeq)}`
++                : `session "${sessionId}" has no completed turn to fork from`,
++              details: { sessionId },
++            })
++          }
++          // Extend the cut through trailing out-of-band appends (session/title,
++          // injections) up to the next turn/start: they are standalone events, so
++          // the seed stays balanced, and the child inherits a title generated
++          // right after the boundary turn.
++          cut = boundary.seq + 1
++          while (cut < events.length && events[cut]?.type !== 'turn/start') cut++
+         }
+-        // Extend the cut through trailing out-of-band appends (session/title,
+-        // injections) up to the next turn/start: they are standalone events, so
+-        // the seed stays balanced, and the child inherits a title generated
+-        // right after the boundary turn.
+-        let cut = boundary.seq + 1
+-        while (cut < events.length && events[cut]?.type !== 'turn/start') cut++
+         let workspace: Workspace | undefined
+         try {
+           workspace = await forkWorkspace(source)
+@@ -2329,12 +2338,29 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
+           })
+         }
+         const childId = `session-${randomUUID()}` as SessionId
+-        // The child inherits the parent's composition for the same reason a
+-        // resumed session keeps its own: the seeded history was produced under
+-        // those tools, and composing anything else would strand the tool calls
+-        // it already carries. Now that no model-facing row sits in the host
+-        // plane, composing nothing would leave the child with no tools at all.
+-        const forkComposition = await composeAgent(resolveSessionPreset(source))
++        // A normal fork inherits the source composition. An explicit preset is
++        // a user-confirmed migration: the source remains unchanged and the new
++        // child is composed under the requested preset. A deployment without a
++        // roster cannot validate or compose a replacement.
++        if (agentPreset !== undefined && ctx.get('agentPresets') === undefined) {
++          return err(request, {
++            code: 'agent-preset-not-found',
++            message: 'this deployment composes no agent presets',
++            details: { agentPreset, available: [] },
++          })
++        }
++        let forkComposition: Awaited<ReturnType<typeof composeAgent>>
++        try {
++          forkComposition = await composeAgent(agentPreset ?? resolveSessionPreset(source))
++        } catch (error: unknown) {
++          const refused = presetFailure(request, error)
++          if (refused !== undefined) return refused
++          return err(request, {
++            code: 'internal',
++            message: `failed to compose fork for session "${sessionId}": ${String(error)}`,
++            details: { sessionId },
++          })
++        }
+         try {
+           await ctx.agents.create({
+             sessionId: childId,
+@@ -2348,7 +2374,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
+                 : { agentPreset: forkComposition.agentPreset },
+             },
+             agentOptions: agentOptions(),
+-            setup: forkComposition.setup,
++            setup: async (agentCtx) => {
++              await forkComposition.setup(agentCtx)
++              if (agentPreset !== undefined) {
++                const agent = agentCtx.agent
++                if (agent === undefined) throw new Error('fork migration setup has no agent')
++                agent.session.append('agent-preset/selected', {
++                  agentPreset: forkComposition.agentPreset ?? agentPreset,
++                })
++              }
++            },
+           })
+         } catch (error: unknown) {
+           return err(request, {
+diff --git a/packages/host/apiproxy/src/api/sessions.schema.ts b/packages/host/apiproxy/src/api/sessions.schema.ts
+index c415015776..a47e574cae 100644
+--- a/packages/host/apiproxy/src/api/sessions.schema.ts
++++ b/packages/host/apiproxy/src/api/sessions.schema.ts
+@@ -127,10 +127,11 @@ export const sessionRenameValueSchema = z.object({
+   seq: z.number().int().nonnegative(),
+ }) satisfies z.ZodType<Wire<ResponseValue<'session.rename'>>>
+ 
+-/** session.fork request payload (atSeq anchors the completed-turn cut). */
++/** session.fork request payload (atSeq anchors the completed-turn cut; agentPreset explicitly migrates the child composition). */
+ export const sessionForkRequestSchema = z.object({
+   sessionId: sessionIdSchema,
+   atSeq: z.number().int().nonnegative().optional(),
++  agentPreset: z.string().optional(),
+ }) satisfies z.ZodType<Wire<RequestPayload<'session.fork'>>>
+ 
+ /** session.fork response value (the child session id). */
+diff --git a/packages/host/apiproxy/src/api/sessions.ts b/packages/host/apiproxy/src/api/sessions.ts
+index 2e7c9b22f4..465c7d7cd4 100644
+--- a/packages/host/apiproxy/src/api/sessions.ts
++++ b/packages/host/apiproxy/src/api/sessions.ts
+@@ -332,9 +332,10 @@ export interface SessionsApi {
+    * title. Reading the source uses attached state or persistence inspection
+    * without acquiring an Agent. Workspace attachment follows the source
+    * directly, or the nearest workspace-owning ancestor when the source is a
+-   * subagent.
++   * subagent. Supplying `agentPreset` performs an explicit full-history migration;
++   * the source is unchanged and the new child runs under that resolved preset.
+    */
+-  fork(request: RpcRequest<{ sessionId: SessionId; atSeq?: number }>):
++  fork(request: RpcRequest<{ sessionId: SessionId; atSeq?: number; agentPreset?: string }>):
+   Promise<RpcResponse<{ sessionId: SessionId }>>
+ 
+   /**
+diff --git a/packages/host/apiproxy/tests/api-proxy-fork.spec.ts b/packages/host/apiproxy/tests/api-proxy-fork.spec.ts
+index 33dede4562..06067ac730 100644
+--- a/packages/host/apiproxy/tests/api-proxy-fork.spec.ts
++++ b/packages/host/apiproxy/tests/api-proxy-fork.spec.ts
+@@ -11,6 +11,7 @@ import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-
+ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+ import UserQuestionService from '@deepseek-ai/dsh-user-questions'
+ import type { Workspace } from '@deepseek-ai/dsh-workspace'
++import { UnknownPresetError } from '@deepseek-ai/dsh-agent-presets'
+ import type { RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
+ import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
+ import { createApiProxy } from '@deepseek-ai/dsh-host-apiproxy'
+@@ -253,6 +254,59 @@ describe('sessions.fork', () => {
+     await ctx.fiber.dispose()
+   })
+ 
++  it('rejects a migration when no preset roster can validate the replacement', async () => {
++    const ctx = await composed()
++    const source = liveAgent(ctx, 'session-migration-no-roster', 1)
++
++    const response = await api(ctx).sessions.fork(request({ sessionId: source.id, agentPreset: 'minimal' }))
++
++    expect(response.result).toMatchObject({
++      ok: false,
++      error: { code: 'agent-preset-not-found', details: { agentPreset: 'minimal', available: [] } },
++    })
++    expect(ctx.sessions.list().map(session => session.id)).toEqual([source.id])
++    await ctx.fiber.dispose()
++  })
++
++  it('rejects an unknown replacement before creating a child', async () => {
++    const ctx = await composed()
++    ctx.provide('agentPresets', {
++      resolve: () => Promise.reject(new UnknownPresetError('minimal', ['standard'])),
++    } as never)
++    const source = liveAgent(ctx, 'session-migration-unknown', 1)
++
++    const response = await api(ctx).sessions.fork(request({ sessionId: source.id, agentPreset: 'minimal' }))
++
++    expect(response.result).toMatchObject({ ok: false, error: { code: 'agent-preset-not-found' } })
++    expect(ctx.sessions.list().map(session => session.id)).toEqual([source.id])
++    await ctx.fiber.dispose()
++  })
++
++  it('migrates the complete history under an explicitly selected preset', async () => {
++    const ctx = await composed()
++    ctx.provide('agentPresets', {
++      resolve: (id?: string) => Promise.resolve({ id: id ?? 'standard', trust: 'system', path: `/presets/${id ?? 'standard'}.yml` }),
++      mount: () => Promise.resolve({ id: 'minimal', trust: 'system', path: '/presets/minimal.yml' }),
++    } as never)
++    const source = liveAgent(ctx, 'session-migration-source', 2)
++    const sourceTypes = source.events.map(event => event.type)
++
++    const response = await api(ctx).sessions.fork(request({ sessionId: source.id, agentPreset: 'minimal' }))
++
++    expect(response.result.ok).toBe(true)
++    if (!response.result.ok) return
++    const child = ctx.sessions.get(response.result.value.sessionId)
++    expect(child?.events.map(event => event.type)).toEqual([...sourceTypes, 'session/end-seed', 'agent-preset/selected'])
++    expect(child?.header).toMatchObject({
++      parentSession: source.id,
++      cwd: '/proj',
++      agentPreset: 'minimal',
++      seedLength: source.events.length,
++    })
++    expect(source.events.map(event => event.type)).toEqual(sourceTypes)
++    await ctx.fiber.dispose()
++  })
++
+   it('installs the latest logged model selection before the child can run', async () => {
+     const ctx = await composed()
+     const source = liveAgent(ctx, 'session-routed', 1)
