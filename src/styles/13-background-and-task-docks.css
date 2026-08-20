@@ -1055,6 +1055,10 @@
 }
 
 .deliverables-panel-summary .live { color: var(--good); }
+.deliverables-diff-total { display: inline-flex; align-items: baseline; gap: 6px; }
+.deliverables-diff-total b { font-weight: 700; }
+.deliverables-diff-total .diff-added { color: var(--good); }
+.deliverables-diff-total .diff-removed { color: var(--danger); }
 
 .deliverables-panel-files {
   min-height: 0;

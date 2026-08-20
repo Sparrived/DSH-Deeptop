@@ -28,6 +28,11 @@ function fileDirectory(path: string) {
 export function DeliverablesPanel({ item, activeSession, collapsed, onToggle, onOpenSessionPath }: DeliverablesPanelProps) {
   const files = item.files ?? [];
   const fileDiffs = item.fileDiffs ?? {};
+  const diffTotals = Object.values(fileDiffs).reduce(
+    (totals, diff) => ({ added: totals.added + diff.added, removed: totals.removed + diff.removed }),
+    { added: 0, removed: 0 },
+  );
+  const totalDiffLines = diffTotals.added + diffTotals.removed;
   return (
     <DockFrame
       id="deliverables-dock"
@@ -52,6 +57,11 @@ export function DeliverablesPanel({ item, activeSession, collapsed, onToggle, on
     >
       <div className="deliverables-panel-summary">
         <span className="live">{files.length} 个文件</span>
+        <span className="deliverables-diff-total" aria-label={`总 diff ${totalDiffLines} 行，新增 ${diffTotals.added} 行，删除 ${diffTotals.removed} 行`}>
+          总 diff {totalDiffLines} 行
+          <b className="diff-added">+{diffTotals.added}</b>
+          <b className="diff-removed">−{diffTotals.removed}</b>
+        </span>
         <span>本回合写入工作区</span>
       </div>
       <div className="deliverables-panel-files">
