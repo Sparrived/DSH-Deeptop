@@ -36,7 +36,11 @@ const OPTIONAL_RUNTIME_PACKAGES = [
 }));
 const DESKTOP_PRESET_SOURCE_ROOT = path.join(root, "deeptop-bridge", "presets");
 const DESKTOP_PRESETS = ["desktop-persistent-pwsh", "desktop-agent-teams"];
-const GENERATED_HOST_ENTRY_PACKAGES = new Set(["@deepseek-ai/dsh-typert-protocol"]);
+const GENERATED_HOST_ENTRY_PACKAGES = new Set([
+  "@deepseek-ai/cordis",
+  "@deepseek-ai/cosmokit",
+  "@deepseek-ai/dsh-typert-protocol",
+]);
 const force = process.argv.includes("--force");
 
 function run(command, args, cwd, extraEnv = {}) {
@@ -262,6 +266,8 @@ function copyDesktopPresets() {
 
 function ensureClientBundleHostEntries() {
   const packageNames = [
+    "@deepseek-ai/cordis",
+    "@deepseek-ai/cosmokit",
     "@deepseek-ai/dsh-typert-protocol",
     "@deepseek-ai/dsh-typert-registry",
     "@deepseek-ai/dsh-api-gateway",
@@ -275,7 +281,12 @@ function ensureClientBundleHostEntries() {
       if (!fs.existsSync(generatedEntry)) {
         throw new Error(`内嵌运行时缺少 ${packageName} 的可执行 Host 入口`);
       }
-      const exports = packageName === "@deepseek-ai/dsh-typert-protocol"
+      const typeOnlyPackage = new Set([
+        "@deepseek-ai/cordis",
+        "@deepseek-ai/cosmokit",
+        "@deepseek-ai/dsh-typert-protocol",
+      ]).has(packageName);
+      const exports = typeOnlyPackage
         ? 'export * from "./types/index.js";\n'
         : 'export * from "./types/index.js";\nexport { default } from "./types/index.js";\n';
       fs.writeFileSync(hostEntry, exports);
