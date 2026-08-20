@@ -10,9 +10,11 @@ function targetMatching(selectorPart) {
   };
 }
 
-test("recognizes file rows and their portal menu as owned context targets", () => {
+test("recognizes file and task rows plus their portal menus as owned context targets", () => {
   assert.equal(isWithinSelector(targetMatching(".workspace-file-main"), OWNED_CONTEXT_MENU_SELECTOR), true);
   assert.equal(isWithinSelector(targetMatching(".workspace-files-context-menu"), OWNED_CONTEXT_MENU_SELECTOR), true);
+  assert.equal(isWithinSelector(targetMatching(".task-item"), OWNED_CONTEXT_MENU_SELECTOR), true);
+  assert.equal(isWithinSelector(targetMatching(".task-context-menu"), OWNED_CONTEXT_MENU_SELECTOR), true);
 });
 
 test("does not exempt unrelated targets from the native context-menu suppression", () => {

@@ -1,5 +1,8 @@
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { formatDurationMs, jobDuration, jobStatusLabel, todoDuration, todoStatusLabel, type TodoItem } from "../app/model";
-import type { DshJob } from "../lib/desktop";
+import { writeClipboard, type DshJob } from "../lib/desktop";
+import { TASK_CONTEXT_MENU_SELECTOR } from "../app/context-menu";
 import { DockFrame } from "./DockFrame";
 
 type TodoCounts = {
@@ -25,13 +28,57 @@ type TaskPanelProps = {
   onToggle: () => void;
 };
 
+type TaskContextMenu = {
+  x: number;
+  y: number;
+  job: DshJob;
+};
+
 export function TaskPanel({ jobs, collapsed, now, onToggle }: TaskPanelProps) {
   const liveCount = jobs.filter((job) => job.status === "running" || job.status === "stopping").length;
+  const [contextMenu, setContextMenu] = useState<TaskContextMenu | null>(null);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const orderedJobs = [...jobs].sort((left, right) => {
     const leftLive = left.status === "running" || left.status === "stopping";
     const rightLive = right.status === "running" || right.status === "stopping";
     return Number(rightLive) - Number(leftLive) || (right.finishedAt ?? right.startedAt) - (left.finishedAt ?? left.startedAt);
   });
+
+  useEffect(() => {
+    if (collapsed) setContextMenu(null);
+  }, [collapsed]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Element && event.target.closest(TASK_CONTEXT_MENU_SELECTOR)) return;
+      setContextMenu(null);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setContextMenu(null);
+    };
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [contextMenu]);
+
+  const handleCopyCommand = () => {
+    if (!contextMenu) return;
+    const job = contextMenu.job;
+    setContextMenu(null);
+    void writeClipboard(job.label || job.kind)
+      .then(() => setCopyState("copied"))
+      .catch((error) => {
+        setCopyState("failed");
+        console.error(`复制任务指令失败：${errorText(error)}`);
+      });
+  };
+  const menu = contextMenu;
+  const menuX = menu ? Math.min(menu.x, window.innerWidth - 190) : 0;
+  const menuY = menu ? Math.min(menu.y, window.innerHeight - 70) : 0;
 
   return (
     <DockFrame
@@ -55,8 +102,28 @@ export function TaskPanel({ jobs, collapsed, now, onToggle }: TaskPanelProps) {
       toggleClassName="task-panel-toggle"
       bodyClassName="task-panel-body"
     >
-      <div className="task-panel-summary"><span className="live">{liveCount} 进行中</span><span>{jobs.length} 项任务</span></div>
-      <ol className="task-list">{orderedJobs.map((job) => <li className={`task-item ${job.status}`} key={job.id}><span className="task-item-status" aria-label={jobStatusLabel(job.status)} /><div className="task-item-copy"><strong>{job.label || job.kind}</strong><small>{jobStatusLabel(job.status)} · {jobDuration(job, now)}</small>{job.detail && <p>{job.detail}</p>}</div></li>)}</ol>
+      <div className="task-panel-summary"><span className="live">{liveCount} 进行中</span><span>{jobs.length} 项任务</span>{copyState === "copied" && <span className="task-copy-status">指令已复制</span>}{copyState === "failed" && <span className="task-copy-status failed">复制失败</span>}</div>
+      <ol className="task-list">{orderedJobs.map((job) => <li
+        className={`task-item ${job.status}`}
+        key={job.id}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setContextMenu({ x: event.clientX, y: event.clientY, job });
+        }}
+      ><span className="task-item-status" aria-label={jobStatusLabel(job.status)} /><div className="task-item-copy"><strong>{job.label || job.kind}</strong><small>{jobStatusLabel(job.status)} · {jobDuration(job, now)}</small>{job.detail && <p>{job.detail}</p>}</div></li>)}</ol>
+      {menu && createPortal(
+        <div
+          className={TASK_CONTEXT_MENU_SELECTOR.slice(1)}
+          style={{ left: menuX, top: menuY }}
+          role="menu"
+          onPointerDown={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <button type="button" role="menuitem" onClick={handleCopyCommand}>复制指令</button>
+        </div>,
+        document.body,
+      )}
     </DockFrame>
   );
 }
