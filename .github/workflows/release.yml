@@ -120,7 +120,7 @@ jobs:
             development_bundles: nsis
           - platform: linux
             arch: x64
-            runner: ubuntu-22.04
+            runner: ubuntu-latest
             bundles: deb,appimage
           - platform: macos
             arch: x64
@@ -149,7 +149,7 @@ jobs:
             file \
             libayatana-appindicator3-dev \
             libssl-dev \
-            libwebkit2gtk-4.0-dev \
+            libwebkit2gtk-4.1-dev \
             libsoup-3.0-dev \
             libxdo-dev \
             librsvg2-dev \
