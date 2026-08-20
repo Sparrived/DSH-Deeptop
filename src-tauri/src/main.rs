@@ -27,6 +27,7 @@ use tauri::{
 
 mod about;
 mod dock_position;
+mod dock_settings;
 mod external_launch;
 mod terminal;
 mod window_behavior;
@@ -1920,6 +1921,19 @@ fn reset_dock_position(app: AppHandle, id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn get_dock_settings(app: AppHandle) -> Result<dock_settings::DockSettings, String> {
+    dock_settings::get(app)
+}
+
+#[tauri::command]
+fn set_dock_settings(
+    app: AppHandle,
+    settings: dock_settings::DockSettings,
+) -> Result<dock_settings::DockSettings, String> {
+    dock_settings::set(app, settings)
+}
+
+#[tauri::command]
 fn get_window_behavior_settings(
     app: AppHandle,
 ) -> Result<window_behavior::WindowBehaviorSettings, String> {
@@ -3220,6 +3234,8 @@ fn main() {
             get_dock_position,
             set_dock_position,
             reset_dock_position,
+            get_dock_settings,
+            set_dock_settings,
             get_windows_context_menu_status,
             set_windows_context_menu_enabled,
             get_window_behavior_settings,

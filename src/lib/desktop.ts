@@ -22,6 +22,10 @@ export interface DockPosition {
   y: number;
 }
 
+export interface DockSettings {
+  autoCollapseOnOutsideClick: boolean;
+}
+
 export interface DshStatus {
   dshHome: string;
   runtimeDirectory: string;
@@ -509,6 +513,17 @@ export async function setDockPosition(id: string, position: DockPosition): Promi
 export async function resetDockPosition(id: string): Promise<void> {
   if (!isTauri()) return;
   await invoke("reset_dock_position", { id });
+}
+
+export async function getDockSettings(): Promise<DockSettings> {
+  if (!isTauri()) return { autoCollapseOnOutsideClick: false };
+  const settings = await invoke<Partial<DockSettings>>("get_dock_settings");
+  return { autoCollapseOnOutsideClick: settings.autoCollapseOnOutsideClick === true };
+}
+
+export async function setDockSettings(settings: DockSettings): Promise<DockSettings> {
+  if (!isTauri()) return settings;
+  return invoke<DockSettings>("set_dock_settings", { settings });
 }
 
 export async function getWindowBehaviorSettings(): Promise<WindowBehaviorSettings> {

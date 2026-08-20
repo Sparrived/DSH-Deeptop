@@ -5,6 +5,7 @@ import {
   resetDockPosition,
   setDockPosition,
 } from "../lib/desktop";
+import { useDockSettings } from "../app/dock-settings";
 
 type DockPosition = {
   x: number;
@@ -105,6 +106,7 @@ export function DockFrame({
   const [position, setPosition] = useState<DockPosition>(defaultDockPosition);
   const [positionReady, setPositionReady] = useState(() => !isTauri());
   const [dragging, setDragging] = useState(false);
+  const { settings: dockSettings, loaded: dockSettingsLoaded } = useDockSettings();
   const persistDockPosition = (next: DockPosition) => {
     persistenceRef.current = persistenceRef.current
       .catch(() => undefined)
@@ -149,7 +151,7 @@ export function DockFrame({
   }, [id]);
 
   useEffect(() => {
-    if (collapsed) return;
+    if (collapsed || !dockSettingsLoaded || !dockSettings.autoCollapseOnOutsideClick) return;
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
@@ -160,7 +162,7 @@ export function DockFrame({
 
     document.addEventListener("pointerdown", handlePointerDown, true);
     return () => document.removeEventListener("pointerdown", handlePointerDown, true);
-  }, [collapsed, onToggle]);
+  }, [collapsed, dockSettings.autoCollapseOnOutsideClick, dockSettingsLoaded, onToggle]);
 
   useEffect(() => {
     if (collapsed || !positionReady) return;

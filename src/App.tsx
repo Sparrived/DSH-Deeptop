@@ -8,6 +8,7 @@ import { InteractionPanel } from "./components/InteractionPanel";
 import { SettingsAboutPanel } from "./components/SettingsAboutPanel";
 import { SettingsAppearancePanel } from "./components/SettingsAppearancePanel";
 import { SettingsGeneralPanel } from "./components/SettingsGeneralPanel";
+import { SettingsDockPanel } from "./components/SettingsDockPanel";
 import { SettingsKeyboardPanel } from "./components/SettingsKeyboardPanel";
 import { SettingsLogsPanel } from "./components/SettingsLogsPanel";
 import { SettingsModelsPanel } from "./components/SettingsModelsPanel";
@@ -23,6 +24,7 @@ import { TerminalDock } from "./components/TerminalDock";
 import { DeliverablesPanel } from "./components/DeliverablesPanel";
 import { UtilityDockShelf } from "./components/UtilityDockShelf";
 import { WindowChrome } from "./components/WindowChrome";
+import { DockSettingsProvider, useDockSettings } from "./app/dock-settings";
 import { PopupDialog } from "./components/PopupDialog";
 import { PluginInstallDialog, type PluginInstallDraft } from "./components/PluginInstallDialog";
 import { useProviderSettings } from "./app/useProviderSettings";
@@ -279,7 +281,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string)
   });
 }
 
-function App() {
+function AppContent() {
   const desktop = isTauri();
   applyFrontendVisualResetOnce();
   const [status, setStatus] = useState<DshStatus>(() => desktop
@@ -581,6 +583,20 @@ function App() {
     openThemesDirectory,
     resetAppearance,
   } = useAppearanceSettings({ onNotice: setNotice, onError: setErrorNotice });
+  const { settings: dockSettings, loaded: dockSettingsLoaded, updateSettings: updateDockSettings } = useDockSettings();
+  const [dockSettingsUpdating, setDockSettingsUpdating] = useState(false);
+
+  async function updateDockSettingsWithNotice(patch: Partial<import("./lib/desktop").DockSettings>) {
+    setDockSettingsUpdating(true);
+    try {
+      await updateDockSettings(patch);
+      setNotice("Dock 设置已保存");
+    } catch (error) {
+      setErrorNotice(`Dock 设置保存失败：${errorText(error)}`);
+    } finally {
+      setDockSettingsUpdating(false);
+    }
+  }
 
   function downloadAppearanceConfig(section: AppearanceConfigSection, data: Record<string, unknown>) {
     const envelope: AppearanceConfigEnvelope = { kind: "deeptop-appearance-config", version: 1, section, exportedAt: new Date().toISOString(), data };
@@ -3704,6 +3720,9 @@ function App() {
                       {(["theme", "background", "typography", "css"] as AppearanceSection[]).map((item) => <button key={item} className={`settings-navigation-subitem${appearanceSection === item ? " selected" : ""}`} onClick={() => setAppearanceSection(item)}>{item === "theme" ? "主题" : item === "background" ? "背景工作台" : item === "typography" ? "文字" : "CSS 主题"}</button>)}
                     </div>}
                   </div>
+                  <button className={settingsSection === "dock" ? "selected" : ""} onClick={() => setSettingsSection("dock")}>
+                    <strong>Dock</strong><small>展开框交互与位置</small>
+                  </button>
                   <button className={settingsSection === "general" ? "selected" : ""} onClick={() => setSettingsSection("general")}>
                     <strong>通用</strong><small>会话与 Host</small>
                   </button>
@@ -3728,6 +3747,7 @@ function App() {
                  </nav>
 
                 <section className="settings-main">
+                   {settingsSection === "dock" && <SettingsDockPanel settings={dockSettings} loaded={dockSettingsLoaded} updating={dockSettingsUpdating} onUpdate={updateDockSettingsWithNotice} />}
                   {settingsSection === "about" && <SettingsAboutPanel
                      version={DEEPTOP_VERSION}
                      desktop={desktop}
@@ -3954,6 +3974,14 @@ function App() {
       {deleteArchivedTarget && <div className="confirm-backdrop" onMouseDown={() => setDeleteArchivedTarget(null)}><div className="confirm-dialog" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><strong>永久删除归档会话？</strong><p>“{displayTitle(deleteArchivedTarget)}”的历史记录将被永久删除，无法恢复。</p><div className="surface-dialog-actions"><button onClick={() => setDeleteArchivedTarget(null)}>取消</button><button className="confirm danger-button" onClick={() => void deleteArchivedSession()}>永久删除</button></div></div></div>}
       {renameTarget && <div className="confirm-backdrop" onMouseDown={() => setRenameTarget(null)}><form className="confirm-dialog rename-dialog" role="dialog" aria-modal="true" onSubmit={(event) => { event.preventDefault(); void renameSession(); }} onMouseDown={(event) => event.stopPropagation()}><strong>重命名会话</strong><p>修改“{displayTitle(renameTarget)}”在左侧会话列表中的显示名称。</p><input className="rename-dialog-input" value={renameValue} onChange={(event) => setRenameValue(event.target.value)} autoFocus aria-label="会话名称" /><div className="surface-dialog-actions"><button type="button" onClick={() => setRenameTarget(null)}>取消</button><button className="confirm" type="submit" disabled={!renameValue.trim()}>保存</button></div></form></div>}
      </main>
+  );
+}
+
+export function App() {
+  return (
+    <DockSettingsProvider>
+      <AppContent />
+    </DockSettingsProvider>
   );
 }
 
