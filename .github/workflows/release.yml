@@ -150,6 +150,7 @@ jobs:
             libayatana-appindicator3-dev \
             libssl-dev \
             libwebkit2gtk-4.0-dev \
+            libsoup-3.0-dev \
             libxdo-dev \
             librsvg2-dev \
             patchelf
