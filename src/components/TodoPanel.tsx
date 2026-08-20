@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { formatDurationMs, jobDuration, jobStatusLabel, todoDuration, todoStatusLabel, type TodoItem } from "../app/model";
+import { errorText, formatDurationMs, jobDuration, jobStatusLabel, todoDuration, todoStatusLabel, type TodoItem } from "../app/model";
 import { writeClipboard, type DshJob } from "../lib/desktop";
 import { TASK_CONTEXT_MENU_SELECTOR } from "../app/context-menu";
 import { DockFrame } from "./DockFrame";
