@@ -3626,7 +3626,7 @@ function AppContent() {
   }
 
   function openModelsDevPricing() {
-    void openExternalUrl(modelPricingSourceUrl).catch((error) => setErrorNotice(errorText(error)));
+    void openConnectionUrl(modelPricingSourceUrl).catch((error) => setErrorNotice(errorText(error)));
   }
 
   function openSettings() {

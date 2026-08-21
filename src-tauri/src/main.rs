@@ -132,7 +132,7 @@ mod windows_process_environment {
     }
 
     fn parse_environment(bytes: &[u8]) -> Result<Option<PathBuf>, String> {
-        if bytes.len() % 2 != 0 {
+        if !bytes.len().is_multiple_of(2) {
             return Err("读取 DSH 进程环境失败：环境块不是 UTF-16 对齐数据".to_string());
         }
         let units: Vec<u16> = bytes
@@ -1796,7 +1796,7 @@ fn list_external_dsh_processes() -> Result<Vec<DshProcessInfo>, String> {
                 });
             }
         }
-        return Ok(processes);
+        Ok(processes)
     }
 
     #[cfg(unix)]
@@ -4373,11 +4373,22 @@ mod tests {
     #[test]
     fn validates_connection_protocols_without_opening_processes() {
         assert_eq!(
+            validated_connection_url(" https://models.dev ").unwrap(),
+            "https://models.dev"
+        );
+        assert_eq!(
             validated_connection_url(" https://example.com/docs ").unwrap(),
             "https://example.com/docs"
         );
+        assert_eq!(
+            validated_connection_url("http://example.com/docs").unwrap(),
+            "http://example.com/docs"
+        );
         assert!(validated_connection_url("javascript:alert(1)").is_err());
+        assert!(validated_connection_url("file:///tmp/demo").is_err());
         assert!(validated_connection_url("https://").is_err());
+        assert!(validated_connection_url("https://user@example.com").is_err());
+        assert!(validated_connection_url("https://example.com/with\\slash").is_err());
     }
 
     #[test]
