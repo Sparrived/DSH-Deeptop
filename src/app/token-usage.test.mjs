@@ -90,6 +90,16 @@ test("keeps reasoning as an output breakdown without inflating totals", () => {
   assert.equal(result.totals.totalTokens, 12);
 });
 
+test("keeps history reasoning when the tokenUsage projection omits it", () => {
+  const entries = [entry(1, "assistant/message", { usage: { input_tokens: 8, output_tokens: 12, reasoning_tokens: 7 } })];
+  const result = readSessionStats(entries, {
+    values: { tokenUsage: { uncachedInputTokens: 8, outputTokens: 12, cacheReadTokens: 0, cacheWriteTokens: 0 } },
+  });
+  assert.equal(result.tokenUsageSource, "projection");
+  assert.equal(result.reasoningTokens, 7);
+  assert.equal(result.outputTokens, 12);
+});
+
 test("does not produce NaN cache rate when buckets are all zero", () => {
   const result = readSessionStats([], { values: { usage: { uncachedInputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } } });
   assert.equal(result.cacheHitRate, 0);

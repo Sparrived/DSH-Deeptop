@@ -275,10 +275,13 @@ export function readSessionStats(entries: DshHistoryEntry[], projections?: { val
     values.outputTokens, values.output_tokens,
     official?.outputTokens, official?.output_tokens,
   );
+  // The runtime tokenUsage projection omits reasoning (it is a breakdown of
+  // output, not an additive bucket). Fall back to the history-derived figure
+  // so a projection never zeroes out the reported thinking tokens.
   const projectionReasoning = firstNumber(
     projectedBuckets.reasoning, values.reasoningTokens, values.reasoning_tokens,
     official?.reasoningTokens, official?.reasoning_tokens,
-  ) ?? 0;
+  ) ?? history.reasoningTokens;
   const projectionUncachedInput = firstNumber(
     projectedBuckets.uncachedInput, values.uncachedInputTokens, values.uncached_input_tokens,
   ) ?? 0;
