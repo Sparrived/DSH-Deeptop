@@ -114,6 +114,8 @@ export function SessionSidebar({
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const [dragCommitPending, setDragCommitPending] = useState(false);
+  // 同时只展开一个工作区的二级会话菜单。
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const groupedSessionCount = useMemo(() => workspaceGroups.reduce((total, group) => total + group.sessions.length, 0), [workspaceGroups]);
   const baseSessionOrder = useMemo(() => visibleSessions.map((session) => session.sessionId), [visibleSessions]);
   const dragPreviewRank = useMemo(
@@ -224,7 +226,7 @@ export function SessionSidebar({
           <div className="sidebar-heading-title"><button className="sidebar-back-button" type="button" onClick={() => setArchiveOpen(false)} title="返回会话列表" aria-label="返回会话列表">←</button><span>归档</span></div>
         ) : <span>会话</span>}
         <div className="sidebar-heading-actions">
-          <span>{archiveOpen ? archivedSessions.length : (groupedSessionCount > 0 ? groupedSessionCount : "")}</span>
+          <span>{archiveOpen ? archivedSessions.length : (search.trim() ? visibleSessions.length : (groupedSessionCount > 0 ? groupedSessionCount : ""))}</span>
           {!archiveOpen && <>
             <button type="button" onClick={() => setArchiveOpen(true)} title="打开归档页">归档</button>
           </>}
@@ -233,9 +235,10 @@ export function SessionSidebar({
       <div className="session-list" aria-label={archiveOpen ? "归档会话列表" : "会话列表"}>
         {archiveOpen ? (
           archivedSessions.length === 0 ? <div className="sidebar-empty">没有归档会话</div> : archivedSessions.map(renderArchivedSession)
+        ) : search.trim() ? (
+          visibleSessions.length === 0 ? <div className="sidebar-empty">没有匹配的会话</div> : visibleSessions.map(renderSessionRow)
         ) : <>
           {workspaceGroups.map((group) => {
-            // 默认：未置顶的工作区收起，置顶的工作区展开；用户的显式切换始终优先。
             const pinned = Boolean(group.workspace && pinnedWorkspaceIds.includes(group.workspaceId));
             return (
               <WorkspaceGroupSection
@@ -243,9 +246,12 @@ export function SessionSidebar({
                 workspace={group.workspace}
                 workspaceId={group.workspaceId}
                 sessions={orderSessions(group.sessions)}
-                collapsed={collapsedWorkspaces[group.workspaceId] ?? !pinned}
                 pinned={pinned}
-                onToggle={onToggleWorkspace}
+                current={group.workspace?.path === workspace}
+                menuOpen={openMenuId === group.workspaceId}
+                onToggleMenu={(workspaceId) => setOpenMenuId((current) => current === workspaceId ? null : workspaceId)}
+                onCloseMenu={() => setOpenMenuId(null)}
+                onChooseWorkspace={(path) => { setOpenMenuId(null); onChooseWorkspace(path); }}
                 onTogglePinWorkspace={onTogglePinWorkspace}
                 onRenameWorkspace={onRenameWorkspace}
                 onDeleteWorkspace={onDeleteWorkspace}

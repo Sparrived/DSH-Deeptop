@@ -1055,24 +1055,33 @@ function AppContent() {
       return [item.workspaceId, sessions] as const;
     }));
   }, [visibleSessions, workspaces]);
-  // 侧栏分组：置顶的工作区固定显示在最上方（按置顶顺序），其次显示当前选中的工作区；
-  // 未选择工作区时显示未分组会话。
+  // 侧栏为一组工作区行（一级菜单）：置顶的工作区固定排最上方（按置顶顺序），
+  // 其次显示当前选中的工作区；未置顶但被用户显式“展开”的工作区也以行显示，
+  // 其余未置顶工作区默认收起隐藏，避免工作区过多。未选择工作区时显示未分组会话。
   const workspaceGroups = useMemo<WorkspaceGroup[]>(() => {
     const groups: WorkspaceGroup[] = [];
     const pinnedSet = new Set(pinnedWorkspaceIds);
+    const added = new Set<string>();
     for (const workspaceId of pinnedWorkspaceIds) {
       const item = workspaces.find((candidate) => candidate.workspaceId === workspaceId);
       if (!item) continue;
+      added.add(item.workspaceId);
       groups.push({ workspace: item, workspaceId: item.workspaceId, sessions: sessionsByWorkspace.get(item.workspaceId) ?? [] });
     }
-    if (selectedWorkspace && !pinnedSet.has(selectedWorkspace.workspaceId)) {
+    if (selectedWorkspace && !added.has(selectedWorkspace.workspaceId)) {
+      added.add(selectedWorkspace.workspaceId);
       groups.push({ workspace: selectedWorkspace, workspaceId: selectedWorkspace.workspaceId, sessions: sessionsByWorkspace.get(selectedWorkspace.workspaceId) ?? [] });
+    }
+    for (const item of workspaces) {
+      if (pinnedSet.has(item.workspaceId) || added.has(item.workspaceId)) continue;
+      if (collapsedWorkspaces[item.workspaceId] !== false) continue;
+      groups.push({ workspace: item, workspaceId: item.workspaceId, sessions: sessionsByWorkspace.get(item.workspaceId) ?? [] });
     }
     if (!selectedWorkspace) {
       groups.push({ workspace: null, workspaceId: "__ungrouped__", sessions: visibleSessions.filter((session) => !workspaceBySessionId.has(session.sessionId)) });
     }
     return groups;
-  }, [pinnedWorkspaceIds, selectedWorkspace, sessionsByWorkspace, visibleSessions, workspaceBySessionId, workspaces]);
+  }, [collapsedWorkspaces, pinnedWorkspaceIds, selectedWorkspace, sessionsByWorkspace, visibleSessions, workspaceBySessionId, workspaces]);
   const defaultModelSelection = useMemo<ModelSelection | null>(() => {
     const configured = settings?.namespaces.find((namespace) => namespace.ns === "agent-default-model")?.value;
     const configuredModel = valueAtPath(configured, ["model"]);

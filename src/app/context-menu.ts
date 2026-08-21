@@ -4,7 +4,7 @@ export const TASK_CONTEXT_MENU_SELECTOR = ".task-context-menu";
 
 export const OWNED_CONTEXT_MENU_SELECTOR = [
   ".session-row",
-  ".workspace-group-header",
+  ".workspace-group-row",
   ".workspace-file-main",
   ".task-item",
   WORKSPACE_FILES_CONTEXT_MENU_SELECTOR,

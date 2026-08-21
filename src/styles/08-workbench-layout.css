@@ -706,36 +706,81 @@ textarea:focus-visible {
   margin: 0 0 8px;
 }
 
-.workspace-group-header {
+/* 一级：工作区行（右侧箭头展开为二级会话菜单） */
+.workspace-group-row {
   position: relative;
-  display: flex;
-  align-items: center;
-  gap: 4px;
   min-height: 32px;
-}
-
-.workspace-group-toggle {
-  min-width: 0;
-  flex: 1;
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 6px;
-  padding: 5px 6px;
-  background: transparent;
-  color: var(--rail-text);
-  text-align: left;
+  gap: 4px;
+  padding: 2px 2px 2px 0;
+  border-radius: var(--radius-control);
 }
 
-.workspace-group-toggle:hover {
+.workspace-group.current .workspace-group-row {
   background: var(--rail-surface);
 }
 
-.workspace-group-chevron {
+.workspace-row-toggle {
+  min-width: 18px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--rail-muted);
   font-family: var(--mono);
-  font-size: 14px;
-  text-align: center;
+  font-size: 13px;
+}
+
+.workspace-row-toggle:hover,
+.workspace-row-toggle.open {
+  color: var(--rail-text);
+}
+
+.workspace-row-main {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 4px 2px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.workspace-row-main:hover {
+  background: var(--rail-surface);
+}
+
+.workspace-row-pin {
+  width: 28px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--rail-muted);
+  font-size: 11px;
+  filter: grayscale(1);
+  opacity: 0.6;
+}
+
+.workspace-row-pin:hover {
+  background: var(--rail-surface);
+  opacity: 1;
+}
+
+.workspace-row-pin.active {
+  color: var(--accent-deep);
+  filter: none;
+  opacity: 1;
 }
 
 .workspace-group-copy {
@@ -766,6 +811,63 @@ textarea:focus-visible {
   color: var(--rail-muted);
   font-family: var(--mono);
   font-size: 11px;
+}
+
+/* 二级：工作区会话菜单（行右侧弹出） */
+.workspace-submenu {
+  position: fixed;
+  z-index: 1000;
+  max-width: 320px;
+  max-height: calc(100vh - 20px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-panel);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-panel);
+  color: var(--ink);
+}
+
+.workspace-submenu-heading {
+  display: grid;
+  gap: 2px;
+  padding: 4px 8px 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.workspace-submenu-heading strong,
+.workspace-submenu-heading small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-submenu-heading strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.workspace-submenu-heading small {
+  color: var(--ink-muted);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.workspace-submenu-sessions {
+  display: grid;
+  gap: 2px;
+  max-height: min(440px, calc(100vh - 180px));
+  overflow: auto;
+  scrollbar-color: var(--line) transparent;
+}
+
+.workspace-submenu-empty {
+  padding: 14px 8px;
+  color: var(--ink-muted);
+  font-size: 12px;
 }
 
 .session-context-menu .danger:hover {
