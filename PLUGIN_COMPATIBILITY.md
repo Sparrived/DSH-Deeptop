@@ -51,10 +51,10 @@ Windows 工具由现有 `standard` Agent Preset 提供。`deeptop-bridge/cordis.
 | --- | --- | --- | --- |
 | Commands | `commands/list`、`commands/execute`、`commands/change` | 命令目录、候选菜单、执行反馈 | 已接入 |
 | Message Feedback | `list`、`put`、`delete`、版本冲突 | 赞/踩、备注编辑、冲突对账 | 已接入 |
-| Permission | `permissions` Projection、`/permission` | 权限选择器、危险权限确认 | 部分接入 |
+| Permission | `permissions` Projection、`/permission` | 当前会话权限弹窗、新会话默认权限、危险权限确认 | 部分接入（全局设置入口与逐工具权限 UI 未做） |
 | Plan | `plan` Projection、`/plan` | 运行台状态和切换入口 | 部分接入 |
-| Session Stats | `sessionStats` Projection | 统计字段选择和展示 | 部分接入 |
-| Session Log Export | Host 流式 ZIP、`/export` | Tauri 下载通道、文件保存和状态提示 | 功能接入，传输仍需优化 |
+| Session Stats | `sessionStats` Projection | 每消息统计条（TTFT/Decode 速度）、Token/上下文仪表盘 | 部分接入（LLM 时间与工具时间未展示） |
+| Session Log Export | Host 流式 ZIP、`/export` | Tauri 原生另存为、文件保存和状态提示 | 功能接入，ZIP 仍 Base64 缓冲，传输仍需优化 |
 | Directory Picker | 官方 Host picker 和 ApiProxy | Tauri/React 选择目录入口 | 已接入 |
 
 当前桌面适配边界集中在：
@@ -85,27 +85,28 @@ Windows 工具由现有 `standard` Agent Preset 提供。`deeptop-bridge/cordis.
 ### P0：协议和功能完整性
 
 - [ ] 增加官方 Remote 能力的统一契约登记，减少每个功能在 `App.tsx` 中手写结果类型和错误处理。
-- [ ] 补齐 Remote 调用的取消、超时和断线重连语义，尤其是命令执行、反馈写入和长时间导出。
-- [ ] 增加通用 Projection 缓存和 Session 切换隔离测试，确保晚到的 Projection 不覆盖当前会话。
-- [ ] 增加官方插件存在/缺失时的能力探测，让原生入口能区分“插件未安装”和“调用失败”。
+- [~] 补齐 Remote 调用的取消、超时和断线重连语义：取消（AbortSignal）已在 Bridge/Remote 链路和长任务（导出）中透传，DSH 重启有终止旧进程与恢复流程；超时与断线重连的统一语义仍未完整覆盖。
+- [~] 增加通用 Projection 缓存和 Session 切换隔离测试：现有 `session-runtime-state`、`message-retry` 与 `session-repair` 测试已覆盖 DSH 重启后的 stale 状态清理、切换保护和并发写入；通用 Projection 缓存仍未建立。
+- [~] 增加官方插件存在/缺失时的能力探测：路由对缺失服务返回 `*-unavailable` 错误码并让 React 侧降级；统一、可查询的能力探测 API 未提供。
 - [x] 消息重试：复用官方 `session.fork({ sessionId, atSeq })` 创建已完成回合前缀分支，再从持久化用户提示词重发；首条消息使用当前会话配置创建空白分支。当前 Bridge/上游 Session API 仍不直接暴露原地 truncate/retryFrom，因此原会话保留为可恢复分支，并对切换会话、重复点击和历史图片恢复做了保护。
 
 ### P1：已有官方能力的原生体验补齐
 
 - [ ] Plan chip、Plan 状态在输入区的显示，以及结构化 Plan Review；不引入 WebUI Plan UI，而是使用现有问题响应和 Projection 在 React 中实现。
-- [ ] Permission 全局设置入口、当前会话权限弹窗和逐工具权限状态；继续复用官方权限服务和 `/permission`，不在桌面端复制权限决策逻辑。
-- [ ] 展示 `sessionStats` 的 LLM 时间、工具时间、TTFT、Decode 等完整字段，而不只显示轮数和步骤。
+- [~] Permission 全局设置入口、当前会话权限弹窗和逐工具权限状态：当前会话权限弹窗和新会话默认权限已接入；继续复用官方权限服务和 `/permission`，不在桌面端复制权限决策逻辑，全局设置入口与逐工具权限状态未做。
+- [~] 展示 `sessionStats` 的 LLM 时间、工具时间、TTFT、Decode 等完整字段：每消息统计条已展示 TTFT、Decode 速度、输入/输出/缓存与 tokens/s，token 仪表盘展示上下文窗口和 turns/steps；LLM 耗时与工具耗时已进入投影类型但尚未展示。
 - [ ] 将 Session ZIP 下载从 Base64 缓冲改为原生文件流或临时文件转移，保持官方 Host 的流式和取消能力。
 - [ ] 对 `/export`、命令执行、反馈写入等功能补充成功、失败、取消和 Session 切换后的可见状态。
 
 ### P1：已有桌面功能的官方契约深化
 
 - [ ] Provider/模型设置改为使用官方 Schema 驱动表单，同时保留当前自定义 Provider 和本地凭据安全边界。
-- [ ] 插件设置增加 Schema 表单、启用状态、依赖失败和 Host/Remote 能力信息；原始 JSON 编辑作为诊断后备。
-- [ ] Agent Preset 补齐新会话 chip、完整创建/复制/删除和默认值变更后的 Session 状态同步。
-- [ ] Subagent 补齐递归树、任意深度导航、懒加载和稳定的 `@` 引用；继续复用官方子 Session API。
-- [ ] Goal 增加输入区 GoalBar；Workflow 成员卡支持打开对应子 Session。
-- [ ] Tool/Trajectory 对齐更多官方事件语义，增加终端、文件、搜索、Web、Todo、Skill 等领域卡片。
+- [~] 插件设置增加 Schema 表单、启用状态、依赖失败和 Host/Remote 能力信息：原生安装流程（来源/名称/Entry 校验、安装与取消）已增加，原始 JSON 编辑保留为诊断后备；Schema 表单、启用/依赖状态仍未做。
+- [x] Agent Preset 补齐新会话 chip、完整创建/复制/删除和默认值变更后的 Session 状态同步。
+- [~] Subagent 补齐递归树、任意深度导航、懒加载和稳定的 `@` 引用：`@` 候选引用与书签面板已具备；继续复用官方子 Session API，递归树、任意深度导航和懒加载未做。
+- [x] Goal 增加输入区 GoalBar（常驻摘要条可与管理面板互操作）。
+- [ ] Workflow 成员卡支持打开对应子 Session。
+- [~] Tool/Trajectory 对齐更多官方事件语义：终端（原生 PTY Dock）、文件/路径卡片、Diff 统计、Todo 面板和连接卡片已增加；搜索、Web、Skill 领域卡片仍未复刻。
 
 ### P2：桌面体验增强
 
