@@ -158,9 +158,15 @@ function usageStats(usage: Record<string, unknown> | undefined): MessageStats {
   const cacheWrite = buckets.cacheWrite;
   const rawInput = numberValue(usage.inputTokens ?? usage.input_tokens);
   const hasCacheBuckets = uncachedInput !== undefined || cacheRead !== undefined || cacheWrite !== undefined;
-  // input_tokens is already the provider's input total when present; cache
-  // buckets are only a breakdown. Derive a total from buckets only when it is absent.
-  const input = rawInput ?? (uncachedInput === undefined ? undefined : uncachedInput + (cacheRead ?? 0) + (cacheWrite ?? 0));
+  // The harness TokenUsage (dsh adapters) reports disjoint counts: `inputTokens`
+  // is the uncached portion and camelCase cache buckets are separate. Generic
+  // usage reports `input_tokens` as the provider total. Detect the disjoint
+  // style by its coexisting camelCase input/cache fields; either way the
+  // uncached component plus the cache buckets add up to the total input.
+  const disjointStyle = usage.inputTokens !== undefined
+    && (usage.cacheReadTokens !== undefined || usage.cacheWriteTokens !== undefined);
+  const uncached = uncachedInput ?? (disjointStyle ? rawInput : undefined);
+  const input = uncached === undefined ? rawInput : uncached + (cacheRead ?? 0) + (cacheWrite ?? 0);
   const output = numberValue(usage.outputTokens ?? usage.output_tokens);
   // The dashboard defines total usage as input + output. Reasoning is a
   // provider-reported subset of output, so it must not be added again.
@@ -170,10 +176,10 @@ function usageStats(usage: Record<string, unknown> | undefined): MessageStats {
     ...(output === undefined ? {} : { outputTokens: output }),
     ...(total === undefined ? {} : { totalTokens: total }),
     ...(buckets.reasoning === undefined ? {} : { reasoningTokens: buckets.reasoning }),
-    ...(uncachedInput !== undefined ? { uncachedInputTokens: uncachedInput } : {}),
+    ...(uncached === undefined ? {} : { uncachedInputTokens: uncached }),
     ...(cacheRead !== undefined ? { cacheReadTokens: cacheRead } : {}),
     ...(cacheWrite !== undefined ? { cacheWriteTokens: cacheWrite } : {}),
-    ...(hasCacheBuckets && input !== undefined && input > 0 ? { cacheHitRate: ((cacheRead ?? 0) / input) * 100 } : {}),
+    ...(hasCacheBuckets && input !== undefined && input > 0 ? { cacheHitRate: Math.min(100, ((cacheRead ?? 0) / input) * 100) } : {}),
   };
 }
 

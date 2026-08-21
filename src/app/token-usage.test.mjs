@@ -62,6 +62,25 @@ test("maps generic cached input to reads without inflating writes", () => {
   assert.equal(result.inputTokens, 20);
 });
 
+test("caps per-message cache rate at the disjoint input total", () => {
+  const entries = [entry(1, "assistant/message", { usage: { inputTokens: 10, outputTokens: 8, cacheReadTokens: 90, cacheWriteTokens: 0 } })];
+  const result = tokenUsageDashboard(entries, readSessionStats(entries, { values: {} }));
+  assert.equal(result.points[0].inputTokens, 100);
+  assert.equal(result.points[0].uncachedInputTokens, 10);
+  assert.equal(result.points[0].cacheReadTokens, 90);
+  assert.equal(result.points[0].cacheHitRate, 90);
+  assert.equal(result.points[0].totalTokens, 108);
+  assert.equal(result.totals.cacheHitRate, 90);
+});
+
+test("treats generic total input as the cache denominator without double counting", () => {
+  const entries = [entry(1, "assistant/message", { usage: { input_tokens: 100, output_tokens: 8, cache_read: 40 } })];
+  const result = tokenUsageDashboard(entries, readSessionStats(entries, { values: {} }));
+  assert.equal(result.points[0].inputTokens, 100);
+  assert.equal(result.points[0].cacheHitRate, 40);
+  assert.equal(result.points[0].totalTokens, 108);
+});
+
 test("keeps usage points when responses have no turn-step coordinates", () => {
   const entries = [
     entry(1, "assistant/message", { usage: { input_tokens: 8, output_tokens: 3 } }),
