@@ -13,7 +13,6 @@
   gap: 8px;
   padding: 10px;
   border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
-  border-left: 3px solid var(--accent);
   border-radius: var(--radius-panel);
   background: color-mix(in srgb, var(--surface-raised) 96%, var(--accent-soft));
   box-shadow: var(--shadow-soft);
@@ -28,7 +27,6 @@
   height: 22px;
   padding: 0;
   border-top: 0;
-  border-left-color: var(--accent);
   border-radius: 0 0 var(--radius-control) var(--radius-control);
   box-shadow: none;
   overflow: hidden;
@@ -38,10 +36,6 @@
 .current-goal-bar.collapsed .current-goal-manage {
   display: none;
 }
-
-.current-goal-bar.paused { border-left-color: var(--warning); }
-.current-goal-bar.blocked { border-left-color: var(--danger); }
-.current-goal-bar.complete { border-left-color: var(--good); }
 
 .current-goal-mark {
   width: 28px;
@@ -136,10 +130,10 @@
 }
 
 .goal-management-panel { display: grid; gap: 18px; }
-.goal-management-summary { min-width: 0; display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 14px; padding: 16px; border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line)); border-left: 3px solid var(--accent); border-radius: var(--radius-panel); background: color-mix(in srgb, var(--accent) 7%, var(--surface-raised)); }
-.goal-management-summary.paused { border-left-color: var(--warning); background: color-mix(in srgb, var(--warning) 7%, var(--surface-raised)); }
-.goal-management-summary.blocked { border-left-color: var(--danger); background: color-mix(in srgb, var(--danger) 7%, var(--surface-raised)); }
-.goal-management-summary.complete { border-left-color: var(--good); background: color-mix(in srgb, var(--good) 7%, var(--surface-raised)); }
+.goal-management-summary { min-width: 0; display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 14px; padding: 16px; border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line)); border-radius: var(--radius-panel); background: color-mix(in srgb, var(--accent) 7%, var(--surface-raised)); }
+.goal-management-summary.paused { background: color-mix(in srgb, var(--warning) 7%, var(--surface-raised)); }
+.goal-management-summary.blocked { background: color-mix(in srgb, var(--danger) 7%, var(--surface-raised)); }
+.goal-management-summary.complete { background: color-mix(in srgb, var(--good) 7%, var(--surface-raised)); }
 .goal-management-mark { width: 40px; height: 40px; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--accent) 44%, var(--line)); border-radius: 10px; color: var(--accent-deep); font: 700 17px/1 var(--mono); }
 .goal-management-summary.paused .goal-management-mark { border-color: color-mix(in srgb, var(--warning) 48%, var(--line)); color: var(--warning); }
 .goal-management-summary.blocked .goal-management-mark { border-color: color-mix(in srgb, var(--danger) 48%, var(--line)); color: var(--danger); }

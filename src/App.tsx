@@ -3744,11 +3744,8 @@ function AppContent() {
             queueCount={queue.length}
             trajectoryOpen={trajectoryOpen}
             tokenUsageOpen={tokenUsageOpen}
-             goalOpen={goalPanelOpen}
-             hasGoal={Boolean(activeGoal)}
             onToggleTrajectory={() => { setTokenUsageOpen(false); setTrajectoryOpen((open) => !open); }}
             onToggleTokenUsage={() => { setTrajectoryOpen(false); setTokenUsageOpen((open) => !open); }}
-             onOpenGoal={openGoalPanel}
           />
 
           <div className={`conversation-transcript-stage${activeGoal ? " has-current-goal" : ""}${goalBarCollapsed ? " current-goal-collapsed" : ""}`}>
