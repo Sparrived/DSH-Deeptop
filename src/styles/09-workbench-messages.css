@@ -372,17 +372,26 @@
 .reasoning-entry[data-state="running"] > summary::after {
   position: absolute;
   inset-block: 0;
-  left: -300px;
-  width: 300px;
+  left: 0;
+  width: 100%;
   background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--surface) 68%, transparent) 55%, transparent 100%);
+  background-size: 300px 100%;
+  background-repeat: no-repeat;
   content: "";
   pointer-events: none;
+  transform: translateX(-300px);
+  will-change: transform;
   animation: reasoning-card-sweep 2.6s ease-out infinite;
 }
 
+/* Sweep with a composited transform instead of `left`: `left` forces a
+   main-thread layout pass on every animation frame, and while a fast think
+   stream keeps the main thread busy re-rendering deltas that animation
+   visibly drops to a low frame rate (compositor-only animations like the
+   sidebar pulse stay smooth). The 300px-wide band path is unchanged. */
 @keyframes reasoning-card-sweep {
-  0% { left: -300px; }
-  90%, 100% { left: 100%; }
+  0% { transform: translateX(-300px); }
+  90%, 100% { transform: translateX(100%); }
 }
 
 .injected-entry summary,
