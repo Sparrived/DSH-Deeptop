@@ -3,10 +3,10 @@ import type { WorkspaceGitGraphLine } from "../lib/desktop";
 import { gitGraphLaneColor, gitRefKind } from "../app/git-model";
 import { gitGraphLayout } from "../app/git-graph-layout";
 
-// 向量渲染几何：泳道宽、行高，泳道画在列中心，跨泳道边用贝塞尔曲线。
-const LANE_W = 20;
+// 向量渲染几何：泳道宽、行高，泳道画在列中心，跨泳道边用圆角折线。
+const LANE_W = 15;
 const ROW_H = 26;
-const NODE_R = 6;
+const NODE_R = 4;
 
 type GitTreeGraphProps = {
   lines: WorkspaceGitGraphLine[];
@@ -48,17 +48,18 @@ export function GitTreeGraph({ lines, selectedHash, onSelect }: GitTreeGraphProp
     const ys = nodeY(edge.fromRow);
     const xt = laneX(edge.toLane);
     const yt = nodeY(edge.toRow);
-    // 圆角折线路由（竖直-水平-竖直，标准内切圆弧圆角，半径 7px）。
-    const cornerR = 7;
+    // 圆角折线路由（竖直-水平-竖直）：圆弧凸向外侧拐角，
+    // sweep 随横向行进方向翻转；两段圆弧方向相反，画反会向内勾。
+    const cornerR = 6;
     const joinY = 5;
     const elbowY = Math.max(ys + cornerR + 2, yt - cornerR - joinY);
     const dir = xt >= xs ? 1 : -1;
     const path = [
       `M ${xs} ${ys}`,
       `L ${xs} ${elbowY - cornerR}`,
-      `A ${cornerR} ${cornerR} 0 0 ${dir === 1 ? 1 : 0} ${xs + dir * cornerR} ${elbowY}`,
+      `A ${cornerR} ${cornerR} 0 0 ${dir === 1 ? 0 : 1} ${xs + dir * cornerR} ${elbowY}`,
       `L ${xt - dir * cornerR} ${elbowY}`,
-      `A ${cornerR} ${cornerR} 0 0 ${dir === 1 ? 0 : 1} ${xt} ${elbowY + cornerR}`,
+      `A ${cornerR} ${cornerR} 0 0 ${dir === 1 ? 1 : 0} ${xt} ${elbowY + cornerR}`,
       `L ${xt} ${yt}`,
     ].join(" ");
     return <path key={`e${index}`} d={path} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" />;
@@ -72,9 +73,9 @@ export function GitTreeGraph({ lines, selectedHash, onSelect }: GitTreeGraphProp
     return (
       <g key={commit.hash}>
         <circle cx={x} cy={y} r={NODE_R + (selected || commit.isHead ? 1.5 : 0)} fill={color} />
-        <circle cx={x} cy={y} r={2.2} fill="var(--surface-raised)" />
+        <circle cx={x} cy={y} r={1.6} fill="var(--surface-raised)" />
         {(selected || commit.isHead) && (
-          <circle cx={x} cy={y} r={NODE_R + 4.5} fill="none" stroke={color} strokeWidth={1.5} opacity={0.75} />
+          <circle cx={x} cy={y} r={NODE_R + 3} fill="none" stroke={color} strokeWidth={1.25} opacity={0.75} />
         )}
       </g>
     );
@@ -108,8 +109,10 @@ export function GitTreeGraph({ lines, selectedHash, onSelect }: GitTreeGraphProp
           {edges}
           {nodes}
         </svg>
-        {rows}
       </div>
+      {/* 提交行挂在画布外的滚动容器上：left/right 相对整个面板解析，
+          画布只占泳道宽度，避免提交标题被画布宽度挤没。 */}
+      {rows}
     </div>
   );
 }

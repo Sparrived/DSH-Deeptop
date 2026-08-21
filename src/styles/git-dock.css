@@ -569,9 +569,9 @@
   min-height: 0;
   overflow: auto;
 }
+/* 画布只占泳道宽度；提交行是它的兄弟节点，横向占满整个滚动容器。 */
 .git-graph-canvas {
   position: relative;
-  min-width: 200px;
 }
 .git-graph-svg {
   position: absolute;
