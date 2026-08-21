@@ -55,10 +55,9 @@ for (const lane of layout.lanes) {
 for (const edge of layout.edges) {
   const xs = laneX(edge.fromLane), ys = nodeY(edge.fromRow);
   const xt = laneX(edge.toLane), yt = nodeY(edge.toRow);
-  const span = Math.max(ROW_H, yt - ys);
-  const d = Math.sqrt((xt - xs) ** 2 + (yt - ys) ** 2);
-  const path = `M ${xs} ${ys} C ${xs + Math.max(12, Math.min(28, d * 0.35))} ${ys + span * 0.25}, ${xt} ${yt - Math.max(10, span * 0.3)}, ${xt} ${yt}`;
-  svg.push(`<path d="${path}" fill="none" stroke="${laneColor(edge.fromLane)}" stroke-width="2" stroke-linecap="round"/>`);
+  const elbowY = Math.min(ys + ROW_H * 0.6, (ys + yt) / 2);
+  const path = `M ${xs} ${ys} L ${xs} ${elbowY} L ${xt} ${elbowY} L ${xt} ${yt}`;
+  svg.push(`<path d="${path}" fill="none" stroke="${laneColor(edge.fromLane)}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`);
 }
 for (const c of layout.commits) {
   const x = laneX(c.lane), y = nodeY(c.row);

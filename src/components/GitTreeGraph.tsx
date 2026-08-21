@@ -47,11 +47,10 @@ export function GitTreeGraph({ lines, selectedHash, onSelect }: GitTreeGraphProp
     const ys = nodeY(edge.fromRow);
     const xt = laneX(edge.toLane);
     const yt = nodeY(edge.toRow);
-    const span = Math.max(ROW_H, yt - ys);
-    const d = Math.sqrt((xt - xs) ** 2 + (yt - ys) ** 2);
-    // 贝塞尔：从源节点横向顺出、向下摆、再接入目标节点上方
-    const path = `M ${xs} ${ys} C ${xs + Math.max(12, Math.min(28, d * 0.35))} ${ys + span * 0.25}, ${xt} ${yt - Math.max(10, span * 0.3)}, ${xt} ${yt}`;
-    return <path key={`e${index}`} d={path} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" />;
+    // 直角折线路由（竖直-水平-竖直），拐角用圆角接头，避免贝塞尔曲线的圆滑感。
+    const elbowY = Math.min(ys + ROW_H * 0.6, (ys + yt) / 2);
+    const path = `M ${xs} ${ys} L ${xs} ${elbowY} L ${xt} ${elbowY} L ${xt} ${yt}`;
+    return <path key={`e${index}`} d={path} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />;
   });
 
   const nodes = layout.commits.map((commit) => {
