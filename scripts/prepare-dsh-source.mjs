@@ -48,6 +48,12 @@ if (!fs.existsSync(path.join(sourceRoot, ".git"))) {
   });
 }
 
+// The patch is generated against LF worktree files. Git for Windows may inherit
+// core.autocrlf=true, which changes the public RC8 checkout before git apply.
+// Pin the temporary source checkout to LF on every platform.
+sourceGit(["config", "core.autocrlf", "false"]);
+sourceGit(["config", "core.eol", "lf"]);
+
 const current = sourceGit(["rev-parse", "HEAD"]);
 if (current === patchedCommit) {
   if (sourceGit(["status", "--porcelain"])) throw new Error("vendor/dsh 已在 fork 提交但工作区不干净");
