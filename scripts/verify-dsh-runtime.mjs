@@ -37,6 +37,27 @@ if (!/^[0-9a-f]{64}$/.test(manifest.treeSha256)) {
   throw new Error(`内嵌 DSH 清单缺少运行时树摘要：${manifest.treeSha256}`);
 }
 
+// The Rust bridge compiles the bundled commit/version into the binary and
+// refuses to start a runtime whose manifest does not match. Verify the staged
+// resource still matches those compiled constants so a vendor/dsh advance alone
+// cannot silently produce a non-launchable installer.
+const mainSource = fs.readFileSync(path.join(root, "src-tauri", "src", "main.rs"), "utf8");
+const pinnedCommit = mainSource.match(
+  /const BUNDLED_DSH_SOURCE_COMMIT:\s*&str\s*=\s*"([0-9a-f]{40})"/,
+)?.[1];
+const pinnedVersion = mainSource.match(
+  /const BUNDLED_DSH_VERSION:\s*&str\s*=\s*"([^"]+)"/,
+)?.[1];
+if (!pinnedCommit || !pinnedVersion) {
+  throw new Error("无法从 src-tauri/src/main.rs 读取内嵌 DSH 编译期常量");
+}
+if (manifest.sourceCommit !== pinnedCommit || manifest.packageVersion !== pinnedVersion) {
+  throw new Error(
+    `内嵌 DSH 清单与编译期常量不一致：清单 ${manifest.packageVersion} @ ${manifest.sourceCommit}，` +
+      `main.rs ${pinnedVersion} @ ${pinnedCommit}。请先运行 npm run dsh:sync 并在同一提交重建。`,
+  );
+}
+
 // The archive is extracted and checked by the Rust bridge. This command only
 // checks the compressed resource can be enumerated on the build host; staging
 // checks in sync-dsh-runtime.mjs cover the required package entries before it is
