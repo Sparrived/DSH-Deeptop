@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { useFloatingMenuPosition } from "../app/useFloatingMenuPosition";
 import { errorText, formatDurationMs, jobDuration, jobStatusLabel, todoDuration, todoStatusLabel, type TodoItem } from "../app/model";
 import { writeClipboard, type DshJob } from "../lib/desktop";
 import { TASK_CONTEXT_MENU_SELECTOR } from "../app/context-menu";
@@ -38,6 +39,7 @@ export function TaskPanel({ jobs, collapsed, now, onToggle }: TaskPanelProps) {
   const liveCount = jobs.filter((job) => job.status === "running" || job.status === "stopping").length;
   const [contextMenu, setContextMenu] = useState<TaskContextMenu | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const { menuRef, menuAt } = useFloatingMenuPosition(contextMenu);
   const orderedJobs = [...jobs].sort((left, right) => {
     const leftLive = left.status === "running" || left.status === "stopping";
     const rightLive = right.status === "running" || right.status === "stopping";
@@ -77,8 +79,6 @@ export function TaskPanel({ jobs, collapsed, now, onToggle }: TaskPanelProps) {
       });
   };
   const menu = contextMenu;
-  const menuX = menu ? Math.min(menu.x, window.innerWidth - 190) : 0;
-  const menuY = menu ? Math.min(menu.y, window.innerHeight - 70) : 0;
 
   return (
     <DockFrame
@@ -115,7 +115,8 @@ export function TaskPanel({ jobs, collapsed, now, onToggle }: TaskPanelProps) {
       {menu && createPortal(
         <div
           className={TASK_CONTEXT_MENU_SELECTOR.slice(1)}
-          style={{ left: menuX, top: menuY }}
+          ref={menuRef}
+          style={{ left: menuAt?.left ?? menu.x, top: menuAt?.top ?? menu.y }}
           role="menu"
           onPointerDown={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.preventDefault()}

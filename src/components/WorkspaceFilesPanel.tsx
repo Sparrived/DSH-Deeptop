@@ -14,6 +14,7 @@ import {
 } from "../lib/desktop";
 import { errorText } from "../app/model";
 import { WORKSPACE_FILES_CONTEXT_MENU_SELECTOR } from "../app/context-menu";
+import { useFloatingMenuPosition } from "../app/useFloatingMenuPosition";
 import { DockFrame } from "./DockFrame";
 
 type FilesContextMenu = {
@@ -449,8 +450,7 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError, o
   };
 
   const menu = contextMenu;
-  const menuX = menu ? Math.min(menu.x, window.innerWidth - 220) : 0;
-  const menuY = menu ? Math.min(menu.y, window.innerHeight - 240) : 0;
+  const { menuRef, menuAt } = useFloatingMenuPosition(menu);
   const showingNewFolderAtRoot = creatingFolderIn === workspace;
   const rootEmpty = rootEntries !== null && rootEntries.length === 0 && !showingNewFolderAtRoot;
 
@@ -507,8 +507,9 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError, o
 
       {menu && createPortal(
         <div
+          ref={menuRef}
           className="workspace-files-context-menu"
-          style={{ left: menuX, top: menuY }}
+          style={{ left: menuAt?.left ?? menu.x, top: menuAt?.top ?? menu.y }}
           role="menu"
           onPointerDown={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.preventDefault()}
