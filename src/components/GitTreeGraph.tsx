@@ -1,11 +1,12 @@
 import { useMemo } from "react";
 import type { WorkspaceGitGraphLine } from "../lib/desktop";
 import { gitGraphLaneColor, gitRefKind } from "../app/git-model";
+import { gitGraphLayout } from "../app/git-graph-layout";
 
-// SVG 图元几何：每个图谱列固定像素宽，泳道画在列中心；
-// `|` 是垂直泳道，`\`/`/` 是对角连接（跨一列），`*`/`o` 是提交节点。
-const GRAPH_CELL_W = 12;
-const GRAPH_ROW_H = 22;
+// 向量渲染几何：泳道宽、行高，泳道画在列中心，跨泳道边用贝塞尔曲线。
+const LANE_W = 20;
+const ROW_H = 26;
+const NODE_R = 6;
 
 type GitTreeGraphProps = {
   lines: WorkspaceGitGraphLine[];
@@ -13,87 +14,92 @@ type GitTreeGraphProps = {
   onSelect: (hash: string) => void;
 };
 
-type SvgGraphProps = {
-  graph: string;
-  maxColumns: number;
-  head?: boolean;
-};
-
-function GraphCells({ graph, maxColumns, head }: SvgGraphProps) {
-  const cells: React.ReactNode[] = [];
-  const my = GRAPH_ROW_H / 2;
-  for (let column = 0; column < maxColumns; column += 1) {
-    const char = column < graph.length ? graph[column] : " ";
-    if (char === " ") continue;
-    const color = gitGraphLaneColor(column);
-    const cx = (column + 0.5) * GRAPH_CELL_W;
-    // 忠实于等宽字形几何：`|`/`*`/`o` 所在格都画贯穿整行的垂直主干，
-    // 行与行之间的泳道因此无缝隙；`\`/`/` 画满整格对角线；圆点是提交节点。
-    if (char === "|" || char === "*" || char === "o") {
-      cells.push(<line key={`v${column}`} x1={cx} y1={0} x2={cx} y2={GRAPH_ROW_H} stroke={color} strokeWidth={2} strokeLinecap="round" />);
-      if (char !== "|") {
-        cells.push(
-          <g key={`d${column}`}>
-            <circle cx={cx} cy={my} r={5.5} fill={color} />
-            <circle cx={cx} cy={my} r={2} fill="var(--surface-raised)" />
-            {head && <circle cx={cx} cy={my} r={8} fill="none" stroke={color} strokeWidth={1.5} opacity={0.7} />}
-          </g>,
-        );
-      }
-    } else if (char === "\\") {
-      cells.push(<line key={column} x1={column * GRAPH_CELL_W + 1} y1={0} x2={(column + 1) * GRAPH_CELL_W - 1} y2={GRAPH_ROW_H} stroke={color} strokeWidth={2} strokeLinecap="round" />);
-    } else if (char === "/") {
-      cells.push(<line key={column} x1={(column + 1) * GRAPH_CELL_W - 1} y1={0} x2={column * GRAPH_CELL_W + 1} y2={GRAPH_ROW_H} stroke={color} strokeWidth={2} strokeLinecap="round" />);
-    } else if (char === "_") {
-      cells.push(<line key={column} x1={column * GRAPH_CELL_W} y1={GRAPH_ROW_H * 0.8} x2={(column + 1) * GRAPH_CELL_W} y2={GRAPH_ROW_H * 0.8} stroke={color} strokeWidth={2} strokeLinecap="round" />);
-    } else if (char === ".") {
-      cells.push(<line key={column} x1={column * GRAPH_CELL_W} y1={my} x2={(column + 1) * GRAPH_CELL_W} y2={my} stroke={color} strokeWidth={2} strokeLinecap="round" />);
-    } else {
-      cells.push(<circle key={column} cx={cx} cy={my} r={1.4} fill={color} opacity={0.5} />);
-    }
-  }
-  return (
-    <svg className="git-graph-svg" width={maxColumns * GRAPH_CELL_W} height={GRAPH_ROW_H} aria-hidden="true">
-      {cells}
-    </svg>
-  );
-}
-
 export function GitTreeGraph({ lines, selectedHash, onSelect }: GitTreeGraphProps) {
-  const maxColumns = useMemo(
-    () => lines.reduce((max, line) => Math.max(max, line.graph.length), 0),
-    [lines],
-  );
-  if (lines.length === 0) return null;
+  const layout = useMemo(() => gitGraphLayout(lines), [lines]);
+  if (layout.commits.length === 0) return null;
+
+  const graphW = layout.columnCount * LANE_W;
+  const graphH = layout.commits.length * ROW_H;
+  const laneX = (lane: number) => (lane + 0.5) * LANE_W;
+  const nodeY = (row: number) => row * ROW_H + ROW_H / 2;
+
+  const laneLines = layout.lanes.map((lane) => {
+    const color = gitGraphLaneColor(lane.lane);
+    const x = laneX(lane.lane);
+    return (
+      <line
+        key={`l${lane.lane}`}
+        x1={x}
+        y1={nodeY(lane.fromRow)}
+        x2={x}
+        y2={nodeY(lane.toRow)}
+        stroke={color}
+        strokeWidth={2}
+        strokeLinecap="round"
+        opacity={0.9}
+      />
+    );
+  });
+
+  const edges = layout.edges.map((edge, index) => {
+    const color = gitGraphLaneColor(edge.fromLane);
+    const xs = laneX(edge.fromLane);
+    const ys = nodeY(edge.fromRow);
+    const xt = laneX(edge.toLane);
+    const yt = nodeY(edge.toRow);
+    const span = Math.max(ROW_H, yt - ys);
+    const d = Math.sqrt((xt - xs) ** 2 + (yt - ys) ** 2);
+    // 贝塞尔：从源节点横向顺出、向下摆、再接入目标节点上方
+    const path = `M ${xs} ${ys} C ${xs + Math.max(12, Math.min(28, d * 0.35))} ${ys + span * 0.25}, ${xt} ${yt - Math.max(10, span * 0.3)}, ${xt} ${yt}`;
+    return <path key={`e${index}`} d={path} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" />;
+  });
+
+  const nodes = layout.commits.map((commit) => {
+    const x = laneX(commit.lane);
+    const y = nodeY(commit.row);
+    const color = gitGraphLaneColor(commit.lane);
+    const selected = commit.hash === selectedHash;
+    return (
+      <g key={commit.hash}>
+        <circle cx={x} cy={y} r={NODE_R + (selected || commit.isHead ? 1.5 : 0)} fill={color} />
+        <circle cx={x} cy={y} r={2.2} fill="var(--surface-raised)" />
+        {(selected || commit.isHead) && (
+          <circle cx={x} cy={y} r={NODE_R + 4.5} fill="none" stroke={color} strokeWidth={1.5} opacity={0.75} />
+        )}
+      </g>
+    );
+  });
+
+  const rows = layout.commits.map((commit) => {
+    const selected = commit.hash === selectedHash;
+    return (
+      <button
+        key={`r${commit.hash}`}
+        type="button"
+        className={`git-graph-row ${selected ? "selected" : ""}`}
+        style={{ top: commit.row * ROW_H, left: graphW + 10, right: 10, height: ROW_H }}
+        onClick={() => onSelect(commit.hash)}
+        title={commit.subject}
+      >
+        <span className="git-graph-hash">{commit.shortHash}</span>
+        {commit.refs.map((ref) => (
+          <span key={ref} className={`git-graph-ref git-ref-${gitRefKind(ref)}`} title={ref}>{ref}</span>
+        ))}
+        <span className="git-graph-subject" title={commit.subject}>{commit.subject}</span>
+      </button>
+    );
+  });
 
   return (
     <div className="git-graph-list">
-      {lines.map((line, index) => {
-        if (line.hash === null) {
-          return (
-            <div key={`c${index}`} className="git-graph-connector" aria-hidden="true">
-              <GraphCells graph={line.graph} maxColumns={maxColumns} />
-            </div>
-          );
-        }
-        const selected = line.hash === selectedHash;
-        return (
-          <button
-            key={line.hash}
-            type="button"
-            className={`git-graph-row ${selected ? "selected" : ""}`}
-            onClick={() => onSelect(line.hash as string)}
-            title={line.subject ?? line.shortHash ?? undefined}
-          >
-            <GraphCells graph={line.graph} maxColumns={maxColumns} head={line.refs.some((ref) => ref.startsWith("HEAD"))} />
-            <span className="git-graph-hash">{line.shortHash}</span>
-            {line.refs.map((ref) => (
-              <span key={ref} className={`git-graph-ref git-ref-${gitRefKind(ref)}`} title={ref}>{ref}</span>
-            ))}
-            <span className="git-graph-subject" title={line.subject ?? undefined}>{line.subject}</span>
-          </button>
-        );
-      })}
+      <div className="git-graph-canvas" style={{ width: graphW, height: graphH }}>
+        <svg className="git-graph-svg" width={graphW} height={graphH} aria-hidden="true">
+          {laneLines}
+          {edges}
+          {nodes}
+        </svg>
+        {rows}
+      </div>
     </div>
   );
 }

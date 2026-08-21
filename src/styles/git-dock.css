@@ -565,16 +565,27 @@
 .git-history-view-toggle button:hover:not(.selected) { border-color: var(--accent); color: var(--accent-deep); }
 .git-history-view-toggle button.selected { border-color: var(--accent); color: var(--accent-deep); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
 .git-graph-list {
+  position: relative;
   min-height: 0;
   overflow: auto;
 }
+.git-graph-canvas {
+  position: relative;
+  min-width: 200px;
+}
+.git-graph-svg {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: block;
+  overflow: visible;
+}
 .git-graph-row {
-  width: 100%;
-  min-width: 0;
+  position: absolute;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 10px;
+  padding: 0 8px;
   border: 0;
   background: transparent;
   color: var(--ink);
@@ -583,17 +594,10 @@
   font-size: 11px;
   white-space: nowrap;
   cursor: pointer;
+  border-radius: var(--radius-control);
 }
 .git-graph-row:hover { background: var(--surface-soft); }
 .git-graph-row.selected { background: color-mix(in srgb, var(--accent) 12%, var(--surface-soft)); }
-.git-graph-connector {
-  display: flex;
-  padding: 0 10px;
-}
-.git-graph-svg {
-  flex: 0 0 auto;
-  display: block;
-}
 .git-graph-hash {
   flex: 0 0 auto;
   color: var(--accent-deep);
