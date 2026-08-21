@@ -3701,6 +3701,605 @@ fn get_workspace_git_status(dir: String) -> Result<WorkspaceGitStatus, String> {
     })
 }
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceGitCommit {
+    hash: String,
+    short_hash: String,
+    author: String,
+    email: String,
+    timestamp: i64,
+    subject: String,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceGitFileStat {
+    path: String,
+    additions: u32,
+    deletions: u32,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceGitCommitDetail {
+    hash: String,
+    subject: String,
+    author: String,
+    email: String,
+    timestamp: i64,
+    body: String,
+    files: Vec<WorkspaceGitFileStat>,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceGitBranch {
+    name: String,
+    is_current: bool,
+    is_remote: bool,
+    upstream: Option<String>,
+    short_oid: String,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct GitCommandResult {
+    ok: bool,
+    stdout: String,
+    stderr: String,
+    text: String,
+}
+
+impl GitCommandResult {
+    fn from_output(stdout: String, stderr: String, ok: bool) -> Self {
+        let combined = [stdout.trim().to_string(), stderr.trim().to_string()]
+            .into_iter()
+            .fold(String::new(), |mut acc, part| {
+                if part.is_empty() {
+                    return acc;
+                }
+                if !acc.is_empty() {
+                    acc.push('\n');
+                }
+                acc.push_str(&part);
+                acc
+            });
+        Self {
+            ok,
+            stdout,
+            stderr,
+            text: combined,
+        }
+    }
+}
+
+/// git 命令原始输出：只区分“能否启动”，退出码由调用方判定。
+struct GitOutput {
+    ok: bool,
+    stdout: String,
+    stderr: String,
+}
+
+fn git_raw_output(directory: &Path, args: &[&str]) -> Result<GitOutput, String> {
+    let output = git_output(directory, args).map_err(|error| format!("无法运行 git：{error}"))?;
+    Ok(GitOutput {
+        ok: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    })
+}
+
+/// 解析仓库根目录，之后所有变更命令都在根目录执行，
+/// 保证 porcelain/路径参数始终相对仓库根目录一致。
+fn git_repository_root(directory: &Path) -> Result<PathBuf, String> {
+    let probe = git_raw_output(directory, &["rev-parse", "--show-toplevel"])?;
+    let value = probe.stdout.trim().to_string();
+    if !probe.ok || value.is_empty() {
+        let detail = probe.stderr.trim();
+        return Err(if detail.is_empty() {
+            "当前工作区不是 Git 仓库".to_string()
+        } else {
+            format!("当前工作区不是 Git 仓库：{detail}")
+        });
+    }
+    Ok(PathBuf::from(value))
+}
+
+/// 校验来自工作区的路径参数：它们应来自同一仓库的 status，仅需防御性排除
+/// 会改变 git 解析语义的前导字符。
+fn validate_git_paths(paths: &[String]) -> Result<(), String> {
+    for path in paths {
+        if path.is_empty() {
+            return Err("文件路径为空".into());
+        }
+        if path.starts_with('-') || path.starts_with(":/") || path.contains('\0') {
+            return Err(format!("非法文件路径：{path}"));
+        }
+        if path.split('/').any(|segment| segment == "..") {
+            return Err(format!("非法文件路径：{path}"));
+        }
+    }
+    Ok(())
+}
+
+/// 解析 porcelain v1 -z 输出为 (是否未跟踪, 路径) 列表。
+fn parse_porcelain_paths(bytes: &[u8]) -> Vec<(bool, String)> {
+    let mut result = Vec::new();
+    let mut index = 0;
+    while index + 3 <= bytes.len() {
+        let x = bytes[index] as char;
+        let y = bytes[index + 1] as char;
+        if bytes[index + 2] != b' ' {
+            break;
+        }
+        index += 3;
+        let end = bytes[index..]
+            .iter()
+            .position(|byte| *byte == 0)
+            .map(|offset| index + offset)
+            .unwrap_or(bytes.len());
+        let raw_path = String::from_utf8_lossy(&bytes[index..end]).into_owned();
+        index = end.saturating_add(1);
+        let is_renamed = x == 'R' || y == 'R';
+        let path = if is_renamed && index < bytes.len() {
+            let new_end = bytes[index..]
+                .iter()
+                .position(|byte| *byte == 0)
+                .map(|offset| index + offset)
+                .unwrap_or(bytes.len());
+            let new_path = String::from_utf8_lossy(&bytes[index..new_end]).into_owned();
+            index = new_end.saturating_add(1);
+            new_path
+        } else {
+            raw_path
+        };
+        result.push((x == '?' && y == '?', path));
+    }
+    result
+}
+
+/// 读取某个文件的工作区/暂存区统一差异；超大 diff 会被截断以保护前台负载。
+#[tauri::command]
+fn git_file_diff(dir: String, path: String, staged: bool) -> Result<String, String> {
+    validate_git_paths(&[path.clone()])?;
+    let root = git_repository_root(Path::new(&dir))?;
+    let mut args: Vec<&str> = vec!["--no-pager", "diff", "--no-color"];
+    if staged {
+        args.push("--cached");
+    }
+    args.push("--");
+    args.push(&path);
+    let output = git_raw_output(&root, &args)?;
+    let mut text = output.stdout;
+    const MAX_DIFF_BYTES: usize = 512 * 1024;
+    if text.len() > MAX_DIFF_BYTES {
+        text.truncate(MAX_DIFF_BYTES);
+        text.push_str("\n…差异过大，已截断\n");
+    }
+    Ok(text)
+}
+
+/// 暂存指定文件（git add）。
+#[tauri::command]
+fn git_stage_paths(dir: String, paths: Vec<String>) -> Result<(), String> {
+    validate_git_paths(&paths)?;
+    let root = git_repository_root(Path::new(&dir))?;
+    let mut args = vec!["add", "--"];
+    args.extend(paths.iter().map(String::as_str));
+    let output = git_raw_output(&root, &args)?;
+    if output.ok {
+        Ok(())
+    } else {
+        Err(output.stderr.trim().to_string())
+    }
+}
+
+/// 取消暂存指定文件（git restore --staged，失败时回退 git reset --）。
+#[tauri::command]
+fn git_unstage_paths(dir: String, paths: Vec<String>) -> Result<(), String> {
+    validate_git_paths(&paths)?;
+    let root = git_repository_root(Path::new(&dir))?;
+    let mut args = vec!["restore", "--staged", "--"];
+    args.extend(paths.iter().map(String::as_str));
+    let output = git_raw_output(&root, &args)?;
+    if output.ok {
+        return Ok(());
+    }
+    // 未出生分支等场景 restore --staged 不可用时回退 reset。
+    let mut fallback = vec!["reset", "-q", "--"];
+    fallback.extend(paths.iter().map(String::as_str));
+    let retry = git_raw_output(&root, &fallback)?;
+    if retry.ok {
+        Ok(())
+    } else {
+        Err(format!("{}\n{}", output.stderr.trim(), retry.stderr.trim()))
+    }
+}
+
+/// 放弃指定文件的全部改动：已暂存的恢复为未暂存，工作区改动还原到
+/// 仓库内容，未跟踪文件删除。仓库无提交时退化为清空暂存并删除。
+#[tauri::command]
+fn git_discard_paths(dir: String, paths: Vec<String>) -> Result<(), String> {
+    validate_git_paths(&paths)?;
+    let root = git_repository_root(Path::new(&dir))?;
+    let mut status_args = vec![
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+        "--",
+    ];
+    status_args.extend(paths.iter().map(String::as_str));
+    let status = git_raw_output(&root, &status_args)?;
+    let mut tracked: Vec<String> = Vec::new();
+    let mut untracked: Vec<String> = Vec::new();
+    for (is_untracked, path) in parse_porcelain_paths(&status.stdout.into_bytes()) {
+        if is_untracked {
+            untracked.push(path);
+        } else {
+            tracked.push(path);
+        }
+    }
+    let has_head = git_raw_output(&root, &["rev-parse", "--verify", "HEAD"])?.ok;
+    if has_head && !tracked.is_empty() {
+        let mut args = vec!["restore", "--source=HEAD", "--staged", "--worktree", "--"];
+        args.extend(tracked.iter().map(String::as_str));
+        let output = git_raw_output(&root, &args)?;
+        if !output.ok {
+            return Err(output.stderr.trim().to_string());
+        }
+    } else if !tracked.is_empty() {
+        // 未出生分支：先清空暂存，再删除对应的新增/修改文件。
+        let _ = git_raw_output(&root, &["reset", "-q", "--"]);
+        let mut clean_args = vec!["clean", "-f", "-d", "--"];
+        clean_args.extend(tracked.iter().map(String::as_str));
+        let clean = git_raw_output(&root, &clean_args)?;
+        if !clean.ok {
+            return Err(clean.stderr.trim().to_string());
+        }
+    }
+    if !untracked.is_empty() {
+        let mut clean_args = vec!["clean", "-f", "-d", "--"];
+        clean_args.extend(untracked.iter().map(String::as_str));
+        let clean = git_raw_output(&root, &clean_args)?;
+        if !clean.ok {
+            return Err(clean.stderr.trim().to_string());
+        }
+    }
+    Ok(())
+}
+
+/// 暂存所有更改（git add -A）。
+#[tauri::command]
+fn git_stage_all(dir: String) -> Result<(), String> {
+    let root = git_repository_root(Path::new(&dir))?;
+    let output = git_raw_output(&root, &["add", "-A"])?;
+    if output.ok {
+        Ok(())
+    } else {
+        Err(output.stderr.trim().to_string())
+    }
+}
+
+/// 取消所有暂存（git reset）。
+#[tauri::command]
+fn git_unstage_all(dir: String) -> Result<(), String> {
+    let root = git_repository_root(Path::new(&dir))?;
+    let output = git_raw_output(&root, &["reset", "-q"])?;
+    if output.ok {
+        Ok(())
+    } else {
+        Err(output.stderr.trim().to_string())
+    }
+}
+
+/// 提交暂存区内容；提交信息为空或超长时拒绝。
+#[tauri::command]
+fn git_commit(dir: String, message: String) -> Result<GitCommandResult, String> {
+    let message = message.trim();
+    if message.is_empty() {
+        return Err("提交信息不能为空".into());
+    }
+    if message.chars().count() > 4096 {
+        return Err("提交信息过长（最多 4096 字符）".into());
+    }
+    let root = git_repository_root(Path::new(&dir))?;
+    let output = git_raw_output(&root, &["--no-pager", "commit", "-m", message])?;
+    Ok(GitCommandResult::from_output(
+        output.stdout,
+        output.stderr,
+        output.ok,
+    ))
+}
+
+/// 读取最近提交历史（含作者、时间、主题）。
+#[tauri::command]
+fn git_log(dir: String, limit: u32) -> Result<Vec<WorkspaceGitCommit>, String> {
+    let limit = limit.clamp(1, 200);
+    let root = git_repository_root(Path::new(&dir))?;
+    let format = "%H\x1f%h\x1f%an\x1f%ae\x1f%at\x1f%s\x1e";
+    let output = git_raw_output(
+        &root,
+        &[
+            "--no-pager",
+            "log",
+            &format!("-n{limit}"),
+            &format!("--format={format}"),
+        ],
+    )?;
+    if !output.ok {
+        let text = format!("{}\n{}", output.stdout, output.stderr);
+        if text.contains("does not have any commits") {
+            return Ok(Vec::new());
+        }
+        return Err(text.trim().to_string());
+    }
+    let mut commits = Vec::new();
+    for record in output.stdout.split('\x1e') {
+        let fields: Vec<&str> = record.split('\x1f').collect();
+        if fields.len() < 6 {
+            continue;
+        }
+        commits.push(WorkspaceGitCommit {
+            hash: fields[0].to_string(),
+            short_hash: fields[1].to_string(),
+            author: fields[2].to_string(),
+            email: fields[3].to_string(),
+            timestamp: fields[4].parse::<i64>().unwrap_or(0),
+            subject: fields[5].to_string(),
+        });
+    }
+    Ok(commits)
+}
+
+fn validate_git_oid(value: &str) -> Result<&str, String> {
+    let value = value.trim();
+    if value.is_empty() || value.len() > 40 || !value.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err("无效的提交标识".into());
+    }
+    Ok(value)
+}
+
+/// 读取单个提交的完整信息与变更统计（numstat）。
+#[tauri::command]
+fn git_commit_detail(dir: String, hash: String) -> Result<WorkspaceGitCommitDetail, String> {
+    let hash = validate_git_oid(&hash)?;
+    let root = git_repository_root(Path::new(&dir))?;
+    let format = "%H\x00%an\x00%ae\x00%at\x00%s\x00%b\x00";
+    let header = git_raw_output(
+        &root,
+        &[
+            "--no-pager",
+            "show",
+            "-s",
+            &format!("--format={format}"),
+            hash,
+        ],
+    )?;
+    if !header.ok {
+        let text = format!("{}\n{}", header.stdout, header.stderr);
+        return Err(text.trim().to_string());
+    }
+    let parts: Vec<&str> = header.stdout.split('\0').collect();
+    if parts.len() < 6 || parts[0].is_empty() {
+        return Err("无法解析提交信息".into());
+    }
+    let stat_output = git_raw_output(
+        &root,
+        &[
+            "--no-pager",
+            "show",
+            "--numstat",
+            "--format=",
+            "--no-renames",
+            hash,
+        ],
+    )?;
+    let mut files = Vec::new();
+    for line in stat_output.stdout.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let mut pieces = line.splitn(3, '\t');
+        let (Some(additions_raw), Some(deletions_raw), Some(path)) =
+            (pieces.next(), pieces.next(), pieces.next())
+        else {
+            continue;
+        };
+        files.push(WorkspaceGitFileStat {
+            path: path.to_string(),
+            additions: additions_raw.parse::<u32>().unwrap_or(0),
+            deletions: deletions_raw.parse::<u32>().unwrap_or(0),
+        });
+    }
+    Ok(WorkspaceGitCommitDetail {
+        hash: parts[0].to_string(),
+        subject: parts[4].to_string(),
+        author: parts[1].to_string(),
+        email: parts[2].to_string(),
+        timestamp: parts[3].parse::<i64>().unwrap_or(0),
+        body: parts[5].to_string(),
+        files,
+    })
+}
+
+/// 列出本地与远程分支，当前分支优先。
+#[tauri::command]
+fn git_branches(dir: String) -> Result<Vec<WorkspaceGitBranch>, String> {
+    let root = git_repository_root(Path::new(&dir))?;
+    let format = "%(HEAD)%1f%(refname)%1f%(upstream:short)%1f%(objectname:short)%1e";
+    let output = git_raw_output(
+        &root,
+        &[
+            "--no-pager",
+            "for-each-ref",
+            &format!("--format={format}"),
+            "refs/heads",
+            "refs/remotes",
+        ],
+    )?;
+    if !output.ok {
+        return Err(output.stderr.trim().to_string());
+    }
+    let mut branches = Vec::new();
+    for record in output.stdout.split('\x1e') {
+        let fields: Vec<&str> = record.split('\x1f').collect();
+        if fields.len() < 4 {
+            continue;
+        }
+        let head = fields[0].trim();
+        let refname = fields[1];
+        let is_remote = refname.starts_with("refs/remotes/");
+        let name = if is_remote {
+            refname.trim_start_matches("refs/remotes/").to_string()
+        } else {
+            refname.trim_start_matches("refs/heads/").to_string()
+        };
+        branches.push(WorkspaceGitBranch {
+            name,
+            is_current: head == "*",
+            is_remote,
+            upstream: {
+                let upstream = fields[2].trim();
+                if upstream.is_empty() {
+                    None
+                } else {
+                    Some(upstream.to_string())
+                }
+            },
+            short_oid: fields[3].to_string(),
+        });
+    }
+    branches.sort_by_key(|branch| {
+        (
+            branch.is_remote,
+            !branch.is_current,
+            branch.name.to_lowercase(),
+        )
+    });
+    Ok(branches)
+}
+
+fn validate_branch_name(name: &str) -> Result<&str, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("分支名称不能为空".into());
+    }
+    if name.starts_with('-')
+        || name.ends_with('/')
+        || name.contains("..")
+        || name.contains("//")
+        || name.contains(" ")
+        || name.contains('\0')
+        || name.contains("~^:?*[\\")
+    {
+        return Err("分支名称包含非法字符".into());
+    }
+    Ok(name)
+}
+
+/// 切换到已有分支（git switch）。
+#[tauri::command]
+fn git_checkout_branch(dir: String, name: String) -> Result<GitCommandResult, String> {
+    let name = validate_branch_name(&name)?;
+    let root = git_repository_root(Path::new(&dir))?;
+    let output = git_raw_output(&root, &["--no-pager", "switch", name])?;
+    Ok(GitCommandResult::from_output(
+        output.stdout,
+        output.stderr,
+        output.ok,
+    ))
+}
+
+/// 基于当前分支创建并切换到新分支（git switch -c）。
+#[tauri::command]
+fn git_create_branch(dir: String, name: String) -> Result<GitCommandResult, String> {
+    let name = validate_branch_name(&name)?;
+    let root = git_repository_root(Path::new(&dir))?;
+    let output = git_raw_output(&root, &["--no-pager", "switch", "-c", name])?;
+    Ok(GitCommandResult::from_output(
+        output.stdout,
+        output.stderr,
+        output.ok,
+    ))
+}
+
+/// 强制删除本地分支；当前分支与远程分支不允许删除。
+#[tauri::command]
+fn git_delete_branch(dir: String, name: String) -> Result<GitCommandResult, String> {
+    let name = validate_branch_name(&name)?;
+    let root = git_repository_root(Path::new(&dir))?;
+    let current = git_raw_output(&root, &["branch", "--show-current"])?;
+    let current = current.stdout.trim().to_string();
+    if !current.is_empty() && current == name {
+        return Ok(GitCommandResult::from_output(
+            String::new(),
+            "不能删除当前分支，请先切换到其他分支".to_string(),
+            false,
+        ));
+    }
+    let output = git_raw_output(&root, &["branch", "-D", name])?;
+    Ok(GitCommandResult::from_output(
+        output.stdout,
+        output.stderr,
+        output.ok,
+    ))
+}
+
+/// 拉取当前分支的上游更新；结果含 git 完整输出，冲突时失败告知。
+#[tauri::command]
+fn git_pull(dir: String) -> Result<GitCommandResult, String> {
+    let root = git_repository_root(Path::new(&dir))?;
+    let output = git_raw_output(&root, &["--no-pager", "pull"])?;
+    Ok(GitCommandResult::from_output(
+        output.stdout,
+        output.stderr,
+        output.ok,
+    ))
+}
+
+/// 推送当前分支；未设置上游时自动带 -u 推送到 origin 并建立跟踪。
+#[tauri::command]
+fn git_push(dir: String) -> Result<GitCommandResult, String> {
+    let root = git_repository_root(Path::new(&dir))?;
+    let first = git_raw_output(&root, &["--no-pager", "push"])?;
+    if first.ok {
+        return Ok(GitCommandResult::from_output(
+            first.stdout,
+            first.stderr,
+            true,
+        ));
+    }
+    let combined = format!("{}\n{}", first.stdout, first.stderr);
+    let needs_upstream = combined.contains("no upstream")
+        || combined.contains("has no upstream branch")
+        || combined.contains("No configured push destination")
+        || combined.contains("does not match the name of your current branch");
+    if !needs_upstream {
+        return Ok(GitCommandResult::from_output(
+            first.stdout,
+            first.stderr,
+            false,
+        ));
+    }
+    let branch = git_raw_output(&root, &["branch", "--show-current"])?;
+    let branch = branch.stdout.trim().to_string();
+    if branch.is_empty() {
+        return Ok(GitCommandResult::from_output(
+            first.stdout,
+            first.stderr,
+            false,
+        ));
+    }
+    let retry = git_raw_output(&root, &["--no-pager", "push", "-u", "origin", &branch])?;
+    Ok(GitCommandResult::from_output(
+        retry.stdout,
+        retry.stderr,
+        retry.ok,
+    ))
+}
+
 /// 列出工作区目录下的条目（文件夹优先，其余按名称排序），供左侧文件看板使用。
 #[tauri::command]
 fn list_workspace_files(dir: String) -> Result<Vec<WorkspaceFileEntry>, String> {
@@ -4580,6 +5179,21 @@ fn main() {
             terminal::close_terminal,
             list_workspace_files,
             get_workspace_git_status,
+            git_file_diff,
+            git_stage_paths,
+            git_unstage_paths,
+            git_discard_paths,
+            git_stage_all,
+            git_unstage_all,
+            git_commit,
+            git_log,
+            git_commit_detail,
+            git_branches,
+            git_checkout_branch,
+            git_create_branch,
+            git_delete_branch,
+            git_pull,
+            git_push,
             open_in_vscode,
             write_clipboard,
             reveal_in_explorer,

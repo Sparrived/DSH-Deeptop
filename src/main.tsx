@@ -42,6 +42,7 @@ async function renderApplication() {
     import("@xterm/xterm/css/xterm.css"),
     import("./styles.css"),
     import("./styles/terminal-dock.css"),
+    import("./styles/git-dock.css"),
   ]);
   frontendLogModule.installFrontendLogCapture();
   const App = appModule.default;

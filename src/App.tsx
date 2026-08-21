@@ -21,6 +21,7 @@ import { SubagentDock } from "./components/SubagentDock";
 import { SubagentPanel } from "./components/SubagentPanel";
 import { TaskPanel, TodoPanel } from "./components/TodoPanel";
 import { WorkspaceFilesPanel } from "./components/WorkspaceFilesPanel";
+import { GitDock } from "./components/GitDock";
 import { TerminalDock } from "./components/TerminalDock";
 import { DeliverablesPanel } from "./components/DeliverablesPanel";
 import { CurrentGoalBar } from "./components/CurrentGoalBar";
@@ -490,6 +491,7 @@ function AppContent() {
   const [jobNow, setJobNow] = useState(() => Date.now());
   const [filesOpen, setFilesOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [gitOpen, setGitOpen] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState<Record<string, PendingApproval>>({});
   const [pendingQuestions, setPendingQuestions] = useState<Record<string, PendingQuestion>>({});
   const [questionAnswersBySession, setQuestionAnswersBySession] = useState<Record<string, Record<string, string[]>>>({});
@@ -3880,6 +3882,12 @@ function AppContent() {
                 collapsed={filesCollapsed}
                 onToggle={() => setFilesOpen((open) => !open)}
                  onAddPathToComposer={addPathToComposer}
+                onError={setErrorNotice}
+              />
+              <GitDock
+                workspace={workspace}
+                collapsed={!gitOpen}
+                onToggle={() => setGitOpen((open) => !open)}
                 onError={setErrorNotice}
               />
             </div>

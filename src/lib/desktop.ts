@@ -876,6 +876,46 @@ export interface WorkspaceGitStatus {
   files: WorkspaceGitFile[];
 }
 
+export interface WorkspaceGitCommit {
+  hash: string;
+  shortHash: string;
+  author: string;
+  email: string;
+  timestamp: number;
+  subject: string;
+}
+
+export interface WorkspaceGitFileStat {
+  path: string;
+  additions: number;
+  deletions: number;
+}
+
+export interface WorkspaceGitCommitDetail {
+  hash: string;
+  subject: string;
+  author: string;
+  email: string;
+  timestamp: number;
+  body: string;
+  files: WorkspaceGitFileStat[];
+}
+
+export interface WorkspaceGitBranch {
+  name: string;
+  isCurrent: boolean;
+  isRemote: boolean;
+  upstream: string | null;
+  shortOid: string;
+}
+
+export interface GitCommandResult {
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+  text: string;
+}
+
 export interface TerminalOption {
   id: string;
   name: string;
@@ -943,6 +983,98 @@ export async function getWorkspaceGitStatus(dir: string): Promise<WorkspaceGitSt
     return { isRepository: false, root: null, branch: null, upstream: null, ahead: 0, behind: 0, staged: 0, changed: 0, untracked: 0, conflicted: 0, files: [] };
   }
   return invoke<WorkspaceGitStatus>("get_workspace_git_status", { dir });
+}
+
+/** Read the unified diff of a single file (working tree or staged index). */
+export async function getGitFileDiff(dir: string, path: string, staged: boolean): Promise<string> {
+  if (!isTauri()) return "";
+  return invoke<string>("git_file_diff", { dir, path, staged });
+}
+
+/** Stage the given repository-relative paths. */
+export async function stageGitPaths(dir: string, paths: string[]): Promise<void> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  await invoke("git_stage_paths", { dir, paths });
+}
+
+/** Unstage the given repository-relative paths. */
+export async function unstageGitPaths(dir: string, paths: string[]): Promise<void> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  await invoke("git_unstage_paths", { dir, paths });
+}
+
+/** Discard all local changes of the given paths (worktree + index, deletes untracked files). */
+export async function discardGitPaths(dir: string, paths: string[]): Promise<void> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  await invoke("git_discard_paths", { dir, paths });
+}
+
+/** Stage every change in the repository (git add -A). */
+export async function stageAllGit(dir: string): Promise<void> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  await invoke("git_stage_all", { dir });
+}
+
+/** Unstage every change in the repository (git reset). */
+export async function unstageAllGit(dir: string): Promise<void> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  await invoke("git_unstage_all", { dir });
+}
+
+/** Commit the staged changes with the given message. */
+export async function commitGit(dir: string, message: string): Promise<GitCommandResult> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  return invoke<GitCommandResult>("git_commit", { dir, message });
+}
+
+/** List recent commit history. */
+export async function listGitLog(dir: string, limit = 50): Promise<WorkspaceGitCommit[]> {
+  if (!isTauri()) return [];
+  const result = await invoke<unknown>("git_log", { dir, limit });
+  return Array.isArray(result) ? (result as WorkspaceGitCommit[]) : [];
+}
+
+/** Read a single commit's message and per-file change stats. */
+export async function getGitCommitDetail(dir: string, hash: string): Promise<WorkspaceGitCommitDetail> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  return invoke<WorkspaceGitCommitDetail>("git_commit_detail", { dir, hash });
+}
+
+/** List local and remote branches. */
+export async function listGitBranches(dir: string): Promise<WorkspaceGitBranch[]> {
+  if (!isTauri()) return [];
+  const result = await invoke<unknown>("git_branches", { dir });
+  return Array.isArray(result) ? (result as WorkspaceGitBranch[]) : [];
+}
+
+/** Switch to an existing branch. */
+export async function checkoutGitBranch(dir: string, name: string): Promise<GitCommandResult> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  return invoke<GitCommandResult>("git_checkout_branch", { dir, name });
+}
+
+/** Create a branch from HEAD and switch to it. */
+export async function createGitBranch(dir: string, name: string): Promise<GitCommandResult> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  return invoke<GitCommandResult>("git_create_branch", { dir, name });
+}
+
+/** Force-delete a local branch (current branch is guarded). */
+export async function deleteGitBranch(dir: string, name: string): Promise<GitCommandResult> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  return invoke<GitCommandResult>("git_delete_branch", { dir, name });
+}
+
+/** Pull from the current branch's upstream. */
+export async function pullGit(dir: string): Promise<GitCommandResult> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  return invoke<GitCommandResult>("git_pull", { dir });
+}
+
+/** Push the current branch (sets up upstream tracking on first push). */
+export async function pushGit(dir: string): Promise<GitCommandResult> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  return invoke<GitCommandResult>("git_push", { dir });
 }
 
 /** Open a file or folder in VSCode (falls back to the OS default opener). */
