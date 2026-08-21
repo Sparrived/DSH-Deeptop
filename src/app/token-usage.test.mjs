@@ -19,7 +19,6 @@ function stats() {
     contextTokens: 0,
     contextLimit: 0,
     cacheHitRate: 0,
-    firstTokenMs: 0,
     messages: 0,
   };
 }
@@ -99,6 +98,42 @@ test("projection zeros replace older history totals", () => {
   assert.equal(result.outputTokens, 0);
   assert.equal(result.totalTokens, 0);
   assert.equal(result.cacheReadTokens, 0);
+});
+
+test("does not use cumulative usage as current context", () => {
+  const entries = [
+    entry(1, "assistant/message", { usage: { input_tokens: 100, output_tokens: 20 } }),
+    entry(2, "assistant/message", { usage: { input_tokens: 200, output_tokens: 30 } }),
+  ];
+  const result = readSessionStats(entries, { values: {} });
+  assert.equal(result.totalTokens, 350);
+  assert.equal(result.contextTokens, 0);
+  assert.equal(result.contextTokensAvailable, false);
+});
+
+test("uses context pressure independently from cumulative token usage", () => {
+  const result = readSessionStats([], {
+    values: {
+      usage: { inputTokens: 900, outputTokens: 100 },
+      contextPressure: { pressureTokens: 180, projectedTokens: 125, contextWindow: 128_000 },
+    },
+  });
+  assert.equal(result.totalTokens, 1000);
+  assert.equal(result.contextTokens, 125);
+  assert.equal(result.contextTokensAvailable, true);
+  assert.equal(result.contextLimit, 128_000);
+});
+
+test("falls back to pressure tokens without adding output", () => {
+  const result = readSessionStats([], {
+    values: {
+      usage: { inputTokens: 900, outputTokens: 100 },
+      contextPressure: { pressureTokens: 180 },
+    },
+  });
+  assert.equal(result.contextTokens, 180);
+  assert.notEqual(result.contextTokens, result.totalTokens);
+  assert.equal(result.contextTokensAvailable, true);
 });
 
 test("keeps reasoning as an output breakdown without inflating totals", () => {

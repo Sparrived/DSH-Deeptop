@@ -45,7 +45,7 @@
 .token-head-actions button.selected { border-color: var(--accent); color: var(--accent-deep); background: color-mix(in srgb, var(--accent) 10%, var(--paper)); }
 .token-live-dot { color: var(--muted); font: 600 10px var(--mono); }
 .token-live-dot::before { display: inline-block; width: 6px; height: 6px; margin: 0 6px 1px 0; border-radius: 50%; background: var(--accent); content: ""; }
-.token-metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+.token-metric-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
 .token-metric-card,
 .token-panel,
 .token-detail-section {

@@ -273,13 +273,12 @@ export function ComposerShell({
         </div>
       </div>
     </div>
-    <div className="composer-stats" title={sessionStats.contextLimit ? "上下文 " + formatTokens(sessionStats.contextTokens) + " / " + formatTokens(sessionStats.contextLimit) : "当前模型未返回上下文窗口上限；使用量仍按请求统计。"}>
+    <div className="composer-stats" title={sessionStats.contextTokensAvailable ? (sessionStats.contextLimit ? "下一次请求的上下文估算 " + formatTokens(sessionStats.contextTokens) + " / " + formatTokens(sessionStats.contextLimit) : "已提供上下文使用量，但模型未返回窗口上限。") : "当前模型未返回上下文使用量；累计 Token 不用于推算当前上下文。"}>
       <span className="context-meter" aria-label="上下文使用量"><i style={{ width: String(contextPercent(sessionStats)) + "%" }} /></span>
-      <span>上下文 {formatTokens(sessionStats.contextTokens)}{sessionStats.contextLimit ? " / " + formatTokens(sessionStats.contextLimit) : " · 上限未知"}</span>
+      <span>上下文 {sessionStats.contextTokensAvailable ? formatTokens(sessionStats.contextTokens) : "未提供"}{sessionStats.contextTokensAvailable && sessionStats.contextLimit ? " / " + formatTokens(sessionStats.contextLimit) : sessionStats.contextTokensAvailable ? " · 上限未知" : ""}</span>
       <span title="输入 Token">↓ {formatTokens(sessionStats.inputTokens)}</span>
       <span title="输出 Token">↑ {formatTokens(sessionStats.outputTokens)}</span>
       <span title="缓存命中率">缓存 {sessionStats.cacheHitRate ? String(sessionStats.cacheHitRate.toFixed(0)) + "%" : "未提供"}</span>
-      <span title="首个 Token 延迟">首 T {sessionStats.firstTokenMs ? String(Math.round(sessionStats.firstTokenMs)) + "ms" : "未提供"}</span>
       <span title="会话运行时间">运行 {formatSessionElapsed(sessionRunningMs)}</span>
       <span>{sessionStats.messages} 条消息</span>
     </div>

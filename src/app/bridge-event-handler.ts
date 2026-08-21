@@ -33,17 +33,6 @@ import type {
   TodoItem,
 } from "./model-types";
 
-function eventHasUsage(event: DshSessionEvent) {
-  const message = recordValue(event.data.message);
-  const chunk = recordValue(event.data.chunk);
-  return Boolean(
-    recordValue(event.data.usage)
-    ?? recordValue(event.data.tokenUsage)
-    ?? recordValue(chunk?.usage)
-    ?? recordValue(message?.usage),
-  );
-}
-
 type BridgeEventHandlerContext = {
   activeSessionRef: MutableRefObject<string | null>;
   contextProjectionRef: MutableRefObject<boolean>;
@@ -117,8 +106,7 @@ function flushQueuedSessionEvents(context: BridgeEventHandlerContext) {
     const next = [...current, ...additions];
     const nextStats = readSessionStats(next);
     context.setSessionStats((currentStats) => {
-      const hasUsageInBatch = batch.some((item) => eventHasUsage(item.event));
-      const hasHistoryAggregate = nextStats.tokenUsageSource === "history";
+      const hasContextValue = nextStats.contextTokensAvailable === true;
       const hasTokenAggregate = nextStats.tokenUsageSource !== "none";
       return {
         ...currentStats,
@@ -133,12 +121,14 @@ function flushQueuedSessionEvents(context: BridgeEventHandlerContext) {
         cacheHitRate: hasTokenAggregate ? nextStats.cacheHitRate : currentStats.cacheHitRate,
         tokenUsageSource: hasTokenAggregate ? nextStats.tokenUsageSource : currentStats.tokenUsageSource,
         tokenUsageAvailable: hasTokenAggregate ? nextStats.tokenUsageAvailable : currentStats.tokenUsageAvailable,
-        // Keep the latest projected context value while the stream advances;
-        // the history scan is only a fallback for runtimes that do not publish
-        // contextPressure frames.
-        contextTokens: (!context.contextProjectionRef.current || hasUsageInBatch || hasHistoryAggregate) && nextStats.contextTokens > 0
-          ? nextStats.contextTokens
-          : currentStats.contextTokens,
+        // History events do not carry contextPressure. A live projection must
+        // never be replaced by cumulative history usage.
+        contextTokens: context.contextProjectionRef.current
+          ? currentStats.contextTokens
+          : hasContextValue ? nextStats.contextTokens : currentStats.contextTokens,
+        contextTokensAvailable: context.contextProjectionRef.current
+          ? currentStats.contextTokensAvailable
+          : hasContextValue || currentStats.contextTokensAvailable === true,
         contextLimit: nextStats.contextLimit > 0 ? nextStats.contextLimit : currentStats.contextLimit,
         messages: nextStats.messages > 0 ? nextStats.messages : currentStats.messages,
       };
@@ -222,10 +212,14 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
       const projection = recordValue(payload.value);
       if (projectionKey === "contextpressure" && projection) {
         contextProjectionRef.current = true;
+        const projectedContext = numberValue(projection.projectedTokens ?? projection.pressureTokens);
+        const contextWindow = numberValue(projection.contextWindow);
         setSessionStats((current) => ({
           ...current,
-          contextTokens: numberValue(projection.projectedTokens ?? projection.pressureTokens) ?? current.contextTokens,
-          contextLimit: numberValue(projection.contextWindow) ?? current.contextLimit,
+          ...(projectedContext === undefined
+            ? { contextTokens: 0, contextTokensAvailable: false }
+            : { contextTokens: projectedContext, contextTokensAvailable: true }),
+          ...(contextWindow === undefined ? {} : { contextLimit: contextWindow }),
         }));
       }
       if (["tokenusage", "usage", "tokens"].includes(projectionKey) && projection) {
@@ -237,7 +231,6 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
         const inputTokens = projectedInput ?? (uncachedInput === undefined ? undefined : uncachedInput + (cacheRead ?? 0) + (cacheWrite ?? 0));
         const outputTokens = numberValue(projection.outputTokens ?? projection.output_tokens);
         const reasoningTokens = numberValue(projection.reasoningTokens ?? projection.reasoning_tokens ?? projection.reasoning);
-        const projectedContext = numberValue(projection.projectedTokens ?? projection.contextTokens ?? projection.context_tokens);
         setSessionStats((current) => ({
           ...current,
           tokenUsageSource: "projection",
@@ -254,7 +247,6 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
               : 0
             : current.cacheHitRate,
           totalTokens: (inputTokens ?? current.inputTokens) + (outputTokens ?? current.outputTokens),
-          contextTokens: projectedContext ?? current.contextTokens,
         }));
       }
       return;

@@ -401,7 +401,7 @@ function AppContent() {
   const [plan, setPlan] = useState<DshPlanProjection | null>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelMenuPane, setModelMenuPane] = useState<ModelMenuPane>("root");
-  const [sessionStats, setSessionStats] = useState<SessionStats>({ inputTokens: 0, outputTokens: 0, totalTokens: 0, reasoningTokens: 0, uncachedInputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, contextTokens: 0, contextLimit: 0, cacheHitRate: 0, firstTokenMs: 0, messages: 0 });
+  const [sessionStats, setSessionStats] = useState<SessionStats>({ inputTokens: 0, outputTokens: 0, totalTokens: 0, reasoningTokens: 0, uncachedInputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, contextTokens: 0, contextLimit: 0, cacheHitRate: 0, messages: 0 });
   const [presets, setPresets] = useState<DshPreset[]>([]);
   const [presetAuthorable, setPresetAuthorable] = useState(false);
   const [presetHasDocument, setPresetHasDocument] = useState(false);
@@ -1913,10 +1913,13 @@ function AppContent() {
       if (activeSessionRef.current !== sessionId) return;
       const projectedImageLimits = imageLimitsFromProjection(result.projections?.values?.imageLimits);
       if (projectedImageLimits) setModels((current) => current ? { ...current, imageLimits: projectedImageLimits } : current);
-      const nextStats = readSessionStats(result.events, result.projections);
+      if (recordValue(result.projections?.values.contextPressure)) contextProjectionRef.current = true;
+       const nextStats = readSessionStats(result.events, result.projections);
       setSessionStats((current) => ({
         ...current,
         ...nextStats,
+        contextTokens: nextStats.contextTokensAvailable ? nextStats.contextTokens : current.contextTokens,
+        contextTokensAvailable: current.contextTokensAvailable || nextStats.contextTokensAvailable,
         contextLimit: nextStats.contextLimit > 0 ? nextStats.contextLimit : current.contextLimit,
       }));
     } catch {
@@ -2448,7 +2451,7 @@ function AppContent() {
     setModels(null);
     setDraftModelSelection(null);
     setDraftPermission(null);
-    setSessionStats({ inputTokens: 0, outputTokens: 0, totalTokens: 0, reasoningTokens: 0, uncachedInputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, contextTokens: 0, contextLimit: 0, cacheHitRate: 0, firstTokenMs: 0, messages: 0 });
+    setSessionStats({ inputTokens: 0, outputTokens: 0, totalTokens: 0, reasoningTokens: 0, uncachedInputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, contextTokens: 0, contextLimit: 0, cacheHitRate: 0, messages: 0 });
     setCommands([]);
     setAnnotations({});
     setPermissionSelect(null);
@@ -2937,7 +2940,8 @@ function AppContent() {
       await bridgeRequest("session.selectModel", { sessionId: activeSessionId, provider, model });
       const selectedContextWindow = models?.groups.find((group) => group.id === provider)?.models.find((entry) => entry.id === model)?.contextWindow;
       setModels((current) => current ? { ...current, current: { ...current.current, provider, model, reasoningEffort: undefined }, contextWindow: selectedContextWindow } : current);
-      if (selectedContextWindow !== undefined) setSessionStats((current) => ({ ...current, contextLimit: selectedContextWindow }));
+      contextProjectionRef.current = false;
+       setSessionStats((current) => ({ ...current, contextTokens: 0, contextTokensAvailable: false, contextLimit: selectedContextWindow ?? 0 }));
       setModelMenuOpen(false);
       setModelMenuPane("root");
       setNotice("模型已切换");

@@ -265,9 +265,10 @@ export type SessionStats = {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   contextTokens: number;
+  /** Whether the runtime supplied a current context-pressure value. */
+  contextTokensAvailable?: boolean;
   contextLimit: number;
   cacheHitRate: number;
-  firstTokenMs: number;
   messages: number;
   turns?: number;
   steps?: number;

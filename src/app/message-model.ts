@@ -311,21 +311,17 @@ export function readSessionStats(entries: DshHistoryEntry[], projections?: { val
     : history;
   const explicitContextTokens = numberValue(pressure?.projectedTokens ?? pressure?.pressureTokens)
     ?? numberValue(values.contextTokens ?? values.context_tokens);
-  const contextTokens = explicitContextTokens ?? aggregate.totalTokens;
+  // Session token totals are cumulative billing data, not the prompt size of
+  // the next request. Without contextPressure, leave context occupancy
+  // unavailable instead of presenting the cumulative total as current usage.
+  const contextTokensAvailable = explicitContextTokens !== undefined;
+  const contextTokens = explicitContextTokens ?? 0;
   let contextLimit = numberValue(pressure?.contextWindow)
     ?? numberValue(values.contextLimit ?? values.context_limit) ?? 0;
-  let firstTokenMs = numberValue(
-    usage?.firstTokenMs ?? usage?.first_token_ms ?? usage?.ttft
-      ?? values.firstTokenMs ?? values.first_token_ms ?? values.ttft,
-  ) ?? 0;
   for (const { event } of entries) {
     if (event.type === "request/context") {
-      const eventContextWindow = numberValue(event.data.contextWindow);
-      if (eventContextWindow !== undefined) contextLimit = eventContextWindow;
+      contextLimit = numberValue(event.data.contextWindow) ?? 0;
     }
-    const usage = eventUsage(event);
-    const eventFirstToken = numberValue(usage?.firstTokenMs ?? usage?.first_token_ms ?? usage?.ttft);
-    if (eventFirstToken !== undefined) firstTokenMs = eventFirstToken;
   }
   const cacheDenominator = aggregate.uncachedInputTokens + aggregate.cacheReadTokens + aggregate.cacheWriteTokens;
   const tokenUsageSource = projectionHasTokens ? "projection" : history.available ? "history" : "none";
@@ -338,9 +334,9 @@ export function readSessionStats(entries: DshHistoryEntry[], projections?: { val
     cacheReadTokens: aggregate.cacheReadTokens,
     cacheWriteTokens: aggregate.cacheWriteTokens,
     contextTokens,
+    contextTokensAvailable,
     contextLimit,
     cacheHitRate: cacheDenominator > 0 ? Math.min(100, (aggregate.cacheReadTokens / cacheDenominator) * 100) : 0,
-    firstTokenMs,
     tokenUsageSource,
     tokenUsageAvailable: tokenUsageSource !== "none",
     messages: entries.filter(({ event }) => event.type === "user/message" || event.type === "assistant/message").length,
