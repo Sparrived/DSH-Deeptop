@@ -41,6 +41,8 @@ interface ComposerShellProps {
   sessionStats: SessionStats;
   sessionRunningMs: number;
   sendShortcut: SendShortcut;
+  /** Native OS drag is hovering this composer; highlights the drop target. */
+  dropActive?: boolean;
   onComposerChange: (value: string) => void;
   onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
   onAddFiles: (files: FileList | File[]) => void | Promise<unknown>;
@@ -86,6 +88,7 @@ export function ComposerShell({
   sessionStats,
   sessionRunningMs,
   sendShortcut,
+  dropActive,
   onComposerChange,
   onPaste,
   onAddFiles,
@@ -160,7 +163,7 @@ export function ComposerShell({
   }
 
   return <footer className="composer-area">
-    <div className="composer-shell" onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
+    <div className={"composer-shell" + (dropActive ? " composer-drop-active" : "")} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
       <input ref={attachmentInputRef} className="composer-file-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple onChange={(event) => { void onAddFiles(event.target.files ?? []); event.currentTarget.value = ""; }} />
       <textarea
         ref={composerRef}

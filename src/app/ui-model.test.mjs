@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { detectComposerTrigger, imageBatchLimitError, imageDimensionLimitError, imageLimitsFromProjection, insertComposerCandidate, modelPickerGroups, modelSupportsImages, promptContentParts, referenceComposerCandidates, insertComposerText, formatRuntimeLog, formatRuntimeLogs, runtimeLogMatches, questionAnswerItems, sessionPath } from "./ui-model.ts";
+import { composerReferenceText, detectComposerTrigger, droppedImageMediaType, imageBatchLimitError, imageDimensionLimitError, imageLimitsFromProjection, insertComposerCandidate, modelPickerGroups, modelSupportsImages, promptContentParts, referenceComposerCandidates, relativeWorkspacePath, insertComposerText, formatRuntimeLog, formatRuntimeLogs, runtimeLogMatches, questionAnswerItems, sessionPath } from "./ui-model.ts";
 test("keeps an RC8 current model when the advisory groups omit it", () => {
   const groups = modelPickerGroups({ groups: [{ id: "provider", name: "Provider", models: [{ id: "listed", name: "Listed" }] }], current: { provider: "provider", model: "custom-model" } });
   assert.equal(groups[0].models.at(-1)?.name, "custom-model（当前未列出）");
@@ -144,4 +144,32 @@ test("filters runtime logs by stream, phase or text", () => {
   assert.equal(runtimeLogMatches(logs[1], "stderr"), true);
   assert.equal(runtimeLogMatches(logs[1], "typeerror"), true);
   assert.equal(runtimeLogMatches(logs[0], "nope"), false);
+});
+
+test("classifies dropped paths as image attachments only for known extensions", () => {
+  assert.equal(droppedImageMediaType("D:\\pics\\画面.PNG"), "image/png");
+  assert.equal(droppedImageMediaType("/tmp/photo.jpeg"), "image/jpeg");
+  assert.equal(droppedImageMediaType("/tmp/photo.jpg"), "image/jpeg");
+  assert.equal(droppedImageMediaType("/tmp/anim.GIF"), "image/gif");
+  assert.equal(droppedImageMediaType("/tmp/tex.webp"), "image/webp");
+  assert.equal(droppedImageMediaType("/tmp/report.pdf"), null);
+  assert.equal(droppedImageMediaType("/tmp/no-extension"), null);
+  assert.equal(droppedImageMediaType("/tmp/folder.d/"), null);
+  assert.equal(droppedImageMediaType(""), null);
+});
+
+test("resolves dropped absolute paths against the workspace case-insensitively", () => {
+  assert.equal(relativeWorkspacePath("D:\\repo\\src\\App.tsx", "D:/repo"), "src/App.tsx");
+  assert.equal(relativeWorkspacePath("d:/REPO/src/App.tsx", "D:\\repo\\"), "src/App.tsx");
+  assert.equal(relativeWorkspacePath("D:\\repo\\src\\App.tsx", ""), null);
+  assert.equal(relativeWorkspacePath("E:\\elsewhere\\a.txt", "D:\\repo"), null);
+  assert.equal(relativeWorkspacePath("D:\\repository\\a.txt", "D:\\repo"), null);
+  assert.equal(relativeWorkspacePath("D:\\repo", "D:\\repo"), null);
+});
+
+test("builds composer mention text for dropped files inside and outside the workspace", () => {
+  assert.equal(composerReferenceText("D:\\repo\\src\\App.tsx", "D:\\repo"), "@src/App.tsx");
+  assert.equal(composerReferenceText("D:\\repo\\my notes\\草稿 v2.md", "D:\\repo"), "@\"my notes/草稿 v2.md\"");
+  assert.equal(composerReferenceText("C:\\Users\\sparr\\Downloads\\图 纸.png", "D:\\repo"), "@\"C:/Users/sparr/Downloads/图 纸.png\"");
+  assert.equal(composerReferenceText("D:\\repo\\plain.txt", ""), "@D:/repo/plain.txt");
 });

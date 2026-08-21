@@ -258,6 +258,13 @@
   box-shadow: 0 0 0 2px rgba(184, 79, 62, 0.08);
 }
 
+/* 系统文件拖到输入框上时的落点提示（原生 drag-drop 事件驱动）。 */
+.composer-shell.composer-drop-active {
+  border-style: dashed;
+  border-color: #b84f3e;
+  background: #fdf4f1;
+}
+
 .composer-shell textarea {
   width: 100%;
   min-height: 75px;

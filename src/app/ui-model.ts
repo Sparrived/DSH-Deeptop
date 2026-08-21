@@ -251,6 +251,44 @@ export function imageMediaType(file: File): ComposerAttachment["mediaType"] | nu
     : null;
 }
 
+const droppedImageExtensionTypes: Record<string, ComposerAttachment["mediaType"]> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  gif: "image/gif",
+};
+
+/** Classify a dropped OS path by extension; only these become image attachments. */
+export function droppedImageMediaType(path: string): ComposerAttachment["mediaType"] | null {
+  const name = path.replace(/[\\/]+$/u, "");
+  const dot = name.lastIndexOf(".");
+  if (dot < 0) return null;
+  return droppedImageExtensionTypes[name.slice(dot + 1).toLowerCase()] ?? null;
+}
+
+/** Return the forward-slash workspace-relative form of an absolute path, or null when it lies outside the workspace. */
+export function relativeWorkspacePath(path: string, workspace: string): string | null {
+  if (!workspace) return null;
+  const normalize = (value: string) => value.replace(/\\/gu, "/").replace(/\/+$/u, "");
+  const base = normalize(workspace);
+  const full = normalize(path);
+  if (!base || !full) return null;
+  // Windows paths are case-insensitive; ASCII-safe lowering stays safe elsewhere.
+  const loweredBase = base.toLowerCase();
+  const loweredFull = full.toLowerCase();
+  if (!loweredFull.startsWith(loweredBase + "/")) return null;
+  return normalize(path).slice(base.length + 1);
+}
+
+/** Build the composer mention text for a dropped path: relative inside the workspace, quoted absolute otherwise. */
+export function composerReferenceText(path: string, workspace = ""): string {
+  const clean = path.replace(/[\\/]+$/u, "").replace(/\\+/gu, "/");
+  if (!clean) return "";
+  const target = relativeWorkspacePath(clean, workspace) ?? clean;
+  return /\s/u.test(target) ? `@"${target}"` : "@" + target;
+}
+
 export function readImageFile(file: File, limits?: DshImageAttachmentLimits): Promise<ComposerAttachment> {
   const mediaType = imageMediaType(file);
   if (!mediaType) return Promise.reject(new Error("只支持 PNG、JPEG、WebP 或 GIF 图片"));

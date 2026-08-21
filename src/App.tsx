@@ -52,6 +52,7 @@ import {
   listenToRuntimeLog,
   listenToRuntimeStatus,
   listenToUpdateProgress,
+  listenToWebviewFileDrop,
   downloadUpdate,
   cancelUpdateDownload,
   launchUpdateInstaller,
@@ -76,6 +77,7 @@ import {
   saveExportFile,
   pickPluginEntry,
   pickWorkspace,
+  readDroppedImage,
   listPendingOpenSessions,
   acknowledgePendingOpenSession,
   updateTraySessionMenu,
@@ -123,10 +125,12 @@ import {
 } from "./lib/desktop";
 import { desktopClientRuntime } from "./lib/desktop-client-runtime";
 import {
+  composerReferenceText,
   subagentDisplayName,
   subagentActivityLabel,
   subagentModeLabel,
   detectComposerTrigger,
+  droppedImageMediaType,
   insertComposerCandidate,
   insertComposerText,
   referenceComposerCandidates,
@@ -515,6 +519,14 @@ function AppContent() {
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const sessionsRef = useRef<DshSessionSummary[]>(sessions);
   sessionsRef.current = sessions;
+  // 拖放处理注册一次即可，因此通过 ref 读取随渲染变化的工作区、模型限制和附件。
+  const workspaceRef = useRef(workspace);
+  workspaceRef.current = workspace;
+  const modelsRef = useRef(models);
+  modelsRef.current = models;
+  const attachmentsRef = useRef<ComposerAttachment[]>(attachments);
+  attachmentsRef.current = attachments;
+  const [composerDropActive, setComposerDropActive] = useState(false);
   const openSessionRef = useRef<(session: DshSessionSummary) => Promise<boolean>>(() => Promise.resolve(false));
   const chooseWorkspaceRef = useRef<(path: string) => Promise<void>>(() => Promise.resolve());
   const syncConversationToWorkspaceRef = useRef<(path: string) => Promise<void>>(() => Promise.resolve());
@@ -825,6 +837,32 @@ function AppContent() {
       setUpdateDownloadState(updateDownloadStateFromEvent(progress));
     }).then((cleanup) => { unlisten = cleanup; });
     return () => { unlisten?.(); };
+  }, [desktop]);
+
+  // 系统级文件拖放：Tauri 默认拦截原生拖放，WebView2 不会向页面派发携带
+  // OS 文件的 HTML5 drop 事件，因此通过原生事件按落点是否在输入框内分发。
+  useEffect(() => {
+    if (!desktop) return;
+    let unlisten: UnlistenFn | undefined;
+    const overComposer = (x: number, y: number) =>
+      document.elementFromPoint(x, y)?.closest(".composer-shell") != null;
+    void listenToWebviewFileDrop((event) => {
+      if (event.type === "leave") {
+        setComposerDropActive(false);
+        return;
+      }
+      const hit = overComposer(event.x, event.y);
+      if (event.type === "drop") {
+        setComposerDropActive(false);
+        if (hit) void acceptDroppedPaths(event.paths);
+        return;
+      }
+      setComposerDropActive(hit);
+    }).then((cleanup) => { unlisten = cleanup; });
+    return () => {
+      unlisten?.();
+      setComposerDropActive(false);
+    };
   }, [desktop]);
 
 
@@ -3407,6 +3445,75 @@ function AppContent() {
     void addComposerFiles(files);
   }
 
+  /** 在输入框光标处插入拖入文件的 @路径引用，与文件候选的插入行为一致。 */
+  function insertDroppedReferences(paths: string[]) {
+    const insertion = paths.map((path) => composerReferenceText(path, workspaceRef.current)).filter(Boolean).join(" ");
+    if (!insertion) return;
+    const textarea = composerRef.current;
+    const value = textarea?.value ?? "";
+    const selectionStart = textarea?.selectionStart ?? value.length;
+    const selectionEnd = textarea?.selectionEnd ?? selectionStart;
+    const inserted = insertComposerText(value, insertion, selectionStart, selectionEnd);
+    setComposer(inserted.value);
+    setComposerMenuDismissed(true);
+    window.requestAnimationFrame(() => {
+      const nextTextarea = composerRef.current;
+      if (!nextTextarea) return;
+      nextTextarea.focus();
+      nextTextarea.setSelectionRange(inserted.selectionStart, inserted.selectionEnd);
+    });
+  }
+
+  /** 处理原生拖放到输入框的系统路径：图片走附件管线，其余文件插入路径引用。 */
+  async function acceptDroppedPaths(paths: string[]) {
+    if (paths.length === 0) return;
+    const limits = modelsRef.current?.imageLimits;
+    const imagePaths = paths.filter((path) => Boolean(droppedImageMediaType(path)));
+    const referencePaths = paths.filter((path) => !droppedImageMediaType(path));
+    const errors: string[] = [];
+    let addedImages = 0;
+    let referencedPaths = 0;
+
+    if (imagePaths.length > 0) {
+      // 与 readImageFile 的本地默认上限保持一致；Rust 侧另有 64 MB 硬上限。
+      const maxBytes = limits?.maxImageBytes ?? 12 * 1024 * 1024;
+      const results = await Promise.allSettled(imagePaths.map((path) => readDroppedImage(path, maxBytes)));
+      const loaded: ComposerAttachment[] = [];
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          loaded.push({
+            id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            name: result.value.name,
+            mediaType: result.value.mediaType,
+            data: result.value.data,
+          });
+        } else {
+          errors.push(errorText(result.reason));
+        }
+      }
+      if (loaded.length > 0) {
+        const limitError = imageBatchLimitError(attachmentsRef.current, loaded, limits);
+        if (limitError) {
+          errors.push(limitError);
+        } else {
+          setAttachments((current) => [...current, ...loaded]);
+          addedImages = loaded.length;
+        }
+      }
+    }
+
+    if (referencePaths.length > 0) {
+      insertDroppedReferences(referencePaths);
+      referencedPaths = referencePaths.length;
+    }
+
+    const notices: string[] = [];
+    if (addedImages > 0) notices.push(`已添加 ${addedImages} 张图片`);
+    if (referencedPaths > 0) notices.push(`已引用 ${referencedPaths} 个文件路径`);
+    if (errors.length > 0) setErrorNotice([...new Set(errors)].join("；"));
+    else if (notices.length > 0) setNotice(notices.join("，"));
+  }
+
   async function searchSessions() {
     const query = search.trim();
     if (!query) {
@@ -3995,6 +4102,7 @@ function AppContent() {
             sessionStats={sessionStats}
             sessionRunningMs={sessionRunningMs}
              sendShortcut={sendShortcut}
+             dropActive={composerDropActive}
             onComposerChange={(value) => {
               setComposer(value);
               setComposerMenuDismissed(false);

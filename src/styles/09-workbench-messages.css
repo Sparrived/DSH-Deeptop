@@ -1464,6 +1464,14 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent), var(--shadow-soft);
 }
 
+/* 系统文件拖到输入框上时的落点提示（原生 drag-drop 事件驱动）。 */
+.composer-shell.composer-drop-active {
+  border-style: dashed;
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface-raised));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent), var(--shadow-soft);
+}
+
 .composer-shell textarea {
   width: 100%;
   min-height: 98px;

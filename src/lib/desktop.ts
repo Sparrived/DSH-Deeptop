@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import packageInfo from "../../package.json";
 import { parseExternalLaunchPayload, type ExternalLaunchRequest } from "./external-launch";
 import type { NativeUpdateDownloadProgress, UpdateChannel } from "../app/update-model";
@@ -1138,6 +1139,52 @@ export async function deleteWorkspacePath(path: string): Promise<void> {
 /** Create a new folder under a parent directory; returns its full path. */
 export async function createWorkspaceFolder(parent: string, name: string): Promise<string> {
   return invoke<string>("create_workspace_folder", { parent, name });
+}
+
+/** Image file read from a native drag-drop path, with base64 content ready for a composer attachment. */
+export interface DroppedImageAttachmentPayload {
+  name: string;
+  /** Sniffed by magic bytes in Rust; always one of the composer-supported types. */
+  mediaType: "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+  data: string;
+}
+
+/**
+ * Read an image dropped from the OS into the window. The Rust side sniffs the
+ * real media type by magic bytes and enforces the passed byte limit, so the
+ * frontend never reads arbitrary user files itself.
+ */
+export async function readDroppedImage(path: string, maxBytes: number): Promise<DroppedImageAttachmentPayload> {
+  if (!isTauri()) throw new Error("拖拽图片只在桌面端可用");
+  return invoke<DroppedImageAttachmentPayload>("read_image_attachment", { path, maxBytes });
+}
+
+/** Native OS drag position over this webview, in logical pixels relative to the window. */
+export type WebviewFileDropEvent =
+  | { type: "enter" | "over"; x: number; y: number }
+  | { type: "drop"; paths: string[]; x: number; y: number }
+  | { type: "leave" };
+
+/**
+ * Subscribe to OS file drags over the webview. Tauri intercepts native drops
+ * (dragDropEnabled defaults to true), so HTML5 drop events never carry OS
+ * files on WebView2 — this is the only reliable source of dropped paths.
+ */
+export async function listenToWebviewFileDrop(handler: (event: WebviewFileDropEvent) => void): Promise<UnlistenFn> {
+  if (!isTauri()) return () => undefined;
+  return getCurrentWebview().onDragDropEvent((event) => {
+    const payload = event.payload;
+    if (payload.type === "leave") {
+      handler({ type: "leave" });
+      return;
+    }
+    // Positions arrive in physical pixels; convert with the current scale factor.
+    const scale = window.devicePixelRatio || 1;
+    const x = payload.position.x / scale;
+    const y = payload.position.y / scale;
+    if (payload.type === "drop") handler({ type: "drop", paths: [...payload.paths], x, y });
+    else handler({ type: payload.type, x, y });
+  });
 }
 
 /** Locations of the default external dark-theme CSS files (seeded under the DSH home). */
