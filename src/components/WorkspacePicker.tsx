@@ -37,14 +37,15 @@ export function WorkspacePicker({
   const selectedTitle = selectedWorkspace?.title || (workspace ? projectName(workspace) : "未分组");
   const selectedPath = selectedWorkspace?.path || (workspace || "未注册工作区的会话");
   const selectedPinned = Boolean(selectedWorkspace && pinnedWorkspaceIds.includes(selectedWorkspace.workspaceId));
-  const renderCollapseToggle = (workspaceId: string, label: string) => {
-    const collapsed = collapsedWorkspaces[workspaceId] ?? true;
+  // 左下角列表用于工作区整理（置顶/收起），默认：未置顶的工作区收起、置顶的工作区展开。
+  const renderCollapseToggle = (workspaceId: string, label: string, pinned: boolean) => {
+    const collapsed = collapsedWorkspaces[workspaceId] ?? !pinned;
     return (
       <button
         className={`workspace-menu-toggle${collapsed ? " collapsed" : ""}`}
         onClick={(event) => { event.stopPropagation(); onToggleCollapse(workspaceId); }}
         role="menuitem"
-        title={collapsed ? `展开“${label}”的会话` : `收起“${label}”的会话`}
+        title={collapsed ? `展开“${label}”` : `收起“${label}”`}
         aria-label={collapsed ? `展开“${label}”` : `收起“${label}”`}
         aria-expanded={!collapsed}
       >{collapsed ? ">" : "v"}</button>
@@ -63,7 +64,7 @@ export function WorkspacePicker({
       {open && (
         <div className="workspace-menu" role="menu">
           <div className="workspace-menu-item" role="presentation">
-            {renderCollapseToggle(UNGROUPED_WORKSPACE_ID, "未分组")}
+            {renderCollapseToggle(UNGROUPED_WORKSPACE_ID, "未分组", false)}
             <button className={`workspace-menu-main${!workspace ? " selected" : ""}`} onClick={() => onChoose("")} role="menuitem" title="新会话使用 DSH 运行目录">
               <strong>未分组</strong><small>未注册工作区的会话</small>
             </button>
@@ -73,11 +74,10 @@ export function WorkspacePicker({
             const pinned = pinnedWorkspaceIds.includes(item.workspaceId);
             return (
               <div key={item.workspaceId} className="workspace-menu-item" role="presentation">
-                {renderCollapseToggle(item.workspaceId, label)}
+                {renderCollapseToggle(item.workspaceId, label, pinned)}
                 <button className={`workspace-menu-main${workspace === item.path ? " selected" : ""}`} onClick={() => onChoose(item.path)} role="menuitem" title={item.path}>
                   <strong>{label}</strong><small>{item.path}</small>
                 </button>
-                <span className="workspace-menu-count">{item.sessionIds.length}</span>
                 <button
                   className={`workspace-menu-pin${pinned ? " active" : ""}`}
                   onClick={(event) => { event.stopPropagation(); onTogglePin(item); }}

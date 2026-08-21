@@ -234,21 +234,25 @@ export function SessionSidebar({
         {archiveOpen ? (
           archivedSessions.length === 0 ? <div className="sidebar-empty">没有归档会话</div> : archivedSessions.map(renderArchivedSession)
         ) : <>
-          {workspaceGroups.map((group) => (
-            <WorkspaceGroupSection
-              key={group.workspaceId}
-              workspace={group.workspace}
-              workspaceId={group.workspaceId}
-              sessions={orderSessions(group.sessions)}
-              collapsed={collapsedWorkspaces[group.workspaceId] ?? true}
-              pinned={Boolean(group.workspace && pinnedWorkspaceIds.includes(group.workspaceId))}
-              onToggle={onToggleWorkspace}
-              onTogglePinWorkspace={onTogglePinWorkspace}
-              onRenameWorkspace={onRenameWorkspace}
-              onDeleteWorkspace={onDeleteWorkspace}
-              renderSession={renderSessionRow}
-            />
-          ))}
+          {workspaceGroups.map((group) => {
+            // 默认：未置顶的工作区收起，置顶的工作区展开；用户的显式切换始终优先。
+            const pinned = Boolean(group.workspace && pinnedWorkspaceIds.includes(group.workspaceId));
+            return (
+              <WorkspaceGroupSection
+                key={group.workspaceId}
+                workspace={group.workspace}
+                workspaceId={group.workspaceId}
+                sessions={orderSessions(group.sessions)}
+                collapsed={collapsedWorkspaces[group.workspaceId] ?? !pinned}
+                pinned={pinned}
+                onToggle={onToggleWorkspace}
+                onTogglePinWorkspace={onTogglePinWorkspace}
+                onRenameWorkspace={onRenameWorkspace}
+                onDeleteWorkspace={onDeleteWorkspace}
+                renderSession={renderSessionRow}
+              />
+            );
+          })}
           {groupedSessionCount === 0 && <div className="sidebar-empty">当前工作区没有已开始的会话</div>}
         </>}
       </div>

@@ -1227,7 +1227,7 @@ textarea:focus-visible {
 .workspace-menu-item {
   min-width: 0;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: stretch;
   gap: 2px;
 }
@@ -1278,14 +1278,6 @@ textarea:focus-visible {
   max-height: min(440px, calc(100vh - 200px));
   overflow: auto;
   scrollbar-color: var(--line) transparent;
-}
-
-.workspace-menu-count {
-  align-self: center;
-  padding: 0 2px;
-  color: var(--ink-faint);
-  font-family: var(--mono);
-  font-size: 11px;
 }
 
 .workspace-menu .workspace-menu-pin {
