@@ -4693,6 +4693,105 @@ fn create_workspace_folder(parent: String, name: String) -> Result<String, Strin
     Ok(path.to_string_lossy().into_owned())
 }
 
+/// 拖拽图片附件的硬上限：无论前端传入什么限制，单张图片不超过 64 MB。
+const MAX_DROPPED_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
+
+/// 拖拽图片附件读取结果；data 为图片内容的 base64 编码。
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct DroppedImageAttachment {
+    name: String,
+    media_type: String,
+    data: String,
+}
+
+/// 按文件魔数识别受支持的图片格式，避免仅凭扩展名误判。
+fn sniff_image_media_type(bytes: &[u8]) -> Option<&'static str> {
+    const PNG_MAGIC: &[u8; 8] = &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+    const RIFF_MAGIC: &[u8; 4] = b"RIFF";
+    const WEBP_MAGIC: &[u8; 4] = b"WEBP";
+    if bytes.starts_with(PNG_MAGIC) {
+        return Some("image/png");
+    }
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return Some("image/jpeg");
+    }
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return Some("image/gif");
+    }
+    if bytes.len() >= 12 && &bytes[0..4] == RIFF_MAGIC && &bytes[8..12] == WEBP_MAGIC {
+        return Some("image/webp");
+    }
+    None
+}
+
+/// 无填充的标准 base64 编码（与浏览器 btoa 输出一致），避免为此引入新依赖。
+fn base64_encode(data: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut result = String::with_capacity(data.len().div_ceil(3) * 4);
+    for chunk in data.chunks(3) {
+        let value = ((*chunk.first().unwrap_or(&0) as u32) << 16)
+            | ((*chunk.get(1).unwrap_or(&0) as u32) << 8)
+            | (*chunk.get(2).unwrap_or(&0) as u32);
+        result.push(TABLE[(value >> 18) as usize & 63] as char);
+        result.push(TABLE[(value >> 12) as usize & 63] as char);
+        result.push(if chunk.len() > 1 {
+            TABLE[(value >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        result.push(if chunk.len() > 2 {
+            TABLE[value as usize & 63] as char
+        } else {
+            '='
+        });
+    }
+    result
+}
+
+/// 读取拖拽进来的图片文件并按魔数识别格式；超过限制或不是受支持格式时报错。
+#[tauri::command]
+fn read_image_attachment(path: String, max_bytes: u64) -> Result<DroppedImageAttachment, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("图片路径为空".to_string());
+    }
+    if max_bytes == 0 {
+        return Err("图片大小限制无效".to_string());
+    }
+    let limit = max_bytes.min(MAX_DROPPED_IMAGE_BYTES);
+    let file_path = PathBuf::from(trimmed);
+    let metadata = fs::metadata(&file_path)
+        .map_err(|error| format!("无法读取 {}：{error}", file_path.display()))?;
+    if !metadata.is_file() {
+        return Err(format!("{} 不是文件", file_path.display()));
+    }
+    if metadata.len() > limit {
+        return Err(format!(
+            "图片不能超过 {} MB",
+            (limit as f64 / (1024.0 * 1024.0)).round()
+        ));
+    }
+    let bytes = fs::read(&file_path)
+        .map_err(|error| format!("无法读取 {}：{error}", file_path.display()))?;
+    if bytes.len() as u64 > limit {
+        return Err(format!(
+            "图片不能超过 {} MB",
+            (limit as f64 / (1024.0 * 1024.0)).round()
+        ));
+    }
+    let media_type = sniff_image_media_type(&bytes)
+        .ok_or_else(|| format!("{} 不是支持的图片格式（PNG、JPEG、WebP、GIF）", trimmed))?;
+    Ok(DroppedImageAttachment {
+        name: file_path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        media_type: media_type.to_string(),
+        data: base64_encode(&bytes),
+    })
+}
+
 /// 深色主题的默认外部 CSS（随应用分发，首次启动写入主题目录）。
 const MONOKAI_PRO_THEME_CSS: &str = include_str!("../resources/themes/monokai-pro.css");
 const ONE_DARK_THEME_CSS: &str = include_str!("../resources/themes/one-dark.css");
@@ -4835,13 +4934,14 @@ fn open_themes_directory() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        bound_log_text, dsh_home, dsh_homes_match, extract_runtime_archive, format_log_line,
-        format_utc_datetime, is_bundled_runtime_manifest, is_dsh_package_manifest, is_file_path,
-        is_safe_runtime_entry, process_command_line_matches_dsh, runtime_arch,
-        runtime_cache_validation_message, runtime_platform, runtime_tree_sha256, tray_menu_text,
-        tray_session_label, validate_tray_session_menu, validated_connection_url, DshRuntimeLog,
-        LogStore, TraySessionMenuItem, TraySessionMenuSnapshot, TraySessionStatus, MAX_LOG_ENTRIES,
-        MAX_LOG_TEXT_BYTES, RUNTIME_CACHE_MARKER,
+        base64_encode, bound_log_text, dsh_home, dsh_homes_match, extract_runtime_archive,
+        format_log_line, format_utc_datetime, is_bundled_runtime_manifest, is_dsh_package_manifest,
+        is_file_path, is_safe_runtime_entry, process_command_line_matches_dsh, runtime_arch,
+        runtime_cache_validation_message, runtime_platform, runtime_tree_sha256,
+        sniff_image_media_type, tray_menu_text, tray_session_label, validate_tray_session_menu,
+        validated_connection_url, DshRuntimeLog, LogStore, TraySessionMenuItem,
+        TraySessionMenuSnapshot, TraySessionStatus, MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES,
+        RUNTIME_CACHE_MARKER,
     };
 
     #[cfg(windows)]
@@ -4924,6 +5024,38 @@ mod tests {
         ));
 
         std::fs::remove_dir_all(root).expect("remove file path test directory");
+    }
+
+    #[test]
+    fn sniffs_dropped_image_media_types_by_magic_bytes() {
+        let png = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0];
+        assert_eq!(sniff_image_media_type(&png), Some("image/png"));
+        assert_eq!(
+            sniff_image_media_type(&[0xFF, 0xD8, 0xFF, 0xE0]),
+            Some("image/jpeg")
+        );
+        assert_eq!(sniff_image_media_type(b"GIF89a...."), Some("image/gif"));
+        assert_eq!(sniff_image_media_type(b"GIF87a...."), Some("image/gif"));
+        let mut webp = Vec::new();
+        webp.extend_from_slice(b"RIFF");
+        webp.extend_from_slice(&[0x24, 0x00, 0x00, 0x00]);
+        webp.extend_from_slice(b"WEBPVP8 ");
+        assert_eq!(sniff_image_media_type(&webp), Some("image/webp"));
+        assert_eq!(sniff_image_media_type(b"<html>"), None);
+        assert_eq!(sniff_image_media_type(b"RIFFxxxx"), None);
+        assert_eq!(sniff_image_media_type(&[]), None);
+    }
+
+    #[test]
+    fn base64_encode_matches_standard_padding_vectors() {
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+        assert_eq!(base64_encode(b"foob"), "Zm9vYg==");
+        assert_eq!(base64_encode(b"fooba"), "Zm9vYmE=");
+        assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
+        assert_eq!(base64_encode(&[0x89, b'P', b'N', b'G']), "iVBORw==");
     }
 
     #[test]
@@ -5351,6 +5483,7 @@ fn main() {
             is_file_path,
             delete_workspace_path,
             create_workspace_folder,
+            read_image_attachment,
             ensure_theme_files,
             read_theme_css,
             pick_theme_css,
