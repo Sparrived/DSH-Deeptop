@@ -42,16 +42,21 @@ export function GitTreeGraph({ lines, selectedHash, onSelect }: GitTreeGraphProp
   });
 
   const edges = layout.edges.map((edge, index) => {
-    const color = gitGraphLaneColor(edge.fromLane);
+    // 合并边颜色取分支侧泳道：分支被合并时该线属于分支而非主线。
+    const color = gitGraphLaneColor(edge.colorLane);
     const xs = laneX(edge.fromLane);
     const ys = nodeY(edge.fromRow);
     const xt = laneX(edge.toLane);
     const yt = nodeY(edge.toRow);
-    // 弯头贴近目标节点（对齐 git 的 `|`+`|/` 画法）：
-    // 竖直段沿源泳道自己的一列下行（与其他泳道并行、不穿越），
-    // 底部折水平 + 短垂直汇入目标，避免在目标泳道上留下贯穿的长线。
+    const span = yt - ys;
+    if (span <= ROW_H * 3) {
+      // 短跨度合并边直接画斜线（git `\` 造型），不做竖线+圆角折弯。
+      return <line key={`e${index}`} x1={xs} y1={ys} x2={xt} y2={yt} stroke={color} strokeWidth={2} strokeLinecap="round" />;
+    }
+    // 长跨度边：沿源泳道自己的列下行（与其他泳道并行），底部折弯汇入目标
+    // （git `|`+`|/` 造型），目标侧只留短垂直段，避免贯穿线。
     const cornerR = 7;
-    const joinY = 5; // 汇入目标前的短垂直段
+    const joinY = 5;
     const elbowY = Math.max(ys + cornerR + 2, yt - cornerR - joinY);
     const dir = xt >= xs ? 1 : -1;
     const path = [

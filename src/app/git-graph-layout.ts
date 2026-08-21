@@ -32,6 +32,8 @@ export type GitLayoutEdge = {
   fromRow: number;
   toLane: number;
   toRow: number;
+  /** 该边所属分支的泳道（用于取分支颜色，而非主线颜色）。 */
+  colorLane: number;
 };
 
 export type GitGraphLayout = {
@@ -78,21 +80,24 @@ export function gitGraphLayout(input: WorkspaceGitGraphLine[]): GitGraphLayout {
   const laneTo = new Map<number, number>();
   const claim = new Map<string, Claim>();
 
+  // 泳道区间只从该泳道第一个提交所在行起算：
+  // 合并边之上/分支顶端之上不画竖线（竖线只向下延续分支自己的历史）。
   const noteLaneRow = (lane: number, row: number) => {
     if (!laneFrom.has(lane)) laneFrom.set(lane, row);
     laneTo.set(lane, Math.max(laneTo.get(lane) ?? row, row));
   };
   const recordEdge = (
-    edgesRaw: Array<{ fromLane: number; fromRow: number; targetHash: string }>,
+    edgesRaw: Array<{ fromHash: string; fromLane: number; fromRow: number; targetHash: string }>,
+    fromHash: string,
     fromLane: number,
     fromRow: number,
     targetHash: string,
   ) => {
-    edgesRaw.push({ fromLane, fromRow, targetHash });
+    edgesRaw.push({ fromHash, fromLane, fromRow, targetHash });
   };
 
   const out: GitLayoutCommit[] = [];
-  const edgesRaw: Array<{ fromLane: number; fromRow: number; targetHash: string }> = [];
+  const edgesRaw: Array<{ fromHash: string; fromLane: number; fromRow: number; targetHash: string }> = [];
   let row = 0;
 
   for (const commit of commits) {
@@ -127,7 +132,7 @@ export function gitGraphLayout(input: WorkspaceGitGraphLine[]): GitGraphLayout {
           // 双亲移回主线泳道，保证主线不中途折道。
           const previous = claim.get(parent);
           if (previous) {
-            recordEdge(edgesRaw, previous.lane, previous.row, parent);
+            recordEdge(edgesRaw, previous.by, previous.lane, previous.row, parent);
             lanes[previous.lane] = null;
           }
           lanes[existing] = null;
@@ -136,7 +141,7 @@ export function gitGraphLayout(input: WorkspaceGitGraphLine[]): GitGraphLayout {
           claim.set(parent, { by: hash, lane, row });
         } else {
           // 分支汇入已有泳道：保留该泳道，本提交到双亲画跨泳道边。
-          recordEdge(edgesRaw, lane, row, parent);
+          recordEdge(edgesRaw, hash, lane, row, parent);
         }
         continue;
       }
@@ -146,12 +151,11 @@ export function gitGraphLayout(input: WorkspaceGitGraphLine[]): GitGraphLayout {
       } else {
         parentLane = lanes.length; // 合并双亲追加到最右侧新泳道
         lanes.push(null);
-        recordEdge(edgesRaw, lane, row, parent);
+        recordEdge(edgesRaw, hash, lane, row, parent);
       }
       lanes[parentLane] = parent;
       laneOf.set(parent, parentLane);
       claim.set(parent, { by: hash, lane: parentLane, row });
-      noteLaneRow(parentLane, row);
     }
     row += 1;
   }
@@ -160,11 +164,18 @@ export function gitGraphLayout(input: WorkspaceGitGraphLine[]): GitGraphLayout {
   for (const edge of edgesRaw) {
     const target = position.get(edge.targetHash);
     if (!target) continue;
+    // 合并边颜色取“分支侧”泳道：一端在主线脊柱上时取另一端，否则取目标侧。
+    const colorLane = spine.has(edge.fromHash)
+      ? target.lane
+      : spine.has(edge.targetHash)
+        ? edge.fromLane
+        : target.lane;
     edges.push({
       fromLane: edge.fromLane,
       fromRow: edge.fromRow,
       toLane: target.lane,
       toRow: target.row,
+      colorLane,
     });
   }
 
