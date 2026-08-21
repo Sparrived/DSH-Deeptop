@@ -10,18 +10,19 @@ test("falls back to empty preferences for missing or invalid input", () => {
   assert.deepEqual(parseWorkspaceViewPreferences("[]"), DEFAULT_WORKSPACE_VIEW_PREFERENCES);
 });
 
-test("parses pinned ids and boolean collapsed state", () => {
+test("parses pinned ids and the unpinned section expansion flag", () => {
   const parsed = parseWorkspaceViewPreferences(JSON.stringify({
     pinnedWorkspaceIds: ["a", "b"],
-    collapsedWorkspaces: { a: true, b: false, c: "yes" },
+    unpinnedSectionOpen: true,
   }));
-  assert.deepEqual(parsed, { pinnedWorkspaceIds: ["a", "b"], collapsedWorkspaces: { a: true, b: false } });
+  assert.deepEqual(parsed, { pinnedWorkspaceIds: ["a", "b"], unpinnedSectionOpen: true });
 });
 
-test("drops invalid entries", () => {
+test("keeps the unpinned section collapsed by default and drops invalid entries", () => {
   const parsed = parseWorkspaceViewPreferences(JSON.stringify({
     pinnedWorkspaceIds: ["a", 42, "", "b"],
-    collapsedWorkspaces: [true, false],
+    unpinnedSectionOpen: "yes",
   }));
-  assert.deepEqual(parsed, { pinnedWorkspaceIds: ["a", "b"], collapsedWorkspaces: {} });
+  assert.deepEqual(parsed, { pinnedWorkspaceIds: ["a", "b"], unpinnedSectionOpen: false });
+  assert.equal(parseWorkspaceViewPreferences(JSON.stringify({ pinnedWorkspaceIds: [] })).unpinnedSectionOpen, false);
 });

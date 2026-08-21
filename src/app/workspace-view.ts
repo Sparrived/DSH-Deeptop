@@ -1,19 +1,19 @@
-// 侧栏工作区视图偏好：置顶顺序与各工作区的收起状态。
+// 侧栏工作区视图偏好：置顶顺序与未置顶工作区二级列表的展开状态。
 // 属于 UI 显示偏好，遵循桌面端 localStorage 偏好先例（如 deeptop.sidebar-width），
 // 不写入 DSH 工作区模型。
 
 export const WORKSPACE_VIEW_STORAGE_KEY = "deeptop.workspace-view";
 
 export type WorkspaceViewPreferences = {
-  /** 置顶工作区 id，按置顶顺序排列；侧栏始终显示这些工作区分组。 */
+  /** 置顶工作区 id，按置顶顺序排列；侧栏工作区列表始终显示它们。 */
   pinnedWorkspaceIds: string[];
-  /** 各工作区是否收起；未记录的项使用默认收起。 */
-  collapsedWorkspaces: Record<string, boolean>;
+  /** 未置顶工作区二级列表是否展开；默认收起避免工作区过多。 */
+  unpinnedSectionOpen: boolean;
 };
 
 export const DEFAULT_WORKSPACE_VIEW_PREFERENCES: WorkspaceViewPreferences = {
   pinnedWorkspaceIds: [],
-  collapsedWorkspaces: {},
+  unpinnedSectionOpen: false,
 };
 
 export function parseWorkspaceViewPreferences(raw: string | null): WorkspaceViewPreferences {
@@ -23,17 +23,11 @@ export function parseWorkspaceViewPreferences(raw: string | null): WorkspaceView
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return DEFAULT_WORKSPACE_VIEW_PREFERENCES;
     const record = parsed as Record<string, unknown>;
     const pinned = record.pinnedWorkspaceIds;
-    const collapsed = record.collapsedWorkspaces;
     const pinnedWorkspaceIds = Array.isArray(pinned)
       ? pinned.filter((id): id is string => typeof id === "string" && id.length > 0)
       : [];
-    const collapsedWorkspaces: Record<string, boolean> = {};
-    if (collapsed && typeof collapsed === "object" && !Array.isArray(collapsed)) {
-      for (const [workspaceId, value] of Object.entries(collapsed)) {
-        if (typeof value === "boolean") collapsedWorkspaces[workspaceId] = value;
-      }
-    }
-    return { pinnedWorkspaceIds, collapsedWorkspaces };
+    const unpinnedSectionOpen = record.unpinnedSectionOpen === true;
+    return { pinnedWorkspaceIds, unpinnedSectionOpen };
   } catch {
     return DEFAULT_WORKSPACE_VIEW_PREFERENCES;
   }

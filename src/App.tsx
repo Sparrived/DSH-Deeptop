@@ -429,8 +429,8 @@ function AppContent() {
       return "system";
     }
   });
-  // 工作区侧栏视图偏好：置顶顺序与收起状态，未记录的项默认收起。
-  const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Record<string, boolean>>(() => readWorkspaceViewPreferences().collapsedWorkspaces);
+  // 工作区侧栏视图偏好：置顶顺序与未置顶工作区二级列表的展开状态（默认收起）。
+  const [unpinnedSectionOpen, setUnpinnedSectionOpen] = useState(() => readWorkspaceViewPreferences().unpinnedSectionOpen);
   const [pinnedWorkspaceIds, setPinnedWorkspaceIds] = useState<string[]>(() => readWorkspaceViewPreferences().pinnedWorkspaceIds);
   const [dragOverSessionId, setDragOverSessionId] = useState<string | null>(null);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
@@ -867,8 +867,8 @@ function AppContent() {
   }, [presetMenuOpen]);
 
   useEffect(() => {
-    writeWorkspaceViewPreferences({ pinnedWorkspaceIds, collapsedWorkspaces });
-  }, [collapsedWorkspaces, pinnedWorkspaceIds]);
+    writeWorkspaceViewPreferences({ pinnedWorkspaceIds, unpinnedSectionOpen });
+  }, [pinnedWorkspaceIds, unpinnedSectionOpen]);
 
   // 左下角工作区一级菜单：点击外部或按 Esc 自动收起。
   useEffect(() => {
@@ -1044,44 +1044,31 @@ function AppContent() {
     () => workspaces.find((item) => sameWorkspacePath(item.path, workspace)) ?? null,
     [workspace, workspaces],
   );
-  const sessionsByWorkspace = useMemo(() => {
+  // 侧栏工作区整理区：置顶工作区（按置顶顺序）+ 其余未置顶工作区
+  // （默认收起，由一条展开/收起行打开为二级列表，避免工作区过多）。
+  const pinnedWorkspaces = useMemo(
+    () => pinnedWorkspaceIds
+      .map((workspaceId) => workspaces.find((item) => item.workspaceId === workspaceId))
+      .filter((item): item is DshWorkspace => item !== undefined),
+    [pinnedWorkspaceIds, workspaces],
+  );
+  const unpinnedWorkspaces = useMemo(
+    () => workspaces.filter((item) => !pinnedWorkspaceIds.includes(item.workspaceId) && !sameWorkspacePath(item.path, workspace)),
+    [pinnedWorkspaceIds, workspace, workspaces],
+  );
+  // 会话区：当前选中工作区的会话（工作区内置顶会话优先）；未选择工作区时显示未分组会话。
+  const selectedWorkspaceGroup = useMemo<WorkspaceGroup>(() => {
     const visibleById = new Map(visibleSessions.map((session) => [session.sessionId, session]));
-    return new Map(workspaces.map((item) => {
-      const pinnedSessionIds = new Set(item.pinnedSessionIds ?? []);
-      const sessions = item.sessionIds
+    if (selectedWorkspace) {
+      const pinned = new Set(selectedWorkspace.pinnedSessionIds ?? []);
+      const sessions = selectedWorkspace.sessionIds
         .map((sessionId) => visibleById.get(sessionId))
         .filter((session): session is DshSessionSummary => session !== undefined)
-        .sort((left, right) => Number(pinnedSessionIds.has(right.sessionId)) - Number(pinnedSessionIds.has(left.sessionId)));
-      return [item.workspaceId, sessions] as const;
-    }));
-  }, [visibleSessions, workspaces]);
-  // 侧栏为一组工作区行（一级菜单）：置顶的工作区固定排最上方（按置顶顺序），
-  // 其次显示当前选中的工作区；未置顶但被用户显式“展开”的工作区也以行显示，
-  // 其余未置顶工作区默认收起隐藏，避免工作区过多。未选择工作区时显示未分组会话。
-  const workspaceGroups = useMemo<WorkspaceGroup[]>(() => {
-    const groups: WorkspaceGroup[] = [];
-    const pinnedSet = new Set(pinnedWorkspaceIds);
-    const added = new Set<string>();
-    for (const workspaceId of pinnedWorkspaceIds) {
-      const item = workspaces.find((candidate) => candidate.workspaceId === workspaceId);
-      if (!item) continue;
-      added.add(item.workspaceId);
-      groups.push({ workspace: item, workspaceId: item.workspaceId, sessions: sessionsByWorkspace.get(item.workspaceId) ?? [] });
+        .sort((left, right) => Number(pinned.has(right.sessionId)) - Number(pinned.has(left.sessionId)));
+      return { workspace: selectedWorkspace, workspaceId: selectedWorkspace.workspaceId, sessions };
     }
-    if (selectedWorkspace && !added.has(selectedWorkspace.workspaceId)) {
-      added.add(selectedWorkspace.workspaceId);
-      groups.push({ workspace: selectedWorkspace, workspaceId: selectedWorkspace.workspaceId, sessions: sessionsByWorkspace.get(selectedWorkspace.workspaceId) ?? [] });
-    }
-    for (const item of workspaces) {
-      if (pinnedSet.has(item.workspaceId) || added.has(item.workspaceId)) continue;
-      if (collapsedWorkspaces[item.workspaceId] !== false) continue;
-      groups.push({ workspace: item, workspaceId: item.workspaceId, sessions: sessionsByWorkspace.get(item.workspaceId) ?? [] });
-    }
-    if (!selectedWorkspace) {
-      groups.push({ workspace: null, workspaceId: "__ungrouped__", sessions: visibleSessions.filter((session) => !workspaceBySessionId.has(session.sessionId)) });
-    }
-    return groups;
-  }, [collapsedWorkspaces, pinnedWorkspaceIds, selectedWorkspace, sessionsByWorkspace, visibleSessions, workspaceBySessionId, workspaces]);
+    return { workspace: null, workspaceId: "__ungrouped__", sessions: visibleSessions.filter((session) => !workspaceBySessionId.has(session.sessionId)) };
+  }, [selectedWorkspace, visibleSessions, workspaceBySessionId]);
   const defaultModelSelection = useMemo<ModelSelection | null>(() => {
     const configured = settings?.namespaces.find((namespace) => namespace.ns === "agent-default-model")?.value;
     const configuredModel = valueAtPath(configured, ["model"]);
@@ -2342,11 +2329,7 @@ function AppContent() {
     return repairWorkspaceMembership([item], sessions, [...workspaces, item]);
   }
 
-  function toggleWorkspace(workspaceId: string) {
-    setCollapsedWorkspaces((current) => ({ ...current, [workspaceId]: !current[workspaceId] }));
-  }
-
-  // 置顶工作区：置顶后固定显示在侧栏最上方，保持置顶顺序。
+  // 置顶工作区：置顶后固定显示在侧栏工作区列表最上方，保持置顶顺序。
   function togglePinWorkspace(item: DshWorkspace) {
     setPinnedWorkspaceIds((current) => current.includes(item.workspaceId)
       ? current.filter((workspaceId) => workspaceId !== item.workspaceId)
@@ -2391,11 +2374,6 @@ function AppContent() {
       await bridgeRequest("workspace.delete", { workspaceId: item.workspaceId });
       setWorkspaces((current) => current.filter((workspaceItem) => workspaceItem.workspaceId !== item.workspaceId));
       setPinnedWorkspaceIds((current) => current.filter((workspaceId) => workspaceId !== item.workspaceId));
-      setCollapsedWorkspaces((current) => {
-        const next = { ...current };
-        delete next[item.workspaceId];
-        return next;
-      });
       if (workspace === item.path) setWorkspace("");
       setNotice("工作区已移除");
     } catch (error) {
@@ -3759,13 +3737,15 @@ function AppContent() {
           archivedSessions={archivedSessions}
           onRestoreSession={restoreSession}
           onDeleteArchivedSession={setDeleteArchivedTarget}
-          workspaceGroups={workspaceGroups}
-          collapsedWorkspaces={collapsedWorkspaces}
-          onToggleWorkspace={toggleWorkspace}
+          pinnedWorkspaces={pinnedWorkspaces}
+          unpinnedWorkspaces={unpinnedWorkspaces}
+          selectedWorkspaceGroup={selectedWorkspaceGroup}
           pinnedWorkspaceIds={pinnedWorkspaceIds}
           onTogglePinWorkspace={togglePinWorkspace}
           onRenameWorkspace={renameWorkspace}
           onDeleteWorkspace={deleteWorkspace}
+          unpinnedSectionOpen={unpinnedSectionOpen}
+          onUnpinnedSectionChange={setUnpinnedSectionOpen}
           sessionContextMenu={sessionContextMenu}
           onRequestSessionAction={requestSessionAction}
           workspace={workspace}

@@ -1,23 +1,27 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { projectName } from "../app/model";
-import type { DshSessionSummary, DshWorkspace } from "../lib/desktop";
+import type { DshWorkspace } from "../lib/desktop";
 
-type WorkspaceGroupProps = {
+type WorkspaceRowProps = {
   workspace: DshWorkspace | null;
-  sessions: DshSessionSummary[];
+  pinned: boolean;
+  current: boolean;
+  onChoose: (path: string) => void;
+  onTogglePinWorkspace: (workspace: DshWorkspace) => void;
   onRenameWorkspace: (workspace: DshWorkspace) => void | Promise<void>;
   onDeleteWorkspace: (workspace: DshWorkspace) => void | Promise<void>;
-  renderSession: (session: DshSessionSummary) => ReactNode;
 };
 
-export function WorkspaceGroup({
+export function WorkspaceRow({
   workspace,
-  sessions,
+  pinned,
+  current,
+  onChoose,
+  onTogglePinWorkspace,
   onRenameWorkspace,
   onDeleteWorkspace,
-  renderSession,
-}: WorkspaceGroupProps) {
+}: WorkspaceRowProps) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const title = workspace ? workspace.title || projectName(workspace.path) : "未分组";
   const path = workspace?.path ?? "未注册工作区的会话";
@@ -44,18 +48,29 @@ export function WorkspaceGroup({
   }, [contextMenu]);
 
   return (
-    <section className={`workspace-group${workspace ? "" : " workspace-group-unfiled"}`}>
-      <div
-        className="workspace-group-header"
-        onContextMenu={(event) => {
-          event.preventDefault();
-          if (!workspace) return;
-          setContextMenu({ x: event.clientX, y: event.clientY });
-        }}
-      >
+    <div
+      className={`workspace-row${current ? " current" : ""}`}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        if (!workspace) return;
+        setContextMenu({ x: event.clientX, y: event.clientY });
+      }}
+    >
+      <button className="workspace-row-main" type="button" onClick={() => onChoose(workspace?.path ?? "")} title={path}>
         <span className="workspace-group-copy"><strong>{title}</strong><small>{path}</small></span>
-        <span className="workspace-group-count">{sessions.length}</span>
-      </div>
+        {workspace && <span className="workspace-group-count">{workspace.sessionIds.length}</span>}
+      </button>
+      {workspace && (
+        <button
+          className={`workspace-row-pin${pinned ? " active" : ""}`}
+          type="button"
+          onClick={(event) => { event.stopPropagation(); onTogglePinWorkspace(workspace); }}
+          title={pinned ? "取消置顶" : "置顶工作区"}
+          aria-label={pinned ? `取消置顶“${title}”` : `置顶工作区“${title}”`}
+          aria-pressed={pinned}
+          onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); }}
+        >📌</button>
+      )}
       {workspace && contextMenu && createPortal(
         <div
           className="session-context-menu workspace-context-menu"
@@ -63,12 +78,12 @@ export function WorkspaceGroup({
           role="menu"
           onMouseDown={(event) => event.stopPropagation()}
         >
+          <button role="menuitem" onClick={() => { setContextMenu(null); onTogglePinWorkspace(workspace); }}>{pinned ? "取消置顶" : "置顶工作区"}</button>
           <button role="menuitem" onClick={() => { setContextMenu(null); void onRenameWorkspace(workspace); }}>重命名工作区</button>
           <button className="danger" role="menuitem" onClick={() => { setContextMenu(null); void onDeleteWorkspace(workspace); }}>删除工作区</button>
         </div>,
         document.body,
       )}
-      {sessions.map(renderSession)}
-    </section>
+    </div>
   );
 }

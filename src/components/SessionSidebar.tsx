@@ -1,7 +1,8 @@
-import { useMemo, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { SessionRow, sessionStatusLabels } from "./SessionRow";
 import { WorkspaceGroup as WorkspaceGroupSection } from "./WorkspaceGroup";
+import { WorkspaceRow } from "./WorkspaceRow";
 import { WorkspacePicker } from "./WorkspacePicker";
 import {
   displayTitle,
@@ -39,13 +40,15 @@ type SessionSidebarProps = {
   archivedSessions: DshSessionSummary[];
   onRestoreSession: (session: DshSessionSummary) => void | Promise<unknown>;
   onDeleteArchivedSession: (session: DshSessionSummary) => void;
-  workspaceGroups: WorkspaceGroup[];
-  collapsedWorkspaces: Record<string, boolean>;
-  onToggleWorkspace: (workspaceId: string) => void;
+  pinnedWorkspaces: DshWorkspace[];
+  unpinnedWorkspaces: DshWorkspace[];
+  selectedWorkspaceGroup: WorkspaceGroup;
   pinnedWorkspaceIds: string[];
   onTogglePinWorkspace: (workspace: DshWorkspace) => void;
   onRenameWorkspace: (workspace: DshWorkspace) => void | Promise<void>;
   onDeleteWorkspace: (workspace: DshWorkspace) => void | Promise<void>;
+  unpinnedSectionOpen: boolean;
+  onUnpinnedSectionChange: (open: boolean) => void;
   sessionContextMenu: SessionContextMenu | null;
   onRequestSessionAction: (action: SessionAction, session: DshSessionSummary) => void;
   workspace: string;
@@ -82,13 +85,15 @@ export function SessionSidebar({
   archivedSessions,
   onRestoreSession,
   onDeleteArchivedSession,
-  workspaceGroups,
-  collapsedWorkspaces,
-  onToggleWorkspace,
+  pinnedWorkspaces,
+  unpinnedWorkspaces,
+  selectedWorkspaceGroup,
   pinnedWorkspaceIds,
   onTogglePinWorkspace,
   onRenameWorkspace,
   onDeleteWorkspace,
+  unpinnedSectionOpen,
+  onUnpinnedSectionChange,
   sessionContextMenu,
   onRequestSessionAction,
   workspace,
@@ -114,14 +119,14 @@ export function SessionSidebar({
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const [dragCommitPending, setDragCommitPending] = useState(false);
-  // 同时只展开一个工作区的二级会话菜单。
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  const groupedSessionCount = useMemo(() => workspaceGroups.reduce((total, group) => total + group.sessions.length, 0), [workspaceGroups]);
+  const workspaceZoneRef = useRef<HTMLDivElement | null>(null);
   const baseSessionOrder = useMemo(() => visibleSessions.map((session) => session.sessionId), [visibleSessions]);
   const dragPreviewRank = useMemo(
     () => dragPreview ? new Map(dragPreview.order.map((sessionId, index) => [sessionId, index])) : null,
     [dragPreview],
   );
+  const selectedWorkspaceId = selectedWorkspaceGroup.workspace?.workspaceId;
+  const selectedInPinned = Boolean(selectedWorkspaceId && pinnedWorkspaces.some((item) => item.workspaceId === selectedWorkspaceId));
 
   function orderSessions(items: DshSessionSummary[]) {
     if (!dragPreviewRank) return items;
@@ -130,6 +135,17 @@ export function SessionSidebar({
       - (dragPreviewRank.get(right.sessionId) ?? Number.MAX_SAFE_INTEGER)
     ));
   }
+
+  // 展开的未置顶工作区列表：点击工作区外部自动收起。
+  useEffect(() => {
+    if (!unpinnedSectionOpen) return;
+    const handlePointerDown = (event: globalThis.PointerEvent) => {
+      if (event.target instanceof Element && event.target.closest(".workspace-zone")) return;
+      onUnpinnedSectionChange(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [onUnpinnedSectionChange, unpinnedSectionOpen]);
 
   function handleDragOverSessionChange(targetSessionId: string | null) {
     const sourceSessionId = draggedSessionRef.current;
@@ -200,6 +216,11 @@ export function SessionSidebar({
       </div>
     </div>
   );
+  const workspaceRowProps = {
+    onTogglePinWorkspace,
+    onRenameWorkspace,
+    onDeleteWorkspace,
+  };
   return (
     <aside className="session-sidebar">
       <div className="sidebar-actions">
@@ -226,7 +247,7 @@ export function SessionSidebar({
           <div className="sidebar-heading-title"><button className="sidebar-back-button" type="button" onClick={() => setArchiveOpen(false)} title="返回会话列表" aria-label="返回会话列表">←</button><span>归档</span></div>
         ) : <span>会话</span>}
         <div className="sidebar-heading-actions">
-          <span>{archiveOpen ? archivedSessions.length : (search.trim() ? visibleSessions.length : (groupedSessionCount > 0 ? groupedSessionCount : ""))}</span>
+          <span>{archiveOpen ? archivedSessions.length : (search.trim() ? visibleSessions.length : (selectedWorkspaceGroup.sessions.length > 0 ? selectedWorkspaceGroup.sessions.length : ""))}</span>
           {!archiveOpen && <>
             <button type="button" onClick={() => setArchiveOpen(true)} title="打开归档页">归档</button>
           </>}
@@ -238,28 +259,69 @@ export function SessionSidebar({
         ) : search.trim() ? (
           visibleSessions.length === 0 ? <div className="sidebar-empty">没有匹配的会话</div> : visibleSessions.map(renderSessionRow)
         ) : <>
-          {workspaceGroups.map((group) => {
-            const pinned = Boolean(group.workspace && pinnedWorkspaceIds.includes(group.workspaceId));
-            return (
-              <WorkspaceGroupSection
-                key={group.workspaceId}
-                workspace={group.workspace}
-                workspaceId={group.workspaceId}
-                sessions={orderSessions(group.sessions)}
-                pinned={pinned}
-                current={group.workspace?.path === workspace}
-                menuOpen={openMenuId === group.workspaceId}
-                onToggleMenu={(workspaceId) => setOpenMenuId((current) => current === workspaceId ? null : workspaceId)}
-                onCloseMenu={() => setOpenMenuId(null)}
-                onChooseWorkspace={(path) => { setOpenMenuId(null); onChooseWorkspace(path); }}
-                onTogglePinWorkspace={onTogglePinWorkspace}
-                onRenameWorkspace={onRenameWorkspace}
-                onDeleteWorkspace={onDeleteWorkspace}
-                renderSession={renderSessionRow}
+          {/* 一级：工作区整理区——置顶常驻，未置顶默认收起，由一条展开/收起行打开二级列表 */}
+          <div className="workspace-zone" ref={workspaceZoneRef}>
+            {pinnedWorkspaces.map((item) => (
+              <WorkspaceRow
+                key={item.workspaceId}
+                workspace={item}
+                pinned
+                current={item.path === workspace}
+                onChoose={onChooseWorkspace}
+                {...workspaceRowProps}
               />
-            );
-          })}
-          {groupedSessionCount === 0 && <div className="sidebar-empty">当前工作区没有已开始的会话</div>}
+            ))}
+            {selectedWorkspaceGroup.workspace && !selectedInPinned && (
+              <WorkspaceRow
+                workspace={selectedWorkspaceGroup.workspace}
+                pinned={false}
+                current
+                onChoose={onChooseWorkspace}
+                {...workspaceRowProps}
+              />
+            )}
+            {!selectedWorkspaceGroup.workspace && (
+              <WorkspaceRow
+                workspace={null}
+                pinned={false}
+                current
+                onChoose={onChooseWorkspace}
+                {...workspaceRowProps}
+              />
+            )}
+            {unpinnedWorkspaces.length > 0 && (
+              <button
+                type="button"
+                className={`workspace-unpinned-toggle${unpinnedSectionOpen ? " open" : ""}`}
+                onClick={() => onUnpinnedSectionChange(!unpinnedSectionOpen)}
+                aria-expanded={unpinnedSectionOpen}
+                title={unpinnedSectionOpen ? "收起未置顶工作区" : "展开未置顶工作区"}
+              >
+                <span className="workspace-unpinned-chevron" aria-hidden="true">{unpinnedSectionOpen ? "v" : ">"}</span>
+                <span>未置顶工作区（{unpinnedWorkspaces.length}）</span>
+              </button>
+            )}
+            {unpinnedSectionOpen && unpinnedWorkspaces.map((item) => (
+              <WorkspaceRow
+                key={item.workspaceId}
+                workspace={item}
+                pinned={false}
+                current={item.path === workspace}
+                onChoose={onChooseWorkspace}
+                {...workspaceRowProps}
+              />
+            ))}
+          </div>
+
+          {/* 会话区：当前选中工作区的会话 */}
+          <WorkspaceGroupSection
+            workspace={selectedWorkspaceGroup.workspace}
+            sessions={orderSessions(selectedWorkspaceGroup.sessions)}
+            onRenameWorkspace={onRenameWorkspace}
+            onDeleteWorkspace={onDeleteWorkspace}
+            renderSession={renderSessionRow}
+          />
+          {selectedWorkspaceGroup.sessions.length === 0 && <div className="sidebar-empty">当前工作区没有已开始的会话</div>}
         </>}
       </div>
 
@@ -281,12 +343,10 @@ export function SessionSidebar({
           workspaces={workspaces}
           open={workspaceMenuOpen}
           pinnedWorkspaceIds={pinnedWorkspaceIds}
-          collapsedWorkspaces={collapsedWorkspaces}
           menuRef={workspacePickerMenuRef}
           onToggle={onToggleWorkspaceMenu}
           onChoose={onChooseWorkspace}
           onTogglePin={onTogglePinWorkspace}
-          onToggleCollapse={onToggleWorkspace}
           onAdd={onAddWorkspace}
           onDelete={onDeleteWorkspace}
         />
