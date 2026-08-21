@@ -721,102 +721,6 @@ textarea:focus-visible {
   border-bottom: 0;
 }
 
-/* 一级区：工作区整理——置顶行常驻，未置顶由一条展开/收起行打开为二级列表 */
-.workspace-zone {
-  display: grid;
-  gap: 2px;
-  margin-bottom: 10px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--rail-line);
-}
-
-.workspace-row {
-  position: relative;
-  min-height: 30px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 4px;
-  padding: 1px 2px 1px 6px;
-  border-radius: var(--radius-control);
-}
-
-.workspace-row.current {
-  background: var(--rail-surface);
-}
-
-.workspace-row-main {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 2px;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-}
-
-.workspace-row-main:hover {
-  color: var(--rail-text);
-}
-
-.workspace-row-pin {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--rail-muted);
-  font-size: 11px;
-  filter: grayscale(1);
-  opacity: 0.6;
-}
-
-.workspace-row-pin:hover {
-  background: var(--rail-surface);
-  opacity: 1;
-}
-
-.workspace-row-pin.active {
-  color: var(--accent-deep);
-  filter: none;
-  opacity: 1;
-}
-
-.workspace-unpinned-toggle {
-  width: 100%;
-  min-height: 26px;
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
-  border: 0;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--rail-muted);
-  font-size: 11px;
-  text-align: left;
-}
-
-.workspace-unpinned-toggle:hover,
-.workspace-unpinned-toggle.open {
-  background: var(--rail-surface);
-  color: var(--rail-text);
-}
-
-.workspace-unpinned-chevron {
-  color: var(--rail-muted);
-  font-family: var(--mono);
-  font-size: 13px;
-  text-align: center;
-}
-
 .workspace-group-copy {
   min-width: 0;
   display: grid;
@@ -1363,6 +1267,34 @@ textarea:focus-visible {
   color: var(--accent-deep);
   filter: none;
   opacity: 1;
+}
+
+/* 一级菜单中的收起/展开行：打开二级未置顶工作区列表 */
+.workspace-menu .workspace-menu-toggle {
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-muted);
+}
+
+.workspace-menu .workspace-menu-toggle:hover,
+.workspace-menu .workspace-menu-toggle.open {
+  color: var(--accent-deep);
+}
+
+.workspace-menu .workspace-menu-chevron {
+  font-family: var(--mono);
+  font-size: 12px;
+  text-align: center;
+}
+
+.workspace-menu-nested {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  margin-left: 14px;
+  padding-left: 8px;
+  border-left: 1px solid var(--line);
 }
 
 .session-context-menu {

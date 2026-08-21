@@ -429,7 +429,7 @@ function AppContent() {
       return "system";
     }
   });
-  // 工作区侧栏视图偏好：置顶顺序与未置顶工作区二级列表的展开状态（默认收起）。
+  // 工作区视图偏好：置顶顺序与左下角工作区菜单中未置顶二级列表的展开状态（默认收起）。
   const [unpinnedSectionOpen, setUnpinnedSectionOpen] = useState(() => readWorkspaceViewPreferences().unpinnedSectionOpen);
   const [pinnedWorkspaceIds, setPinnedWorkspaceIds] = useState<string[]>(() => readWorkspaceViewPreferences().pinnedWorkspaceIds);
   const [dragOverSessionId, setDragOverSessionId] = useState<string | null>(null);
@@ -1043,18 +1043,6 @@ function AppContent() {
   const selectedWorkspace = useMemo(
     () => workspaces.find((item) => sameWorkspacePath(item.path, workspace)) ?? null,
     [workspace, workspaces],
-  );
-  // 侧栏工作区整理区：置顶工作区（按置顶顺序）+ 其余未置顶工作区
-  // （默认收起，由一条展开/收起行打开为二级列表，避免工作区过多）。
-  const pinnedWorkspaces = useMemo(
-    () => pinnedWorkspaceIds
-      .map((workspaceId) => workspaces.find((item) => item.workspaceId === workspaceId))
-      .filter((item): item is DshWorkspace => item !== undefined),
-    [pinnedWorkspaceIds, workspaces],
-  );
-  const unpinnedWorkspaces = useMemo(
-    () => workspaces.filter((item) => !pinnedWorkspaceIds.includes(item.workspaceId) && !sameWorkspacePath(item.path, workspace)),
-    [pinnedWorkspaceIds, workspace, workspaces],
   );
   // 会话区：当前选中工作区的会话（工作区内置顶会话优先）；未选择工作区时显示未分组会话。
   const selectedWorkspaceGroup = useMemo<WorkspaceGroup>(() => {
@@ -3761,8 +3749,6 @@ function AppContent() {
           archivedSessions={archivedSessions}
           onRestoreSession={restoreSession}
           onDeleteArchivedSession={setDeleteArchivedTarget}
-          pinnedWorkspaces={pinnedWorkspaces}
-          unpinnedWorkspaces={unpinnedWorkspaces}
           selectedWorkspaceGroup={selectedWorkspaceGroup}
           pinnedWorkspaceIds={pinnedWorkspaceIds}
           onTogglePinWorkspace={togglePinWorkspace}
