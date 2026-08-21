@@ -23,6 +23,8 @@ import { TaskPanel, TodoPanel } from "./components/TodoPanel";
 import { WorkspaceFilesPanel } from "./components/WorkspaceFilesPanel";
 import { TerminalDock } from "./components/TerminalDock";
 import { DeliverablesPanel } from "./components/DeliverablesPanel";
+import { CurrentGoalBar } from "./components/CurrentGoalBar";
+import { GoalSurfacePanel, type GoalAction } from "./components/GoalSurfacePanel";
 import { UtilityDockShelf } from "./components/UtilityDockShelf";
 import { WindowChrome } from "./components/WindowChrome";
 import { DockSettingsProvider, useDockSettings } from "./app/dock-settings";
@@ -458,6 +460,10 @@ function AppContent() {
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft | null>(null);
   const [goal, setGoal] = useState<DshGoalProjection | null | undefined>(undefined);
   const [goalDraft, setGoalDraft] = useState("");
+  const [goalMaxRoundsDraft, setGoalMaxRoundsDraft] = useState("");
+  const [goalPanelOpen, setGoalPanelOpen] = useState(false);
+  const [goalPanelBusy, setGoalPanelBusy] = useState(false);
+  const [goalBarCollapsed, setGoalBarCollapsed] = useState(false);
   const [presetView, setPresetView] = useState<{ id: string; content: string } | null>(null);
   const [presetCopy, setPresetCopy] = useState<{ from: string; id: string; name: string } | null>(null);
   const [surfaceLoading, setSurfaceLoading] = useState(false);
@@ -1115,6 +1121,14 @@ function AppContent() {
     ];
 
   const activeGoal = goal && typeof goal === "object" ? goal.goal : null;
+  const goalRoundsStarted = goal && typeof goal === "object" ? goal.roundsStarted : 0;
+  useEffect(() => {
+    if (activeGoal?.phase === "complete") {
+      setGoalBarCollapsed(true);
+    } else {
+      setGoalBarCollapsed(false);
+    }
+  }, [activeGoal?.id, activeGoal?.phase]);
   const subagentEntries = subagents?.entries ?? [];
   const childSubagents = subagentEntries.filter((entry): entry is ChildSubagentEntry => entry.kind === "child");
   const composerTrigger = useMemo(() => detectComposerTrigger(composer), [composer]);
@@ -1609,33 +1623,71 @@ function AppContent() {
     }
   }
 
+  function syncGoalDraft(nextGoal: DshGoalProjection["goal"] | null) {
+    setGoalDraft(nextGoal?.objective ?? "");
+    setGoalMaxRoundsDraft(nextGoal ? String(nextGoal.maxGoalRounds) : "");
+  }
+
+  function openGoalPanel() {
+    if (!activeSessionId) return;
+    syncGoalDraft(activeGoal);
+    setGoalPanelOpen(true);
+  }
+
   async function createGoal() {
-    if (!activeSessionId || !goalDraft.trim()) return;
+    if (!activeSessionId || !goalDraft.trim() || goalPanelBusy) return;
+    const maxGoalRounds = goalMaxRoundsDraft.trim() ? Number(goalMaxRoundsDraft) : undefined;
+    if (maxGoalRounds !== undefined && (!Number.isSafeInteger(maxGoalRounds) || maxGoalRounds < 1)) {
+      setErrorNotice("最大回合数必须是大于 0 的整数");
+      return;
+    }
+    setGoalPanelBusy(true);
     try {
-      await bridgeRequest("goal.create", { sessionId: activeSessionId, objective: goalDraft.trim() });
+      await bridgeRequest("goal.create", { sessionId: activeSessionId, objective: goalDraft.trim(), ...(maxGoalRounds === undefined ? {} : { maxGoalRounds }) });
       setGoalDraft("");
+      setGoalMaxRoundsDraft("");
       await loadSurface("goal");
+      setGoalPanelOpen(false);
       setNotice("Goal 已创建");
     } catch (error) {
       setErrorNotice(errorText(error));
+    } finally {
+      setGoalPanelBusy(false);
     }
   }
 
-  async function mutateGoal(action: "edit" | "pause" | "resume" | "complete" | "clear") {
-    if (!activeSessionId || !activeGoal) return;
+  async function mutateGoal(action: GoalAction) {
+    if (!activeSessionId || !activeGoal || goalPanelBusy) return;
     const ref: GoalRef = { id: activeGoal.id, revision: activeGoal.revision };
+    setGoalPanelBusy(true);
     try {
       if (action === "edit") {
-        if (!goalDraft.trim()) return;
-        await bridgeRequest("goal.edit", { sessionId: activeSessionId, ref, objective: goalDraft.trim() });
-        setGoalDraft("");
+        const maxGoalRounds = Number(goalMaxRoundsDraft);
+        if (!goalDraft.trim()) {
+          setErrorNotice("Goal 目标不能为空");
+          return;
+        }
+        if (!Number.isSafeInteger(maxGoalRounds) || maxGoalRounds < 1) {
+          setErrorNotice("最大回合数必须是大于 0 的整数");
+          return;
+        }
+        await bridgeRequest("goal.edit", { sessionId: activeSessionId, ref, objective: goalDraft.trim(), maxGoalRounds });
       } else {
         await bridgeRequest(`goal.${action}`, { sessionId: activeSessionId, ref });
       }
       await loadSurface("goal");
+      if (action === "clear") {
+        syncGoalDraft(null);
+        setGoalPanelOpen(false);
+      } else if (action === "edit") {
+        setGoalDraft("");
+        setGoalMaxRoundsDraft("");
+      }
       setNotice(`Goal 已${action === "clear" ? "清除" : "更新"}`);
     } catch (error) {
       setErrorNotice(errorText(error));
+    } finally {
+      setGoalPanelBusy(false);
     }
   }
 
@@ -1684,6 +1736,10 @@ function AppContent() {
     setQueueEditingText("");
     setAttachments([]);
     setGoal(undefined);
+    setGoalBarCollapsed(false);
+    setGoalPanelOpen(false);
+    setGoalDraft("");
+    setGoalMaxRoundsDraft("");
     subagentRequestRef.current += 1;
     setSubagents(null);
     setSubagentSession(null);
@@ -2401,6 +2457,10 @@ function AppContent() {
     setQueueEditingId(null);
     setQueueEditingText("");
     setGoal(undefined);
+    setGoalBarCollapsed(false);
+    setGoalPanelOpen(false);
+    setGoalDraft("");
+    setGoalMaxRoundsDraft("");
     subagentRequestRef.current += 1;
     setSubagents(null);
     setSubagentSession(null);
@@ -3676,11 +3736,21 @@ function AppContent() {
             queueCount={queue.length}
             trajectoryOpen={trajectoryOpen}
             tokenUsageOpen={tokenUsageOpen}
+             goalOpen={goalPanelOpen}
+             hasGoal={Boolean(activeGoal)}
             onToggleTrajectory={() => { setTokenUsageOpen(false); setTrajectoryOpen((open) => !open); }}
             onToggleTokenUsage={() => { setTrajectoryOpen(false); setTokenUsageOpen((open) => !open); }}
+             onOpenGoal={openGoalPanel}
           />
 
-          <div className="conversation-transcript-stage">
+          <div className={`conversation-transcript-stage${activeGoal ? " has-current-goal" : ""}${goalBarCollapsed ? " current-goal-collapsed" : ""}`}>
+            <CurrentGoalBar
+              activeGoal={activeGoal}
+              roundsStarted={goalRoundsStarted}
+              collapsed={goalBarCollapsed}
+              onOpen={openGoalPanel}
+              onToggleCollapsed={() => setGoalBarCollapsed((collapsed) => !collapsed)}
+            />
             {corruptSession && corruptSession.sessionId === activeSessionId && (
               <div className="session-repair-banner" role="alert">
                 <div className="session-repair-banner-text">
@@ -4086,7 +4156,27 @@ function AppContent() {
             </aside>
           </div>
         )}
-      {pluginInstallOpen && <PluginInstallDialog
+      {goalPanelOpen && activeSessionId && <PopupDialog
+          title={activeGoal ? "管理当前 Goal" : "创建当前 Goal"}
+          eyebrow="DSH / GOAL"
+          description={activeGoal ? "查看持续目标的执行状态，调整预算，或控制下一步是否继续自动推进。" : "为当前会话创建一个可跨回合持续推进的目标。"}
+          className="popup-goal-dialog"
+          onClose={() => { if (!goalPanelBusy) setGoalPanelOpen(false); }}
+          footer={<button type="button" disabled={goalPanelBusy} onClick={() => setGoalPanelOpen(false)}>关闭</button>}
+        >
+          <GoalSurfacePanel
+            activeGoal={activeGoal}
+            roundsStarted={goalRoundsStarted}
+            draft={goalDraft}
+            maxRoundsDraft={goalMaxRoundsDraft}
+            busy={goalPanelBusy}
+            onDraftChange={setGoalDraft}
+            onMaxRoundsChange={setGoalMaxRoundsDraft}
+            onMutate={mutateGoal}
+            onCreate={createGoal}
+          />
+        </PopupDialog>}
+        {pluginInstallOpen && <PluginInstallDialog
          existingIds={pluginConfigDraft.map((plugin) => plugin.id)}
          pickingEntry={pluginPickingEntry}
          onClose={() => setPluginInstallOpen(false)}
