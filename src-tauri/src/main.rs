@@ -3164,6 +3164,8 @@ fn setup_tray(app: &AppHandle) -> Result<(), String> {
         .icon(icon)
         .menu(&menu)
         .tooltip("Deeptop")
+        // The themed popup replaces the left-click menu on Windows, but the
+        // native right-click menu remains the reliable fallback for tray access.
         .show_menu_on_left_click(!themed_popup_ready)
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "new-deeptop-chat" => {
@@ -3188,7 +3190,7 @@ fn setup_tray(app: &AppHandle) -> Result<(), String> {
             #[cfg(windows)]
             TrayIconEvent::Click {
                 rect,
-                button: MouseButton::Left | MouseButton::Right,
+                button: MouseButton::Left,
                 button_state: MouseButtonState::Up,
                 ..
             } if themed_popup_ready => {
@@ -3215,11 +3217,8 @@ fn setup_tray(app: &AppHandle) -> Result<(), String> {
         .build(&tray_app)
         .map_err(|error| format!("创建系统托盘失败：{error}"))?;
     #[cfg(windows)]
-    if themed_popup_ready {
-        tray.with_inner_tray_icon(|inner| inner.set_show_menu_on_right_click(false))
-            .map_err(|error| format!("接管系统托盘菜单失败：{error}"))?;
-    }
-    #[cfg(not(windows))]
+    tray.with_inner_tray_icon(|inner| inner.set_show_menu_on_right_click(true))
+        .map_err(|error| format!("启用系统托盘右键菜单失败：{error}"))?;
     let _tray = tray;
     Ok(())
 }
