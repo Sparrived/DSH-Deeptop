@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useFloatingMenuPosition } from "../app/useFloatingMenuPosition";
 import { projectName } from "../app/model";
 import type { DshSessionSummary, DshWorkspace } from "../lib/desktop";
 
@@ -19,6 +20,7 @@ export function WorkspaceGroup({
   renderSession,
 }: WorkspaceGroupProps) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const { menuRef, menuAt } = useFloatingMenuPosition(contextMenu);
   const title = workspace ? workspace.title || projectName(workspace.path) : "未分组";
   const path = workspace?.path ?? "未注册工作区的会话";
 
@@ -58,8 +60,9 @@ export function WorkspaceGroup({
       </div>
       {workspace && contextMenu && createPortal(
         <div
+          ref={menuRef}
           className="session-context-menu workspace-context-menu"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
+          style={{ left: menuAt?.left ?? contextMenu.x, top: menuAt?.top ?? contextMenu.y }}
           role="menu"
           onMouseDown={(event) => event.stopPropagation()}
         >

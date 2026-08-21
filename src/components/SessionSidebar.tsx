@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { positionFloatingMenu } from "../app/context-menu";
+import { useFloatingMenuPosition } from "../app/useFloatingMenuPosition";
 import { SessionRow, sessionStatusLabels } from "./SessionRow";
 import { WorkspaceGroup as WorkspaceGroupSection } from "./WorkspaceGroup";
 import { WorkspaceRow } from "./WorkspaceRow";
@@ -121,34 +121,8 @@ export function SessionSidebar({
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const [dragCommitPending, setDragCommitPending] = useState(false);
   const workspaceZoneRef = useRef<HTMLDivElement | null>(null);
-  const sessionMenuRef = useRef<HTMLDivElement | null>(null);
-  const [sessionMenuAt, setSessionMenuAt] = useState<{ left: number; top: number } | null>(null);
+  const { menuRef: sessionMenuRef, menuAt: sessionMenuAt } = useFloatingMenuPosition(sessionContextMenu);
   const baseSessionOrder = useMemo(() => visibleSessions.map((session) => session.sessionId), [visibleSessions]);
-
-  // 会话右键菜单默认向下展开，靠近窗口底部时会被裁切：先按光标位置渲染并测量
-  // 菜单尺寸，再在绘制前切换到向上展开或限制在视口内。
-  useLayoutEffect(() => {
-    if (!sessionContextMenu) {
-      setSessionMenuAt(null);
-      return;
-    }
-    const reposition = () => {
-      const menu = sessionMenuRef.current;
-      if (!menu) return;
-      const rect = menu.getBoundingClientRect();
-      setSessionMenuAt(positionFloatingMenu(
-        sessionContextMenu.x,
-        sessionContextMenu.y,
-        rect.width,
-        rect.height,
-        window.innerWidth,
-        window.innerHeight,
-      ));
-    };
-    reposition();
-    window.addEventListener("resize", reposition);
-    return () => window.removeEventListener("resize", reposition);
-  }, [sessionContextMenu]);
   const dragPreviewRank = useMemo(
     () => dragPreview ? new Map(dragPreview.order.map((sessionId, index) => [sessionId, index])) : null,
     [dragPreview],
