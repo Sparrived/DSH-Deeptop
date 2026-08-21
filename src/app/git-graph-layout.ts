@@ -1,5 +1,11 @@
 // Git 提交树向量布局：从提交 DAG（双亲列表）自行分配泳道并输出布局，
-// 供 GitTreeGraph 用 SVG 画连续泳道 + 贝塞尔边 + 节点，避免 ascii 字形的错位与交叉。
+// 供 GitTreeGraph 用 SVG 画连续泳道 + 直角折线边 + 节点。
+//
+// 泳道规则（对齐 git --graph 的语义）：
+// - 主线脊柱（从最新提交沿第一双亲的链）的泳道保持稳定，绝不让路；
+// - 首次出现的分支尖端/合并双亲追加到最右侧新泳道；
+// - 第一条双亲延续当前泳道；其余双亲（合并）预留右侧新泳道并用跨泳道边汇合；
+// - 泳道冲突时主线脊柱优先：抢先占用的一侧交还泳道、其链条转为跨泳道边，避免主线中途折道。
 
 import type { WorkspaceGitGraphLine } from "../lib/desktop";
 
@@ -43,29 +49,46 @@ type CommitInput = WorkspaceGitGraphLine & {
   subject: string;
 };
 
-/**
- * 泳道分配算法（自新到旧遍历，git --graph 保证子提交先于双亲）。
- * - 首次出现的分支尖端追加到最右侧空闲泳道；
- * - 第一个双亲延续当前泳道（主线）；
- * - 其余双亲（合并）预留到右侧新泳道，边用贝塞尔曲线跨泳道连接；
- * - 已被其他分支预留的双亲直接复用其泳道（汇合边，不重复占道）。
- */
+type Claim = { by: string; lane: number; row: number };
+
 export function gitGraphLayout(input: WorkspaceGitGraphLine[]): GitGraphLayout {
   const commits = input.filter(
     (line): line is CommitInput =>
       line.hash !== null && line.shortHash !== null && line.subject !== null,
   );
+  if (commits.length === 0) {
+    return { commits: [], lanes: [], edges: [], columnCount: 0 };
+  }
+
+  const parentsOf = new Map(commits.map((commit) => [commit.hash, commit.parents]));
+  // 主线脊柱：从最新提交沿第一双亲的链。脊柱上的提交在泳道冲突时拥有优先权。
+  const spine = new Set<string>();
+  {
+    let cursor = commits[0].hash;
+    while (cursor && !spine.has(cursor)) {
+      spine.add(cursor);
+      cursor = parentsOf.get(cursor)?.[0] ?? "";
+    }
+  }
 
   const lanes: (string | null)[] = [];
   const laneOf = new Map<string, number>();
   const position = new Map<string, { lane: number; row: number }>();
   const laneFrom = new Map<number, number>();
   const laneTo = new Map<number, number>();
+  const claim = new Map<string, Claim>();
 
-  const freeLane = () => lanes.findIndex((value) => value === null);
   const noteLaneRow = (lane: number, row: number) => {
     if (!laneFrom.has(lane)) laneFrom.set(lane, row);
     laneTo.set(lane, Math.max(laneTo.get(lane) ?? row, row));
+  };
+  const recordEdge = (
+    edgesRaw: Array<{ fromLane: number; fromRow: number; targetHash: string }>,
+    fromLane: number,
+    fromRow: number,
+    targetHash: string,
+  ) => {
+    edgesRaw.push({ fromLane, fromRow, targetHash });
   };
 
   const out: GitLayoutCommit[] = [];
@@ -76,9 +99,8 @@ export function gitGraphLayout(input: WorkspaceGitGraphLine[]): GitGraphLayout {
     const hash = commit.hash;
     let lane = laneOf.get(hash);
     if (lane === undefined) {
-      const free = freeLane();
-      lane = free >= 0 ? free : lanes.length;
-      if (lane === lanes.length) lanes.push(null);
+      lane = lanes.length; // 新分支尖端追加到最右侧，避免插入已有泳道左侧
+      lanes.push(null);
       laneOf.set(hash, lane);
     }
     lanes[lane] = null;
@@ -100,21 +122,35 @@ export function gitGraphLayout(input: WorkspaceGitGraphLine[]): GitGraphLayout {
       const parent = parents[index];
       const existing = laneOf.get(parent);
       if (existing !== undefined && lanes[existing] === parent) {
-        // 该双亲已被其他分支预留：本提交到它的边属于跨泳道汇合，复用其泳道。
-        edgesRaw.push({ fromLane: lane, fromRow: row, targetHash: parent });
+        if (index === 0 && spine.has(hash)) {
+          // 主线脊柱抢占：之前占用该双亲的链条让出泳道并转为跨泳道边，
+          // 双亲移回主线泳道，保证主线不中途折道。
+          const previous = claim.get(parent);
+          if (previous) {
+            recordEdge(edgesRaw, previous.lane, previous.row, parent);
+            lanes[previous.lane] = null;
+          }
+          lanes[existing] = null;
+          lanes[lane] = parent;
+          laneOf.set(parent, lane);
+          claim.set(parent, { by: hash, lane, row });
+        } else {
+          // 分支汇入已有泳道：保留该泳道，本提交到双亲画跨泳道边。
+          recordEdge(edgesRaw, lane, row, parent);
+        }
         continue;
       }
       let parentLane: number;
       if (index === 0) {
         parentLane = lane; // 主线延续当前泳道
       } else {
-        const free = freeLane();
-        parentLane = free >= 0 ? free : lanes.length;
-        if (parentLane === lanes.length) lanes.push(null);
-        edgesRaw.push({ fromLane: lane, fromRow: row, targetHash: parent });
+        parentLane = lanes.length; // 合并双亲追加到最右侧新泳道
+        lanes.push(null);
+        recordEdge(edgesRaw, lane, row, parent);
       }
       lanes[parentLane] = parent;
       laneOf.set(parent, parentLane);
+      claim.set(parent, { by: hash, lane: parentLane, row });
       noteLaneRow(parentLane, row);
     }
     row += 1;

@@ -47,10 +47,19 @@ export function GitTreeGraph({ lines, selectedHash, onSelect }: GitTreeGraphProp
     const ys = nodeY(edge.fromRow);
     const xt = laneX(edge.toLane);
     const yt = nodeY(edge.toRow);
-    // 直角折线路由（竖直-水平-竖直），拐角用圆角接头，避免贝塞尔曲线的圆滑感。
-    const elbowY = Math.min(ys + ROW_H * 0.6, (ys + yt) / 2);
-    const path = `M ${xs} ${ys} L ${xs} ${elbowY} L ${xt} ${elbowY} L ${xt} ${yt}`;
-    return <path key={`e${index}`} d={path} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />;
+    // 直角折线路由（竖直-水平-竖直），拐角用圆弧实现明显的大圆角。
+    const cornerR = 7;
+    const elbowY = Math.max(ys + cornerR + 2, Math.min(ys + ROW_H * 0.6, (ys + yt) / 2));
+    const dir = xt >= xs ? 1 : -1;
+    const path = [
+      `M ${xs} ${ys}`,
+      `L ${xs} ${elbowY - cornerR}`,
+      `A ${cornerR} ${cornerR} 0 0 ${dir === 1 ? 1 : 0} ${xs + dir * cornerR} ${elbowY}`,
+      `L ${xt - dir * cornerR} ${elbowY}`,
+      `A ${cornerR} ${cornerR} 0 0 ${dir === 1 ? 0 : 1} ${xt} ${elbowY + cornerR}`,
+      `L ${xt} ${yt}`,
+    ].join(" ");
+    return <path key={`e${index}`} d={path} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" />;
   });
 
   const nodes = layout.commits.map((commit) => {

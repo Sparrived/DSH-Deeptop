@@ -67,3 +67,30 @@ test("two branches joining a shared ancestor reuse that lane", () => {
   const toAncestor = layout.edges.filter((edge) => edge.toRow === byHash.a.row);
   assert.ok(toAncestor.length >= 1, "at least one branch edge should join the shared ancestor lane");
 });
+
+test("mainline spine preempts a lane claimed earlier by a merged branch", () => {
+  // 复刻真实仓库拓扑：分支合并 B 先把公共祖先 S 占了自己的泳道，
+  // 稍后主线提交 Y 才处理到 S —— 主线必须抢占，不能中途折道。
+  const t0 = "1111111111111111111111111111111111111111";
+  const y0 = "2222222222222222222222222222222222222222";
+  const b0 = "3333333333333333333333333333333333333333";
+  const d0 = "4444444444444444444444444444444444444444";
+  const s0 = "5555555555555555555555555555555555555555";
+  const z0 = "6666666666666666666666666666666666666666";
+  const t = commit(t0, [y0]);
+  const b = commit(b0, [s0, d0]);
+  const y = commit(y0, [s0]);
+  const s = commit(s0, [z0]);
+  const d = commit(d0, [z0]);
+  const z = commit(z0, []);
+  const layout = layoutOf(t, b, y, s, d, z);
+  const by = (h) => layout.commits.find((item) => item.hash === h);
+  // 主线脊柱 T-Y-S-Z 全程 lane0，绝不折道
+  assert.deepEqual([by(t0).lane, by(y0).lane, by(s0).lane, by(z0).lane], [0, 0, 0, 0]);
+  // 分支侧让出泳道：B 的链条转为跨泳道边汇入 S
+  const joining = layout.edges.find((edge) => edge.toLane === 0 && edge.toRow === by(s0).row);
+  assert.ok(joining, "merged branch should join the spine via a cross-lane edge");
+  assert.equal(joining.fromLane, 1);
+  assert.equal(joining.fromRow, by(b0).row);
+  assert.equal(layout.columnCount, 3);
+});
