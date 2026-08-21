@@ -271,10 +271,12 @@ export function SessionSidebar({
           workspaces={workspaces}
           open={workspaceMenuOpen}
           pinnedWorkspaceIds={pinnedWorkspaceIds}
+          collapsedWorkspaces={collapsedWorkspaces}
           menuRef={workspacePickerMenuRef}
           onToggle={onToggleWorkspaceMenu}
           onChoose={onChooseWorkspace}
           onTogglePin={onTogglePinWorkspace}
+          onToggleCollapse={onToggleWorkspace}
           onAdd={onAddWorkspace}
           onDelete={onDeleteWorkspace}
         />

@@ -1227,13 +1227,32 @@ textarea:focus-visible {
 .workspace-menu-item {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
   align-items: stretch;
   gap: 2px;
 }
 
-.workspace-menu-item > button:first-child {
+.workspace-menu .workspace-menu-main {
   min-width: 0;
+}
+
+.workspace-menu .workspace-menu-toggle {
+  width: 26px;
+  min-width: 26px;
+  min-height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.workspace-menu .workspace-menu-toggle:hover {
+  background: var(--surface-soft);
+  color: var(--ink);
 }
 
 .workspace-menu .workspace-menu-delete {
