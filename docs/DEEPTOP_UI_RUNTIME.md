@@ -1,8 +1,10 @@
 # Deeptop UI Runtime 实现设计
 
-> 状态：提案 / 实施蓝图
+> 状态：提案 / 实施蓝图（第一阶段核心已落地）
 >
 > 本文定义如何在 Deeptop 中实现一套类似 DSH WebUI 原生 Client Runtime 的桌面 UI 插件运行时，使插件可以复用同一棵 DSH Cordis 树，并通过 Host/Cordis 插件为 Deeptop 添加 React 组件、菜单项、Badge、设置页和 Inspector 面板。
+>
+> 当前实现进度：Cordis 宿主 `deeptop-ui-registry` 服务（`deeptop-bridge/ui-registry.mjs`）、受限路由 `ui.plugin.list/module/invoke/storage.*`（`deeptop-bridge/ui-routes.mjs`）、客户端运行时（`src/lib/desktop-ui-runtime/`）、纯协议模型（`src/app/ui-plugin-model.ts`）以及会话右键菜单的 `SlotOutlet` 接入已完成并有测试覆盖。宿主-only 插件可通过声明式 contributions 直接提供菜单项和徽标；动态加载外部 Client Bundle 仍属第二阶段，未实现。
 >
 > 本文不是对当前仓库已有能力的描述。当前 Deeptop 已有 DSH Host/Cordis、Bridge、Remote、Projection、事件和 React 原生 UI，但还没有动态 Client Module、Slot Registry 或客户端插件生命周期。本文中的接口、路由和目录是拟议实现，落地时必须以锁定的 DSH 版本、Tauri 版本和实际 Cordis API 重新核对。
 
@@ -1711,6 +1713,42 @@ export const manifest = {
   },
 };
 ```
+
+### 18.4 外部 Host-only 插件的声明式接入（当前已实现）
+
+不发布 Client Bundle 的外部 Cordis 插件可以直接在 `apply(ctx)` 中向 `deeptop-ui-registry` 注册声明式贡献。桌面端会用原生控件渲染它们，点击动作经 `ui.plugin.invoke` 白名单校验后调用该插件自己声明的 Remote：
+
+```js
+// cordis.patch.yml: - id: my-notes, name: 'dsh-community-my-notes'
+export const inject = ['deeptopUiRegistry', 'typertGateway'];
+
+export function apply(ctx) {
+  const dispose = ctx.get('deeptopUiRegistry').registerUiPlugin({
+    schemaVersion: 1,
+    pluginId: 'community.my-notes',
+    version: '0.1.0',
+    displayName: 'My Notes',
+    ui: {
+      slots: ['session.context-menu'],
+      contributions: [{
+        kind: 'action',
+        id: 'notes.append',
+        slot: 'session.context-menu',
+        label: '追加笔记',
+        order: 40,
+        invoke: { namespace: 'notesTools', method: 'append' },
+      }],
+    },
+    capabilities: {
+      remotes: [{ namespace: 'notesTools', methods: ['append'] }],
+      storage: 'my_notes',
+    },
+  });
+  return () => dispose();
+}
+```
+
+声明式贡献在宿主注册即可用，不依赖任何客户端模块；带 `client.entryId` 的插件才会进入客户端模块加载流程，且 entryId 必须出现在 Deeptop 内置模块表中（第二阶段起改为受控资源协议）。
 
 ---
 

@@ -20,6 +20,8 @@ Deeptop 是纯桌面端运行框架，目标是把 DSH 的运行时、Session、
 
 因此，“官方插件可用”不等于“官方 WebUI Client bundle 可以直接装入 Deeptop”。对有 Host 或 Remote 契约的插件，优先实现原生兼容；对只负责 WebUI 界面的插件，不引入其运行时，只实现项目确实需要的桌面功能。
 
+上述排除针对 WebUI 的浏览器端基础设施。桌面端另有自己的可选扩展层（`docs/DEEPTOP_UI_RUNTIME.md`）：Cordis 宿主插件通过 `deeptop-ui-registry` 声明受限 Slot 贡献或客户端模块，由 Deeptop 原生 `desktop-ui-runtime` 加载，能力经 Bridge 白名单校验。它不复用也不加载任何官方 WebUI slot registry 或 client bundle 实现。
+
 ## 兼容分层
 
 | 层级 | 典型内容 | 处理方式 | 目标 |
