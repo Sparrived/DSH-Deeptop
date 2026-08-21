@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import { positionFloatingMenu } from "../app/context-menu";
 import { SessionRow, sessionStatusLabels } from "./SessionRow";
 import { WorkspaceGroup as WorkspaceGroupSection } from "./WorkspaceGroup";
 import { WorkspaceRow } from "./WorkspaceRow";
@@ -120,7 +121,34 @@ export function SessionSidebar({
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const [dragCommitPending, setDragCommitPending] = useState(false);
   const workspaceZoneRef = useRef<HTMLDivElement | null>(null);
+  const sessionMenuRef = useRef<HTMLDivElement | null>(null);
+  const [sessionMenuAt, setSessionMenuAt] = useState<{ left: number; top: number } | null>(null);
   const baseSessionOrder = useMemo(() => visibleSessions.map((session) => session.sessionId), [visibleSessions]);
+
+  // 会话右键菜单默认向下展开，靠近窗口底部时会被裁切：先按光标位置渲染并测量
+  // 菜单尺寸，再在绘制前切换到向上展开或限制在视口内。
+  useLayoutEffect(() => {
+    if (!sessionContextMenu) {
+      setSessionMenuAt(null);
+      return;
+    }
+    const reposition = () => {
+      const menu = sessionMenuRef.current;
+      if (!menu) return;
+      const rect = menu.getBoundingClientRect();
+      setSessionMenuAt(positionFloatingMenu(
+        sessionContextMenu.x,
+        sessionContextMenu.y,
+        rect.width,
+        rect.height,
+        window.innerWidth,
+        window.innerHeight,
+      ));
+    };
+    reposition();
+    window.addEventListener("resize", reposition);
+    return () => window.removeEventListener("resize", reposition);
+  }, [sessionContextMenu]);
   const dragPreviewRank = useMemo(
     () => dragPreview ? new Map(dragPreview.order.map((sessionId, index) => [sessionId, index])) : null,
     [dragPreview],
@@ -326,7 +354,7 @@ export function SessionSidebar({
       </div>
 
       {!archiveOpen && sessionContextMenu && createPortal(
-        <div className="session-context-menu" style={{ left: sessionContextMenu.x, top: sessionContextMenu.y }} role="menu" onMouseDown={(event) => event.stopPropagation()}>
+        <div ref={sessionMenuRef} className="session-context-menu" style={{ left: sessionMenuAt?.left ?? sessionContextMenu.x, top: sessionMenuAt?.top ?? sessionContextMenu.y }} role="menu" onMouseDown={(event) => event.stopPropagation()}>
           {workspaceBySessionId.has(sessionContextMenu.session.sessionId) && !search.trim() && <button role="menuitem" onClick={() => onRequestSessionAction("pin", sessionContextMenu.session)}>{workspaceBySessionId.get(sessionContextMenu.session.sessionId)?.pinnedSessionIds?.includes(sessionContextMenu.session.sessionId) ? "取消置顶" : "在此工作区置顶"}</button>}
           <button role="menuitem" onClick={() => onRequestSessionAction("rename", sessionContextMenu.session)}>重命名</button>
           <button role="menuitem" onClick={() => onRequestSessionAction("fork", sessionContextMenu.session)}>分叉会话</button>

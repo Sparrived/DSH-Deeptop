@@ -28,3 +28,31 @@ export function isWithinSelector(target: EventTarget | null, selector: string): 
   if (typeof closest !== "function") return false;
   return Boolean((closest as (value: string) => unknown).call(target, selector));
 }
+
+export type FloatingMenuPosition = { left: number; top: number };
+
+/** 浮动右键菜单与视口边缘之间保留的最小间距。 */
+export const MENU_VIEWPORT_PADDING = 10;
+
+/** 计算浮动右键菜单在视口内的最终位置。默认以光标为左上角向下展开；
+ *  下方空间不足时切换为向上展开（菜单底边对齐光标），两个方向都限制在视口内并保留间距，
+ *  保证菜单完整显示在窗体内、不被裁切。 */
+export function positionFloatingMenu(
+  cursorX: number,
+  cursorY: number,
+  menuWidth: number,
+  menuHeight: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  padding = MENU_VIEWPORT_PADDING,
+): FloatingMenuPosition {
+  const maxLeft = Math.max(padding, viewportWidth - menuWidth - padding);
+  const left = Math.min(Math.max(cursorX, padding), maxLeft);
+  const spaceBelow = viewportHeight - cursorY - padding;
+  const spaceAbove = cursorY - padding;
+  const flipsUp = spaceBelow < menuHeight && spaceAbove >= menuHeight;
+  const preferredTop = flipsUp ? cursorY - menuHeight : cursorY;
+  const maxTop = Math.max(padding, viewportHeight - menuHeight - padding);
+  const top = Math.min(Math.max(preferredTop, padding), maxTop);
+  return { left, top };
+}
