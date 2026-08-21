@@ -67,7 +67,14 @@ export class DesktopBridge {
       )
       this.write({ type: 'response', id: request.id, response })
     } catch (error) {
-      this.write({ type: 'response', id: request.id, error: errorMessage(error) })
+      // Coded errors (ui plugin protocol denials and domain errors) forward
+      // their stable code so the WebView can branch without parsing messages.
+      this.write({
+        type: 'response',
+        id: request.id,
+        error: errorMessage(error),
+        ...(typeof error?.code === 'string' && error.code ? { code: error.code } : {}),
+      })
       this.write({
         type: 'diagnostic',
         level: 'error',

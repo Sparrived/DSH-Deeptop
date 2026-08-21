@@ -4,6 +4,14 @@ import { dirname, isAbsolute, join } from 'node:path'
 import { installSkillFromSource } from './skill-installer.mjs'
 import { repairCorruptLog } from './session-repair.mjs'
 import { describePluginConfig, filterInventory, mutatePluginConfig } from './plugin-config.mjs'
+import {
+  deleteUiPluginStorage,
+  getUiPluginModule,
+  getUiPluginStorage,
+  invokeUiPluginRemote,
+  listUiPlugins,
+  setUiPluginStorage,
+} from './ui-routes.mjs'
 
 function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -613,6 +621,12 @@ export async function routeDesktopRequest(ctx, method, payload, signal) {
     case 'llm.models': return hostModels(ctx, request)
     case 'llm.discoverModels': return api.llm.discoverModels(request, signal)
     case 'remote.invoke': return invokeRemote(ctx, payload, signal)
+    case 'ui.plugin.list': return listUiPlugins(ctx)
+    case 'ui.plugin.module': return getUiPluginModule(ctx, payload)
+    case 'ui.plugin.invoke': return invokeUiPluginRemote(ctx, payload, signal)
+    case 'ui.plugin.storage.get': return getUiPluginStorage(ctx, payload)
+    case 'ui.plugin.storage.set': return setUiPluginStorage(ctx, payload)
+    case 'ui.plugin.storage.delete': return deleteUiPluginStorage(ctx, payload)
     case 'plugin.list': return filterInventory(await ctx.pluginInventory.list())
     case 'plugin.config.describe': return describePluginConfig(ctx)
     case 'plugin.config.mutate': return mutatePluginConfig(ctx, payload)

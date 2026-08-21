@@ -9,6 +9,7 @@
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./message-annotations": "./message-annotations.mjs",
     "./skill-install-plugin": "./skill-install-plugin.mjs",
+    "./ui-registry": "./ui-registry.mjs",
     "./package.json": "./package.json"
   },
   "dsh": {
