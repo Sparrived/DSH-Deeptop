@@ -4,19 +4,11 @@ use tauri::{AppHandle, Manager};
 
 const SETTINGS_FILE: &str = "dock-settings.json";
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DockSettings {
     #[serde(default)]
     pub auto_collapse_on_outside_click: bool,
-}
-
-impl Default for DockSettings {
-    fn default() -> Self {
-        Self {
-            auto_collapse_on_outside_click: false,
-        }
-    }
 }
 
 fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
