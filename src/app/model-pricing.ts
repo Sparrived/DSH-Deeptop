@@ -109,21 +109,46 @@ function providerMatchesKey(provider: string, key: string) {
   return providerVariants(provider).includes(keyProvider);
 }
 
+/** A provider that matches a known pricing family (DeepSeek/official routes, Anthropic, etc.). */
+function isKnownProvider(provider: string) {
+  const variants = providerVariants(provider);
+  return Object.keys(PRICING).some((key) => variants.includes(key.split("/", 1)[0]));
+}
+
+/** Match by well-known model id only, used for unknown/custom/self-hosted providers. */
+function modelOnlyKey(modelLeaf: string) {
+  const alias = aliases[modelLeaf];
+  if (alias && PRICING[alias]) return alias;
+  if (PRICING[modelLeaf]) return modelLeaf;
+  const candidate = Object.keys(PRICING).find((key) => {
+    const keyModel = key.split("/")[1];
+    return keyModel === modelLeaf || modelLeaf.startsWith(`${keyModel}-`);
+  });
+  return candidate;
+}
+
 function findKey(provider: string, model: string) {
   const normalizedProvider = normalize(provider);
   const normalizedModel = normalize(model);
   const direct = `${normalizedProvider}/${normalizedModel}`;
   if (PRICING[direct]) return direct;
-  if (PRICING[normalizedModel] && providerMatchesKey(normalizedProvider, normalizedModel)) return normalizedModel;
   const modelLeaf = normalizedModel.split("/").pop() ?? normalizedModel;
-  const alias = aliases[normalizedModel] ?? aliases[modelLeaf];
-  if (alias && PRICING[alias] && providerMatchesKey(normalizedProvider, alias)) return alias;
-  const providerNames = providerVariants(normalizedProvider);
-  const candidate = Object.keys(PRICING).find((key) => {
-    const [keyProvider, keyModel] = key.split("/");
-    return providerNames.includes(keyProvider) && (keyModel === modelLeaf || modelLeaf.startsWith(`${keyModel}-`));
-  });
-  return candidate;
+  // Known providers stay provider-scoped so a DeepSeek or Anthropic route never
+  // picks up a same-named pricing from a different family.
+  if (isKnownProvider(normalizedProvider)) {
+    if (PRICING[normalizedModel] && providerMatchesKey(normalizedProvider, normalizedModel)) return normalizedModel;
+    const alias = aliases[normalizedModel] ?? aliases[modelLeaf];
+    if (alias && PRICING[alias] && providerMatchesKey(normalizedProvider, alias)) return alias;
+    const providerNames = providerVariants(normalizedProvider);
+    const candidate = Object.keys(PRICING).find((key) => {
+      const [keyProvider, keyModel] = key.split("/");
+      return providerNames.includes(keyProvider) && (keyModel === modelLeaf || modelLeaf.startsWith(`${keyModel}-`));
+    });
+    return candidate;
+  }
+  // Unknown/custom provider: price by the well-known model id so OpenAI-,
+  // Anthropic- or gateways proxying popular models still get an estimate.
+  return modelOnlyKey(modelLeaf);
 }
 
 export function modelPricing(provider: string | undefined, model: string | undefined): ModelPricingMatch | null {

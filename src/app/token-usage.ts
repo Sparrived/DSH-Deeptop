@@ -35,7 +35,7 @@ function pointBreakdown(stats: MessageStats): TokenUsageBreakdown {
   };
 }
 
-function sessionBreakdown(stats: SessionStats, points: TokenUsagePoint[]): TokenUsageBreakdown {
+function pointsBreakdown(points: TokenUsagePoint[]): TokenUsageBreakdown {
   const fromPoints = points.reduce((total, point) => ({
     inputTokens: total.inputTokens + point.inputTokens,
     outputTokens: total.outputTokens + point.outputTokens,
@@ -46,6 +46,15 @@ function sessionBreakdown(stats: SessionStats, points: TokenUsagePoint[]): Token
     cacheWriteTokens: total.cacheWriteTokens + point.cacheWriteTokens,
     cacheHitRate: 0,
   }), emptyBreakdown());
+  const denominator = fromPoints.uncachedInputTokens + fromPoints.cacheReadTokens + fromPoints.cacheWriteTokens;
+  return {
+    ...fromPoints,
+    totalTokens: fromPoints.inputTokens + fromPoints.outputTokens,
+    cacheHitRate: denominator > 0 ? Math.min(100, (fromPoints.cacheReadTokens / denominator) * 100) : 0,
+  };
+}
+
+function sessionBreakdown(stats: SessionStats, points: TokenUsagePoint[]): TokenUsageBreakdown {
   // A projection/history aggregate is authoritative as a whole. Mixing its
   // individual fields with point sums makes the ledger internally inconsistent.
   if (stats.tokenUsageAvailable || (stats.tokenUsageSource !== undefined && stats.tokenUsageSource !== "none")) {
@@ -61,12 +70,12 @@ function sessionBreakdown(stats: SessionStats, points: TokenUsagePoint[]): Token
       cacheHitRate: denominator > 0 ? Math.min(100, (stats.cacheReadTokens / denominator) * 100) : 0,
     };
   }
-  const denominator = fromPoints.uncachedInputTokens + fromPoints.cacheReadTokens + fromPoints.cacheWriteTokens;
-  return {
-    ...fromPoints,
-    totalTokens: fromPoints.inputTokens + fromPoints.outputTokens,
-    cacheHitRate: denominator > 0 ? Math.min(100, (fromPoints.cacheReadTokens / denominator) * 100) : 0,
-  };
+  return pointsBreakdown(points);
+}
+
+/** Aggregate a sub-range of response points into one session-style breakdown. */
+export function tokenUsageTotals(points: TokenUsagePoint[]): TokenUsageBreakdown {
+  return pointsBreakdown(points);
 }
 
 export function tokenUsageDashboard(entries: DshHistoryEntry[], stats: SessionStats): TokenUsageDashboardData {

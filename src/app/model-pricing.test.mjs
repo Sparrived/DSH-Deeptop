@@ -12,6 +12,17 @@ test("leaves custom models unpriced", () => {
   assert.equal(modelPricing("local", "my-model"), null);
 });
 
+test("prices well-known model ids under unknown or custom providers", () => {
+  assert.equal(modelPricing("my-gateway", "gpt-4o")?.output, 10);
+  assert.equal(modelPricing("openrouter", "deepseek-chat")?.input, 0.14);
+  assert.equal(modelPricing("vertex", "claude-sonnet-4-5-20250929")?.output, 15);
+});
+
+test("keeps pricing provider-scoped inside known model families", () => {
+  assert.equal(modelPricing("deepseek-official", "gpt-4o"), null);
+  assert.equal(modelPricing("anthropic", "deepseek-chat"), null);
+});
+
 test("estimates input, output, cache read, and cache write spend per million tokens", () => {
   const pricing = { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 3 };
   assert.equal(estimateTokenCost({ inputTokens: 100_000, uncachedInputTokens: 100_000, outputTokens: 20_000, cacheReadTokens: 30_000, cacheWriteTokens: 10_000 }, pricing), 0.173);

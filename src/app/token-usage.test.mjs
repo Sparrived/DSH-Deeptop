@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readSessionStats } from "./message-model.ts";
-import { tokenUsageDashboard } from "./token-usage.ts";
+import { tokenUsageDashboard, tokenUsageTotals } from "./token-usage.ts";
 
 function entry(seq, type, data, time = 1_700_000_000_000 + seq * 1000) {
   return { event: { seq, time, type, data } };
@@ -158,4 +158,18 @@ test("does not produce NaN cache rate when buckets are all zero", () => {
   const result = readSessionStats([], { values: { usage: { uncachedInputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } } });
   assert.equal(result.cacheHitRate, 0);
   assert.ok(Number.isFinite(result.cacheHitRate));
+});
+
+test("recomputes totals for a recent sub-range of response points", () => {
+  const entries = [
+    entry(1, "assistant/message", { usage: { input_tokens: 100, output_tokens: 40 } }),
+    entry(2, "assistant/message", { usage: { input_tokens: 160, output_tokens: 60 } }),
+    entry(3, "assistant/message", { usage: { input_tokens: 50, output_tokens: 30 } }),
+  ];
+  const dashboard = tokenUsageDashboard(entries, stats());
+  assert.equal(dashboard.points.length, 3);
+  const recent = tokenUsageTotals(dashboard.points.slice(-2));
+  assert.equal(recent.inputTokens, 210);
+  assert.equal(recent.outputTokens, 90);
+  assert.equal(recent.totalTokens, 300);
 });

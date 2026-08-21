@@ -1,7 +1,7 @@
 import { useMemo, useState, type CSSProperties } from "react";
 import type { SessionStats, TokenUsageDashboardData, TokenUsagePoint } from "../app/model-types";
 import { formatTokens } from "../app/model";
-import { tokenUsageDashboard, tokenUsagePercent } from "../app/token-usage";
+import { tokenUsageDashboard, tokenUsagePercent, tokenUsageTotals } from "../app/token-usage";
 import { estimateTokenCost, formatUsd, modelPricing, modelPricingSnapshot } from "../app/model-pricing";
 import type { DshHistoryEntry } from "../lib/desktop";
 
@@ -73,11 +73,16 @@ function EmptyChart() {
 export function TokenUsageDashboard({ entries, sessionStats, active, provider, model, onOpenPricingSource }: TokenUsageDashboardProps) {
   const [range, setRange] = useState<"all" | "recent">("all");
   const data = useMemo(() => tokenUsageDashboard(entries, sessionStats), [entries, sessionStats]);
-  const points = range === "recent" ? data.points.slice(-8) : data.points;
+  const visibleData = useMemo(() => {
+    if (range !== "recent") return data;
+    const recentPoints = data.points.slice(-8);
+    return { ...data, points: recentPoints, totals: tokenUsageTotals(recentPoints) };
+  }, [data, range]);
+  const points = visibleData.points;
   const max = Math.max(1, ...points.map((point) => point.totalTokens));
-  const totals = data.totals;
+  const totals = visibleData.totals;
   const pricing = useMemo(() => modelPricing(provider, model), [model, provider]);
-  const estimatedCost = useMemo(() => estimateTokenCost({ ...totals, uncachedInputTokens: totals.uncachedInputTokens }, pricing), [pricing, totals]);
+  const estimatedCost = useMemo(() => estimateTokenCost(totals, pricing), [pricing, totals]);
   const contextPercent = sessionStats.contextLimit > 0 ? Math.min(100, (sessionStats.contextTokens / sessionStats.contextLimit) * 100) : 0;
   if (!active) return null;
   return <section className="token-dashboard" aria-label="Token 用量统计">
@@ -99,7 +104,7 @@ export function TokenUsageDashboard({ entries, sessionStats, active, provider, m
     </div>
 
     <div className="token-dashboard-main">
-      <div className="token-panel token-composition-panel"><div className="token-panel-heading"><div><span>COMPOSITION</span><h3>输入 / 输出构成</h3></div><b>{formatTokens(totals.totalTokens)} tokens</b></div><Donut data={{ ...data, points }} /><div className="token-composition-note"><span><i style={{ background: COLORS.uncached }} />未缓存输入 {formatTokens(totals.uncachedInputTokens)}</span><span><i style={{ background: COLORS.cacheRead }} />缓存读取 {formatTokens(totals.cacheReadTokens)}</span><span><i style={{ background: COLORS.cacheWrite }} />缓存写入 {formatTokens(totals.cacheWriteTokens)}</span></div></div>
+      <div className="token-panel token-composition-panel"><div className="token-panel-heading"><div><span>COMPOSITION</span><h3>输入 / 输出构成</h3></div><b>{formatTokens(totals.totalTokens)} tokens</b></div><Donut data={visibleData} /><div className="token-composition-note"><span><i style={{ background: COLORS.uncached }} />未缓存输入 {formatTokens(totals.uncachedInputTokens)}</span><span><i style={{ background: COLORS.cacheRead }} />缓存读取 {formatTokens(totals.cacheReadTokens)}</span><span><i style={{ background: COLORS.cacheWrite }} />缓存写入 {formatTokens(totals.cacheWriteTokens)}</span></div></div>
       <div className="token-panel token-context-panel"><div className="token-panel-heading"><div><span>CONTEXT WINDOW</span><h3>上下文压力</h3></div><b>{sessionStats.contextTokensAvailable && sessionStats.contextLimit ? Math.round(contextPercent) + "%" : "—"}</b></div><div className="token-context-visual"><div className="token-context-ring" style={{ "--token-context-progress": contextPercent + "%" } as CSSProperties}><div><strong>{sessionStats.contextTokensAvailable ? formatTokens(sessionStats.contextTokens) : "—"}</strong><span>当前上下文</span></div></div><div className="token-context-details"><span>已用 <b>{sessionStats.contextTokensAvailable ? formatTokens(sessionStats.contextTokens) : "未提供"}</b></span><span>上限 <b>{sessionStats.contextLimit ? formatTokens(sessionStats.contextLimit) : "未提供"}</b></span><span>消息 <b>{sessionStats.messages}</b></span></div></div><div className="token-progress"><i style={{ width: contextPercent + "%" }} /></div></div>
     </div>
 
