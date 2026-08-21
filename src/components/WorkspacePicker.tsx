@@ -1,3 +1,4 @@
+import type { RefObject } from "react";
 import { projectName } from "../app/model";
 import type { DshWorkspace } from "../lib/desktop";
 
@@ -5,18 +6,19 @@ type WorkspacePickerProps = {
   workspace: string;
   workspaces: DshWorkspace[];
   open: boolean;
+  menuRef: RefObject<HTMLDivElement | null>;
   onToggle: () => void;
   onChoose: (path: string) => void;
   onAdd: () => void | Promise<void>;
   onDelete: (workspace: DshWorkspace) => void | Promise<void>;
 };
 
-export function WorkspacePicker({ workspace, workspaces, open, onToggle, onChoose, onAdd, onDelete }: WorkspacePickerProps) {
+export function WorkspacePicker({ workspace, workspaces, open, menuRef, onToggle, onChoose, onAdd, onDelete }: WorkspacePickerProps) {
   const selectedWorkspace = workspaces.find((item) => item.path === workspace);
   const selectedTitle = selectedWorkspace?.title || (workspace ? projectName(workspace) : "未分组");
   const selectedPath = selectedWorkspace?.path || (workspace || "未注册工作区的会话");
   return (
-    <div className="workspace-picker">
+    <div className="workspace-picker" ref={menuRef}>
       <button className="workspace-line" onClick={onToggle} title={workspace || "未分组会话；新会话使用 DSH 运行目录"} aria-expanded={open}>
         <span className="line-icon">⌂</span>
         <span><strong>{selectedTitle}</strong><small>{selectedPath}</small></span>

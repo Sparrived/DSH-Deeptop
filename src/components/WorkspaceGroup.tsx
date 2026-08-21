@@ -8,7 +8,9 @@ type WorkspaceGroupProps = {
   workspaceId: string;
   sessions: DshSessionSummary[];
   collapsed: boolean;
+  pinned: boolean;
   onToggle: (workspaceId: string) => void;
+  onTogglePinWorkspace: (workspace: DshWorkspace) => void;
   onRenameWorkspace: (workspace: DshWorkspace) => void | Promise<void>;
   onDeleteWorkspace: (workspace: DshWorkspace) => void | Promise<void>;
   renderSession: (session: DshSessionSummary) => ReactNode;
@@ -19,7 +21,9 @@ export function WorkspaceGroup({
   workspaceId,
   sessions,
   collapsed,
+  pinned,
   onToggle,
+  onTogglePinWorkspace,
   onRenameWorkspace,
   onDeleteWorkspace,
   renderSession,
@@ -72,6 +76,7 @@ export function WorkspaceGroup({
           role="menu"
           onMouseDown={(event) => event.stopPropagation()}
         >
+          <button role="menuitem" onClick={() => { setContextMenu(null); onTogglePinWorkspace(workspace); }}>{pinned ? "取消置顶" : "置顶工作区"}</button>
           <button role="menuitem" onClick={() => { setContextMenu(null); void onRenameWorkspace(workspace); }}>重命名工作区</button>
           <button className="danger" role="menuitem" onClick={() => { setContextMenu(null); void onDeleteWorkspace(workspace); }}>删除工作区</button>
         </div>,

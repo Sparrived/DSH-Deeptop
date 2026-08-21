@@ -12,7 +12,7 @@ import {
 } from "../app/model";
 import type { DshSessionSummary, DshWorkspace } from "../lib/desktop";
 
-type WorkspaceGroup = {
+export type WorkspaceGroup = {
   workspace: DshWorkspace | null;
   workspaceId: string;
   sessions: DshSessionSummary[];
@@ -39,9 +39,11 @@ type SessionSidebarProps = {
   archivedSessions: DshSessionSummary[];
   onRestoreSession: (session: DshSessionSummary) => void | Promise<unknown>;
   onDeleteArchivedSession: (session: DshSessionSummary) => void;
-  workspaceGroup: WorkspaceGroup;
+  workspaceGroups: WorkspaceGroup[];
   collapsedWorkspaces: Record<string, boolean>;
   onToggleWorkspace: (workspaceId: string) => void;
+  pinnedWorkspaceIds: string[];
+  onTogglePinWorkspace: (workspace: DshWorkspace) => void;
   onRenameWorkspace: (workspace: DshWorkspace) => void | Promise<void>;
   onDeleteWorkspace: (workspace: DshWorkspace) => void | Promise<void>;
   sessionContextMenu: SessionContextMenu | null;
@@ -51,6 +53,9 @@ type SessionSidebarProps = {
   workspaceMenuOpen: boolean;
   onToggleWorkspaceMenu: () => void;
   onChooseWorkspace: (path: string) => void;
+  workspacePickerMenuRef: RefObject<HTMLDivElement | null>;
+  workspaceFlyoutOpen: boolean;
+  onToggleWorkspaceFlyout: () => void;
   activeSessionId: string | null;
   sessionIndicators: Record<string, "idle" | "running" | "completed" | "error">;
   pendingSessionIds: ReadonlySet<string>;
@@ -79,9 +84,11 @@ export function SessionSidebar({
   archivedSessions,
   onRestoreSession,
   onDeleteArchivedSession,
-  workspaceGroup,
+  workspaceGroups,
   collapsedWorkspaces,
   onToggleWorkspace,
+  pinnedWorkspaceIds,
+  onTogglePinWorkspace,
   onRenameWorkspace,
   onDeleteWorkspace,
   sessionContextMenu,
@@ -91,6 +98,9 @@ export function SessionSidebar({
   workspaceMenuOpen,
   onToggleWorkspaceMenu,
   onChooseWorkspace,
+  workspacePickerMenuRef,
+  workspaceFlyoutOpen,
+  onToggleWorkspaceFlyout,
   activeSessionId,
   sessionIndicators,
   pendingSessionIds,
@@ -108,6 +118,7 @@ export function SessionSidebar({
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const [dragCommitPending, setDragCommitPending] = useState(false);
+  const groupedSessionCount = useMemo(() => workspaceGroups.reduce((total, group) => total + group.sessions.length, 0), [workspaceGroups]);
   const baseSessionOrder = useMemo(() => visibleSessions.map((session) => session.sessionId), [visibleSessions]);
   const dragPreviewRank = useMemo(
     () => dragPreview ? new Map(dragPreview.order.map((sessionId, index) => [sessionId, index])) : null,
@@ -217,8 +228,9 @@ export function SessionSidebar({
           <div className="sidebar-heading-title"><button className="sidebar-back-button" type="button" onClick={() => setArchiveOpen(false)} title="返回会话列表" aria-label="返回会话列表">←</button><span>归档</span></div>
         ) : <span>会话</span>}
         <div className="sidebar-heading-actions">
-          <span>{archiveOpen ? archivedSessions.length : (visibleSessions.length > 0 ? visibleSessions.length : "")}</span>
+          <span>{archiveOpen ? archivedSessions.length : (groupedSessionCount > 0 ? groupedSessionCount : "")}</span>
           {!archiveOpen && <>
+            <button type="button" className={`workspace-flyout-trigger${workspaceFlyoutOpen ? " selected" : ""}`} onClick={onToggleWorkspaceFlyout} title="展开工作区列表" aria-expanded={workspaceFlyoutOpen}>工作区</button>
             <button type="button" onClick={() => setArchiveOpen(true)} title="打开归档页">归档</button>
           </>}
         </div>
@@ -227,17 +239,22 @@ export function SessionSidebar({
         {archiveOpen ? (
           archivedSessions.length === 0 ? <div className="sidebar-empty">没有归档会话</div> : archivedSessions.map(renderArchivedSession)
         ) : <>
-          <WorkspaceGroupSection
-            workspace={workspaceGroup.workspace}
-            workspaceId={workspaceGroup.workspaceId}
-            sessions={orderSessions(workspaceGroup.sessions)}
-            collapsed={Boolean(collapsedWorkspaces[workspaceGroup.workspaceId])}
-            onToggle={onToggleWorkspace}
-            onRenameWorkspace={onRenameWorkspace}
-            onDeleteWorkspace={onDeleteWorkspace}
-            renderSession={renderSessionRow}
-          />
-          {visibleSessions.length === 0 && <div className="sidebar-empty">当前工作区没有已开始的会话</div>}
+          {workspaceGroups.map((group) => (
+            <WorkspaceGroupSection
+              key={group.workspaceId}
+              workspace={group.workspace}
+              workspaceId={group.workspaceId}
+              sessions={orderSessions(group.sessions)}
+              collapsed={collapsedWorkspaces[group.workspaceId] ?? true}
+              pinned={Boolean(group.workspace && pinnedWorkspaceIds.includes(group.workspaceId))}
+              onToggle={onToggleWorkspace}
+              onTogglePinWorkspace={onTogglePinWorkspace}
+              onRenameWorkspace={onRenameWorkspace}
+              onDeleteWorkspace={onDeleteWorkspace}
+              renderSession={renderSessionRow}
+            />
+          ))}
+          {groupedSessionCount === 0 && <div className="sidebar-empty">当前工作区没有已开始的会话</div>}
         </>}
       </div>
 
@@ -258,6 +275,7 @@ export function SessionSidebar({
           workspace={workspace}
           workspaces={workspaces}
           open={workspaceMenuOpen}
+          menuRef={workspacePickerMenuRef}
           onToggle={onToggleWorkspaceMenu}
           onChoose={onChooseWorkspace}
           onAdd={onAddWorkspace}

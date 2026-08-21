@@ -16,7 +16,8 @@ import { SettingsModelsPanel } from "./components/SettingsModelsPanel";
 import { SettingsPluginsPanel } from "./components/SettingsPluginsPanel";
 import { SettingsPresetPanel } from "./components/SettingsPresetPanel";
 import { QueueDock } from "./components/QueueDock";
-import { SessionSidebar } from "./components/SessionSidebar";
+import { SessionSidebar, type WorkspaceGroup } from "./components/SessionSidebar";
+import { WorkspaceFlyout } from "./components/WorkspaceFlyout";
 import { SubagentDock } from "./components/SubagentDock";
 import { SubagentPanel } from "./components/SubagentPanel";
 import { TaskPanel, TodoPanel } from "./components/TodoPanel";
@@ -191,6 +192,10 @@ import {
   type ChildSubagentEntry,
   type SubagentSession,
 } from "./app/model";
+import {
+  readWorkspaceViewPreferences,
+  writeWorkspaceViewPreferences,
+} from "./app/workspace-view";
 import {
   backgroundZones,
   defaultAppearance,
@@ -424,9 +429,15 @@ function AppContent() {
       return "system";
     }
   });
-  const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Record<string, boolean>>({});
+  // 工作区侧栏视图偏好：置顶顺序与收起状态，未记录的项默认收起。
+  const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Record<string, boolean>>(() => readWorkspaceViewPreferences().collapsedWorkspaces);
+  const [pinnedWorkspaceIds, setPinnedWorkspaceIds] = useState<string[]>(() => readWorkspaceViewPreferences().pinnedWorkspaceIds);
   const [dragOverSessionId, setDragOverSessionId] = useState<string | null>(null);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
+  // 侧栏右侧的工作区新栏：展开后列出全部工作区，点击外部自动收起。
+  const [workspaceFlyoutOpen, setWorkspaceFlyoutOpen] = useState(false);
+  const workspacePickerMenuRef = useRef<HTMLDivElement | null>(null);
+  const workspaceFlyoutRef = useRef<HTMLDivElement | null>(null);
   const [runtimeDetails, setRuntimeDetails] = useState<Record<string, unknown> | null>(null);
   const [providers, setProviders] = useState<DshProvider[]>([]);
   const [hostModels, setHostModels] = useState<DshHostModelCatalog | null>(null);
@@ -858,6 +869,47 @@ function AppContent() {
   }, [presetMenuOpen]);
 
   useEffect(() => {
+    writeWorkspaceViewPreferences({ pinnedWorkspaceIds, collapsedWorkspaces });
+  }, [collapsedWorkspaces, pinnedWorkspaceIds]);
+
+  // 底部工作区一级菜单：点击外部或按 Esc 自动收起。
+  useEffect(() => {
+    if (!workspaceMenuOpen) return;
+    const handlePointerDown = (event: globalThis.PointerEvent) => {
+      if (event.target instanceof Node && workspacePickerMenuRef.current?.contains(event.target)) return;
+      setWorkspaceMenuOpen(false);
+    };
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setWorkspaceMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [workspaceMenuOpen]);
+
+  // 右侧工作区新栏：点击外部（含一级菜单触发按钮之外的区域）或按 Esc 自动收起。
+  useEffect(() => {
+    if (!workspaceFlyoutOpen) return;
+    const handlePointerDown = (event: globalThis.PointerEvent) => {
+      if (event.target instanceof Node && workspaceFlyoutRef.current?.contains(event.target)) return;
+      if (event.target instanceof Element && event.target.closest(".workspace-flyout-trigger")) return;
+      setWorkspaceFlyoutOpen(false);
+    };
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setWorkspaceFlyoutOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [workspaceFlyoutOpen]);
+
+  useEffect(() => {
     if (!showInspector && !settingsDraft && !presetCopy && !presetView) return;
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Escape") return;
@@ -1013,22 +1065,35 @@ function AppContent() {
     () => workspaces.find((item) => sameWorkspacePath(item.path, workspace)) ?? null,
     [workspace, workspaces],
   );
-  const selectedWorkspaceSessions = useMemo(() => {
+  const sessionsByWorkspace = useMemo(() => {
     const visibleById = new Map(visibleSessions.map((session) => [session.sessionId, session]));
-    if (selectedWorkspace) {
-      const pinned = new Set(selectedWorkspace.pinnedSessionIds ?? []);
-      return selectedWorkspace.sessionIds
+    return new Map(workspaces.map((item) => {
+      const pinnedSessionIds = new Set(item.pinnedSessionIds ?? []);
+      const sessions = item.sessionIds
         .map((sessionId) => visibleById.get(sessionId))
         .filter((session): session is DshSessionSummary => session !== undefined)
-        .sort((left, right) => Number(pinned.has(right.sessionId)) - Number(pinned.has(left.sessionId)));
+        .sort((left, right) => Number(pinnedSessionIds.has(right.sessionId)) - Number(pinnedSessionIds.has(left.sessionId)));
+      return [item.workspaceId, sessions] as const;
+    }));
+  }, [visibleSessions, workspaces]);
+  // 侧栏分组：置顶的工作区固定显示在最上方（按置顶顺序），其次显示当前选中的工作区；
+  // 未选择工作区时显示未分组会话。
+  const workspaceGroups = useMemo<WorkspaceGroup[]>(() => {
+    const groups: WorkspaceGroup[] = [];
+    const pinnedSet = new Set(pinnedWorkspaceIds);
+    for (const workspaceId of pinnedWorkspaceIds) {
+      const item = workspaces.find((candidate) => candidate.workspaceId === workspaceId);
+      if (!item) continue;
+      groups.push({ workspace: item, workspaceId: item.workspaceId, sessions: sessionsByWorkspace.get(item.workspaceId) ?? [] });
     }
-    return visibleSessions.filter((session) => !workspaceBySessionId.has(session.sessionId));
-  }, [selectedWorkspace, visibleSessions, workspaceBySessionId]);
-  const selectedWorkspaceGroup = useMemo(() => ({
-    workspace: selectedWorkspace,
-    workspaceId: selectedWorkspace?.workspaceId ?? "__ungrouped__",
-    sessions: selectedWorkspaceSessions,
-  }), [selectedWorkspace, selectedWorkspaceSessions]);
+    if (selectedWorkspace && !pinnedSet.has(selectedWorkspace.workspaceId)) {
+      groups.push({ workspace: selectedWorkspace, workspaceId: selectedWorkspace.workspaceId, sessions: sessionsByWorkspace.get(selectedWorkspace.workspaceId) ?? [] });
+    }
+    if (!selectedWorkspace) {
+      groups.push({ workspace: null, workspaceId: "__ungrouped__", sessions: visibleSessions.filter((session) => !workspaceBySessionId.has(session.sessionId)) });
+    }
+    return groups;
+  }, [pinnedWorkspaceIds, selectedWorkspace, sessionsByWorkspace, visibleSessions, workspaceBySessionId, workspaces]);
   const defaultModelSelection = useMemo<ModelSelection | null>(() => {
     const configured = settings?.namespaces.find((namespace) => namespace.ns === "agent-default-model")?.value;
     const configuredModel = valueAtPath(configured, ["model"]);
@@ -2174,7 +2239,7 @@ function AppContent() {
   }, [history, loading, transcriptFollowing]);
 
   function firstConversationForWorkspace(workspacePath: string, workspaceItem: DshWorkspace | null): DshSessionSummary | null {
-    // Mirrors selectedWorkspaceSessions so the conversation page always opens a
+    // Mirrors the sidebar workspace grouping so the conversation page always opens a
     // session that the sidebar can highlight for the newly selected workspace.
     const visibleById = new Map(visibleSessions.map((session) => [session.sessionId, session]));
     if (workspaceItem) {
@@ -2223,6 +2288,7 @@ function AppContent() {
       workspaceSelectionInitializedRef.current = true;
       setWorkspace(picked);
       setWorkspaceMenuOpen(false);
+      setWorkspaceFlyoutOpen(false);
       setNotice("新会话将使用此工作目录");
       try {
         const result = await bridgeRequest<{ workspace: DshWorkspace }>("workspace.create", { path: picked });
@@ -2250,6 +2316,7 @@ function AppContent() {
     workspaceSelectionInitializedRef.current = true;
     setWorkspace(path);
     setWorkspaceMenuOpen(false);
+    setWorkspaceFlyoutOpen(false);
     setNotice(path ? "新会话将使用此工作目录" : "新会话将使用 DSH 运行目录");
     const selected = workspaces.find((item) => item.path === path);
     if (selected) {
@@ -2293,6 +2360,13 @@ function AppContent() {
     setCollapsedWorkspaces((current) => ({ ...current, [workspaceId]: !current[workspaceId] }));
   }
 
+  // 置顶工作区：置顶后固定显示在侧栏最上方，保持置顶顺序。
+  function togglePinWorkspace(item: DshWorkspace) {
+    setPinnedWorkspaceIds((current) => current.includes(item.workspaceId)
+      ? current.filter((workspaceId) => workspaceId !== item.workspaceId)
+      : [...current, item.workspaceId]);
+  }
+
   async function renameWorkspace(item: DshWorkspace) {
     const title = await requestPrompt("重命名工作区", item.title, "修改工作区在侧边栏中的显示名称。");
     if (!title?.trim() || title.trim() === item.title) return;
@@ -2330,6 +2404,12 @@ function AppContent() {
     try {
       await bridgeRequest("workspace.delete", { workspaceId: item.workspaceId });
       setWorkspaces((current) => current.filter((workspaceItem) => workspaceItem.workspaceId !== item.workspaceId));
+      setPinnedWorkspaceIds((current) => current.filter((workspaceId) => workspaceId !== item.workspaceId));
+      setCollapsedWorkspaces((current) => {
+        const next = { ...current };
+        delete next[item.workspaceId];
+        return next;
+      });
       if (workspace === item.path) setWorkspace("");
       setNotice("工作区已移除");
     } catch (error) {
@@ -3689,13 +3769,15 @@ function AppContent() {
           settingsOpen={showInspector}
           onOpenSettings={openSettings}
           onAddWorkspace={() => void addWorkspace()}
-          visibleSessions={selectedWorkspaceSessions}
+          visibleSessions={visibleSessions}
           archivedSessions={archivedSessions}
           onRestoreSession={restoreSession}
           onDeleteArchivedSession={setDeleteArchivedTarget}
-          workspaceGroup={selectedWorkspaceGroup}
+          workspaceGroups={workspaceGroups}
           collapsedWorkspaces={collapsedWorkspaces}
           onToggleWorkspace={toggleWorkspace}
+          pinnedWorkspaceIds={pinnedWorkspaceIds}
+          onTogglePinWorkspace={togglePinWorkspace}
           onRenameWorkspace={renameWorkspace}
           onDeleteWorkspace={deleteWorkspace}
           sessionContextMenu={sessionContextMenu}
@@ -3705,6 +3787,9 @@ function AppContent() {
           workspaceMenuOpen={workspaceMenuOpen}
           onToggleWorkspaceMenu={() => setWorkspaceMenuOpen((value) => !value)}
           onChooseWorkspace={chooseWorkspace}
+          workspacePickerMenuRef={workspacePickerMenuRef}
+          workspaceFlyoutOpen={workspaceFlyoutOpen}
+          onToggleWorkspaceFlyout={() => setWorkspaceFlyoutOpen((value) => !value)}
           activeSessionId={activeSessionId}
           sessionIndicators={sessionIndicators}
           pendingSessionIds={pendingSessionIds}
@@ -3719,6 +3804,18 @@ function AppContent() {
           onSessionDragEnd={() => setDragOverSessionId(null)}
           onSessionContextMenu={(session, x, y) => setSessionContextMenu({ session, x, y })}
         />
+
+        {workspaceFlyoutOpen && (
+          <WorkspaceFlyout
+            workspace={workspace}
+            workspaces={workspaces}
+            pinnedWorkspaceIds={pinnedWorkspaceIds}
+            flyoutRef={workspaceFlyoutRef}
+            onChoose={chooseWorkspace}
+            onAdd={() => void addWorkspace()}
+            onTogglePin={togglePinWorkspace}
+          />
+        )}
 
         <div
           className="sidebar-resizer"
