@@ -6,6 +6,8 @@ src-tauri/resources/dsh-runtime.*/
 src-tauri/resources/dsh-runtime.tar.gz
 src-tauri/resources/dsh-runtime-manifest.json
 release-assets/
+# Local release notes draft reviewed before gh release create --notes-file; never commit
+release-notes.md
 src-tauri/target/
 src-tauri/target-desktop-build/
 src-tauri/target-test-*/
