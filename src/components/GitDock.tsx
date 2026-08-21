@@ -9,6 +9,7 @@ import {
   getGitFileDiff,
   getWorkspaceGitStatus,
   listGitBranches,
+  listGitGraph,
   listGitLog,
   pullGit,
   pushGit,
@@ -22,6 +23,7 @@ import {
   type WorkspaceGitCommit,
   type WorkspaceGitCommitDetail,
   type WorkspaceGitFile,
+  type WorkspaceGitGraphLine,
   type WorkspaceGitStatus,
 } from "../lib/desktop";
 import { errorText } from "../app/model";
@@ -32,6 +34,8 @@ import {
   formatRelativeTime,
   gitFileLabel,
   gitFileMark,
+  gitGraphLaneColor,
+  gitRefKind,
   groupGitBranches,
   groupGitFiles,
 } from "../app/git-model";
@@ -110,6 +114,9 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
   >(null);
   const [result, setResult] = useState<GitCommandResult | null>(null);
   const [copyingHash, setCopyingHash] = useState<string | null>(null);
+  const [historyView, setHistoryView] = useState<"list" | "graph">("list");
+  const [graph, setGraph] = useState<WorkspaceGitGraphLine[] | null>(null);
+  const [graphLoading, setGraphLoading] = useState(false);
   const diffRequestRef = useRef(0);
   const detailRequestRef = useRef(0);
 
@@ -168,9 +175,25 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
     }
   }, [workspace, onError]);
 
+  const reloadGraph = useCallback(async () => {
+    if (!workspace) {
+      setGraph(null);
+      return;
+    }
+    setGraphLoading(true);
+    try {
+      setGraph(await listGitGraph(workspace));
+    } catch (error) {
+      setGraph(null);
+      onError(`读取提交图谱失败：${errorText(error)}`);
+    } finally {
+      setGraphLoading(false);
+    }
+  }, [workspace, onError]);
+
   const refreshAll = useCallback(async () => {
-    await Promise.all([reloadStatus(), reloadCommits(), reloadBranches()]);
-  }, [reloadStatus, reloadCommits, reloadBranches]);
+    await Promise.all([reloadStatus(), reloadCommits(), reloadBranches(), reloadGraph()]);
+  }, [reloadStatus, reloadCommits, reloadBranches, reloadGraph]);
 
   useEffect(() => {
     setTab("changes");
@@ -232,6 +255,10 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
   useEffect(() => {
     if (tab === "branches" && branches === null) void reloadBranches();
   }, [tab, branches, reloadBranches]);
+
+  useEffect(() => {
+    if (tab === "history" && historyView === "graph" && graph === null) void reloadGraph();
+  }, [tab, historyView, graph, reloadGraph]);
 
   async function runMutation(action: () => Promise<void>, reason: string) {
     setBusy(true);
@@ -365,12 +392,12 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
     }
   }
 
-  function selectCommit(commit: WorkspaceGitCommit) {
-    if (commitDetail?.hash === commit.hash) return;
+  function selectCommitByHash(hash: string) {
+    if (commitDetail?.hash === hash) return;
     setCommitDetail(null);
     setCommitDetailLoading(true);
     const request = ++detailRequestRef.current;
-    void getGitCommitDetail(workspace, commit.hash)
+    void getGitCommitDetail(workspace, hash)
       .then((detail) => {
         if (request === detailRequestRef.current) setCommitDetail(detail);
       })
@@ -605,62 +632,93 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
 
           {tab === "history" && (
             <div className="git-history">
-              {commitsLoading && commits === null ? (
+              <div className="git-history-view-toggle" role="group" aria-label="历史视图">
+                <button type="button" className={historyView === "list" ? "selected" : ""} onClick={() => setHistoryView("list")}>列表</button>
+                <button type="button" className={historyView === "graph" ? "selected" : ""} onClick={() => setHistoryView("graph")}>图谱</button>
+              </div>
+              {historyView === "graph" ? (
+                graphLoading && graph === null ? (
+                  <div className="git-empty">加载提交图谱…</div>
+                ) : !graph || graph.length === 0 ? (
+                  <div className="git-empty">暂无提交记录</div>
+                ) : (
+                  <div className="git-graph-list">
+                    {graph.map((line) => (
+                      <button
+                        key={line.hash}
+                        type="button"
+                        className={`git-graph-row ${commitDetail?.hash === line.hash ? "selected" : ""}`}
+                        onClick={() => selectCommitByHash(line.hash)}
+                        title={`${line.shortHash} ${line.subject}`}
+                      >
+                        <span className="git-graph-prefix" aria-hidden="true">
+                          {line.graph.split("").map((char, index) => (
+                            <span key={index} style={{ color: gitGraphLaneColor(index) }}>{char}</span>
+                          ))}
+                        </span>
+                        <span className="git-graph-hash">{line.shortHash}</span>
+                        {line.refs.map((ref) => (
+                          <span key={ref} className={`git-graph-ref git-ref-${gitRefKind(ref)}`} title={ref}>{ref}</span>
+                        ))}
+                        <span className="git-graph-subject" title={line.subject}>{line.subject}</span>
+                      </button>
+                    ))}
+                  </div>
+                )
+              ) : commitsLoading && commits === null ? (
                 <div className="git-empty">加载提交历史…</div>
               ) : !commits || commits.length === 0 ? (
                 <div className="git-empty">暂无提交记录</div>
               ) : (
-                <>
-                  <div className="git-history-list">
-                    {commits.map((commit) => (
-                      <button
-                        key={commit.hash}
-                        type="button"
-                        className={`git-commit-row ${commitDetail?.hash === commit.hash ? "selected" : ""}`}
-                        onClick={() => selectCommit(commit)}
-                        title={commit.subject}
-                      >
-                        <span className="git-commit-short">{commit.shortHash}</span>
-                        <span className="git-commit-main">
-                          <span className="git-commit-subject">{commit.subject}</span>
-                          <span className="git-commit-meta">{commit.author} · {formatRelativeTime(commit.timestamp)}</span>
+                <div className="git-history-list">
+                  {commits.map((commit) => (
+                    <button
+                      key={commit.hash}
+                      type="button"
+                      className={`git-commit-row ${commitDetail?.hash === commit.hash ? "selected" : ""}`}
+                      onClick={() => selectCommitByHash(commit.hash)}
+                      title={commit.subject}
+                    >
+                      <span className="git-commit-short">{commit.shortHash}</span>
+                      <span className="git-commit-main">
+                        <span className="git-commit-subject">{commit.subject}</span>
+                        <span className="git-commit-meta">{commit.author} · {formatRelativeTime(commit.timestamp)}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {commitDetailLoading && <div className="git-empty">加载提交详情…</div>}
+              {commitDetail && !commitDetailLoading && (
+                <div className="git-commit-detail">
+                  <div className="git-commit-detail-header">
+                    <span className="git-commit-short">{commitDetail.hash.slice(0, 7)}</span>
+                    <span className="git-commit-subject">{commitDetail.subject}</span>
+                    <button type="button" className="git-diff-close" aria-label="关闭提交详情" onClick={() => setCommitDetail(null)}>×</button>
+                  </div>
+                  <div className="git-commit-detail-meta">
+                    <span>{commitDetail.author}</span>
+                    <span>{formatRelativeTime(commitDetail.timestamp)}</span>
+                    <span>{commitDetail.files.length} 个文件</span>
+                  </div>
+                  {commitDetail.body && <pre className="git-commit-detail-body">{commitDetail.body}</pre>}
+                  <div className="git-commit-detail-files">
+                    {commitDetail.files.map((file) => (
+                      <div key={file.path} className="git-commit-file-row">
+                        <span className="git-commit-file-path" title={file.path}>{file.path}</span>
+                        <span className="git-commit-file-stats">
+                          {file.additions > 0 && <span className="git-stat-add">+{file.additions}</span>}
+                          {file.deletions > 0 && <span className="git-stat-del">−{file.deletions}</span>}
                         </span>
-                      </button>
+                      </div>
                     ))}
                   </div>
-                  {commitDetailLoading && <div className="git-empty">加载提交详情…</div>}
-                  {commitDetail && !commitDetailLoading && (
-                    <div className="git-commit-detail">
-                      <div className="git-commit-detail-header">
-                        <span className="git-commit-short">{commitDetail.hash.slice(0, 7)}</span>
-                        <span className="git-commit-subject">{commitDetail.subject}</span>
-                        <button type="button" className="git-diff-close" aria-label="关闭提交详情" onClick={() => setCommitDetail(null)}>×</button>
-                      </div>
-                      <div className="git-commit-detail-meta">
-                        <span>{commitDetail.author}</span>
-                        <span>{formatRelativeTime(commitDetail.timestamp)}</span>
-                        <span>{commitDetail.files.length} 个文件</span>
-                      </div>
-                      {commitDetail.body && <pre className="git-commit-detail-body">{commitDetail.body}</pre>}
-                      <div className="git-commit-detail-files">
-                        {commitDetail.files.map((file) => (
-                          <div key={file.path} className="git-commit-file-row">
-                            <span className="git-commit-file-path" title={file.path}>{file.path}</span>
-                            <span className="git-commit-file-stats">
-                              {file.additions > 0 && <span className="git-stat-add">+{file.additions}</span>}
-                              {file.deletions > 0 && <span className="git-stat-del">−{file.deletions}</span>}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="git-commit-detail-actions">
-                        <button type="button" disabled={copyingHash === commitDetail.hash} onClick={() => void handleCopyHash(commitDetail.hash)}>
-                          {copyingHash === commitDetail.hash ? "已复制" : "复制哈希"}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </>
+                  <div className="git-commit-detail-actions">
+                    <button type="button" disabled={copyingHash === commitDetail.hash} onClick={() => void handleCopyHash(commitDetail.hash)}>
+                      {copyingHash === commitDetail.hash ? "已复制" : "复制哈希"}
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           )}

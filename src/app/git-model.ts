@@ -99,3 +99,30 @@ export function groupGitBranches(branches: WorkspaceGitBranch[]): GitBranchGroup
   }
   return { local, remote };
 }
+
+/** 提交图谱车道配色：按列索引循环取色，让连续车道在同一列上保持同色。 */
+export const GIT_GRAPH_LANE_COLORS = [
+  "#f5d99b", // 金色
+  "#8ab4f8", // 蓝色
+  "#ff7b72", // 红色
+  "#79d8a8", // 绿色
+  "#d2a8ff", // 紫色
+  "#79d8d8", // 青色
+] as const;
+
+export function gitGraphLaneColor(column: number): string {
+  const palette = GIT_GRAPH_LANE_COLORS;
+  const index = ((column % palette.length) + palette.length) % palette.length;
+  return palette[index];
+}
+
+export type GitRefKind = "head" | "tag" | "branch";
+
+/** 分类 git `%D` 装饰引用。仅凭装饰文本无法可靠区分本地与远程分支
+ *（本地分支也允许包含 `/`），因此只分 当前分支指向 / 标签 / 其他引用。 */
+export function gitRefKind(ref: string): GitRefKind {
+  const trimmed = ref.trim();
+  if (trimmed.startsWith("HEAD")) return "head";
+  if (trimmed.startsWith("tag:")) return "tag";
+  return "branch";
+}

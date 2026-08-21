@@ -493,6 +493,78 @@
   margin-top: 8px;
 }
 
+/* 历史页：列表 / 图谱切换与图谱渲染 */
+.git-history-view-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.git-history-view-toggle button {
+  padding: 3px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink-muted);
+  font-size: 10px;
+}
+.git-history-view-toggle button:hover:not(.selected) { border-color: var(--accent); color: var(--accent-deep); }
+.git-history-view-toggle button.selected { border-color: var(--accent); color: var(--accent-deep); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+.git-graph-list {
+  min-height: 0;
+  overflow: auto;
+}
+.git-graph-row {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.git-graph-row:hover { background: var(--surface-soft); }
+.git-graph-row.selected { background: color-mix(in srgb, var(--accent) 12%, var(--surface-soft)); }
+.git-graph-prefix {
+  flex: 0 0 auto;
+  white-space: pre;
+  color: var(--ink-faint);
+}
+.git-graph-hash {
+  flex: 0 0 auto;
+  color: var(--accent-deep);
+  font-weight: 700;
+}
+.git-graph-ref {
+  flex: 0 0 auto;
+  max-width: 160px;
+  overflow: hidden;
+  padding: 1px 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 9px;
+  text-overflow: ellipsis;
+}
+.git-ref-head { color: var(--accent-deep); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.git-ref-tag { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 45%, var(--line)); }
+.git-ref-branch { color: var(--ink-muted); }
+.git-graph-subject {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* —— 分支标签页 —— */
 .git-branch-row { padding: 4px 0; }
 .git-branch-row.current .git-branch-name { color: var(--accent-deep); font-weight: 600; }

@@ -5,9 +5,12 @@ import {
   canUnstageFile,
   diffLineKind,
   formatRelativeTime,
+  GIT_GRAPH_LANE_COLORS,
   gitFileLabel,
   gitFileMark,
   gitFileState,
+  gitGraphLaneColor,
+  gitRefKind,
   groupGitBranches,
   groupGitFiles,
 } from "./git-model.ts";
@@ -110,4 +113,20 @@ test("splits branches into local and remote groups", () => {
   const grouped = groupGitBranches([remote, local, feature]);
   assert.deepEqual(grouped.local, [local, feature]);
   assert.deepEqual(grouped.remote, [remote]);
+});
+
+test("cycles graph lane colors by column and stays stable", () => {
+  assert.equal(gitGraphLaneColor(0), GIT_GRAPH_LANE_COLORS[0]);
+  assert.equal(gitGraphLaneColor(1), GIT_GRAPH_LANE_COLORS[1]);
+  assert.equal(gitGraphLaneColor(GIT_GRAPH_LANE_COLORS.length), GIT_GRAPH_LANE_COLORS[0]);
+  assert.equal(gitGraphLaneColor(-1), GIT_GRAPH_LANE_COLORS[GIT_GRAPH_LANE_COLORS.length - 1]);
+});
+
+test("classifies git ref decorations", () => {
+  assert.equal(gitRefKind("HEAD -> master"), "head");
+  assert.equal(gitRefKind("HEAD"), "head");
+  assert.equal(gitRefKind("tag: v1.0"), "tag");
+  assert.equal(gitRefKind("origin/main"), "branch");
+  assert.equal(gitRefKind("master"), "branch");
+  assert.equal(gitRefKind("feature/foo"), "branch");
 });

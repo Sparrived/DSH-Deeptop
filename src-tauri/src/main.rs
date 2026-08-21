@@ -4053,6 +4053,77 @@ fn git_log(dir: String, limit: u32) -> Result<Vec<WorkspaceGitCommit>, String> {
     Ok(commits)
 }
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceGitGraphLine {
+    graph: String,
+    hash: String,
+    short_hash: String,
+    timestamp: i64,
+    refs: Vec<String>,
+    subject: String,
+}
+
+/// 读取带图谱前缀的提交行（git log --graph --all），供历史页渲染提交树。
+/// 每一行按 \x1f 分隔字段，头部为“图列前缀 + 完整哈希”，行与行按 \x1e 分隔。
+#[tauri::command]
+fn git_graph(dir: String, limit: u32) -> Result<Vec<WorkspaceGitGraphLine>, String> {
+    let limit = limit.clamp(1, 200);
+    let root = git_repository_root(Path::new(&dir))?;
+    let format = "%H\x1f%h\x1f%at\x1f%D\x1f%s\x1e";
+    let output = git_raw_output(
+        &root,
+        &[
+            "--no-pager",
+            "log",
+            "--graph",
+            "--no-color",
+            "--all",
+            &format!("-n{limit}"),
+            &format!("--format={format}"),
+        ],
+    )?;
+    if !output.ok {
+        let text = format!("{}\n{}", output.stdout, output.stderr);
+        if text.contains("does not have any commits") {
+            return Ok(Vec::new());
+        }
+        return Err(text.trim().to_string());
+    }
+    let mut lines = Vec::new();
+    for record in output.stdout.split('\x1e') {
+        let fields: Vec<&str> = record.split('\x1f').collect();
+        if fields.len() < 5 {
+            continue;
+        }
+        // 图列前缀只含制表符/空格等非十六进制字符，完整哈希从首个十六进制位开始。
+        let head = fields[0];
+        let hash_start = head
+            .char_indices()
+            .find(|(_, ch)| ch.is_ascii_hexdigit())
+            .map(|(index, _)| index)
+            .unwrap_or(head.len());
+        let graph = head[..hash_start].trim_end().to_string();
+        let hash = head[hash_start..].trim().to_string();
+        if hash.len() != 40 {
+            continue;
+        }
+        lines.push(WorkspaceGitGraphLine {
+            graph,
+            hash,
+            short_hash: fields[1].to_string(),
+            timestamp: fields[2].parse::<i64>().unwrap_or(0),
+            refs: fields[3]
+                .split(',')
+                .map(|item| item.trim().to_string())
+                .filter(|item| !item.is_empty())
+                .collect(),
+            subject: fields[4].to_string(),
+        });
+    }
+    Ok(lines)
+}
+
 fn validate_git_oid(value: &str) -> Result<&str, String> {
     let value = value.trim();
     if value.is_empty() || value.len() > 40 || !value.chars().all(|c| c.is_ascii_alphanumeric()) {
@@ -5187,6 +5258,7 @@ fn main() {
             git_unstage_all,
             git_commit,
             git_log,
+            git_graph,
             git_commit_detail,
             git_branches,
             git_checkout_branch,

@@ -885,6 +885,15 @@ export interface WorkspaceGitCommit {
   subject: string;
 }
 
+export interface WorkspaceGitGraphLine {
+  graph: string;
+  hash: string;
+  shortHash: string;
+  timestamp: number;
+  refs: string[];
+  subject: string;
+}
+
 export interface WorkspaceGitFileStat {
   path: string;
   additions: number;
@@ -1032,6 +1041,13 @@ export async function listGitLog(dir: string, limit = 50): Promise<WorkspaceGitC
   if (!isTauri()) return [];
   const result = await invoke<unknown>("git_log", { dir, limit });
   return Array.isArray(result) ? (result as WorkspaceGitCommit[]) : [];
+}
+
+/** List commit tree lines (graph prefix + hash + refs) across all branches. */
+export async function listGitGraph(dir: string, limit = 100): Promise<WorkspaceGitGraphLine[]> {
+  if (!isTauri()) return [];
+  const result = await invoke<unknown>("git_graph", { dir, limit });
+  return Array.isArray(result) ? (result as WorkspaceGitGraphLine[]) : [];
 }
 
 /** Read a single commit's message and per-file change stats. */
