@@ -65,8 +65,17 @@ sourceGit(["fetch", "--depth=1", "origin", "tag", publicTag]);
 sourceGit(["checkout", "--detach", publicBase]);
 if (sourceGit(["status", "--porcelain"])) throw new Error("公开 RC8 基线工作区不干净");
 
-execFileSync("git", ["-C", sourceRoot, "apply", "--check", patchPath], { cwd: root, stdio: "inherit" });
-execFileSync("git", ["-C", sourceRoot, "apply", patchPath], { cwd: root, stdio: "inherit" });
+// The repository patch itself can be checked out as CRLF by Git for Windows.
+// Normalize only the temporary patch input; preserve its intentional trailing
+// whitespace and keep the reviewed patch file untouched.
+const normalizedPatchPath = path.join(root, `.dsh-rc8-fork-${process.pid}.patch`);
+fs.writeFileSync(normalizedPatchPath, fs.readFileSync(patchPath, "utf8").replace(/\r\n/gu, "\n"));
+try {
+  execFileSync("git", ["-C", sourceRoot, "apply", "--check", normalizedPatchPath], { cwd: root, stdio: "inherit" });
+  execFileSync("git", ["-C", sourceRoot, "apply", normalizedPatchPath], { cwd: root, stdio: "inherit" });
+} finally {
+  fs.rmSync(normalizedPatchPath, { force: true });
+}
 sourceGit(["add", "--all"]);
 const tree = sourceGit(["write-tree"]);
 const commit = git(["-C", sourceRoot, "commit-tree", tree, "-p", publicBase], {
