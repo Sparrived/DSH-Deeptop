@@ -6,6 +6,7 @@ import {
   setDockPosition,
 } from "../lib/desktop";
 import { useDockSettings } from "../app/dock-settings";
+import { FLOATING_CONTEXT_MENU_SELECTOR, isWithinSelector } from "../app/context-menu";
 
 type DockPosition = {
   x: number;
@@ -155,6 +156,9 @@ export function DockFrame({
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
+      // 右键菜单等浮动弹层通过 createPortal 渲染到 document.body，物理上位于 Dock 框之外，
+      // 但属于 Dock 内容交互的上下文，不应计为“外部区域”触发自动收起。
+      if (isWithinSelector(target, FLOATING_CONTEXT_MENU_SELECTOR)) return;
       if (target instanceof Node && !frameRef.current?.contains(target)) {
         onToggle();
       }
