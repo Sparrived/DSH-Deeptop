@@ -29,10 +29,9 @@ const OPTIONAL_RUNTIME_PACKAGES = [
   ["@deepseek-ai/dsh-timeout", "packages/util/timeout", false],
   ["@deepseek-ai/dsh-experimental-agent-team", "packages/experimental/agent-team", true],
   ["@deepseek-ai/dsh-experimental-tool-agent-team", "packages/experimental/tool-agent-team", false],
-].map(([name, relativePath, defaultExport]) => ({
+].map(([name, relativePath]) => ({
   name,
   sourcePath: path.join(sourceRoot, relativePath),
-  defaultExport,
 }));
 const DESKTOP_PRESET_SOURCE_ROOT = path.join(root, "deeptop-bridge", "presets");
 const DESKTOP_PRESETS = ["desktop-persistent-pwsh", "desktop-agent-teams"];
@@ -185,6 +184,9 @@ function ensureRuntimePackageEntry(packageRoot, packageName) {
     }
   }
   fs.writeFileSync(packageManifestPath, JSON.stringify(packageManifest, null, 2) + "\n");
+  if (fs.existsSync(path.join(packageRoot, "lib", "types"))) {
+    fs.writeFileSync(path.join(packageRoot, "lib", "package.json"), JSON.stringify(packageManifest, null, 2) + "\n");
+  }
 }
 
 function copyWorkspacePackages(workspaceRoot) {
@@ -214,7 +216,12 @@ function copyWorkspacePackages(workspaceRoot) {
     const targetMain = main ? path.join(targetRoot, main) : undefined;
     const targetNeedsPackage = !fs.existsSync(targetManifest) || (main !== "" && !fs.existsSync(targetMain));
     if (!main) continue;
-    if (!targetNeedsPackage) continue;
+    if (!targetNeedsPackage) {
+      if (fs.existsSync(path.join(targetRoot, "lib", "types"))) {
+        ensureRuntimePackageEntry(targetRoot, packageManifest.name);
+      }
+      continue;
+    }
     if (!fs.existsSync(sourceMain) && !fs.existsSync(sourceGeneratedEntry)) continue;
     copyRuntimePackage(packageSource, packageManifest.name);
     ensureRuntimePackageEntry(targetRoot, packageManifest.name);
