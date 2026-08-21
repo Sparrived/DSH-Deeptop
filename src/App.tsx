@@ -2548,7 +2548,11 @@ function AppContent() {
   }
 
   async function executeCommandLine(sessionId: string, line: string) {
-    const execution = await desktopClientRuntime.remote.invoke<DshCommandExecution | undefined>("commands", "execute", { agentId: sessionId, line });
+    const execution = await desktopClientRuntime.remote.invoke<DshCommandExecution | undefined>("commands", "execute", {
+      agentId: sessionId,
+      line,
+      images: [],
+    });
     if (!execution) {
       setErrorNotice(`未知命令：${line}`);
       return undefined;

@@ -358,29 +358,69 @@ if (!fs.existsSync(sourceNodeModules) || !buildToolsReady) {
   run(corepack, ["pnpm", "install", "--frozen-lockfile"], sourceRoot, { CI: "true" });
 }
 
-const cliEntry = path.join(sourceRoot, "apps", "cli", "lib", "bin.js");
-if (!fs.existsSync(cliEntry) || force) {
-  run(process.execPath, [path.join(sourceRoot, "node_modules", "typescript", "bin", "tsc"), "-b", "tsconfig.host.json"], sourceRoot);
-  // Experimental Agent Teams is intentionally outside the official Host
-  // aggregate. Build its package artifacts explicitly so an opt-in desktop
-  // Profile can use the official service without changing vendor sources.
-  run(process.execPath, [
-    path.join(sourceRoot, "node_modules", "typescript", "bin", "tsc"),
-    "-b",
-    "packages/experimental/agent-team/tsconfig.json",
-    "packages/experimental/tool-agent-team/tsconfig.json",
-  ], sourceRoot);
-  // RC8 keeps the private repository root in the tsdown workspace, but it has no
-  // emitted lib/types entry. Build the published CLI workspace only; tsc has
-  // already emitted the host artifacts for its workspace dependencies.
-  run(process.execPath, [
-    path.join(sourceRoot, "node_modules", "tsdown", "dist", "run.mjs"),
-    "--env.DSH_BUILD_FACE",
-    "host",
-    "--filter",
-    "@deepseek-ai/dsh",
-  ], sourceRoot);
+/** Names of every workspace package with a tsdown Host entry, except the private root. */
+function workspaceHostPackageNames() {
+  const names = [];
+  function visit(directory) {
+    for (const item of fs.readdirSync(directory, { withFileTypes: true })) {
+      if (item.name === "node_modules" || item.name === ".git" || item.name === ".cache") continue;
+      const itemPath = path.join(directory, item.name);
+      if (item.isDirectory()) visit(itemPath);
+      else if (item.name === "package.json") {
+        const manifest = readJson(itemPath);
+        if (typeof manifest.name !== "string" || !manifest.name.startsWith("@deepseek-ai/")) continue;
+        if (manifest.name === "@deepseek-ai/dsh-root") continue;
+        const packageRoot = path.dirname(itemPath);
+        if (["index", "invariant", "startup"].some((entry) =>
+          fs.existsSync(path.join(packageRoot, "lib", "types", `${entry}.js`)),
+        )) names.push(manifest.name);
+      }
+    }
+  }
+  visit(sourceRoot);
+  return names;
 }
+
+const cliEntry = path.join(sourceRoot, "apps", "cli", "lib", "bin.js");
+// Host artifacts are rebuilt unconditionally: tsc emits lib/types and tsdown
+// emits the executable lib/*.js the runtime ships (regenerating the
+// typert.host.js wire descriptors from the same sources). A stale Host bundle
+// would desynchronize from those descriptors — commands/execute gained an
+// `images` parameter while its old lib/index.js kept the 3-argument shape,
+// silently shifting the AbortSignal argument and failing every /goal call with
+// "signal.addEventListener is not a function".
+run(process.execPath, [path.join(sourceRoot, "node_modules", "typescript", "bin", "tsc"), "-b", "tsconfig.host.json"], sourceRoot);
+// Experimental Agent Teams is intentionally outside the official Host
+// aggregate. Build its package artifacts explicitly so an opt-in desktop
+// Profile can use the official service without changing vendor sources.
+run(process.execPath, [
+  path.join(sourceRoot, "node_modules", "typescript", "bin", "tsc"),
+  "-b",
+  "packages/experimental/agent-team/tsconfig.json",
+  "packages/experimental/tool-agent-team/tsconfig.json",
+], sourceRoot);
+// RC8 keeps the private repository root in the tsdown workspace, but it has no
+// emitted lib/types entry. Build the published CLI workspace only; tsc has
+// already emitted the host artifacts for its workspace dependencies.
+run(process.execPath, [
+  path.join(sourceRoot, "node_modules", "tsdown", "dist", "run.mjs"),
+  "--env.DSH_BUILD_FACE",
+  "host",
+  "--filter",
+  "@deepseek-ai/dsh",
+], sourceRoot);
+// Rebuild every other workspace Host entry as well, so the packaged runtime
+// never ships lib/index.js older than its regenerated typert descriptors.
+// `--logLevel error` keeps the 200-package build quiet; failures still fail
+// the sync loudly.
+run(process.execPath, [
+  path.join(sourceRoot, "node_modules", "tsdown", "dist", "run.mjs"),
+  "--env.DSH_BUILD_FACE",
+  "host",
+  "--logLevel",
+  "error",
+  ...workspaceHostPackageNames().flatMap((name) => ["--filter", name]),
+], sourceRoot);
 if (!fs.existsSync(cliEntry)) {
   throw new Error(`DSH 源码构建完成但没有找到 CLI 入口：${cliEntry}`);
 }
