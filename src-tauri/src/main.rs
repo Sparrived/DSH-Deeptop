@@ -4064,25 +4064,39 @@ struct WorkspaceGitGraphLine {
     subject: String,
 }
 
-/// 读取带图谱前缀的提交行（git log --graph --all），供历史页渲染提交树。
+/// 读取带图谱前缀的提交行（git log --graph），供历史页渲染提交树。
+/// `rev` 为 None 时覆盖全部分支（--all），否则只看该引用/分支；
+/// `simplify` 为 true 时只保留带头部（引用指向）的提交。
 /// 每一行按 \x1f 分隔字段，头部为“图列前缀 + 完整哈希”，行与行按 \x1e 分隔。
 #[tauri::command]
-fn git_graph(dir: String, limit: u32) -> Result<Vec<WorkspaceGitGraphLine>, String> {
+fn git_graph(
+    dir: String,
+    limit: u32,
+    rev: Option<String>,
+    simplify: bool,
+) -> Result<Vec<WorkspaceGitGraphLine>, String> {
     let limit = limit.clamp(1, 200);
     let root = git_repository_root(Path::new(&dir))?;
+    let rev: Option<String> = match rev {
+        Some(rev) => Some(validate_git_ref(&rev)?.to_string()),
+        None => None,
+    };
     let format = "%H\x1f%h\x1f%at\x1f%D\x1f%s\x1e";
-    let output = git_raw_output(
-        &root,
-        &[
-            "--no-pager",
-            "log",
-            "--graph",
-            "--no-color",
-            "--all",
-            &format!("-n{limit}"),
-            &format!("--format={format}"),
-        ],
-    )?;
+    let mut args: Vec<&str> = vec!["--no-pager", "log", "--graph", "--no-color"];
+    if simplify {
+        args.push("--simplify-by-decoration");
+    }
+    let rev = rev.as_deref();
+    let n_arg = format!("-n{limit}");
+    let format_arg = format!("--format={format}");
+    args.push(&n_arg);
+    args.push(&format_arg);
+    if let Some(rev) = rev {
+        args.push(rev);
+    } else {
+        args.push("--all");
+    }
+    let output = git_raw_output(&root, &args)?;
     if !output.ok {
         let text = format!("{}\n{}", output.stdout, output.stderr);
         if text.contains("does not have any commits") {
@@ -4122,6 +4136,24 @@ fn git_graph(dir: String, limit: u32) -> Result<Vec<WorkspaceGitGraphLine>, Stri
         });
     }
     Ok(lines)
+}
+
+/// 校验一个引用/分支名（分支过滤参数），只允许 git 引用名的常见字符。
+fn validate_git_ref(value: &str) -> Result<&str, String> {
+    let value = value.trim();
+    if value.is_empty()
+        || value.starts_with('-')
+        || value.contains("..")
+        || value.contains("//")
+        || value.contains(' ')
+        || value.contains('\0')
+        || !value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '_' | '-' | '.'))
+    {
+        return Err("无效的引用名称".into());
+    }
+    Ok(value)
 }
 
 fn validate_git_oid(value: &str) -> Result<&str, String> {
@@ -4193,6 +4225,33 @@ fn git_commit_detail(dir: String, hash: String) -> Result<WorkspaceGitCommitDeta
         body: parts[5].to_string(),
         files,
     })
+}
+
+/// 读取某个提交中单个文件的差异（git show <commit> -- <path>），超大差异截断。
+#[tauri::command]
+fn git_commit_file_diff(dir: String, hash: String, path: String) -> Result<String, String> {
+    let hash = validate_git_oid(&hash)?;
+    validate_git_paths(&[path.clone()])?;
+    let root = git_repository_root(Path::new(&dir))?;
+    let output = git_raw_output(
+        &root,
+        &[
+            "--no-pager",
+            "show",
+            "--no-color",
+            "--format=",
+            hash,
+            "--",
+            &path,
+        ],
+    )?;
+    let mut text = output.stdout;
+    const MAX_COMMIT_DIFF_BYTES: usize = 512 * 1024;
+    if text.len() > MAX_COMMIT_DIFF_BYTES {
+        text.truncate(MAX_COMMIT_DIFF_BYTES);
+        text.push_str("\n…差异过大，已截断\n");
+    }
+    Ok(text)
 }
 
 /// 列出本地与远程分支，当前分支优先。
@@ -5260,6 +5319,7 @@ fn main() {
             git_log,
             git_graph,
             git_commit_detail,
+            git_commit_file_diff,
             git_branches,
             git_checkout_branch,
             git_create_branch,

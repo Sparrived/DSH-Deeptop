@@ -468,12 +468,20 @@
   overflow: hidden;
 }
 .git-commit-file-row {
+  width: 100%;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 5px 8px;
+  border: 0;
+  border-radius: 0;
   background: var(--surface);
+  color: var(--ink);
+  text-align: left;
 }
+.git-commit-file-row:hover { background: var(--surface-soft); }
+.git-commit-file-row.active { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
 .git-commit-file-row + .git-commit-file-row { border-top: 1px solid var(--line); }
 .git-commit-file-path {
   min-width: 0;
@@ -491,6 +499,51 @@
   display: flex;
   gap: 6px;
   margin-top: 8px;
+}
+
+/* 图谱：分支过滤与头部筛选选项 */
+.git-graph-options {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.git-graph-options select {
+  min-width: 0;
+  flex: 1 1 auto;
+  max-width: 46%;
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.git-graph-options select:disabled { cursor: default; opacity: .5; }
+.git-graph-simplify {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.git-graph-simplify input { accent-color: var(--accent); }
+
+/* 提交详情内单个文件的差异 */
+.git-commit-diff {
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+.git-commit-diff .git-diff-header {
+  background: var(--surface-soft);
+  border-bottom-color: var(--line);
 }
 
 /* 历史页：列表 / 图谱切换与图谱渲染 */

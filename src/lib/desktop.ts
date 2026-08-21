@@ -1043,11 +1043,23 @@ export async function listGitLog(dir: string, limit = 50): Promise<WorkspaceGitC
   return Array.isArray(result) ? (result as WorkspaceGitCommit[]) : [];
 }
 
-/** List commit tree lines (graph prefix + hash + refs) across all branches. */
-export async function listGitGraph(dir: string, limit = 100): Promise<WorkspaceGitGraphLine[]> {
+/** List commit tree lines (graph prefix + hash + refs). `rev` filters to one
+ * branch/ref (null = all branches); `simplify` keeps only decorated commits. */
+export async function listGitGraph(
+  dir: string,
+  limit = 100,
+  rev: string | null = null,
+  simplify = false,
+): Promise<WorkspaceGitGraphLine[]> {
   if (!isTauri()) return [];
-  const result = await invoke<unknown>("git_graph", { dir, limit });
+  const result = await invoke<unknown>("git_graph", { dir, limit, rev, simplify });
   return Array.isArray(result) ? (result as WorkspaceGitGraphLine[]) : [];
+}
+
+/** Read the unified diff of a single file inside a specific commit. */
+export async function getGitCommitFileDiff(dir: string, hash: string, path: string): Promise<string> {
+  if (!isTauri()) return "";
+  return invoke<string>("git_commit_file_diff", { dir, hash, path });
 }
 
 /** Read a single commit's message and per-file change stats. */

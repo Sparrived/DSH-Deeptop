@@ -6,6 +6,7 @@ import {
   deleteGitBranch,
   discardGitPaths,
   getGitCommitDetail,
+  getGitCommitFileDiff,
   getGitFileDiff,
   getWorkspaceGitStatus,
   listGitBranches,
@@ -117,6 +118,15 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
   const [historyView, setHistoryView] = useState<"list" | "graph">("list");
   const [graph, setGraph] = useState<WorkspaceGitGraphLine[] | null>(null);
   const [graphLoading, setGraphLoading] = useState(false);
+  const [graphRev, setGraphRev] = useState<string | null>(null);
+  const [graphSimplify, setGraphSimplify] = useState(false);
+  const [commitDiffPath, setCommitDiffPath] = useState<string | null>(null);
+  const [commitDiffText, setCommitDiffText] = useState<string | null>(null);
+  const [commitDiffLoading, setCommitDiffLoading] = useState(false);
+  const [commitDiffError, setCommitDiffError] = useState<string | null>(null);
+  const graphRevRef = useRef<string | null>(null);
+  const graphSimplifyRef = useRef(false);
+  const commitDiffRequestRef = useRef(0);
   const diffRequestRef = useRef(0);
   const detailRequestRef = useRef(0);
 
@@ -182,7 +192,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
     }
     setGraphLoading(true);
     try {
-      setGraph(await listGitGraph(workspace));
+      setGraph(await listGitGraph(workspace, 100, graphRevRef.current, graphSimplifyRef.current));
     } catch (error) {
       setGraph(null);
       onError(`读取提交图谱失败：${errorText(error)}`);
@@ -259,6 +269,53 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
   useEffect(() => {
     if (tab === "history" && historyView === "graph" && graph === null) void reloadGraph();
   }, [tab, historyView, graph, reloadGraph]);
+
+  // 图谱分支过滤需要分支列表；进入图谱视图时若尚未加载则补齐。
+  useEffect(() => {
+    if (tab === "history" && historyView === "graph" && branches === null) void reloadBranches();
+  }, [tab, historyView, branches, reloadBranches]);
+
+  function changeGraphRev(rev: string) {
+    const next = rev || null;
+    graphRevRef.current = next;
+    setGraphRev(next);
+    void reloadGraph();
+  }
+
+  function toggleGraphSimplify(enabled: boolean) {
+    graphSimplifyRef.current = enabled;
+    setGraphSimplify(enabled);
+    void reloadGraph();
+  }
+
+  // 读取已选提交里指定文件的差异。
+  useEffect(() => {
+    if (!commitDiffPath || !commitDetail) {
+      setCommitDiffText(null);
+      setCommitDiffError(null);
+      return;
+    }
+    const request = ++commitDiffRequestRef.current;
+    setCommitDiffLoading(true);
+    setCommitDiffError(null);
+    let active = true;
+    void getGitCommitFileDiff(workspace, commitDetail.hash, commitDiffPath)
+      .then((text) => {
+        if (!active || request !== commitDiffRequestRef.current) return;
+        setCommitDiffText(text);
+      })
+      .catch((error) => {
+        if (!active || request !== commitDiffRequestRef.current) return;
+        setCommitDiffText(null);
+        setCommitDiffError(errorText(error));
+      })
+      .finally(() => {
+        if (active && request === commitDiffRequestRef.current) setCommitDiffLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [commitDiffPath, commitDetail, workspace]);
 
   async function runMutation(action: () => Promise<void>, reason: string) {
     setBusy(true);
@@ -396,6 +453,9 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
     if (commitDetail?.hash === hash) return;
     setCommitDetail(null);
     setCommitDetailLoading(true);
+    setCommitDiffPath(null);
+    setCommitDiffText(null);
+    setCommitDiffError(null);
     const request = ++detailRequestRef.current;
     void getGitCommitDetail(workspace, hash)
       .then((detail) => {
@@ -637,7 +697,20 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
                 <button type="button" className={historyView === "graph" ? "selected" : ""} onClick={() => setHistoryView("graph")}>图谱</button>
               </div>
               {historyView === "graph" ? (
-                graphLoading && graph === null ? (
+                <>
+                  <div className="git-graph-options">
+                    <select value={graphRev ?? ""} onChange={(event) => changeGraphRev(event.target.value)} disabled={busy} aria-label="过滤分支">
+                      <option value="">全部分支</option>
+                      {(branches ?? []).map((branch) => (
+                        <option key={branch.name} value={branch.name}>{branch.name}</option>
+                      ))}
+                    </select>
+                    <label className="git-graph-simplify" title="只显示有分支/标签指向的提交">
+                      <input type="checkbox" checked={graphSimplify} onChange={(event) => toggleGraphSimplify(event.target.checked)} disabled={busy} />
+                      <span>仅带头部提交</span>
+                    </label>
+                  </div>
+                  {graphLoading && graph === null ? (
                   <div className="git-empty">加载提交图谱…</div>
                 ) : !graph || graph.length === 0 ? (
                   <div className="git-empty">暂无提交记录</div>
@@ -664,7 +737,8 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
                       </button>
                     ))}
                   </div>
-                )
+                  )}
+                </>
               ) : commitsLoading && commits === null ? (
                 <div className="git-empty">加载提交历史…</div>
               ) : !commits || commits.length === 0 ? (
@@ -694,7 +768,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
                   <div className="git-commit-detail-header">
                     <span className="git-commit-short">{commitDetail.hash.slice(0, 7)}</span>
                     <span className="git-commit-subject">{commitDetail.subject}</span>
-                    <button type="button" className="git-diff-close" aria-label="关闭提交详情" onClick={() => setCommitDetail(null)}>×</button>
+                    <button type="button" className="git-diff-close" aria-label="关闭提交详情" onClick={() => { setCommitDetail(null); setCommitDiffPath(null); }}>×</button>
                   </div>
                   <div className="git-commit-detail-meta">
                     <span>{commitDetail.author}</span>
@@ -704,15 +778,42 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
                   {commitDetail.body && <pre className="git-commit-detail-body">{commitDetail.body}</pre>}
                   <div className="git-commit-detail-files">
                     {commitDetail.files.map((file) => (
-                      <div key={file.path} className="git-commit-file-row">
+                      <button
+                        key={file.path}
+                        type="button"
+                        className={`git-commit-file-row ${commitDiffPath === file.path ? "active" : ""}`}
+                        onClick={() => setCommitDiffPath((current) => (current === file.path ? null : file.path))}
+                        title={`查看 ${file.path} 的差异`}
+                      >
                         <span className="git-commit-file-path" title={file.path}>{file.path}</span>
                         <span className="git-commit-file-stats">
                           {file.additions > 0 && <span className="git-stat-add">+{file.additions}</span>}
                           {file.deletions > 0 && <span className="git-stat-del">−{file.deletions}</span>}
                         </span>
-                      </div>
+                      </button>
                     ))}
                   </div>
+                  {commitDiffPath && (
+                    <div className="git-commit-diff">
+                      <div className="git-diff-header">
+                        <span className="git-diff-path" title={commitDiffPath}>{commitDiffPath}</span>
+                        <button type="button" className="git-diff-close" aria-label="关闭文件差异" onClick={() => setCommitDiffPath(null)}>×</button>
+                      </div>
+                      {commitDiffLoading ? (
+                        <div className="git-diff-empty">加载差异…</div>
+                      ) : commitDiffError ? (
+                        <div className="git-diff-empty">{commitDiffError}</div>
+                      ) : commitDiffText && commitDiffText.trim() ? (
+                        <div className="git-diff-body">
+                          {commitDiffText.split("\n").map((line, index) => (
+                            <div key={index} className={`git-diff-line git-diff-line-${diffLineKind(line)}`}>{line || "\u00a0"}</div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="git-diff-empty">该文件没有可显示的差异</div>
+                      )}
+                    </div>
+                  )}
                   <div className="git-commit-detail-actions">
                     <button type="button" disabled={copyingHash === commitDetail.hash} onClick={() => void handleCopyHash(commitDetail.hash)}>
                       {copyingHash === commitDetail.hash ? "已复制" : "复制哈希"}
