@@ -3862,7 +3862,7 @@ fn parse_porcelain_paths(bytes: &[u8]) -> Vec<(bool, String)> {
 /// 读取某个文件的工作区/暂存区统一差异；超大 diff 会被截断以保护前台负载。
 #[tauri::command]
 fn git_file_diff(dir: String, path: String, staged: bool) -> Result<String, String> {
-    validate_git_paths(&[path.clone()])?;
+    validate_git_paths(std::slice::from_ref(&path))?;
     let root = git_repository_root(Path::new(&dir))?;
     let mut args: Vec<&str> = vec!["--no-pager", "diff", "--no-color"];
     if staged {
@@ -4231,7 +4231,7 @@ fn git_commit_detail(dir: String, hash: String) -> Result<WorkspaceGitCommitDeta
 #[tauri::command]
 fn git_commit_file_diff(dir: String, hash: String, path: String) -> Result<String, String> {
     let hash = validate_git_oid(&hash)?;
-    validate_git_paths(&[path.clone()])?;
+    validate_git_paths(std::slice::from_ref(&path))?;
     let root = git_repository_root(Path::new(&dir))?;
     let output = git_raw_output(
         &root,
