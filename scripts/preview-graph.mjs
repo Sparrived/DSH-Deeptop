@@ -57,11 +57,10 @@ for (const edge of layout.edges) {
   const xt = laneX(edge.toLane), yt = nodeY(edge.toRow);
   const color = laneColor(edge.colorLane);
   const cornerR = 7;
-  const k = cornerR + 0.7;
   const joinY = 5;
   const elbowY = Math.max(ys + cornerR + 2, yt - cornerR - joinY);
   const dir = xt >= xs ? 1 : -1;
-  const path = `M ${xs} ${ys} L ${xs} ${elbowY - cornerR} Q ${xs + dir * k} ${elbowY + k} ${xs + dir * cornerR} ${elbowY} L ${xt - dir * cornerR} ${elbowY} Q ${xt - dir * k} ${elbowY - k} ${xt} ${elbowY + cornerR} L ${xt} ${yt}`;
+  const path = `M ${xs} ${ys} L ${xs} ${elbowY - cornerR} A ${cornerR} ${cornerR} 0 0 ${dir === 1 ? 1 : 0} ${xs + dir * cornerR} ${elbowY} L ${xt - dir * cornerR} ${elbowY} A ${cornerR} ${cornerR} 0 0 ${dir === 1 ? 0 : 1} ${xt} ${elbowY + cornerR} L ${xt} ${yt}`;
   svg.push(`<path d="${path}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round"/>`);
 }
 for (const c of layout.commits) {
