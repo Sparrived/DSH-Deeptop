@@ -36,12 +36,6 @@ const OPTIONAL_RUNTIME_PACKAGES = [
 }));
 const DESKTOP_PRESET_SOURCE_ROOT = path.join(root, "deeptop-bridge", "presets");
 const DESKTOP_PRESETS = ["desktop-persistent-pwsh", "desktop-agent-teams"];
-const GENERATED_HOST_ENTRY_PACKAGES = new Set([
-  "@deepseek-ai/cordis",
-  "@deepseek-ai/cosmokit",
-  "@deepseek-ai/dsh-typert-protocol",
-  "@deepseek-ai/schemastery",
-]);
 const force = process.argv.includes("--force");
 
 function run(command, args, cwd, extraEnv = {}) {
@@ -167,6 +161,32 @@ function copyRuntimePackage(packageSource, packageName) {
   });
 }
 
+function ensureRuntimePackageEntry(packageRoot, packageName) {
+  const packageManifestPath = path.join(packageRoot, "package.json");
+  const packageManifest = readJson(packageManifestPath);
+  const hostEntry = path.join(packageRoot, "lib", "index.js");
+  if (!fs.existsSync(hostEntry)) {
+    const generatedEntry = path.join(packageRoot, "lib", "types", "index.js");
+    if (!fs.existsSync(generatedEntry)) {
+      throw new Error("内嵌运行时缺少 " + packageName + " 的可执行 Host 入口");
+    }
+    const generated = fs.readFileSync(generatedEntry, "utf8");
+    const hasDefaultExport = /export\s+(?:default\b|\{[^}]*\bdefault\b)/u.test(generated);
+    const exports = hasDefaultExport
+      ? 'export * from "./types/index.js";\nexport { default } from "./types/index.js";\n'
+      : 'export * from "./types/index.js";\n';
+    fs.writeFileSync(hostEntry, exports);
+  }
+  packageManifest.main = "lib/index.js";
+  const rootExport = packageManifest.exports?.["."];
+  if (rootExport && typeof rootExport === "object" && !Array.isArray(rootExport)) {
+    for (const key of ["default", "import", "require"]) {
+      if (key in rootExport) rootExport[key] = "./lib/index.js";
+    }
+  }
+  fs.writeFileSync(packageManifestPath, JSON.stringify(packageManifest, null, 2) + "\n");
+}
+
 function copyWorkspacePackages(workspaceRoot) {
   const manifests = [];
   function visit(directory) {
@@ -186,42 +206,29 @@ function copyWorkspacePackages(workspaceRoot) {
     if (typeof packageManifest.name !== "string" || !packageManifest.name.startsWith("@deepseek-ai/")) continue;
     if (packageManifest.name === "@deepseek-ai/dsh") continue;
     const main = typeof packageManifest.main === "string" ? packageManifest.main : "";
-    const sourceRoot = path.dirname(manifestPath);
-    const sourceMain = main ? path.join(sourceRoot, main) : undefined;
+    const packageSource = path.dirname(manifestPath);
+    const sourceMain = main ? path.join(packageSource, main) : undefined;
+    const sourceGeneratedEntry = path.join(packageSource, "lib", "types", "index.js");
     const targetRoot = packagePathForName(packageManifest.name);
     const targetManifest = path.join(targetRoot, "package.json");
     const targetMain = main ? path.join(targetRoot, main) : undefined;
-
-    // pnpm deploy already contains the correct host artifact for packages that
-    // are part of the CLI production closure. Do not overwrite it with the
-    // source tree's client-only lib/types output (clientBundle packages such as
-    // Typert registry intentionally do not emit lib/index.js in the source
-    // workspace). Copy only a built source package that deploy omitted, or when
-    // the existing deployed package is incomplete.
-    if (main && !fs.existsSync(sourceMain) && !GENERATED_HOST_ENTRY_PACKAGES.has(packageManifest.name)) continue;
-    if (fs.existsSync(targetManifest) && (!main || fs.existsSync(targetMain))) continue;
-    copyRuntimePackage(sourceRoot, packageManifest.name);
+    const targetNeedsPackage = !fs.existsSync(targetManifest) || (main !== "" && !fs.existsSync(targetMain));
+    if (!main) continue;
+    if (!targetNeedsPackage) continue;
+    if (!fs.existsSync(sourceMain) && !fs.existsSync(sourceGeneratedEntry)) continue;
+    copyRuntimePackage(packageSource, packageManifest.name);
+    ensureRuntimePackageEntry(targetRoot, packageManifest.name);
   }
 }
-
 function copyOptionalRuntimePackages() {
   for (const optional of OPTIONAL_RUNTIME_PACKAGES) {
     const sourceManifestPath = path.join(optional.sourcePath, "package.json");
     if (!fs.existsSync(sourceManifestPath)) throw new Error(`缺少可选运行时包清单：${sourceManifestPath}`);
-    const sourceManifest = readJson(sourceManifestPath);
     const sourceEntry = path.join(optional.sourcePath, "lib", "types", "index.js");
-    if (!fs.existsSync(sourceEntry)) {
-      throw new Error(`可选运行时包尚未生成 Host 入口：${optional.name}（${sourceEntry}）`);
-    }
+    if (!fs.existsSync(sourceEntry)) throw new Error(`可选运行时包尚未生成 Host 入口：${optional.name}（${sourceEntry}）`);
     copyRuntimePackage(optional.sourcePath, optional.name);
     const packageRoot = packagePathForName(optional.name);
-    const packageManifest = readJson(path.join(packageRoot, "package.json"));
-    packageManifest.main = "lib/index.js";
-    fs.writeFileSync(path.join(packageRoot, "package.json"), `${JSON.stringify(packageManifest, null, 2)}\n`);
-    const exports = optional.defaultExport
-      ? `export * from "./types/index.js";\nexport { default } from "./types/index.js";\n`
-      : `export * from "./types/index.js";\n`;
-    fs.writeFileSync(path.join(packageRoot, "lib", "index.js"), exports);
+    ensureRuntimePackageEntry(packageRoot, optional.name);
   }
 }
 
