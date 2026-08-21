@@ -124,6 +124,9 @@ import {
   type DshWorkspace,
 } from "./lib/desktop";
 import { desktopClientRuntime } from "./lib/desktop-client-runtime";
+import { useDesktopUiRuntime } from "./app/use-ui-runtime";
+import { toSessionUiContext } from "./app/ui-plugin-model";
+import { SlotOutlet } from "./components/SlotOutlet";
 import {
   composerReferenceText,
   subagentDisplayName,
@@ -781,6 +784,13 @@ function AppContent() {
   });
   const activeSession = sessions.find((session) => session.sessionId === activeSessionId);
   const activeRunning = Boolean(activeSession?.running);
+
+  // 桌面 UI 插件运行时：发现/激活插件并维护 Slot Registry；无插件时主应用完全不变。
+  const uiRuntime = useDesktopUiRuntime();
+  useEffect(() => {
+    uiRuntime.updateSession(activeSession ? toSessionUiContext(activeSession, displayTitle(activeSession)) : null);
+  }, [uiRuntime, activeSession]);
+
   const activeJobs = activeSessionId ? sessionJobs[activeSessionId] ?? [] : [];
   const approval = activeSessionId ? pendingApprovals[activeSessionId] ?? null : null;
   const question = activeSessionId ? pendingQuestions[activeSessionId] ?? null : null;
@@ -3865,6 +3875,7 @@ function AppContent() {
           onUnpinnedSectionChange={setUnpinnedSectionOpen}
           sessionContextMenu={sessionContextMenu}
           onRequestSessionAction={requestSessionAction}
+          uiRuntime={uiRuntime}
           workspace={workspace}
           workspaces={workspaces}
           workspaceMenuOpen={workspaceMenuOpen}

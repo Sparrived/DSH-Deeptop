@@ -1,6 +1,8 @@
 import { useMemo, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useFloatingMenuPosition } from "../app/useFloatingMenuPosition";
+import type { DesktopUiRuntime } from "../lib/desktop-ui-runtime/client-runtime";
+import { SlotOutlet } from "./SlotOutlet";
 import { SessionRow, sessionStatusLabels } from "./SessionRow";
 import { WorkspaceGroup as WorkspaceGroupSection } from "./WorkspaceGroup";
 import { WorkspacePicker } from "./WorkspacePicker";
@@ -11,6 +13,7 @@ import {
   type SessionAction,
   type SessionContextMenu,
 } from "../app/model";
+import { toSessionUiContext } from "../app/ui-plugin-model";
 import type { DshSessionSummary, DshWorkspace } from "../lib/desktop";
 
 export type WorkspaceGroup = {
@@ -49,6 +52,7 @@ type SessionSidebarProps = {
   onUnpinnedSectionChange: (open: boolean) => void;
   sessionContextMenu: SessionContextMenu | null;
   onRequestSessionAction: (action: SessionAction, session: DshSessionSummary) => void;
+  uiRuntime: DesktopUiRuntime;
   workspace: string;
   workspaces: DshWorkspace[];
   workspaceMenuOpen: boolean;
@@ -92,6 +96,7 @@ export function SessionSidebar({
   onUnpinnedSectionChange,
   sessionContextMenu,
   onRequestSessionAction,
+  uiRuntime,
   workspace,
   workspaces,
   workspaceMenuOpen,
@@ -251,6 +256,12 @@ export function SessionSidebar({
 
       {!archiveOpen && sessionContextMenu && createPortal(
         <div ref={sessionMenuRef} className="session-context-menu" style={{ left: sessionMenuAt?.left ?? sessionContextMenu.x, top: sessionMenuAt?.top ?? sessionContextMenu.y }} role="menu" onMouseDown={(event) => event.stopPropagation()}>
+          <SlotOutlet
+            runtime={uiRuntime}
+            slot="session.context-menu"
+            variant="menu-item"
+            context={{ session: toSessionUiContext(sessionContextMenu.session, displayTitle(sessionContextMenu.session)), activeSessionId }}
+          />
           {workspaceBySessionId.has(sessionContextMenu.session.sessionId) && !search.trim() && <button role="menuitem" onClick={() => onRequestSessionAction("pin", sessionContextMenu.session)}>{workspaceBySessionId.get(sessionContextMenu.session.sessionId)?.pinnedSessionIds?.includes(sessionContextMenu.session.sessionId) ? "取消置顶" : "在此工作区置顶"}</button>}
           <button role="menuitem" onClick={() => onRequestSessionAction("rename", sessionContextMenu.session)}>重命名</button>
           <button role="menuitem" onClick={() => onRequestSessionAction("fork", sessionContextMenu.session)}>分叉会话</button>

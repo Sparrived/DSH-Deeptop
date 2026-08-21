@@ -591,6 +591,13 @@
 .session-context-menu button:hover { background: #3d423b; }
 .session-context-menu .danger, .danger-button { color: #d88778; }
 
+/* UI 插件贡献（docs/DEEPTOP_UI_RUNTIME.md）：错误隔离提示与声明式徽标。 */
+.plugin-contribution-error { display: block; padding: 7px 9px; color: #d88778; font-size: 11px; opacity: .85; }
+.plugin-declarative-badge { display: inline-block; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 6px; border-radius: 8px; background: rgba(255, 255, 255, .08); color: inherit; font-size: 10px; }
+button.plugin-declarative-action { padding: 2px 6px; border: 0; background: transparent; color: inherit; font-size: 10px; cursor: pointer; }
+button.plugin-declarative-action:hover { background: rgba(255, 255, 255, .08); }
+button.plugin-declarative-action:disabled { opacity: .55; cursor: default; }
+
 .confirm-backdrop { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; background: rgba(18, 21, 18, .58); }
 .confirm-dialog { width: min(360px, calc(100vw - 32px)); padding: 18px; border: 1px solid #596055; background: #e9e6dd; color: var(--ink); box-shadow: 0 16px 45px rgba(0,0,0,.35); }
 .confirm-dialog p { margin: 10px 0 16px; color: var(--muted); font-size: 11px; line-height: 1.55; }
