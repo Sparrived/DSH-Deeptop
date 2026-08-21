@@ -1763,7 +1763,15 @@ function AppContent() {
     setPresetMigrationSelection("");
     setSessionIndicators((current) => ({ ...current, [session.sessionId]: "idle" }));
     setActiveSessionId(session.sessionId);
-    setWorkspace(workspaces.find((item) => item.sessionIds.includes(session.sessionId))?.path ?? session.cwd ?? "");
+    // [ws-diag 临时] openSession 对工作区状态的计算（侧栏跟随的关键）
+    const workspaceForSession = workspaces.find((item) => item.sessionIds.includes(session.sessionId))?.path ?? session.cwd ?? "";
+    console.error("[ws-diag] openSession", JSON.stringify({
+      sessionId: session.sessionId,
+      sessionCwd: session.cwd ?? null,
+      workspaceForSession,
+      workspaceState: workspace,
+    }));
+    setWorkspace(workspaceForSession);
     setHistory([]);
     setHistoryHasMore(false);
     setHistoryLoadingOlder(false);
@@ -2245,6 +2253,15 @@ function AppContent() {
       }
     }
     const first = firstConversationForWorkspace(workspacePath, workspaceItem);
+    // [ws-diag 临时] 同步决策输入输出
+    console.error("[ws-diag] syncConversationToWorkspace", JSON.stringify({
+      workspacePath,
+      workspaceItem: workspaceItem ? { workspaceId: workspaceItem.workspaceId, path: workspaceItem.path, sessionIds: workspaceItem.sessionIds.length } : null,
+      first: first?.sessionId ?? null,
+      visibleSessions: visibleSessions.length,
+      activeSessionId: activeSessionRef.current,
+      localWorkspaces: workspaces.length,
+    }));
     if (first) {
       if (activeSessionRef.current !== first.sessionId) await openSession(first);
     } else {
@@ -2305,6 +2322,13 @@ function AppContent() {
     }
     // 保持对话页面与工作区选择同步：打开新工作区的第一个会话，没有会话则显示新会话页面。
     await syncConversationToWorkspace(path);
+    // [ws-diag 临时] 点击后的最终状态
+    console.error("[ws-diag] chooseWorkspace 完成", JSON.stringify({
+      path,
+      workspaceState: workspace,
+      workspaceMenuOpen,
+      activeSessionId: activeSessionRef.current,
+    }));
   }
 
   async function repairWorkspaceMembership(
