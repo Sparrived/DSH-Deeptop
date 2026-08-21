@@ -54,8 +54,6 @@ type SessionSidebarProps = {
   onToggleWorkspaceMenu: () => void;
   onChooseWorkspace: (path: string) => void;
   workspacePickerMenuRef: RefObject<HTMLDivElement | null>;
-  workspaceFlyoutOpen: boolean;
-  onToggleWorkspaceFlyout: () => void;
   activeSessionId: string | null;
   sessionIndicators: Record<string, "idle" | "running" | "completed" | "error">;
   pendingSessionIds: ReadonlySet<string>;
@@ -99,8 +97,6 @@ export function SessionSidebar({
   onToggleWorkspaceMenu,
   onChooseWorkspace,
   workspacePickerMenuRef,
-  workspaceFlyoutOpen,
-  onToggleWorkspaceFlyout,
   activeSessionId,
   sessionIndicators,
   pendingSessionIds,
@@ -230,7 +226,6 @@ export function SessionSidebar({
         <div className="sidebar-heading-actions">
           <span>{archiveOpen ? archivedSessions.length : (groupedSessionCount > 0 ? groupedSessionCount : "")}</span>
           {!archiveOpen && <>
-            <button type="button" className={`workspace-flyout-trigger${workspaceFlyoutOpen ? " selected" : ""}`} onClick={onToggleWorkspaceFlyout} title="展开工作区列表" aria-expanded={workspaceFlyoutOpen}>工作区</button>
             <button type="button" onClick={() => setArchiveOpen(true)} title="打开归档页">归档</button>
           </>}
         </div>
@@ -275,9 +270,11 @@ export function SessionSidebar({
           workspace={workspace}
           workspaces={workspaces}
           open={workspaceMenuOpen}
+          pinnedWorkspaceIds={pinnedWorkspaceIds}
           menuRef={workspacePickerMenuRef}
           onToggle={onToggleWorkspaceMenu}
           onChoose={onChooseWorkspace}
+          onTogglePin={onTogglePinWorkspace}
           onAdd={onAddWorkspace}
           onDelete={onDeleteWorkspace}
         />

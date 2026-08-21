@@ -1227,7 +1227,7 @@ textarea:focus-visible {
 .workspace-menu-item {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   align-items: stretch;
   gap: 2px;
 }
@@ -1254,88 +1254,14 @@ textarea:focus-visible {
   color: var(--danger);
 }
 
-/* 侧栏右侧的工作区新栏：贴合侧栏右缘展开，列出全部工作区供选择与置顶。 */
-.workspace-flyout {
-  position: absolute;
-  top: 10px;
-  bottom: 10px;
-  left: var(--sidebar-width, 320px);
-  z-index: 20;
-  width: 288px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-panel);
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-panel);
-  color: var(--ink);
-}
-
-.workspace-flyout-heading {
-  padding: 14px 14px 8px;
-  color: var(--ink-muted);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-}
-
-.workspace-flyout-list {
-  min-height: 0;
-  flex: 1;
-  display: grid;
-  align-content: start;
-  gap: 2px;
-  padding: 0 8px 8px;
+/* 工作区一级菜单（左下角选择器）：列表较长时在侧栏内滚动。 */
+.workspace-menu {
+  max-height: min(440px, calc(100vh - 200px));
   overflow: auto;
   scrollbar-color: var(--line) transparent;
 }
 
-.workspace-flyout-item {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: stretch;
-  gap: 2px;
-}
-
-.workspace-flyout-main {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--ink);
-  text-align: left;
-}
-
-.workspace-flyout-main:hover,
-.workspace-flyout-main.selected {
-  background: var(--surface-soft);
-  color: var(--accent-deep);
-}
-
-.workspace-flyout-main strong,
-.workspace-flyout-main small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.workspace-flyout-main strong {
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.workspace-flyout-main small {
-  color: var(--ink-muted);
-  font-family: var(--mono);
-  font-size: 11px;
-}
-
-.workspace-flyout-count {
+.workspace-menu-count {
   align-self: center;
   padding: 0 2px;
   color: var(--ink-faint);
@@ -1343,14 +1269,13 @@ textarea:focus-visible {
   font-size: 11px;
 }
 
-.workspace-flyout-pin {
-  width: 30px;
+.workspace-menu .workspace-menu-pin {
+  min-width: 30px;
   min-height: 34px;
   display: grid;
   place-items: center;
   padding: 0;
   border: 0;
-  border-radius: var(--radius-control);
   background: transparent;
   color: var(--ink-faint);
   font-size: 12px;
@@ -1358,38 +1283,15 @@ textarea:focus-visible {
   opacity: 0.6;
 }
 
-.workspace-flyout-pin:hover {
+.workspace-menu .workspace-menu-pin:hover {
   background: var(--surface-soft);
   opacity: 1;
 }
 
-.workspace-flyout-pin.active {
+.workspace-menu .workspace-menu-pin.active {
   color: var(--accent-deep);
   filter: none;
   opacity: 1;
-}
-
-.workspace-flyout-footer {
-  flex: 0 0 auto;
-  padding: 8px;
-  border-top: 1px solid var(--line);
-}
-
-.workspace-flyout-add {
-  width: 100%;
-  min-height: 36px;
-  padding: 0 10px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--accent-deep);
-  font-size: 12px;
-  text-align: left;
-}
-
-.workspace-flyout-add:hover {
-  border-color: var(--line);
-  background: var(--surface-soft);
 }
 
 .session-context-menu {

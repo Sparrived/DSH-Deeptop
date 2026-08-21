@@ -17,7 +17,6 @@ import { SettingsPluginsPanel } from "./components/SettingsPluginsPanel";
 import { SettingsPresetPanel } from "./components/SettingsPresetPanel";
 import { QueueDock } from "./components/QueueDock";
 import { SessionSidebar, type WorkspaceGroup } from "./components/SessionSidebar";
-import { WorkspaceFlyout } from "./components/WorkspaceFlyout";
 import { SubagentDock } from "./components/SubagentDock";
 import { SubagentPanel } from "./components/SubagentPanel";
 import { TaskPanel, TodoPanel } from "./components/TodoPanel";
@@ -434,10 +433,7 @@ function AppContent() {
   const [pinnedWorkspaceIds, setPinnedWorkspaceIds] = useState<string[]>(() => readWorkspaceViewPreferences().pinnedWorkspaceIds);
   const [dragOverSessionId, setDragOverSessionId] = useState<string | null>(null);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
-  // 侧栏右侧的工作区新栏：展开后列出全部工作区，点击外部自动收起。
-  const [workspaceFlyoutOpen, setWorkspaceFlyoutOpen] = useState(false);
   const workspacePickerMenuRef = useRef<HTMLDivElement | null>(null);
-  const workspaceFlyoutRef = useRef<HTMLDivElement | null>(null);
   const [runtimeDetails, setRuntimeDetails] = useState<Record<string, unknown> | null>(null);
   const [providers, setProviders] = useState<DshProvider[]>([]);
   const [hostModels, setHostModels] = useState<DshHostModelCatalog | null>(null);
@@ -872,7 +868,7 @@ function AppContent() {
     writeWorkspaceViewPreferences({ pinnedWorkspaceIds, collapsedWorkspaces });
   }, [collapsedWorkspaces, pinnedWorkspaceIds]);
 
-  // 底部工作区一级菜单：点击外部或按 Esc 自动收起。
+  // 左下角工作区一级菜单：点击外部或按 Esc 自动收起。
   useEffect(() => {
     if (!workspaceMenuOpen) return;
     const handlePointerDown = (event: globalThis.PointerEvent) => {
@@ -889,25 +885,6 @@ function AppContent() {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [workspaceMenuOpen]);
-
-  // 右侧工作区新栏：点击外部（含一级菜单触发按钮之外的区域）或按 Esc 自动收起。
-  useEffect(() => {
-    if (!workspaceFlyoutOpen) return;
-    const handlePointerDown = (event: globalThis.PointerEvent) => {
-      if (event.target instanceof Node && workspaceFlyoutRef.current?.contains(event.target)) return;
-      if (event.target instanceof Element && event.target.closest(".workspace-flyout-trigger")) return;
-      setWorkspaceFlyoutOpen(false);
-    };
-    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") setWorkspaceFlyoutOpen(false);
-    };
-    document.addEventListener("pointerdown", handlePointerDown);
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [workspaceFlyoutOpen]);
 
   useEffect(() => {
     if (!showInspector && !settingsDraft && !presetCopy && !presetView) return;
@@ -2288,7 +2265,6 @@ function AppContent() {
       workspaceSelectionInitializedRef.current = true;
       setWorkspace(picked);
       setWorkspaceMenuOpen(false);
-      setWorkspaceFlyoutOpen(false);
       setNotice("新会话将使用此工作目录");
       try {
         const result = await bridgeRequest<{ workspace: DshWorkspace }>("workspace.create", { path: picked });
@@ -2316,7 +2292,6 @@ function AppContent() {
     workspaceSelectionInitializedRef.current = true;
     setWorkspace(path);
     setWorkspaceMenuOpen(false);
-    setWorkspaceFlyoutOpen(false);
     setNotice(path ? "新会话将使用此工作目录" : "新会话将使用 DSH 运行目录");
     const selected = workspaces.find((item) => item.path === path);
     if (selected) {
@@ -3788,8 +3763,6 @@ function AppContent() {
           onToggleWorkspaceMenu={() => setWorkspaceMenuOpen((value) => !value)}
           onChooseWorkspace={chooseWorkspace}
           workspacePickerMenuRef={workspacePickerMenuRef}
-          workspaceFlyoutOpen={workspaceFlyoutOpen}
-          onToggleWorkspaceFlyout={() => setWorkspaceFlyoutOpen((value) => !value)}
           activeSessionId={activeSessionId}
           sessionIndicators={sessionIndicators}
           pendingSessionIds={pendingSessionIds}
@@ -3804,18 +3777,6 @@ function AppContent() {
           onSessionDragEnd={() => setDragOverSessionId(null)}
           onSessionContextMenu={(session, x, y) => setSessionContextMenu({ session, x, y })}
         />
-
-        {workspaceFlyoutOpen && (
-          <WorkspaceFlyout
-            workspace={workspace}
-            workspaces={workspaces}
-            pinnedWorkspaceIds={pinnedWorkspaceIds}
-            flyoutRef={workspaceFlyoutRef}
-            onChoose={chooseWorkspace}
-            onAdd={() => void addWorkspace()}
-            onTogglePin={togglePinWorkspace}
-          />
-        )}
 
         <div
           className="sidebar-resizer"
