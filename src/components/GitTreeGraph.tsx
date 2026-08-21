@@ -48,18 +48,20 @@ export function GitTreeGraph({ lines, selectedHash, onSelect }: GitTreeGraphProp
     const ys = nodeY(edge.fromRow);
     const xt = laneX(edge.toLane);
     const yt = nodeY(edge.toRow);
-    // 圆角折线路由（竖直-水平-竖直，拐角圆弧）：短跨度在行间距内折弯，
-    // 长跨度沿源泳道自己的列下行后底部折弯汇入目标，目标侧只留短垂直段。
+    // 圆角折线路由（竖直-水平-竖直）。拐角凸起方向与常规内切圆角相反：
+    // 源侧拐角向右下凸、目标侧拐角向左上凸（按用户要求整体对调），
+    // 用落在对向象限的二次曲线控制点实现。
     const cornerR = 7;
+    const k = cornerR + 0.7;
     const joinY = 5;
     const elbowY = Math.max(ys + cornerR + 2, yt - cornerR - joinY);
     const dir = xt >= xs ? 1 : -1;
     const path = [
       `M ${xs} ${ys}`,
       `L ${xs} ${elbowY - cornerR}`,
-      `A ${cornerR} ${cornerR} 0 0 ${dir === 1 ? 1 : 0} ${xs + dir * cornerR} ${elbowY}`,
+      `Q ${xs + dir * k} ${elbowY + k} ${xs + dir * cornerR} ${elbowY}`,
       `L ${xt - dir * cornerR} ${elbowY}`,
-      `A ${cornerR} ${cornerR} 0 0 ${dir === 1 ? 0 : 1} ${xt} ${elbowY + cornerR}`,
+      `Q ${xt - dir * k} ${elbowY - k} ${xt} ${elbowY + cornerR}`,
       `L ${xt} ${yt}`,
     ].join(" ");
     return <path key={`e${index}`} d={path} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" />;
