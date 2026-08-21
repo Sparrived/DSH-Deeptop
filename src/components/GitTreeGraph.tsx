@@ -48,13 +48,8 @@ export function GitTreeGraph({ lines, selectedHash, onSelect }: GitTreeGraphProp
     const ys = nodeY(edge.fromRow);
     const xt = laneX(edge.toLane);
     const yt = nodeY(edge.toRow);
-    const span = yt - ys;
-    if (span <= ROW_H * 3) {
-      // 短跨度合并边直接画斜线（git `\` 造型），不做竖线+圆角折弯。
-      return <line key={`e${index}`} x1={xs} y1={ys} x2={xt} y2={yt} stroke={color} strokeWidth={2} strokeLinecap="round" />;
-    }
-    // 长跨度边：沿源泳道自己的列下行（与其他泳道并行），底部折弯汇入目标
-    // （git `|`+`|/` 造型），目标侧只留短垂直段，避免贯穿线。
+    // 圆角折线路由（竖直-水平-竖直，拐角圆弧）：短跨度在行间距内折弯，
+    // 长跨度沿源泳道自己的列下行后底部折弯汇入目标，目标侧只留短垂直段。
     const cornerR = 7;
     const joinY = 5;
     const elbowY = Math.max(ys + cornerR + 2, yt - cornerR - joinY);

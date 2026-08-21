@@ -56,11 +56,6 @@ for (const edge of layout.edges) {
   const xs = laneX(edge.fromLane), ys = nodeY(edge.fromRow);
   const xt = laneX(edge.toLane), yt = nodeY(edge.toRow);
   const color = laneColor(edge.colorLane);
-  const span = yt - ys;
-  if (span <= ROW_H * 3) {
-    svg.push(`<line x1="${xs}" y1="${ys}" x2="${xt}" y2="${yt}" stroke="${color}" stroke-width="2" stroke-linecap="round"/>`);
-    continue;
-  }
   const cornerR = 7;
   const joinY = 5;
   const elbowY = Math.max(ys + cornerR + 2, yt - cornerR - joinY);
