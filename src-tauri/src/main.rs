@@ -4018,7 +4018,7 @@ fn git_commit(dir: String, message: String) -> Result<GitCommandResult, String> 
 fn git_log(dir: String, limit: u32) -> Result<Vec<WorkspaceGitCommit>, String> {
     let limit = limit.clamp(1, 200);
     let root = git_repository_root(Path::new(&dir))?;
-    let format = "%H\x1f%h\x1f%an\x1f%ae\x1f%at\x1f%s\x1e";
+    let format = "%H%x1f%h%x1f%an%x1f%ae%x1f%at%x1f%s%x1e";
     let output = git_raw_output(
         &root,
         &[
@@ -4057,17 +4057,19 @@ fn git_log(dir: String, limit: u32) -> Result<Vec<WorkspaceGitCommit>, String> {
 #[serde(rename_all = "camelCase")]
 struct WorkspaceGitGraphLine {
     graph: String,
-    hash: String,
-    short_hash: String,
-    timestamp: i64,
+    hash: Option<String>,
+    short_hash: Option<String>,
+    timestamp: Option<i64>,
     refs: Vec<String>,
-    subject: String,
+    parents: Vec<String>,
+    subject: Option<String>,
 }
 
-/// 读取带图谱前缀的提交行（git log --graph），供历史页渲染提交树。
+/// 读取带图谱前缀的提交树（git log --graph），供历史页渲染真正的树状图谱。
 /// `rev` 为 None 时覆盖全部分支（--all），否则只看该引用/分支；
 /// `simplify` 为 true 时只保留带头部（引用指向）的提交。
-/// 每一行按 \x1f 分隔字段，头部为“图列前缀 + 完整哈希”，行与行按 \x1e 分隔。
+/// 输出按物理行解析：提交行带有 \x1f 分隔字段（含完整哈希与双亲），
+/// 纯连接行（如 “|\\” “| |\\”）只有图谱前缀，用于绘制分支分叉/合并的连线。
 #[tauri::command]
 fn git_graph(
     dir: String,
@@ -4081,7 +4083,7 @@ fn git_graph(
         Some(rev) => Some(validate_git_ref(&rev)?.to_string()),
         None => None,
     };
-    let format = "%H\x1f%h\x1f%at\x1f%D\x1f%s\x1e";
+    let format = "%H%x1f%h%x1f%at%x1f%D%x1f%P%x1f%s%x1e";
     let mut args: Vec<&str> = vec!["--no-pager", "log", "--graph", "--no-color"];
     if simplify {
         args.push("--simplify-by-decoration");
@@ -4105,34 +4107,51 @@ fn git_graph(
         return Err(text.trim().to_string());
     }
     let mut lines = Vec::new();
-    for record in output.stdout.split('\x1e') {
-        let fields: Vec<&str> = record.split('\x1f').collect();
-        if fields.len() < 5 {
+    for raw_line in output.stdout.split('\n') {
+        let line = raw_line.trim_end_matches(['\r', '\x1e']);
+        if line.is_empty() {
             continue;
         }
-        // 图列前缀只含制表符/空格等非十六进制字符，完整哈希从首个十六进制位开始。
-        let head = fields[0];
-        let hash_start = head
+        // 图谱前缀只含 | \ / _ . * o 等非十六进制字符，完整哈希从首个十六进制位开始。
+        let hash_start = line
             .char_indices()
             .find(|(_, ch)| ch.is_ascii_hexdigit())
             .map(|(index, _)| index)
-            .unwrap_or(head.len());
-        let graph = head[..hash_start].trim_end().to_string();
-        let hash = head[hash_start..].trim().to_string();
-        if hash.len() != 40 {
+            .unwrap_or(line.len());
+        let graph = line[..hash_start].trim_end().to_string();
+        if !line.contains('\x1f') {
+            // 纯连接行：只携带图谱前缀，用于绘制分叉/合并连线。
+            lines.push(WorkspaceGitGraphLine {
+                graph,
+                hash: None,
+                short_hash: None,
+                timestamp: None,
+                refs: Vec::new(),
+                parents: Vec::new(),
+                subject: None,
+            });
+            continue;
+        }
+        let fields: Vec<&str> = line[hash_start..].split('\x1f').collect();
+        if fields.len() < 6 || fields[0].len() != 40 {
             continue;
         }
         lines.push(WorkspaceGitGraphLine {
             graph,
-            hash,
-            short_hash: fields[1].to_string(),
-            timestamp: fields[2].parse::<i64>().unwrap_or(0),
+            hash: Some(fields[0].to_string()),
+            short_hash: Some(fields[1].to_string()),
+            timestamp: fields[2].parse::<i64>().ok(),
             refs: fields[3]
                 .split(',')
                 .map(|item| item.trim().to_string())
                 .filter(|item| !item.is_empty())
                 .collect(),
-            subject: fields[4].to_string(),
+            parents: fields[4]
+                .split(' ')
+                .map(|item| item.trim().to_string())
+                .filter(|item| !item.is_empty())
+                .collect(),
+            subject: Some(fields[5].to_string()),
         });
     }
     Ok(lines)
@@ -4169,7 +4188,7 @@ fn validate_git_oid(value: &str) -> Result<&str, String> {
 fn git_commit_detail(dir: String, hash: String) -> Result<WorkspaceGitCommitDetail, String> {
     let hash = validate_git_oid(&hash)?;
     let root = git_repository_root(Path::new(&dir))?;
-    let format = "%H\x00%an\x00%ae\x00%at\x00%s\x00%b\x00";
+    let format = "%H%x00%an%x00%ae%x00%at%x00%s%x00%b%x00";
     let header = git_raw_output(
         &root,
         &[

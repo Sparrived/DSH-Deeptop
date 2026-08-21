@@ -885,13 +885,16 @@ export interface WorkspaceGitCommit {
   subject: string;
 }
 
+/** One row of the commit tree: either a commit row (carrying a hash) or a pure
+ * connector row (only graph prefix) that draws branch fork/merge lines. */
 export interface WorkspaceGitGraphLine {
   graph: string;
-  hash: string;
-  shortHash: string;
-  timestamp: number;
+  hash: string | null;
+  shortHash: string | null;
+  timestamp: number | null;
   refs: string[];
-  subject: string;
+  parents: string[];
+  subject: string | null;
 }
 
 export interface WorkspaceGitFileStat {

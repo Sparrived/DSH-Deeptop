@@ -35,13 +35,12 @@ import {
   formatRelativeTime,
   gitFileLabel,
   gitFileMark,
-  gitGraphLaneColor,
-  gitRefKind,
   groupGitBranches,
   groupGitFiles,
 } from "../app/git-model";
 import { DockFrame } from "./DockFrame";
 import { PopupDialog } from "./PopupDialog";
+import { GitTreeGraph } from "./GitTreeGraph";
 
 type GitDockTab = "changes" | "history" | "branches";
 
@@ -715,28 +714,11 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
                 ) : !graph || graph.length === 0 ? (
                   <div className="git-empty">暂无提交记录</div>
                 ) : (
-                  <div className="git-graph-list">
-                    {graph.map((line) => (
-                      <button
-                        key={line.hash}
-                        type="button"
-                        className={`git-graph-row ${commitDetail?.hash === line.hash ? "selected" : ""}`}
-                        onClick={() => selectCommitByHash(line.hash)}
-                        title={`${line.shortHash} ${line.subject}`}
-                      >
-                        <span className="git-graph-prefix" aria-hidden="true">
-                          {line.graph.split("").map((char, index) => (
-                            <span key={index} style={{ color: gitGraphLaneColor(index) }}>{char}</span>
-                          ))}
-                        </span>
-                        <span className="git-graph-hash">{line.shortHash}</span>
-                        {line.refs.map((ref) => (
-                          <span key={ref} className={`git-graph-ref git-ref-${gitRefKind(ref)}`} title={ref}>{ref}</span>
-                        ))}
-                        <span className="git-graph-subject" title={line.subject}>{line.subject}</span>
-                      </button>
-                    ))}
-                  </div>
+                  <GitTreeGraph
+                    lines={graph}
+                    selectedHash={commitDetail?.hash ?? null}
+                    onSelect={selectCommitByHash}
+                  />
                   )}
                 </>
               ) : commitsLoading && commits === null ? (

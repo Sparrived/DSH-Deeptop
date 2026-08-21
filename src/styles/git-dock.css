@@ -574,22 +574,25 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
+  padding: 0 10px;
   border: 0;
-  border-bottom: 1px solid var(--line);
   background: transparent;
   color: var(--ink);
   text-align: left;
   font-family: var(--mono);
   font-size: 11px;
   white-space: nowrap;
+  cursor: pointer;
 }
 .git-graph-row:hover { background: var(--surface-soft); }
 .git-graph-row.selected { background: color-mix(in srgb, var(--accent) 12%, var(--surface-soft)); }
-.git-graph-prefix {
+.git-graph-connector {
+  display: flex;
+  padding: 0 10px;
+}
+.git-graph-svg {
   flex: 0 0 auto;
-  white-space: pre;
-  color: var(--ink-faint);
+  display: block;
 }
 .git-graph-hash {
   flex: 0 0 auto;
