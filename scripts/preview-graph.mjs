@@ -56,7 +56,8 @@ for (const edge of layout.edges) {
   const xs = laneX(edge.fromLane), ys = nodeY(edge.fromRow);
   const xt = laneX(edge.toLane), yt = nodeY(edge.toRow);
   const cornerR = 7;
-  const elbowY = Math.max(ys + cornerR + 2, Math.min(ys + ROW_H * 0.6, (ys + yt) / 2));
+  const joinY = 5;
+  const elbowY = Math.max(ys + cornerR + 2, yt - cornerR - joinY);
   const dir = xt >= xs ? 1 : -1;
   const path = `M ${xs} ${ys} L ${xs} ${elbowY - cornerR} A ${cornerR} ${cornerR} 0 0 ${dir === 1 ? 1 : 0} ${xs + dir * cornerR} ${elbowY} L ${xt - dir * cornerR} ${elbowY} A ${cornerR} ${cornerR} 0 0 ${dir === 1 ? 0 : 1} ${xt} ${elbowY + cornerR} L ${xt} ${yt}`;
   svg.push(`<path d="${path}" fill="none" stroke="${laneColor(edge.fromLane)}" stroke-width="2" stroke-linecap="round"/>`);

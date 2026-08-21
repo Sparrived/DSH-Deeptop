@@ -47,9 +47,12 @@ export function GitTreeGraph({ lines, selectedHash, onSelect }: GitTreeGraphProp
     const ys = nodeY(edge.fromRow);
     const xt = laneX(edge.toLane);
     const yt = nodeY(edge.toRow);
-    // 直角折线路由（竖直-水平-竖直），拐角用圆弧实现明显的大圆角。
+    // 弯头贴近目标节点（对齐 git 的 `|`+`|/` 画法）：
+    // 竖直段沿源泳道自己的一列下行（与其他泳道并行、不穿越），
+    // 底部折水平 + 短垂直汇入目标，避免在目标泳道上留下贯穿的长线。
     const cornerR = 7;
-    const elbowY = Math.max(ys + cornerR + 2, Math.min(ys + ROW_H * 0.6, (ys + yt) / 2));
+    const joinY = 5; // 汇入目标前的短垂直段
+    const elbowY = Math.max(ys + cornerR + 2, yt - cornerR - joinY);
     const dir = xt >= xs ? 1 : -1;
     const path = [
       `M ${xs} ${ys}`,
