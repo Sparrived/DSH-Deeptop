@@ -141,6 +141,7 @@ export function gitGraphLayout(input: WorkspaceGitGraphLine[]): GitGraphLayout {
     lanes[lane] = null;
     laneOf.delete(hash);
     releaseLane(lane, row);
+    touch(lane, row); // 节点所在行属于占用段：分支顶端从这里起算，上方不画线
     position.set(hash, { lane, row });
     out.push({
       hash,
@@ -152,6 +153,7 @@ export function gitGraphLayout(input: WorkspaceGitGraphLine[]): GitGraphLayout {
       row,
     });
 
+    let ownLaneContinues = false; // 第一双亲是否接回本泳道（否则本泳道到该节点为止）
     const parents = commit.parents;
     for (let index = 0; index < parents.length; index += 1) {
       const parent = parents[index];
@@ -170,6 +172,8 @@ export function gitGraphLayout(input: WorkspaceGitGraphLine[]): GitGraphLayout {
           lanes[lane] = parent;
           laneOf.set(parent, lane);
           claim.set(parent, { by: hash, lane, row });
+          touch(lane, row); // 抢占后必须重新打开主线占用段，否则主线自此断裂
+          ownLaneContinues = true;
         } else {
           // 分支汇入已有泳道：保留该泳道，本提交到双亲画跨泳道边。
           edgesRaw.push({ fromHash: hash, fromLane: lane, fromRow: row, targetHash: parent });
@@ -179,6 +183,7 @@ export function gitGraphLayout(input: WorkspaceGitGraphLine[]): GitGraphLayout {
       let parentLane: number;
       if (index === 0) {
         parentLane = lane; // 主线延续当前泳道
+        ownLaneContinues = true;
       } else {
         parentLane = pickFreeLane(lane); // 合并双亲优先复用右侧最近空闲泳道
         edgesRaw.push({ fromHash: hash, fromLane: lane, fromRow: row, targetHash: parent });
@@ -186,7 +191,13 @@ export function gitGraphLayout(input: WorkspaceGitGraphLine[]): GitGraphLayout {
       lanes[parentLane] = parent;
       laneOf.set(parent, parentLane);
       claim.set(parent, { by: hash, lane: parentLane, row });
-      touch(parentLane, row);
+      if (index === 0) {
+        touch(parentLane, row); // 主线延续：延续占用段
+      }
+      // 非第一双亲（合并预留）不动占用段：分支顶端的竖线从它自己的行才开始
+    }
+    if (!ownLaneContinues) {
+      releaseLane(lane, row); // 根提交/链条已他投：占用段到该节点为止
     }
     row += 1;
   }

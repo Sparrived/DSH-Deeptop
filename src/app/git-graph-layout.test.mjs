@@ -116,7 +116,8 @@ test("fork reuses a freed adjacent lane instead of widening the tree", () => {
   // 复用后总宽保持 2（不复用会是 3）
   assert.equal(layout.columnCount, 2);
   assert.equal(byHash.v.lane, 1);
-  // 复用后总宽保持 2（不复用会是 3）；新旧占用首尾相接时合并为一条连续线
+  // 分支顶端的竖线从它自己的行起算（上方只有合并线）；
+  // 复用的泳道在空档后开启新段：[1..2] 与 [5..5]
   const lane1Segs = layout.laneSegments.filter((seg) => seg.lane === 1).map((s) => [s.fromRow, s.toRow]);
-  assert.deepEqual(lane1Segs, [[0, 5]]);
+  assert.deepEqual(lane1Segs, [[1, 2], [5, 5]]);
 });
