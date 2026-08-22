@@ -27,7 +27,21 @@
 }
 
 .startup-content .empty-mark {
+  min-width: 0;
   margin-bottom: 4px;
+  padding: 0.12em 0 0.24em;
+  font-size: clamp(48px, 8vw, 92px);
+}
+
+/* 装饰跟随字号等比放大：圆环约 1.32em，与 .empty-mark 原始比例（64px/48px）一致。 */
+.startup-content .empty-mark::before {
+  left: -0.28em;
+  width: 1.32em;
+  height: 1.32em;
+}
+
+.startup-content .empty-mark::after {
+  right: 0.14em;
 }
 
 .startup-phase-line {
