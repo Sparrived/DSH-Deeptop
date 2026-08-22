@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   getDockPosition,
   isTauri,
@@ -7,7 +8,7 @@ import {
 } from "../lib/desktop";
 import { useDockSettings } from "../app/dock-settings";
 import { FLOATING_CONTEXT_MENU_SELECTOR, isWithinSelector } from "../app/context-menu";
-import { PINNABLE_DOCKS } from "../app/dock-pin";
+import { useDockPinLayer } from "./DockPinLayers";
 
 type DockPosition = {
   x: number;
@@ -58,6 +59,19 @@ function joinClasses(...names: Array<string | undefined>) {
 
 const defaultDockPosition: DockPosition = { x: 0, y: 0 };
 const dockViewportMargin = 8;
+/** 钉住分栏层只在桌面宽度启用；窄屏保持原有浮动/静态卡片行为。 */
+const pinDesktopQuery = "(min-width: 761px)";
+
+function useDesktopPinLayout(): boolean {
+  const [desktop, setDesktop] = useState(() => typeof window === "undefined" || window.matchMedia(pinDesktopQuery).matches);
+  useEffect(() => {
+    const query = window.matchMedia(pinDesktopQuery);
+    const onChange = (event: MediaQueryListEvent) => setDesktop(event.matches);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+  return desktop;
+}
 
 /** Keep the card inside the WebView while preserving its saved offset. */
 function moveDockPosition(position: DockPosition, delta: DockPosition, startRect: DOMRect): DockPosition {
@@ -109,9 +123,11 @@ export function DockFrame({
   const [positionReady, setPositionReady] = useState(() => !isTauri());
   const [dragging, setDragging] = useState(false);
   const { settings: dockSettings, loaded: dockSettingsLoaded, isDockPinned, toggleDockPinned } = useDockSettings();
-  // 钉住的 Dock 不再浮动：忽略拖拽偏移，卡片固定在轨道旁的分栏内。
+  // 钉住的 Dock 不再浮动：卡片 portal 进窗口边缘的流内分栏层，忽略拖拽偏移。
   const pinned = isDockPinned(id);
-  const pinnedCardWidth = PINNABLE_DOCKS.find((dock) => dock.id === id)?.width;
+  const pinLayer = useDockPinLayer(side);
+  const desktopPinLayout = useDesktopPinLayout();
+  const pinPortalTarget = pinned && desktopPinLayout ? pinLayer : null;
   const persistDockPosition = (next: DockPosition) => {
     persistenceRef.current = persistenceRef.current
       .catch(() => undefined)
@@ -255,16 +271,69 @@ export function DockFrame({
     "--dock-position-x": `${position.x}px`,
     "--dock-position-y": `${position.y}px`,
   } as CSSProperties;
-  const frameStyle = pinned && pinnedCardWidth
-    ? ({ ...positionStyle, "--pin-card-width": `${pinnedCardWidth}px` } as CSSProperties)
-    : positionStyle;
+
+  const cardNode = (keepBodyMounted || !collapsed) ? (
+    <div
+      ref={cardRef}
+      id={contentId}
+      className={joinClasses("dock-frame-card", cardClassName, collapsed ? "dock-frame-card-collapsed" : undefined, dragging ? "dock-frame-card-dragging" : undefined, pinPortalTarget ? "dock-frame-card-pinned" : undefined)}
+      style={positionStyle}
+      hidden={collapsed}
+    >
+      <header className={joinClasses("dock-frame-header", headerClassName, dragging ? "dock-frame-header-dragging" : undefined)} onPointerDown={handleDragPointerDown}>
+        <div className={joinClasses("dock-frame-heading", headingClassName)}>
+          <span className={joinClasses("dock-frame-mark", headerMarkClassName ?? markClassName)} aria-hidden="true">{icon}</span>
+          <div>
+            <span className={joinClasses("dock-frame-kicker", kickerClassName)}>{kicker}</span>
+            <h2>{title}</h2>
+            {headerContent}
+          </div>
+        </div>
+        <div className={joinClasses("dock-frame-header-actions", headerActionsClassName)}>
+          {total !== undefined && <span className={joinClasses("dock-frame-total", totalClassName)}>{total}</span>}
+          <button
+            className={joinClasses("dock-frame-pin", pinned ? "active" : undefined)}
+            type="button"
+            onClick={() => toggleDockPinned(id)}
+            aria-pressed={pinned}
+            aria-label={pinned ? `取消钉住${label}` : `钉住${label}`}
+            title={pinned ? "取消钉住：恢复浮动卡片" : "钉住：固定为窗口边缘的分栏"}
+          >
+            <span aria-hidden="true">📌</span>
+          </button>
+          {!pinned && (
+            <button
+              className="dock-frame-reset"
+              type="button"
+              onClick={handleResetPosition}
+              aria-label="还原面板位置"
+              title="还原面板位置"
+            >
+              <span aria-hidden="true">↺</span>
+            </button>
+          )}
+          <button
+            className={joinClasses("dock-frame-toggle", toggleClassName)}
+            type="button"
+            onClick={onToggle}
+            aria-controls={contentId}
+            aria-expanded={!collapsed}
+            aria-label={`收起${label}`}
+            title={`收起${label}`}
+          >
+            <span aria-hidden="true">{toggleGlyph}</span>
+          </button>
+        </div>
+      </header>
+      <div className={joinClasses("dock-frame-body", bodyClassName)}>{children}</div>
+    </div>
+  ) : null;
 
   return (
     <aside
       ref={frameRef}
       className={joinClasses("dock-frame", `dock-frame-${side}`, className, stateClass, pinned ? "pinned" : undefined)}
       data-dock-id={id}
-      style={frameStyle}
       aria-label={label}
       aria-live="polite"
     >
@@ -280,63 +349,7 @@ export function DockFrame({
         <span className={joinClasses("dock-frame-rail-mark", railMarkClassName ?? markClassName)} aria-hidden="true">{icon}</span>
         {railExtra}
       </button>
-
-      {(keepBodyMounted || !collapsed) && (
-        <div
-          ref={cardRef}
-          id={contentId}
-          className={joinClasses("dock-frame-card", cardClassName, collapsed ? "dock-frame-card-collapsed" : undefined, dragging ? "dock-frame-card-dragging" : undefined)}
-          style={positionStyle}
-          hidden={collapsed}
-        >
-          <header className={joinClasses("dock-frame-header", headerClassName, dragging ? "dock-frame-header-dragging" : undefined)} onPointerDown={handleDragPointerDown}>
-            <div className={joinClasses("dock-frame-heading", headingClassName)}>
-              <span className={joinClasses("dock-frame-mark", headerMarkClassName ?? markClassName)} aria-hidden="true">{icon}</span>
-              <div>
-                <span className={joinClasses("dock-frame-kicker", kickerClassName)}>{kicker}</span>
-                <h2>{title}</h2>
-                {headerContent}
-              </div>
-            </div>
-            <div className={joinClasses("dock-frame-header-actions", headerActionsClassName)}>
-              {total !== undefined && <span className={joinClasses("dock-frame-total", totalClassName)}>{total}</span>}
-              <button
-                className={joinClasses("dock-frame-pin", pinned ? "active" : undefined)}
-                type="button"
-                onClick={() => toggleDockPinned(id)}
-                aria-pressed={pinned}
-                aria-label={pinned ? `取消钉住${label}` : `钉住${label}`}
-                title={pinned ? "取消钉住：恢复浮动卡片" : "钉住：固定为不遮挡对话的分栏"}
-              >
-                <span aria-hidden="true">📌</span>
-              </button>
-              {!pinned && (
-                <button
-                  className="dock-frame-reset"
-                  type="button"
-                  onClick={handleResetPosition}
-                  aria-label="还原面板位置"
-                  title="还原面板位置"
-                >
-                  <span aria-hidden="true">↺</span>
-                </button>
-              )}
-              <button
-                className={joinClasses("dock-frame-toggle", toggleClassName)}
-                type="button"
-                onClick={onToggle}
-                aria-controls={contentId}
-                aria-expanded={true}
-                aria-label={`收起${label}`}
-                title={`收起${label}`}
-              >
-                <span aria-hidden="true">{toggleGlyph}</span>
-              </button>
-            </div>
-          </header>
-          <div className={joinClasses("dock-frame-body", bodyClassName)}>{children}</div>
-        </div>
-      )}
+      {cardNode && (pinPortalTarget ? createPortal(cardNode, pinPortalTarget) : cardNode)}
     </aside>
   );
 }

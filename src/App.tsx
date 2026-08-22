@@ -29,7 +29,8 @@ import { GoalSurfacePanel, type GoalAction } from "./components/GoalSurfacePanel
 import { UtilityDockShelf } from "./components/UtilityDockShelf";
 import { WindowChrome } from "./components/WindowChrome";
 import { DockSettingsProvider, useDockSettings } from "./app/dock-settings";
-import { computeConversationPadding, hasConversationPadding } from "./app/dock-pin";
+import { computePinLayerWidths } from "./app/dock-pin";
+import { DockPinLayersProvider, type DockPinLayerElements, type DockPinLayerSide } from "./components/DockPinLayers";
 import { PopupDialog } from "./components/PopupDialog";
 import { PluginInstallDialog, type PluginInstallDraft } from "./components/PluginInstallDialog";
 import { useProviderSettings } from "./app/useProviderSettings";
@@ -1198,7 +1199,7 @@ function AppContent() {
   }, [activeGoal?.id, activeGoal?.phase]);
   const subagentEntries = subagents?.entries ?? [];
   const childSubagents = subagentEntries.filter((entry): entry is ChildSubagentEntry => entry.kind === "child");
-  // 钉住的 Dock 作为固定分栏占位：把各 Dock 的展开状态交给纯模型计算对话面板让位宽度。
+  // 钉住的 Dock 卡片 portal 进左右两个流内分栏层，对话列由网格布局天然让位。
   const dockExpandedById: Record<string, boolean> = {
     "terminal-dock": terminalOpen,
     "workspace-files-dock": filesOpen,
@@ -1208,13 +1209,11 @@ function AppContent() {
     "subagent-dock": childSubagents.length > 0 && subagentDockOpen,
     "deliverables-dock": deliverablesVisible && !deliverablesCollapsed,
   };
-  const pinPadding = computeConversationPadding({
-    pinned: pinnedDocks,
-    expandedById: dockExpandedById,
-    todoVisible,
-    todoCollapsed,
-  });
-  const pinPadded = hasConversationPadding(pinPadding);
+  const pinLayerWidths = computePinLayerWidths({ pinned: pinnedDocks, expandedById: dockExpandedById });
+  const [pinLayerElements, setPinLayerElements] = useState<DockPinLayerElements>({ left: null, right: null });
+  const registerPinLayer = useCallback((side: DockPinLayerSide, element: HTMLElement | null) => {
+    setPinLayerElements((current) => (current[side] === element ? current : { ...current, [side]: element }));
+  }, []);
   const composerTrigger = useMemo(() => detectComposerTrigger(composer), [composer]);
   const composerCandidates = useMemo<ComposerCandidate[]>(() => {
     if (!composerTrigger) return [];
@@ -3860,7 +3859,8 @@ function AppContent() {
         onEditCommand={(command) => { if (desktop) document.execCommand(command); }}
       />
 
-      <div className={`workspace-layout ${todoVisible ? "todo-visible" : ""} ${todoVisible && todoCollapsed ? "todo-collapsed" : ""} ${activeJobs.length > 0 ? "tasks-visible" : ""} ${activeJobs.length > 0 && jobsCollapsed ? "tasks-collapsed" : ""} ${deliverablesVisible ? "deliverables-visible" : ""} ${deliverablesVisible && deliverablesCollapsed ? "deliverables-collapsed" : ""} ${pinPadded ? "pin-padded" : ""}`} style={{ "--sidebar-width": `${sidebarWidth}px`, "--pin-reserve-left": `${pinPadding.left}px`, "--pin-reserve-right": `${pinPadding.right}px` } as CSSProperties}>
+      <DockPinLayersProvider value={pinLayerElements}>
+      <div className={`workspace-layout ${todoVisible ? "todo-visible" : ""} ${todoVisible && todoCollapsed ? "todo-collapsed" : ""} ${activeJobs.length > 0 ? "tasks-visible" : ""} ${activeJobs.length > 0 && jobsCollapsed ? "tasks-collapsed" : ""} ${deliverablesVisible ? "deliverables-visible" : ""} ${deliverablesVisible && deliverablesCollapsed ? "deliverables-collapsed" : ""}`} style={{ "--sidebar-width": `${sidebarWidth}px`, "--pin-left-width": `${pinLayerWidths.left}px`, "--pin-right-width": `${pinLayerWidths.right}px` } as CSSProperties}>
         <SessionSidebar
           search={search}
           onSearchChange={setSearch}
@@ -3917,6 +3917,8 @@ function AppContent() {
             document.body.classList.add("sidebar-resizing");
           }}
         />
+
+        <div className={`pin-layer pin-layer-left${pinLayerWidths.left > 0 ? " active" : ""}`} ref={(element) => registerPinLayer("left", element)} aria-hidden={!pinLayerWidths.left} />
 
         <section className="conversation-panel">
           <ConversationHeader
@@ -4150,7 +4152,10 @@ function AppContent() {
             onChangeReasoningEffort={changeReasoningEffort}
           />
            </section>
-         </div>
+
+        <div className={`pin-layer pin-layer-right${pinLayerWidths.right > 0 ? " active" : ""}`} ref={(element) => registerPinLayer("right", element)} aria-hidden={!pinLayerWidths.right} />
+      </div>
+      </DockPinLayersProvider>
 
          {showInspector && (
           <div className="inspector-modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="inspector-title">

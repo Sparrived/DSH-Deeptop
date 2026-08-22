@@ -1,15 +1,10 @@
 /**
- * Dock 钉住模式的纯模型：状态归一化与对话面板让位宽度计算。
+ * Dock 钉住模式的纯模型：状态归一化与钉住分栏层宽度计算。
  *
- * 钉住的 Dock 从"浮动卡片"切换为"固定分栏"：对话面板让出
- * `轨道宽 + 弹出间距 + 卡片宽` 的水平空间。这里集中维护各 Dock 的
- * 分栏宽度与让位求和逻辑，供 App 与 DockFrame 共用。
+ * 钉住的 Dock 卡片经 portal 渲染进 workspace-layout 的流内分栏层
+ * （左/右各一列），对话列由网格布局天然让位。这里集中维护各 Dock
+ * 的分栏宽度与逐侧求和逻辑，供 App 与 DockFrame 共用。
  */
-
-export const DOCK_RAIL_WIDTH = 44;
-export const DOCK_PIN_GAP = 12;
-/** 货架相对对话舞台的内缩（--surface-scrollbar-gap），每侧只计一次。 */
-export const DOCK_SHELF_INSET = 16;
 
 export type DockPinSide = "left" | "right";
 
@@ -69,63 +64,28 @@ export function withDockPinned(pinned: Record<string, boolean>, id: string, next
   return updated;
 }
 
-function pinReserve(dock: PinnableDock): number {
-  return DOCK_RAIL_WIDTH + DOCK_PIN_GAP + dock.width;
-}
-
-export type ConversationPaddingInput = {
-  pinned: Record<string, boolean>;
-  /** 各可钉住 Dock 当前是否处于展开状态（未列出的视为收起）。 */
-  expandedById: Record<string, boolean>;
-  /** 未钉住 Todo 沿用既有 CSS 让位规则时需要的会话可见性状态。 */
-  todoVisible: boolean;
-  todoCollapsed: boolean;
-};
-
-export type ConversationPadding = {
+export type PinLayerWidths = {
   left: number;
   right: number;
 };
 
-// 对应既有规则：`.workspace-layout.todo-visible(.todo-collapsed) > .conversation-panel`
-// 的 `padding-right: calc(var(--todo-panel-width|--todo-collapsed-width) + 32px)`。
-const TODO_LEGACY_EXPANDED_RESERVE = 286 + 32;
-const TODO_LEGACY_COLLAPSED_RESERVE = 44 + 32;
+export type PinLayerWidthsInput = {
+  pinned: Record<string, boolean>;
+  /** 各可钉住 Dock 当前是否处于展开状态（未列出的视为收起）。 */
+  expandedById: Record<string, boolean>;
+};
 
 /**
- * 计算对话面板在桌面上需要让位的左右内边距。
- *
- * - 左右各自对"已钉住且展开"的 Dock 求 `轨道 + 间距 + 分栏宽` 之和；
- * - Todo 未钉住时沿用旧 CSS 规则的让位值，避免钉住其他 Dock 后丢失既有行为；
- *   Todo 已钉住且展开时由分栏求和覆盖，不再叠加旧值；
- * - 返回值同时用于决定 workspace-layout 是否挂 `pin-padded` 类，
- *   该类在层叠中覆盖旧的 Todo 让位规则，统一由这里接管内边距。
+ * 计算左右两个钉住分栏层的总宽度：只累加"已钉住且展开"的 Dock 分栏宽。
+ * 收起的钉住 Dock 不占位；同侧多个钉住 Dock 宽度求和，卡片在层内纵向堆叠。
  */
-export function computeConversationPadding(input: ConversationPaddingInput): ConversationPadding {
-  const { pinned, expandedById } = input;
+export function computePinLayerWidths({ pinned, expandedById }: PinLayerWidthsInput): PinLayerWidths {
   let left = 0;
   let right = 0;
-  let leftPinned = false;
-  let rightPinned = false;
   for (const dock of PINNABLE_DOCKS) {
     if (!isDockPinned(pinned, dock.id) || expandedById[dock.id] !== true) continue;
-    if (dock.side === "left") { left += pinReserve(dock); leftPinned = true; }
-    else { right += pinReserve(dock); rightPinned = true; }
+    if (dock.side === "left") left += dock.width;
+    else right += dock.width;
   }
-  // 货架本身相对舞台内缩一段，每侧有钉住分栏时补计一次。
-  if (leftPinned) left += DOCK_SHELF_INSET;
-  if (rightPinned) right += DOCK_SHELF_INSET;
-
-  const todoPinnedExpanded = isDockPinned(pinned, "todo-dock") && expandedById["todo-dock"] === true;
-  if (!todoPinnedExpanded) {
-    if (input.todoVisible && !input.todoCollapsed) right += TODO_LEGACY_EXPANDED_RESERVE;
-    else if (input.todoVisible && input.todoCollapsed) right += TODO_LEGACY_COLLAPSED_RESERVE;
-  }
-
   return { left, right };
-}
-
-/** 是否有任意一侧产生让位；决定 workspace-layout 的 pin-padded 类。 */
-export function hasConversationPadding(padding: ConversationPadding): boolean {
-  return padding.left > 0 || padding.right > 0;
 }

@@ -2,8 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   PINNABLE_DOCKS,
-  computeConversationPadding,
-  hasConversationPadding,
+  computePinLayerWidths,
   isDockPinned,
   isValidDockId,
   normalizePinnedDocks,
@@ -41,70 +40,35 @@ test("toggles pins without mutating the input and drops falsy entries", () => {
   assert.ok(PINNABLE_DOCKS.length >= 7);
 });
 
-test("pinned expanded docks reserve shelf inset, rail, gap and column width per side", () => {
-  const padding = computeConversationPadding({
+test("pinned expanded docks contribute their column width to their side", () => {
+  const widths = computePinLayerWidths({
     pinned: { "git-dock": true },
     expandedById: { "git-dock": true },
-    todoVisible: false,
-    todoCollapsed: true,
   });
-  // git：货架内缩 16 + 轨道 44 + 间距 12 + 分栏 600
-  assert.deepEqual(padding, { left: 16 + 44 + 12 + 600, right: 0 });
+  assert.deepEqual(widths, { left: 600, right: 0 });
 });
 
-test("sums multiple pinned docks on the same side and skips collapsed ones", () => {
-  const padding = computeConversationPadding({
-    pinned: { "todo-dock": true, "subagent-dock": true, "terminal-dock": true },
-    expandedById: { "todo-dock": true, "subagent-dock": false, "terminal-dock": true },
-    todoVisible: true,
-    todoCollapsed: false,
+test("sums multiple pinned docks per side and skips collapsed ones", () => {
+  const widths = computePinLayerWidths({
+    pinned: { "todo-dock": true, "subagent-dock": true, "terminal-dock": true, "git-dock": true },
+    expandedById: { "todo-dock": true, "subagent-dock": false, "terminal-dock": true, "git-dock": true },
   });
-  // 右侧只算展开的 todo（16 + 44 + 12 + 286），收起的 subagent 不占位；
-  // terminal 钉住展开在左侧；todo 已钉住展开，旧规则不再叠加。
-  assert.deepEqual(padding, { left: 16 + 44 + 12 + 560, right: 16 + 44 + 12 + 286 });
+  // 收起的 subagent 不占位；左侧 terminal+git，右侧 todo。
+  assert.deepEqual(widths, { left: 560 + 600, right: 286 });
 });
 
-test("keeps the legacy todo padding when nothing is pinned", () => {
-  const expanded = computeConversationPadding({
+test("pinned but collapsed docks occupy no width", () => {
+  const widths = computePinLayerWidths({
+    pinned: { "terminal-dock": true, "deliverables-dock": true },
+    expandedById: {},
+  });
+  assert.deepEqual(widths, { left: 0, right: 0 });
+});
+
+test("unpinned expanded docks are ignored", () => {
+  const widths = computePinLayerWidths({
     pinned: {},
-    expandedById: {},
-    todoVisible: true,
-    todoCollapsed: false,
+    expandedById: { "git-dock": true, "todo-dock": true },
   });
-  assert.deepEqual(expanded, { left: 0, right: 286 + 32 });
-
-  const collapsed = computeConversationPadding({
-    pinned: {},
-    expandedById: {},
-    todoVisible: true,
-    todoCollapsed: true,
-  });
-  assert.deepEqual(collapsed, { left: 0, right: 44 + 32 });
-  assert.equal(hasConversationPadding(collapsed), true);
-});
-
-test("legacy todo padding still applies when an unrelated dock is pinned", () => {
-  const padding = computeConversationPadding({
-    pinned: { "deliverables-dock": true },
-    expandedById: { "deliverables-dock": true },
-    todoVisible: true,
-    todoCollapsed: false,
-  });
-  // deliverables 分栏（16 + 44 + 12 + 286）+ 旧 todo 让位 318
-  assert.deepEqual(padding, { left: 0, right: 16 + 44 + 12 + 286 + 286 + 32 });
-});
-
-test("collapsed pinned todo falls back to the legacy collapsed reserve", () => {
-  const padding = computeConversationPadding({
-    pinned: { "todo-dock": true },
-    expandedById: {},
-    todoVisible: true,
-    todoCollapsed: true,
-  });
-  assert.deepEqual(padding, { left: 0, right: 44 + 32 });
-});
-
-test("reports whether any reservation exists", () => {
-  assert.equal(hasConversationPadding({ left: 0, right: 0 }), false);
-  assert.equal(hasConversationPadding({ left: 12, right: 0 }), true);
+  assert.deepEqual(widths, { left: 0, right: 0 });
 });

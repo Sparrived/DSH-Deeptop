@@ -1251,13 +1251,32 @@
 .about-link-row code { flex: 0 0 auto; color: var(--muted); font: 9px/1.4 var(--mono); }
 @media (max-width: 640px) { .about-identity { grid-template-columns: 52px minmax(0, 1fr); gap: 12px; padding: 13px; } .about-mark { width: 52px; height: 52px; font-size: 28px; } .about-update-card { align-items: flex-start; flex-direction: column; } .about-update-actions { justify-content: flex-start; } }
 
-/* 钉住的 Dock 以固定分栏占位：对话面板按 --pin-reserve-* 让位。
-   App 会把"已钉住且展开的分栏宽度之和 + 未钉住 Todo 的既有让位值"写入这两个变量，
-   并在任一侧非零时挂上 pin-padded 类；本规则与上方 todo-visible 让位规则同特异性，
-   但加载顺序靠后，从而由钉住逻辑统一接管桌面端内边距。 */
+/* 钉住的 Dock：portal 进 workspace-layout 的流内分栏层，成为真实网格列。
+   桌面宽度下模板扩为 侧栏 | 左分栏 | 对话 | 右分栏；层未激活时宽度为 0。
+   分栏宽度由 App 写入 --pin-left-width/--pin-right-width（纯模型 dock-pin 计算）。 */
+.pin-layer { display: none; min-width: 0; min-height: 0; }
+
 @media (min-width: 761px) {
-  .workspace-layout.pin-padded > .conversation-panel {
-    padding-left: var(--pin-reserve-left, 0px);
-    padding-right: var(--pin-reserve-right, 0px);
+  .workspace-layout {
+    grid-template-columns: var(--sidebar-width, 320px) var(--pin-left-width, 0px) minmax(0, 1fr) var(--pin-right-width, 0px);
+  }
+
+  .pin-layer.active {
+    display: flex;
+    flex-direction: column;
+    gap: var(--right-surface-gap, 12px);
+    padding: 10px 12px;
+    overflow: hidden;
+  }
+
+  /* 分栏内的卡片铺满整列高度；同侧多个钉住卡片纵向均分。 */
+  .pin-layer.active .dock-frame-card {
+    position: static;
+    transform: none;
+    width: 100%;
+    max-height: none;
+    height: auto;
+    flex: 1 1 0;
+    min-height: 220px;
   }
 }

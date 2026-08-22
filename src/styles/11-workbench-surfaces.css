@@ -101,12 +101,8 @@
 .dock-frame-reset:hover,
 .dock-frame-pin:hover { border-color: var(--accent); color: var(--accent-deep); }
 
-/* 钉住模式：卡片放弃浮动偏移，固定为轨道旁的稳定分栏；宽度由 DockFrame 注入。 */
-.dock-frame.pinned .dock-frame-card {
-  transform: none;
-  width: var(--pin-card-width, var(--dock-width));
-  max-height: min(80svh, 760px);
-}
+/* 钉住的 Dock 卡片经 portal 渲染进分栏层（见 15-final-overrides 的 .pin-layer），
+   此处仅让标题栏不再提供拖拽光标；浮动偏移对分栏内的静态卡片无效。 */
 .dock-frame.pinned .dock-frame-header { cursor: default; }
 .dock-frame-body { min-height: 0; flex: 1 1 auto; display: flex; flex-direction: column; overflow: hidden; background: var(--surface-raised); }
 
