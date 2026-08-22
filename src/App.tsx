@@ -29,6 +29,7 @@ import { GoalSurfacePanel, type GoalAction } from "./components/GoalSurfacePanel
 import { UtilityDockShelf } from "./components/UtilityDockShelf";
 import { WindowChrome } from "./components/WindowChrome";
 import { DockSettingsProvider, useDockSettings } from "./app/dock-settings";
+import { computeConversationPadding, hasConversationPadding } from "./app/dock-pin";
 import { PopupDialog } from "./components/PopupDialog";
 import { PluginInstallDialog, type PluginInstallDraft } from "./components/PluginInstallDialog";
 import { useProviderSettings } from "./app/useProviderSettings";
@@ -675,7 +676,7 @@ function AppContent() {
     openThemesDirectory,
     resetAppearance,
   } = useAppearanceSettings({ onNotice: setNotice, onError: setErrorNotice });
-  const { settings: dockSettings, loaded: dockSettingsLoaded, updateSettings: updateDockSettings } = useDockSettings();
+  const { settings: dockSettings, loaded: dockSettingsLoaded, updateSettings: updateDockSettings, pinnedDocks } = useDockSettings();
   const [dockSettingsUpdating, setDockSettingsUpdating] = useState(false);
 
   async function updateDockSettingsWithNotice(patch: Partial<import("./lib/desktop").DockSettings>) {
@@ -1197,6 +1198,23 @@ function AppContent() {
   }, [activeGoal?.id, activeGoal?.phase]);
   const subagentEntries = subagents?.entries ?? [];
   const childSubagents = subagentEntries.filter((entry): entry is ChildSubagentEntry => entry.kind === "child");
+  // 钉住的 Dock 作为固定分栏占位：把各 Dock 的展开状态交给纯模型计算对话面板让位宽度。
+  const dockExpandedById: Record<string, boolean> = {
+    "terminal-dock": terminalOpen,
+    "workspace-files-dock": filesOpen,
+    "git-dock": gitOpen,
+    "tasks-dock": activeJobs.length > 0 && !jobsCollapsed,
+    "todo-dock": todoVisible && !todoCollapsed,
+    "subagent-dock": childSubagents.length > 0 && subagentDockOpen,
+    "deliverables-dock": deliverablesVisible && !deliverablesCollapsed,
+  };
+  const pinPadding = computeConversationPadding({
+    pinned: pinnedDocks,
+    expandedById: dockExpandedById,
+    todoVisible,
+    todoCollapsed,
+  });
+  const pinPadded = hasConversationPadding(pinPadding);
   const composerTrigger = useMemo(() => detectComposerTrigger(composer), [composer]);
   const composerCandidates = useMemo<ComposerCandidate[]>(() => {
     if (!composerTrigger) return [];
@@ -3842,7 +3860,7 @@ function AppContent() {
         onEditCommand={(command) => { if (desktop) document.execCommand(command); }}
       />
 
-      <div className={`workspace-layout ${todoVisible ? "todo-visible" : ""} ${todoVisible && todoCollapsed ? "todo-collapsed" : ""} ${activeJobs.length > 0 ? "tasks-visible" : ""} ${activeJobs.length > 0 && jobsCollapsed ? "tasks-collapsed" : ""} ${deliverablesVisible ? "deliverables-visible" : ""} ${deliverablesVisible && deliverablesCollapsed ? "deliverables-collapsed" : ""}`} style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
+      <div className={`workspace-layout ${todoVisible ? "todo-visible" : ""} ${todoVisible && todoCollapsed ? "todo-collapsed" : ""} ${activeJobs.length > 0 ? "tasks-visible" : ""} ${activeJobs.length > 0 && jobsCollapsed ? "tasks-collapsed" : ""} ${deliverablesVisible ? "deliverables-visible" : ""} ${deliverablesVisible && deliverablesCollapsed ? "deliverables-collapsed" : ""} ${pinPadded ? "pin-padded" : ""}`} style={{ "--sidebar-width": `${sidebarWidth}px`, "--pin-reserve-left": `${pinPadding.left}px`, "--pin-reserve-right": `${pinPadding.right}px` } as CSSProperties}>
         <SessionSidebar
           search={search}
           onSearchChange={setSearch}

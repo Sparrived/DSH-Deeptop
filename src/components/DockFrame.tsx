@@ -7,6 +7,7 @@ import {
 } from "../lib/desktop";
 import { useDockSettings } from "../app/dock-settings";
 import { FLOATING_CONTEXT_MENU_SELECTOR, isWithinSelector } from "../app/context-menu";
+import { PINNABLE_DOCKS } from "../app/dock-pin";
 
 type DockPosition = {
   x: number;
@@ -107,7 +108,10 @@ export function DockFrame({
   const [position, setPosition] = useState<DockPosition>(defaultDockPosition);
   const [positionReady, setPositionReady] = useState(() => !isTauri());
   const [dragging, setDragging] = useState(false);
-  const { settings: dockSettings, loaded: dockSettingsLoaded } = useDockSettings();
+  const { settings: dockSettings, loaded: dockSettingsLoaded, isDockPinned, toggleDockPinned } = useDockSettings();
+  // 钉住的 Dock 不再浮动：忽略拖拽偏移，卡片固定在轨道旁的分栏内。
+  const pinned = isDockPinned(id);
+  const pinnedCardWidth = PINNABLE_DOCKS.find((dock) => dock.id === id)?.width;
   const persistDockPosition = (next: DockPosition) => {
     persistenceRef.current = persistenceRef.current
       .catch(() => undefined)
@@ -152,7 +156,7 @@ export function DockFrame({
   }, [id]);
 
   useEffect(() => {
-    if (collapsed || !dockSettingsLoaded || !dockSettings.autoCollapseOnOutsideClick) return;
+    if (collapsed || pinned || !dockSettingsLoaded || !dockSettings.autoCollapseOnOutsideClick) return;
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
@@ -166,7 +170,7 @@ export function DockFrame({
 
     document.addEventListener("pointerdown", handlePointerDown, true);
     return () => document.removeEventListener("pointerdown", handlePointerDown, true);
-  }, [collapsed, dockSettings.autoCollapseOnOutsideClick, dockSettingsLoaded, onToggle]);
+  }, [collapsed, pinned, dockSettings.autoCollapseOnOutsideClick, dockSettingsLoaded, onToggle]);
 
   useEffect(() => {
     if (collapsed || !positionReady) return;
@@ -224,7 +228,7 @@ export function DockFrame({
   }, [dragging, id]);
 
   const handleDragPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
-    if (!positionReady || event.button !== 0 || (event.target instanceof Element && event.target.closest("button, input, select, textarea, a, [contenteditable=\"true\"]"))) return;
+    if (pinned || !positionReady || event.button !== 0 || (event.target instanceof Element && event.target.closest("button, input, select, textarea, a, [contenteditable=\"true\"]"))) return;
     const card = cardRef.current;
     if (!card) return;
     event.preventDefault();
@@ -251,12 +255,16 @@ export function DockFrame({
     "--dock-position-x": `${position.x}px`,
     "--dock-position-y": `${position.y}px`,
   } as CSSProperties;
+  const frameStyle = pinned && pinnedCardWidth
+    ? ({ ...positionStyle, "--pin-card-width": `${pinnedCardWidth}px` } as CSSProperties)
+    : positionStyle;
 
   return (
     <aside
       ref={frameRef}
-      className={joinClasses("dock-frame", `dock-frame-${side}`, className, stateClass)}
+      className={joinClasses("dock-frame", `dock-frame-${side}`, className, stateClass, pinned ? "pinned" : undefined)}
       data-dock-id={id}
+      style={frameStyle}
       aria-label={label}
       aria-live="polite"
     >
@@ -293,14 +301,26 @@ export function DockFrame({
             <div className={joinClasses("dock-frame-header-actions", headerActionsClassName)}>
               {total !== undefined && <span className={joinClasses("dock-frame-total", totalClassName)}>{total}</span>}
               <button
-                className="dock-frame-reset"
+                className={joinClasses("dock-frame-pin", pinned ? "active" : undefined)}
                 type="button"
-                onClick={handleResetPosition}
-                aria-label="还原面板位置"
-                title="还原面板位置"
+                onClick={() => toggleDockPinned(id)}
+                aria-pressed={pinned}
+                aria-label={pinned ? `取消钉住${label}` : `钉住${label}`}
+                title={pinned ? "取消钉住：恢复浮动卡片" : "钉住：固定为不遮挡对话的分栏"}
               >
-                <span aria-hidden="true">↺</span>
+                <span aria-hidden="true">📌</span>
               </button>
+              {!pinned && (
+                <button
+                  className="dock-frame-reset"
+                  type="button"
+                  onClick={handleResetPosition}
+                  aria-label="还原面板位置"
+                  title="还原面板位置"
+                >
+                  <span aria-hidden="true">↺</span>
+                </button>
+              )}
               <button
                 className={joinClasses("dock-frame-toggle", toggleClassName)}
                 type="button"

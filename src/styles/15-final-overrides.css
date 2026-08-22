@@ -1250,3 +1250,14 @@
 .about-link-list b { flex: 0 0 auto; color: var(--accent-deep); font-size: 16px; font-weight: 400; }
 .about-link-row code { flex: 0 0 auto; color: var(--muted); font: 9px/1.4 var(--mono); }
 @media (max-width: 640px) { .about-identity { grid-template-columns: 52px minmax(0, 1fr); gap: 12px; padding: 13px; } .about-mark { width: 52px; height: 52px; font-size: 28px; } .about-update-card { align-items: flex-start; flex-direction: column; } .about-update-actions { justify-content: flex-start; } }
+
+/* 钉住的 Dock 以固定分栏占位：对话面板按 --pin-reserve-* 让位。
+   App 会把"已钉住且展开的分栏宽度之和 + 未钉住 Todo 的既有让位值"写入这两个变量，
+   并在任一侧非零时挂上 pin-padded 类；本规则与上方 todo-visible 让位规则同特异性，
+   但加载顺序靠后，从而由钉住逻辑统一接管桌面端内边距。 */
+@media (min-width: 761px) {
+  .workspace-layout.pin-padded > .conversation-panel {
+    padding-left: var(--pin-reserve-left, 0px);
+    padding-right: var(--pin-reserve-right, 0px);
+  }
+}

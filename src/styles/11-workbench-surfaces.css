@@ -77,7 +77,8 @@
 .dock-frame-header-actions { display: flex; align-items: center; gap: 8px; }
 .dock-frame-total { color: var(--accent-deep); font-family: var(--mono); font-size: 13px; font-weight: 700; white-space: nowrap; }
 .dock-frame-toggle,
-.dock-frame-reset {
+.dock-frame-reset,
+.dock-frame-pin {
   width: 30px;
   height: 30px;
   display: grid;
@@ -90,8 +91,23 @@
   cursor: pointer;
 }
 .dock-frame-toggle { font-size: 18px; }
+.dock-frame-pin { font-size: 13px; }
+.dock-frame-pin.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent-deep);
+}
 .dock-frame-toggle:hover,
-.dock-frame-reset:hover { border-color: var(--accent); color: var(--accent-deep); }
+.dock-frame-reset:hover,
+.dock-frame-pin:hover { border-color: var(--accent); color: var(--accent-deep); }
+
+/* 钉住模式：卡片放弃浮动偏移，固定为轨道旁的稳定分栏；宽度由 DockFrame 注入。 */
+.dock-frame.pinned .dock-frame-card {
+  transform: none;
+  width: var(--pin-card-width, var(--dock-width));
+  max-height: min(80svh, 760px);
+}
+.dock-frame.pinned .dock-frame-header { cursor: default; }
 .dock-frame-body { min-height: 0; flex: 1 1 auto; display: flex; flex-direction: column; overflow: hidden; background: var(--surface-raised); }
 
 /* UtilityDockShelf owns canonical right-side order. */

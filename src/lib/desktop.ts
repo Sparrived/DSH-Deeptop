@@ -25,6 +25,8 @@ export interface DockPosition {
 
 export interface DockSettings {
   autoCollapseOnOutsideClick: boolean;
+  /** 钉住的 Dock id → true；由 dock-pin 模块负责归一化与让位计算。 */
+  pinned: Record<string, boolean>;
 }
 
 export interface DshProcessInfo {
@@ -610,9 +612,12 @@ export async function resetDockPosition(id: string): Promise<void> {
 }
 
 export async function getDockSettings(): Promise<DockSettings> {
-  if (!isTauri()) return { autoCollapseOnOutsideClick: false };
+  if (!isTauri()) return { autoCollapseOnOutsideClick: false, pinned: {} };
   const settings = await invoke<Partial<DockSettings>>("get_dock_settings");
-  return { autoCollapseOnOutsideClick: settings.autoCollapseOnOutsideClick === true };
+  return {
+    autoCollapseOnOutsideClick: settings.autoCollapseOnOutsideClick === true,
+    pinned: settings.pinned && typeof settings.pinned === "object" ? settings.pinned : {},
+  };
 }
 
 export async function setDockSettings(settings: DockSettings): Promise<DockSettings> {
