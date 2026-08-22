@@ -766,6 +766,7 @@ textarea:focus-visible {
   border-left: 3px solid transparent;
   border-right: 3px solid color-mix(in srgb, var(--session-status-color, var(--rail-muted)) 42%, transparent);
   border-radius: var(--radius-control);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .2);
   transition: background 120ms ease, box-shadow 120ms ease, opacity 120ms ease, outline-color 120ms ease;
 }
 
@@ -964,11 +965,13 @@ textarea:focus-visible {
   top: 0;
   right: -3px;
   bottom: 0;
-  width: 3px;
-  border-radius: var(--radius-control);
+  width: calc(var(--radius-control) + 3px);
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
   background-image: linear-gradient(180deg, transparent 6%, color-mix(in srgb, var(--session-status-color) 32%, white) 42%, #fff 52%, color-mix(in srgb, var(--session-status-color) 32%, white) 62%, transparent 94%);
   background-repeat: no-repeat;
   background-size: 100% 46%;
+  -webkit-mask-image: linear-gradient(90deg, transparent calc(100% - 3px), #000 calc(100% - 3px));
+  mask-image: linear-gradient(90deg, transparent calc(100% - 3px), #000 calc(100% - 3px));
   content: "";
   pointer-events: none;
   animation:
@@ -987,12 +990,14 @@ textarea:focus-visible {
   to { background-position-y: -110%; }
 }
 
+/* Glow via drop-shadow so it follows the masked silhouette (the arc-ended
+   border strip) instead of a rectangular box. */
 @keyframes session-status-light-glow {
   0%, 100% {
-    box-shadow: 0 0 6px color-mix(in srgb, var(--session-status-color, var(--rail-muted)) 30%, transparent);
+    filter: drop-shadow(0 0 1px color-mix(in srgb, var(--session-status-color, var(--rail-muted)) 45%, transparent));
   }
   50% {
-    box-shadow: 0 0 15px color-mix(in srgb, var(--session-status-color, var(--rail-muted)) 80%, transparent);
+    filter: drop-shadow(0 0 6px color-mix(in srgb, var(--session-status-color, var(--rail-muted)) 90%, transparent));
   }
 }
 
