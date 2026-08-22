@@ -292,7 +292,6 @@ textarea:focus-visible {
 }
 
 .session-row.active {
-  border-left-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 15%, var(--rail));
 }
 

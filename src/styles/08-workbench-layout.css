@@ -812,7 +812,6 @@ textarea:focus-visible {
 }
 
 .session-row.active {
-  border-left-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 13%, var(--rail));
 }
 
@@ -838,7 +837,6 @@ textarea:focus-visible {
   z-index: 190;
   margin: 0;
   border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--line-strong));
-  border-left: 3px solid var(--accent);
   background: color-mix(in srgb, var(--rail) 94%, var(--accent));
   box-shadow: 0 14px 30px rgba(20, 28, 42, .25), 0 2px 8px rgba(20, 28, 42, .16);
   opacity: .96;
@@ -898,6 +896,8 @@ textarea:focus-visible {
   transform: translateY(-1px);
 }
 
+/* Right status edge: always visible; selection tints it with the theme
+   accent, while running sessions play a light effect on the same edge. */
 .session-row::after,
 .archived-session-row::after {
   position: absolute;
@@ -918,6 +918,10 @@ textarea:focus-visible {
   --session-status-color: var(--rail-muted);
 }
 
+.session-row.session-status-idle.active {
+  --session-status-color: var(--accent);
+}
+
 .session-row.session-status-running,
 .session-row.session-status-pending,
 .archived-session-row.session-status-running {
@@ -932,10 +936,30 @@ textarea:focus-visible {
   --session-status-color: var(--danger);
 }
 
-.session-row.session-status-running::after,
-.session-row.session-status-pending::after {
+.session-row.session-drag-ghost {
+  --session-status-color: var(--accent);
+}
+
+.session-row.session-status-idle.active::after {
   opacity: 1;
-  animation: session-status-pulse 1.6s ease-in-out infinite;
+}
+
+.session-row.session-status-running::after,
+.session-row.session-status-pending::after,
+.archived-session-row.session-status-running::after {
+  opacity: 1;
+  background-image: linear-gradient(180deg, transparent 6%, color-mix(in srgb, var(--session-status-color) 32%, white) 42%, #fff 52%, color-mix(in srgb, var(--session-status-color) 32%, white) 62%, transparent 94%);
+  background-repeat: no-repeat;
+  background-size: 100% 46%;
+  animation:
+    session-status-light-flow 1.7s linear infinite,
+    session-status-light-glow 2.4s ease-in-out infinite;
+}
+
+.session-row.session-status-pending::after {
+  animation:
+    session-status-light-flow 1.9s ease-in-out infinite alternate,
+    session-status-light-glow 1.9s ease-in-out infinite;
 }
 
 .session-row.session-status-completed::after {
@@ -947,20 +971,36 @@ textarea:focus-visible {
   animation: session-status-error 1.2s ease-in-out 2;
 }
 
-@keyframes session-status-pulse {
+.session-row.session-drag-ghost::after {
+  opacity: 1;
+}
+
+@keyframes session-status-light-flow {
+  from { background-position-y: 210%; }
+  to { background-position-y: -110%; }
+}
+
+@keyframes session-status-light-glow {
   0%, 100% {
-    opacity: .55;
-    transform: scaleY(.7);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--session-status-color, var(--rail-muted)) 30%, transparent);
   }
   50% {
-    opacity: 1;
-    transform: scaleY(1);
+    box-shadow: 0 0 15px color-mix(in srgb, var(--session-status-color, var(--rail-muted)) 80%, transparent);
   }
 }
 
 @keyframes session-status-error {
   0%, 100% { opacity: .72; }
   50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-row.session-status-running::after,
+  .session-row.session-status-pending::after,
+  .archived-session-row.session-status-running::after {
+    animation: none;
+    background-image: none;
+  }
 }
 
 .session-row-copy {

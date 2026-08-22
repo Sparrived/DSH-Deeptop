@@ -596,7 +596,6 @@
 .confirm-dialog p { margin: 10px 0 16px; color: var(--muted); font-size: 11px; line-height: 1.55; }
 
 .session-row.active {
-  border-left-color: var(--accent);
   background: #3d423b;
 }
 
