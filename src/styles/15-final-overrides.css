@@ -1273,6 +1273,13 @@
     grid-template-columns: var(--sidebar-width, 320px) var(--pin-left-width, 0px) minmax(0, 1fr) var(--pin-right-width, 0px);
   }
 
+  /* 收起的分栏层是 display:none，不占网格轨道；若依赖自动布局，
+     对话面板会被顺移进宽度为 0 的左分栏轨道而消失。这里显式锁定列位。 */
+  .workspace-layout > .session-sidebar { grid-column: 1; }
+  .workspace-layout > .pin-layer-left { grid-column: 2; }
+  .workspace-layout > .conversation-panel { grid-column: 3; }
+  .workspace-layout > .pin-layer-right { grid-column: 4; }
+
   .pin-layer.active {
     display: flex;
     flex-direction: column;
