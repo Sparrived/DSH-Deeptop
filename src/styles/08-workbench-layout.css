@@ -897,15 +897,17 @@ textarea:focus-visible {
 }
 
 /* Right status edge: always visible; selection tints it with the theme
-   accent, while running sessions play a light effect on the same edge. */
+   accent, while running sessions play a light effect on the same edge.
+   Geometry mirrors the former left border: full row height, flush to
+   the edge, following the row radius. */
 .session-row::after,
 .archived-session-row::after {
   position: absolute;
-  top: 7px;
+  top: 0;
   right: 0;
-  bottom: 7px;
+  bottom: 0;
   width: 3px;
-  border-radius: 3px 0 0 3px;
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
   background: var(--session-status-color, var(--rail-muted));
   box-shadow: 0 0 12px color-mix(in srgb, var(--session-status-color, var(--rail-muted)) 24%, transparent);
   content: "";
