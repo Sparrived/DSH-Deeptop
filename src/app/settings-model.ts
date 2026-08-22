@@ -23,6 +23,10 @@ export function errorText(error: unknown) {
         MESSAGE_IMAGE_BYTES_TOO_LARGE: "本条消息的图片总大小超过当前部署限制",
         "reference-unavailable": "引用服务当前不可用",
         "session-not-found": "目标会话不存在或已关闭",
+        "request-timeout": "DSH 请求超时，请重试",
+        "bridge-timeout": "DSH 响应超时，请重试",
+        "bridge-unavailable": "DSH 运行时未就绪或已退出，请等待恢复或重启 Deeptop",
+        "bridge-disconnected": "DSH 响应通道已断开，请重启 Deeptop",
       };
       const label = (reason ? labels[reason] : undefined) ?? (typeof code === "string" ? labels[code] : undefined);
       if (label) return `${label}（${error.message}）`;

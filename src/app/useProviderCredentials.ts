@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import {
-  bridgeRequest,
   type DshCredential,
   type DshProvider,
   type DshSettingsDescription,
   type DshSettingsNamespace,
 } from "../lib/desktop";
+import { desktopRequest } from "../lib/desktop-api";
 import { credentialRefForProvider, errorText, providerApiKeyEnvOp, providerProfile } from "./settings-model";
 
 type UseProviderCredentialsOptions = {
@@ -35,7 +35,7 @@ export function useProviderCredentials({ desktop, settings, providers, onNotice,
       return;
     }
     let stale = false;
-    void bridgeRequest<{ credentials: Record<string, DshCredential> }>("credentials.describe", { refs })
+    void desktopRequest("credentials.describe", { refs })
       .then((result) => { if (!stale) setCredentials(result.credentials); })
       .catch(() => undefined);
     return () => { stale = true; };
@@ -49,7 +49,7 @@ export function useProviderCredentials({ desktop, settings, providers, onNotice,
     const op = providerApiKeyEnvOp(provider.settingsPath, providerProfile(provider, namespace), ref);
     if (!op || !namespace || !settings?.writable) return;
     try {
-      await bridgeRequest("settings.mutate", {
+      await desktopRequest("settings.mutate", {
         ns: provider.settingsNs,
         ops: [op],
         expectedRevision: namespace.revision,
@@ -77,12 +77,12 @@ export function useProviderCredentials({ desktop, settings, providers, onNotice,
     setCredentialBusy(provider.provider);
     try {
       if (value) {
-        await bridgeRequest("credentials.set", { ref, value });
+        await desktopRequest("credentials.set", { ref, value });
         setCredentials((current) => ({ ...current, [ref]: { ...(current[ref] ?? { writable: true }), configured: true } }));
         await persistApiKeyEnv(provider, namespace, ref);
         onNotice("Provider 密钥已更新");
       } else {
-        await bridgeRequest("credentials.unset", { ref });
+        await desktopRequest("credentials.unset", { ref });
         setCredentials((current) => ({ ...current, [ref]: { ...(current[ref] ?? { writable: true }), configured: false, source: undefined } }));
         onNotice("Provider 密钥已清除");
       }

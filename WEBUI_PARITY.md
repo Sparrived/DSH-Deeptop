@@ -90,6 +90,7 @@
 - [x] 可持久化右栏 Dock：队列、终端（原生 PTY）、子 Agent 书签与 Git 提交图谱。
 - [x] 每消息统计条（TTFT/Decode 速度）与 Token/上下文仪表盘，`sessionStats` 完整字段接入（turns/steps/llmMs/toolMs/ttft/decode）。
 - [x] 消息内路径/连接识别卡片、Diff 统计卡片与文件看板；当前会话权限弹窗与新会话默认权限。
+- [x] 官方 Remote 契约统一登记（`bridge-contracts` + `desktopRequest` 类型推断），桥错误帧带 `code/details` 并统一还原；`desktop.capabilities` 能力探测与前端降级（引用/命令/注记/ZIP 导出），通用 Projection 缓存（会话隔离 + seq 水位叠加），DSH 断线重连（`waitForReconnect`）与前端超时（`timeoutMs`）。
 - [x] 明确未推进，保留为缺口：Plan chip/Review、Subagent 递归树、Provider/插件 Schema 表单、数学公式/附件画廊、i18n 本地化、`ui-theme` 双向同步、ZIP 原生流传输。
 
 ## 后续顺序

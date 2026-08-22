@@ -25,6 +25,7 @@ import {
   updateSessionRunning,
   type SessionIndicator,
 } from "./session-runtime-state";
+import { sessionProjectionCache } from "./projection-cache";
 import type {
   PendingApproval,
   PendingQuestion,
@@ -208,6 +209,17 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
     const sessionId = String(payload.sessionId ?? "");
     const key = String(payload.key ?? "");
     const projectionKey = key.replace(/[\s_-]+/g, "").toLocaleLowerCase();
+    // 通用投影缓存：所有会话（不只当前活动会话）的最新投影都登记，
+    // 切换会话时由 App 端按 seq 水位叠加，避免“切换前到达但历史尚未折叠”
+    // 的投影丢失，也保证其它会话的投影不会污染当前 UI。
+    if (sessionId && key) {
+      const seq = typeof payload.seq === "number" && Number.isFinite(payload.seq)
+        ? payload.seq
+        : typeof payload.seq === "string" && Number.isFinite(Number(payload.seq))
+          ? Number(payload.seq)
+          : 0;
+      sessionProjectionCache.put(sessionId, key, payload.value, seq);
+    }
     if (sessionId === activeSessionRef.current && (projectionKey === "contextpressure" || projectionKey === "tokenusage" || projectionKey === "usage" || projectionKey === "tokens")) {
       const projection = recordValue(payload.value);
       if (projectionKey === "contextpressure" && projection) {
@@ -444,6 +456,7 @@ function routeHostEvent(event: DshBridgeEvent, context: BridgeEventHandlerContex
   }
   if (type === "host/session-removed") {
     const sessionId = String(payload.sessionId ?? "");
+    sessionProjectionCache.removeSession(sessionId);
     setSessions((current) => current.filter((session) => session.sessionId !== sessionId));
     setSubagents((current) => current ? { ...current, entries: current.entries.filter((entry) => entry.id !== sessionId) } : current);
     if (sessionId === selectedSubagentRef.current) {

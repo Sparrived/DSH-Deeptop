@@ -86,10 +86,10 @@ ask_user_question、todo_write、web 搜索/抓取、workflow、plan 与 compact
 
 ### P0：协议和功能完整性
 
-- [ ] 增加官方 Remote 能力的统一契约登记，减少每个功能在 `App.tsx` 中手写结果类型和错误处理。
-- [~] 补齐 Remote 调用的取消、超时和断线重连语义：取消（AbortSignal）已在 Bridge/Remote 链路和长任务（导出）中透传，DSH 重启有终止旧进程与恢复流程；超时与断线重连的统一语义仍未完整覆盖。
-- [~] 增加通用 Projection 缓存和 Session 切换隔离测试：现有 `session-runtime-state`、`message-retry` 与 `session-repair` 测试已覆盖 DSH 重启后的 stale 状态清理、切换保护和并发写入；通用 Projection 缓存仍未建立。
-- [~] 增加官方插件存在/缺失时的能力探测：路由对缺失服务返回 `*-unavailable` 错误码并让 React 侧降级；统一、可查询的能力探测 API 未提供。
+- [x] 增加官方 Remote 能力的统一契约登记，减少每个功能在 `App.tsx` 中手写结果类型和错误处理：`bridge-contracts.ts` 登记每个方法的载荷/返回值形状和依赖能力键，`desktop-api.ts` 的 `desktopRequest`/`desktopRemoteInvoke` 按登记推断类型，`App.tsx` 与 Provider 钩子的调用点已全部迁移；桥错误帧带 `code/details`，前端统一还原为 `DshApiError` 并在 `errorText` 集中映射。
+- [x] 补齐 Remote 调用的取消、超时和断线重连语义：取消（AbortSignal）继续在 Bridge/Remote 链路透传；超时新增前端 `timeoutMs`（`request-timeout`）与 Rust 侧类型化 `bridge-timeout`；断线重连由 `bridge-link`（`waitForBridgeAvailable` + `waitForReconnect` 一次性重试）统一覆盖，DSH 重启仍有终止旧进程与恢复流程。
+- [x] 增加通用 Projection 缓存和 Session 切换隔离测试：`projection-cache.ts` 按会话隔离保存最新投影（seq 水位最新优先、LRU 淘汰、会话移除清理），`openSession` 在历史折叠水位之上叠加缓存补齐；`projection-cache`、`bridge-link-model`、`capability-model`、`bridge-contracts` 均有针对性测试，与既有 `session-runtime-state`、`message-retry`、`session-repair` 测试共同覆盖切换保护与并发写入。
+- [x] 增加官方插件存在/缺失时的能力探测：`desktop.capabilities` 探测各 Host 服务并返回能力表；前端 `queryHostCapabilities` + `capability-model` 把探测结果映射为功能开关（未探测前不降级），引用候选、命令目录、消息注记、ZIP 导出在缺失时按能力提示降级；路由继续对缺失服务返回 `*-unavailable` 错误码。
 - [x] 消息重试：复用官方 `session.fork({ sessionId, atSeq })` 创建已完成回合前缀分支，再从持久化用户提示词重发；首条消息使用当前会话配置创建空白分支。当前 Bridge/上游 Session API 仍不直接暴露原地 truncate/retryFrom，因此原会话保留为可恢复分支，并对切换会话、重复点击和历史图片恢复做了保护。
 
 ### P1：已有官方能力的原生体验补齐
