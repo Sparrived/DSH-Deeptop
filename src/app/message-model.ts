@@ -437,6 +437,10 @@ export function contextProvenance(source: unknown): { role: "inject" | "recall";
   if (kind === "agent-instructions") return { role: "inject", label: sourceListLabel(source, "changes", "path") ?? kind };
   if (kind === "plugin") return { role: "inject", label: sourceLabel(record?.plugin) ?? kind };
   if (kind === "skill-invocation") return { role: "inject", label: sourceLabel(record?.name) ?? kind };
+  if (kind === "skill-catalog") {
+    const entries = record?.entries;
+    return { role: "inject", label: Array.isArray(entries) ? `技能目录（${entries.length} 项）` : "技能目录" };
+  }
   return { role: "inject", label: kind };
 }
 
@@ -525,6 +529,9 @@ export function diffSummaryFromHistoryEntry(entry: DshHistoryEntry): DiffSummary
     recordValue(view?.view)?.diffs,
     data.diffs,
     data.changes,
+    // tool-fs write/edit persist applied hunks on the result meta; the paired
+    // view can be absent once history pagination soft-falls to event data.
+    recordValue(data.meta)?.diffs,
     result?.diffs,
     result?.changes,
   ];

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { contentSegments, formatTokens } from "./message-model.ts";
+import { contextProvenance, diffSummaryFromHistoryEntry, contentSegments, formatTokens } from "./message-model.ts";
 
 test("keeps durable image references for conversation rendering", () => {
   assert.deepEqual(contentSegments([
@@ -28,4 +28,32 @@ test("formats large token counts with readable K/M/B units", () => {
   assert.equal(formatTokens(999_999), "1M");
   assert.equal(formatTokens(-1_250_000), "-1.25M");
   assert.equal(formatTokens(2_000_000_000), "2B");
+});
+
+test("labels skill catalog context rows with the published entry count", () => {
+  assert.deepEqual(contextProvenance({ kind: "skill-catalog", form: "catalog", entries: [{ name: "a" }, { name: "b" }] }), {
+    role: "inject",
+    label: "技能目录（2 项）",
+  });
+  assert.deepEqual(contextProvenance({ kind: "skill-catalog", form: "catalog" }), {
+    role: "inject",
+    label: "技能目录",
+  });
+});
+
+test("recovers write diffs from the persisted result meta when the view is absent", () => {
+  const entry = {
+    event: {
+      type: "tool/result",
+      data: {
+        meta: { diffs: [{ path: "src/a.ts", oldText: null, newText: "const a = 1;\n" }] },
+      },
+    },
+  };
+  assert.deepEqual(diffSummaryFromHistoryEntry(entry), {
+    diffs: [{ path: "src/a.ts", oldText: null, newText: "const a = 1;\n" }],
+    added: 1,
+    removed: 0,
+    files: 1,
+  });
 });
