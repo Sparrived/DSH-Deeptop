@@ -2,6 +2,7 @@
 name = "deeptop"
 version = "0.1.4-dev.6"
 description = "Native desktop client for DeepSeek Harness"
+license = "MIT"
 authors = ["Deeptop"]
 edition = "2021"
 
