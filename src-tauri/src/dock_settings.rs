@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf};
+use std::{collections::HashMap, fs, path::PathBuf};
 use tauri::{AppHandle, Manager};
+
+use super::dock_position::valid_id;
 
 const SETTINGS_FILE: &str = "dock-settings.json";
 
@@ -9,6 +11,17 @@ const SETTINGS_FILE: &str = "dock-settings.json";
 pub struct DockSettings {
     #[serde(default)]
     pub auto_collapse_on_outside_click: bool,
+    /// 钉住的 Dock id 集合；只保留通过 id 校验的条目。
+    #[serde(default)]
+    pub pinned: HashMap<String, bool>,
+}
+
+/// 丢弃非法键并压缩掉 false 值，保证配置文件里的 pinned 始终是精简的 true 映射。
+pub(crate) fn sanitize_pinned(pinned: HashMap<String, bool>) -> HashMap<String, bool> {
+    pinned
+        .into_iter()
+        .filter(|(id, pinned)| *pinned && valid_id(id).is_ok())
+        .collect()
 }
 
 fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -71,25 +84,57 @@ pub fn get(app: AppHandle) -> Result<DockSettings, String> {
 }
 
 pub fn set(app: AppHandle, settings: DockSettings) -> Result<DockSettings, String> {
+    let settings = DockSettings {
+        pinned: sanitize_pinned(settings.pinned),
+        ..settings
+    };
     save(&app, &settings)?;
     Ok(settings)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::DockSettings;
+    use std::collections::HashMap;
+
+    use super::{sanitize_pinned, DockSettings};
 
     #[test]
-    fn defaults_to_disabled_outside_click_collapse() {
-        assert!(!DockSettings::default().auto_collapse_on_outside_click);
+    fn defaults_to_disabled_outside_click_collapse_and_no_pins() {
+        let settings = DockSettings::default();
+        assert!(!settings.auto_collapse_on_outside_click);
+        assert!(settings.pinned.is_empty());
     }
 
     #[test]
     fn serializes_a_stable_desktop_protocol() {
+        let mut pinned = HashMap::new();
+        pinned.insert("todo-dock".to_string(), true);
         let value = serde_json::to_value(DockSettings {
             auto_collapse_on_outside_click: true,
+            pinned,
         })
         .unwrap();
         assert_eq!(value["autoCollapseOnOutsideClick"], true);
+        assert_eq!(value["pinned"]["todo-dock"], true);
+    }
+
+    #[test]
+    fn deserializes_legacy_settings_without_pins() {
+        let settings: DockSettings =
+            serde_json::from_str("{\"autoCollapseOnOutsideClick\":true}").unwrap();
+        assert!(settings.auto_collapse_on_outside_click);
+        assert!(settings.pinned.is_empty());
+    }
+
+    #[test]
+    fn sanitizes_pinned_entries() {
+        let mut pinned = HashMap::new();
+        pinned.insert("todo-dock".to_string(), true);
+        pinned.insert("bad id".to_string(), true);
+        pinned.insert("".to_string(), true);
+        pinned.insert("git-dock".to_string(), false);
+        let sanitized = sanitize_pinned(pinned);
+        assert_eq!(sanitized.len(), 1);
+        assert!(sanitized.contains_key("todo-dock"));
     }
 }
