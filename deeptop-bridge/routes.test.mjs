@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { constants, zstdCompressSync, zstdDecompressSync } from 'node:zlib'
 import { routeDesktopRequest } from './routes.mjs'
+import { bridgeErrorFrame } from './bridge.mjs'
 import { describePluginConfig, mutatePluginConfig } from './plugin-config.mjs'
 import { parseGitHubSource, validateRelativeRepoPath } from './skill-installer.mjs'
 import { reconstructContiguous, rowSeqs, scanZstdFrames, verifyReadable } from './session-repair.mjs'
@@ -82,6 +83,63 @@ test('routes an allowlisted API method with a generated RPC id', async () => {
 
   assert.match(result.rpcId, /^[0-9a-f-]{36}$/)
   assert.deepEqual(result.payload, { cwd: 'D:/repo' })
+})
+
+test('probes official Host capabilities without failing when services are missing', async () => {
+  const agent = { id: 'session-target' }
+  const ctx = {
+    apiProxy: {
+      sessions: { list: async () => [] },
+      workspace: { list: async () => [] },
+      subagents: { list: async () => [] },
+      skills: { list: async () => [] },
+      agentPresets: { list: async () => [] },
+      goals: { create: async () => ({}) },
+      settings: { describe: async () => ({}) },
+      credentials: { describe: async () => ({}) },
+      llm: { providers: async () => [] },
+      downloads: { sessionLog: async () => ({ ok: true }) },
+    },
+    get: key => key === 'agents' ? { get: () => agent }
+      : key === 'workspaceRegistry' ? { get: () => ({}) }
+      : key === 'fileReferences' ? { list: async () => [] }
+      : key === 'sessionReferenceResolver' ? { remoteExportCandidates: async () => [] }
+      : key === 'messageAnnotations' ? { list: async () => [], put: async () => ({}), delete: async () => ({}) }
+      : key === 'typertGateway' ? { invoke: async () => ({}) }
+      : undefined,
+    pluginInventory: { list: async () => ({ entries: [] }) },
+  }
+
+  const result = await routeDesktopRequest(ctx, 'desktop.capabilities', {}, signal)
+  assert.equal(typeof result.probedAt, 'number')
+  assert.deepEqual(result.services, {
+    sessions: true,
+    workspace: true,
+    references: true,
+    annotations: true,
+    subagents: true,
+    skills: true,
+    agentPresets: true,
+    goals: true,
+    settings: true,
+    credentials: true,
+    llm: true,
+    plugins: true,
+    sessionExport: true,
+    commands: true,
+  })
+})
+
+test('keeps typed error codes in the bridge error frame and plain text otherwise', () => {
+  const structured = new Error('file reference service is unavailable')
+  structured.code = 'reference-unavailable'
+  structured.details = { capability: 'references' }
+  assert.deepEqual(bridgeErrorFrame(structured), {
+    code: 'reference-unavailable',
+    message: 'file reference service is unavailable',
+    details: { capability: 'references' },
+  })
+  assert.equal(bridgeErrorFrame(new Error('plain failure')), 'plain failure')
 })
 
 test('forwards an explicit session preset migration through the official fork API', async () => {

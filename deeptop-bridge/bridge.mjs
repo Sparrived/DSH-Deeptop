@@ -12,6 +12,19 @@ function errorMessage(error) {
   return error instanceof Error ? error.message : String(error)
 }
 
+// Keep structured bridge errors (code/details) intact across the process
+// boundary so the frontend can degrade by error code instead of message
+// matching. Errors without a code stay plain strings for backward compatibility.
+export function bridgeErrorFrame(error) {
+  const code = error instanceof Error && typeof error.code === 'string' && error.code.trim() ? error.code : undefined
+  if (code === undefined) return errorMessage(error)
+  return {
+    code,
+    message: errorMessage(error),
+    ...(error.details === undefined ? {} : { details: error.details }),
+  }
+}
+
 // Stack traces are forwarded as diagnostics (not as the user-facing error) so
 // developers can troubleshoot failed desktop requests from the log viewer.
 function errorDetail(error) {
@@ -67,7 +80,7 @@ export class DesktopBridge {
       )
       this.write({ type: 'response', id: request.id, response })
     } catch (error) {
-      this.write({ type: 'response', id: request.id, error: errorMessage(error) })
+      this.write({ type: 'response', id: request.id, error: bridgeErrorFrame(error) })
       this.write({
         type: 'diagnostic',
         level: 'error',

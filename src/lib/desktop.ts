@@ -375,6 +375,37 @@ export interface DshPluginConfigMutation extends DshPluginConfigDescription {
   restartRequired: boolean;
 }
 
+/**
+ * 官方 Host 能力键。与 `bridge-contracts` 中每个方法声明的 `requires`
+ * 一一对应，`desktop.capabilities` 探测结果按此键查询。
+ */
+export type DshCapabilityKey =
+  | "sessions"
+  | "workspace"
+  | "references"
+  | "annotations"
+  | "subagents"
+  | "skills"
+  | "agentPresets"
+  | "goals"
+  | "settings"
+  | "credentials"
+  | "llm"
+  | "plugins"
+  | "sessionExport"
+  | "commands";
+
+/** `desktop.capabilities` 的探测结果：每个官方能力键是否已在 Host 中就绪。 */
+export interface DshHostCapabilities {
+  probedAt: number;
+  services: Record<DshCapabilityKey, boolean>;
+}
+
+/** 查询桌面桥可提供的官方能力（插件缺失时相应键为 false，由前端降级）。 */
+export async function queryHostCapabilities(): Promise<DshHostCapabilities> {
+  return bridgeRequest<DshHostCapabilities>("desktop.capabilities");
+}
+
 export interface DshBridgeEvent {
   type: "event";
   channel: "mux" | "host";
@@ -668,23 +699,98 @@ export class DshApiError extends Error {
   }
 }
 
-export async function bridgeRequest<T>(method: string, payload: Record<string, unknown> = {}, signal?: AbortSignal): Promise<T> {
+/** 前端侧超时错误（调用方限定单次请求时长后触发）。 */
+export class DshRequestTimeoutError extends Error {
+  readonly code = "request-timeout";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "DshRequestTimeoutError";
+  }
+}
+
+export interface BridgeRequestOptions {
+  /** 单次桥请求的前端超时（毫秒）。超时抛出 code=`request-timeout` 的错误；
+   * 不填时不设前端超时，由 Rust 侧全局 BRIDGE_TIMEOUT（45s）兜底。 */
+  timeoutMs?: number;
+}
+
+/**
+ * 把 Tauri invoke 的拒绝原因还原为带错误码的错误。
+ * 本端桥协议的错误帧为 `{ code, message, details? }` 的 JSON 字符串
+ * （见 deeptop-bridge/bridge.mjs 与 src-tauri 的桥转发），旧格式仍按纯文本处理。
+ */
+function decodeBridgeError(reason: unknown): Error {
+  if (reason instanceof Error) return reason;
+  const text = typeof reason === "string" ? reason : String(reason ?? "");
+  if (text.startsWith("{")) {
+    try {
+      const parsed: unknown = JSON.parse(text);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const record = parsed as { code?: unknown; message?: unknown; details?: unknown };
+        if (typeof record.message === "string" && typeof record.code === "string") {
+          return new DshApiError({
+            code: record.code,
+            message: record.message,
+            ...(record.details === undefined ? {} : { details: record.details }),
+          });
+        }
+      }
+    } catch {
+      // 不是结构化错误帧时按普通文本处理。
+    }
+  }
+  if (text.includes("等待 DSH 响应超时")) {
+    return new DshApiError({ code: "bridge-timeout", message: text });
+  }
+  return new Error(text || "DSH 请求失败");
+}
+
+async function invokeBridge<T>(method: string, payload: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
   if (!isTauri()) {
     throw new Error("Deeptop bridge 只在桌面端可用");
   }
   if (signal?.aborted) throw signal.reason ?? new DOMException("请求已取消", "AbortError");
-  const request = invoke<DshRpcResponse<T> | T>("bridge_request", { method, payload });
-  const response = signal
-    ? await Promise.race([request, new Promise<never>((_, reject) => {
-      signal.addEventListener("abort", () => reject(signal.reason ?? new DOMException("请求已取消", "AbortError")), { once: true });
-    })])
-    : await request;
-  if (!response || typeof response !== "object") return response as T;
-  if (!("result" in response)) return response as T;
-  const rpcResponse = response as DshRpcResponse<T>;
-  if (!rpcResponse.result) throw new Error("DSH 返回了空响应");
-  if (!rpcResponse.result.ok) throw new DshApiError(rpcResponse.result.error);
-  return rpcResponse.result.value;
+  try {
+    const request = invoke<DshRpcResponse<T> | T>("bridge_request", { method, payload });
+    const response = signal
+      ? await Promise.race([request, new Promise<never>((_, reject) => {
+        signal.addEventListener("abort", () => reject(signal.reason ?? new DOMException("请求已取消", "AbortError")), { once: true });
+      })])
+      : await request;
+    if (!response || typeof response !== "object") return response as T;
+    if (!("result" in response)) return response as T;
+    const rpcResponse = response as DshRpcResponse<T>;
+    if (!rpcResponse.result) throw new Error("DSH 返回了空响应");
+    if (!rpcResponse.result.ok) throw new DshApiError(rpcResponse.result.error);
+    return rpcResponse.result.value;
+  } catch (error) {
+    throw decodeBridgeError(error);
+  }
+}
+
+export async function bridgeRequest<T>(
+  method: string,
+  payload: Record<string, unknown> = {},
+  signal?: AbortSignal,
+  options?: BridgeRequestOptions,
+): Promise<T> {
+  const timeoutMs = options?.timeoutMs;
+  if (timeoutMs === undefined) return invokeBridge<T>(method, payload, signal);
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort(new DshRequestTimeoutError(`DSH 请求超时（${timeoutMs}ms）：${method}`));
+  }, timeoutMs);
+  const linkExternalSignal = () => {
+    if (signal?.aborted) controller.abort(signal.reason ?? new DOMException("请求已取消", "AbortError"));
+    else signal?.addEventListener("abort", () => controller.abort(signal.reason ?? new DOMException("请求已取消", "AbortError")), { once: true });
+  };
+  linkExternalSignal();
+  try {
+    return await invokeBridge<T>(method, payload, controller.signal);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export interface DshSessionRepairResult {

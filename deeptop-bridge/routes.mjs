@@ -545,6 +545,30 @@ async function hostModels(ctx, request) {
   return enrichModelCatalog(ctx, await ctx.apiProxy.llm.models(request), false)
 }
 
+/** Probe which official Host capabilities are mounted in the current profile. */
+function probeDesktopCapabilities(ctx) {
+  const api = ctx.apiProxy
+  const get = typeof ctx.get === 'function' ? ctx.get : () => undefined
+  const has = (value, method) => value !== undefined && (method === undefined || typeof value[method] === 'function')
+  const services = {
+    sessions: has(api?.sessions) && (get('sessions') !== undefined || get('agents') !== undefined),
+    workspace: has(api?.workspace) && has(get('workspaceRegistry'), 'get'),
+    references: has(get('fileReferences'), 'list') && has(get('sessionReferenceResolver'), 'remoteExportCandidates'),
+    annotations: has(get('messageAnnotations'), 'list'),
+    subagents: has(api?.subagents),
+    skills: has(api?.skills),
+    agentPresets: has(api?.agentPresets),
+    goals: has(api?.goals),
+    settings: has(api?.settings),
+    credentials: has(api?.credentials),
+    llm: has(api?.llm) || has(ctx.llm, 'resolveModelInfo'),
+    plugins: has(ctx.pluginInventory, 'list'),
+    sessionExport: has(api?.downloads, 'sessionLog'),
+    commands: has(get('typertGateway'), 'invoke'),
+  }
+  return { probedAt: Date.now(), services }
+}
+
 export async function routeDesktopRequest(ctx, method, payload, signal) {
   const api = ctx.apiProxy
   const request = { rpcId: randomUUID(), payload }
@@ -613,6 +637,7 @@ export async function routeDesktopRequest(ctx, method, payload, signal) {
     case 'llm.models': return hostModels(ctx, request)
     case 'llm.discoverModels': return api.llm.discoverModels(request, signal)
     case 'remote.invoke': return invokeRemote(ctx, payload, signal)
+    case 'desktop.capabilities': return probeDesktopCapabilities(ctx)
     case 'plugin.list': return filterInventory(await ctx.pluginInventory.list())
     case 'plugin.config.describe': return describePluginConfig(ctx)
     case 'plugin.config.mutate': return mutatePluginConfig(ctx, payload)
