@@ -30,7 +30,7 @@ export function TerminalDock({ workspace, collapsed, onToggle, onError }: Termin
   const [exited, setExited] = useState(false);
   const [terminalReady, setTerminalReady] = useState(false);
   const [listenerReady, setListenerReady] = useState(false);
-  const terminalHostRef = useRef<HTMLDivElement | null>(null);
+  const [terminalHostElement, setTerminalHostElement] = useState<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const sessionRef = useRef<string | null>(null);
@@ -76,7 +76,7 @@ export function TerminalDock({ workspace, collapsed, onToggle, onError }: Termin
   }, []);
 
   useEffect(() => {
-    const host = terminalHostRef.current;
+    const host = terminalHostElement;
     if (!host) return;
 
     const terminal = new Terminal({
@@ -152,7 +152,7 @@ export function TerminalDock({ workspace, collapsed, onToggle, onError }: Termin
       fitAddonRef.current = null;
       setTerminalReady(false);
     };
-  }, []);
+  }, [terminalHostElement]);
 
   useEffect(() => {
     if (!isTauri()) {
@@ -318,7 +318,7 @@ export function TerminalDock({ workspace, collapsed, onToggle, onError }: Termin
         </div>
         <span className="terminal-panel-path" title={workspace}>{workspace || "未选择工作目录"}</span>
       </div>
-      <div ref={terminalHostRef} className="terminal-panel-terminal" aria-label="原生终端窗口" />
+      <div ref={setTerminalHostElement} className="terminal-panel-terminal" aria-label="原生终端窗口" />
       {!workspace && <p className="terminal-panel-empty">选择工作区后，终端会直接显示在 Dock 内。</p>}
       {workspace && terminals.length === 0 && !loading && <p className="terminal-panel-empty">未检测到可内嵌 shell，请安装 bash、zsh 或 PowerShell。</p>}
       {workspace && exited && <p className="terminal-panel-empty">终端会话已结束，点击右上角 ↻ 重新启动。</p>}
