@@ -44,7 +44,6 @@ export function StartupSplash({
   const screenStyle = { "--startup-phase": `"${phase}"` } as CSSProperties;
   return (
     <main className={`startup-screen startup-phase-${phase}`} style={screenStyle} role="status" aria-live="polite">
-      <div className="startup-atmosphere" aria-hidden="true"><span /><span /><span /></div>
       <header
         className="window-bar startup-window-bar"
         onMouseDown={onDrag}
@@ -58,14 +57,13 @@ export function StartupSplash({
       </header>
       <section className="startup-content" aria-label="DeepSeek Harness 启动画面">
         <div className="startup-rule" />
-        <div className="startup-heading-row">
-          <p className="startup-kicker">{phaseLabel}</p>
-          <span className="startup-phase-chip"><i />{failed ? "ATTENTION" : "LIVE"}</span>
-        </div>
-        <h1>{phaseTitle}</h1>
+        <p className="startup-kicker">{phaseLabel}</p>
+        <h1>
+          {phaseTitle}
+          <span className="startup-cursor" aria-hidden="true" />
+        </h1>
         <p className="startup-message">{phaseDescription}</p>
         <div className="startup-progress" aria-label="启动进度" role="progressbar"><i /></div>
-        <div className="startup-signal" aria-hidden="true"><span /><span /><span /><span /><span /><span /><span /><span /></div>
         <div className="startup-status-list" aria-label="启动过程">
           {statusDetails.map((item) => (
             <div className={`startup-status-item ${item.active ? "active" : ""}`} key={item.label}>
