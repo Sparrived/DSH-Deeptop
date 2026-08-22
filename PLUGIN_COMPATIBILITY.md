@@ -116,7 +116,7 @@ ask_user_question、todo_write、web 搜索/抓取、workflow、plan 与 compact
 - [ ] 数学公式、附件画廊、Lightbox 和更完整的媒体预览。
 - [ ] Host `ui-theme` 与本地主题双向同步。
 - [ ] 中英文资源和语言切换。
-- [ ] 在不引入 WebUI slot 系统的前提下，继续完善原生设置与 Dock 布局：为 DockFrame 提供可选钉住模式，使展开面板获得不遮挡对话流的固定分栏；设置与诊断保持模态 Inspector 入口。
+- [x] 在不引入 WebUI slot 系统的前提下，完善原生设置与 Dock 布局：DockFrame 提供钉住模式（`dock-settings` 持久化），展开面板可固定为不遮挡对话流的分栏；设置与诊断保持模态 Inspector 入口。
 
 ## 明确不安排的工作
 
