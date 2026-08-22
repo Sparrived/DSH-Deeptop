@@ -1,6 +1,7 @@
 # Experimental Agent Teams is opt-in and is never part of Deeptop's default preset.
-# The two private RC8 packages are shipped in the runtime but are loaded only by
-# this explicit preset; the model-facing tool is scoped to the Team Lead realm.
+# The two private experimental packages are shipped in the runtime but are
+# loaded only by this explicit preset; the model-facing tool is scoped to the
+# Team Lead realm.
 - id: agent-teams
   name: cordis:group
   group: true
