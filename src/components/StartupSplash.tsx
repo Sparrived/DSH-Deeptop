@@ -28,8 +28,7 @@ export function StartupSplash({
 }: StartupSplashProps) {
   const failed = !status.runtimeStarting && !status.runtimeAvailable;
   const phase = failed ? "error" : status.runtimeStarting ? "start" : "check";
-  const phaseLabel = failed ? "RUNTIME UNAVAILABLE" : status.runtimeStarting ? "STARTING DEEPSEEK HARNESS" : "CHECKING DEEPSEEK HARNESS";
-  const phaseTitle = failed ? "DeepSeek Harness 暂时无法启动" : status.runtimeStarting ? "正在启动DeepSeek Harness" : "正在检查 DeepSeek Harness";
+  const phaseTitle = failed ? "DeepSeek Harness 暂时无法启动" : status.runtimeStarting ? "正在启动 DeepSeek Harness" : "正在检查 DeepSeek Harness";
   const phaseDescription = status.message || (failed ? "启动过程被中断，请检查环境后重试。" : "正在等待 DeepSeek Harness 桌面宿主就绪...");
   const logViewportRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -64,11 +63,13 @@ export function StartupSplash({
       </header>
       <section className="startup-content" aria-label="DeepSeek Harness 启动画面">
         <div className="startup-rule" />
-        <p className="startup-kicker">{phaseLabel}</p>
-        <h1>
+        <div className="empty-mark" role="img" aria-label="Deeptop">
+          <span className="empty-mark-text" aria-hidden="true">Deeptop</span>
+        </div>
+        <p className="startup-phase-line">
           {phaseTitle}
           <span className="startup-cursor" aria-hidden="true" />
-        </h1>
+        </p>
         <p className="startup-message">{phaseDescription}</p>
         <div className="startup-progress" aria-label="启动进度" role="progressbar"><i /></div>
         <div className="startup-readout" aria-label="启动环境">

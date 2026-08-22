@@ -26,23 +26,17 @@
   background: linear-gradient(90deg, rgba(111, 239, 193, 0.55), rgba(111, 239, 193, 0.08) 58%, transparent);
 }
 
-.startup-kicker {
-  margin: 0 0 11px;
-  color: rgba(179, 220, 210, 0.76);
-  font-size: 10px;
-  letter-spacing: 0.16em;
+.startup-content .empty-mark {
+  margin-bottom: 4px;
 }
 
-.startup-phase-error .startup-kicker { color: #f0a39d; }
-
-.startup-content h1 {
-  max-width: 620px;
-  color: #f2fbf8;
-  font-size: clamp(32px, 5vw, 54px);
-  font-weight: 620;
-  letter-spacing: -0.04em;
-  line-height: 1.04;
+.startup-phase-line {
+  margin: 14px 0 0;
+  color: rgba(190, 211, 207, 0.76);
+  font-size: 13px;
 }
+
+.startup-phase-error .startup-phase-line { color: #f0a39d; }
 
 .startup-cursor {
   display: inline-block;
@@ -58,7 +52,7 @@
 .startup-message {
   max-width: 540px;
   min-height: 24px;
-  margin: 17px 0 24px;
+  margin: 9px 0 24px;
   color: rgba(190, 211, 207, 0.76);
   font-size: 14px;
   line-height: 1.55;
@@ -180,7 +174,6 @@
 
 @media (max-width: 760px) {
   .startup-content { width: calc(100% - 32px); padding: 16px 0; }
-  .startup-content h1 { font-size: clamp(30px, 11vw, 44px); }
   .startup-message { font-size: 13px; }
   .startup-readout-row { grid-template-columns: 92px minmax(0, 1fr); gap: 10px; }
   .startup-log-panel.has-logs .startup-log-viewport { height: 106px; }
