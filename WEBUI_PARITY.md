@@ -3,8 +3,8 @@
 ## 基线
 
 - 对比对象：官方 `deepseek-ai/deepseek-harness` WebUI。
-- 对比版本：`a95eedc6034c323ece64536609174645c235f124`（`dsh-v0.1.0-rc.8`，基于官方 `dsh-v0.1.0-rc.8` 并保留 Deeptop 的 preset fork 补丁）。
-- 运行时版本：`@deepseek-ai/dsh@0.1.0-rc.8`，由 `vendor/dsh` 子模块源码构建。
+- 对比版本：`5434a0dfacb9b9028648e662fc21711bfec705be`（`dsh-v0.1.1-rc.1`，基于官方 `dsh-v0.1.1-rc.1` 并保留 Deeptop 的 preset fork 迁移与 pi-ai 思考 tokens 补丁）。
+- 运行时版本：`@deepseek-ai/dsh@0.1.1-rc.1`，由 `vendor/dsh` 子模块源码构建。
 - 定位：Deeptop 是纯桌面端运行框架；WebUI 仅作为领域能力和契约参考，不把纯 WebUI Client runtime、界面和生命周期列为桌面兼容目标。
 - 原则：复用现有 DSH ApiProxy、Host/Cordis 插件、Remote、Projection 和事件契约；只有桌面传输和原生 UI 边界做必要适配。
 

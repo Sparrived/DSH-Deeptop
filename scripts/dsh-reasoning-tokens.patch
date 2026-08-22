@@ -1,0 +1,63 @@
+diff --git a/packages/llm/llm-pi-ai/src/stream.ts b/packages/llm/llm-pi-ai/src/stream.ts
+index d45df45a39..51fac8f7b9 100644
+--- a/packages/llm/llm-pi-ai/src/stream.ts
++++ b/packages/llm/llm-pi-ai/src/stream.ts
+@@ -15,9 +15,10 @@ import type { AssistantMessage, AssistantMessageEvent, Usage as PiUsage } from '
+ import { toPiReplayState } from './replay.ts'
+ 
+ /**
+- * Map pi-ai usage (reasoning folded into output by pi-ai).
++ * Map pi-ai usage to harness counts. pi-ai folds reasoning into output and
++ * reports the reasoning share separately when the provider exposed it.
+  * @param usage - cumulative usage from the terminal pi-ai event.
+- * @returns harness counts; cache fields appear only when non-zero (pi-ai reports zeros, not absence).
++ * @returns harness counts; cache and reasoning fields appear only when non-zero (pi-ai reports zeros, not absence).
+  */
+ export function mapUsage(usage: PiUsage): TokenUsage {
+   return {
+@@ -25,6 +26,7 @@ export function mapUsage(usage: PiUsage): TokenUsage {
+     outputTokens: usage.output,
+     ...usage.cacheRead > 0 ? { cacheReadTokens: usage.cacheRead } : {},
+     ...usage.cacheWrite > 0 ? { cacheWriteTokens: usage.cacheWrite } : {},
++    ...usage.reasoning !== undefined && usage.reasoning > 0 ? { reasoningTokens: usage.reasoning } : {},
+   }
+ }
+ 
+diff --git a/packages/llm/llm-pi-ai/tests/convert.spec.ts b/packages/llm/llm-pi-ai/tests/convert.spec.ts
+index 2a3b41b0c4..4057e873e3 100644
+--- a/packages/llm/llm-pi-ai/tests/convert.spec.ts
++++ b/packages/llm/llm-pi-ai/tests/convert.spec.ts
+@@ -8,12 +8,13 @@ import { toPiContext } from '../src/context.ts'
+ import { toPiReplayState } from '../src/replay.ts'
+ import { mapStopReason, mapUsage, toStreamChunks } from '../src/stream.ts'
+ 
+-function usage(input = 0, output = 0, cacheRead = 0, cacheWrite = 0): Usage {
++function usage(input = 0, output = 0, cacheRead = 0, cacheWrite = 0, reasoning?: number): Usage {
+   return {
+     input,
+     output,
+     cacheRead,
+     cacheWrite,
++    ...reasoning !== undefined ? { reasoning } : {},
+     totalTokens: input + output + cacheRead + cacheWrite,
+     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+   }
+@@ -841,14 +842,16 @@ describe('mapStopReason / mapUsage', () => {
+     })
+   })
+ 
+-  it('maps cache fields only when nonzero', () => {
+-    expect(mapUsage(usage(10, 5, 8, 2))).toEqual({
++  it('maps cache and reasoning fields only when nonzero', () => {
++    expect(mapUsage(usage(10, 5, 8, 2, 4))).toEqual({
+       inputTokens: 10,
+       outputTokens: 5,
+       cacheReadTokens: 8,
+       cacheWriteTokens: 2,
++      reasoningTokens: 4,
+     })
+     expect(mapUsage(usage(10, 5))).toEqual({ inputTokens: 10, outputTokens: 5 })
++    expect(mapUsage(usage(10, 5, 0, 0, 0))).toEqual({ inputTokens: 10, outputTokens: 5 })
+   })
+ })
+ 
