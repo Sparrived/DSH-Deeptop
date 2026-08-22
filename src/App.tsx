@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { type UnlistenFn } from "@tauri-apps/api/event";
 import { StartupSplash } from "./components/StartupSplash";
 import { ConversationTranscript } from "./components/ConversationTranscript";
@@ -29,8 +29,8 @@ import { GoalSurfacePanel, type GoalAction } from "./components/GoalSurfacePanel
 import { UtilityDockShelf } from "./components/UtilityDockShelf";
 import { WindowChrome } from "./components/WindowChrome";
 import { DockSettingsProvider, useDockSettings } from "./app/dock-settings";
-import { computePinLayerWidths } from "./app/dock-pin";
-import { DockPinLayersProvider, type DockPinLayerElements } from "./components/DockPinLayers";
+import { clampPinLayerWidth, computePinLayerWidths, PIN_LAYER_MAX_WIDTH, PIN_LAYER_MIN_WIDTH, resolvePinLayerWidths, type PinLayerWidths } from "./app/dock-pin";
+import { DockPinLayersProvider, type DockPinLayerElements, type DockPinLayerSide } from "./components/DockPinLayers";
 import { PopupDialog } from "./components/PopupDialog";
 import { PluginInstallDialog, type PluginInstallDraft } from "./components/PluginInstallDialog";
 import { useProviderSettings } from "./app/useProviderSettings";
@@ -1210,6 +1210,71 @@ function AppContent() {
     "deliverables-dock": deliverablesVisible && !deliverablesCollapsed,
   };
   const pinLayerWidths = computePinLayerWidths({ pinned: pinnedDocks, expandedById: dockExpandedById });
+  const customPinColumnWidths = dockSettings.columnWidths;
+  const resolvedPinLayerWidths = resolvePinLayerWidths({ computed: pinLayerWidths, custom: customPinColumnWidths });
+  // 分栏宽度拖拽：拖拽期间用本地实时宽度渲染，松手后才持久化到 Dock 设置。
+  const [pinLayerResize, setPinLayerResize] = useState<{ side: DockPinLayerSide; startX: number; startWidth: number; base: PinLayerWidths } | null>(null);
+  const [pinLayerResizeWidths, setPinLayerResizeWidths] = useState<PinLayerWidths | null>(null);
+  const effectivePinLayerWidths = pinLayerResizeWidths ?? resolvedPinLayerWidths;
+  const beginPinLayerResize = useCallback((event: ReactPointerEvent<HTMLDivElement>, side: DockPinLayerSide) => {
+    event.preventDefault();
+    setPinLayerResize({
+      side,
+      startX: event.clientX,
+      startWidth: side === "left" ? effectivePinLayerWidths.left : effectivePinLayerWidths.right,
+      base: effectivePinLayerWidths,
+    });
+    setPinLayerResizeWidths(effectivePinLayerWidths);
+    document.body.classList.add("pin-layer-resizing");
+  }, [effectivePinLayerWidths]);
+  const resetPinLayerWidth = useCallback((side: DockPinLayerSide) => {
+    void updateDockSettings({
+      columnWidths: {
+        left: side === "left" ? undefined : (customPinColumnWidths?.left ?? undefined),
+        right: side === "right" ? undefined : (customPinColumnWidths?.right ?? undefined),
+      },
+    }).catch(() => undefined);
+  }, [customPinColumnWidths, updateDockSettings]);
+  useEffect(() => {
+    if (!pinLayerResize) return;
+    const resizeWidthFor = (clientX: number): { side: DockPinLayerSide; width: number } => {
+      const delta = clientX - pinLayerResize.startX;
+      const raw = pinLayerResize.side === "left" ? pinLayerResize.startWidth + delta : pinLayerResize.startWidth - delta;
+      return { side: pinLayerResize.side, width: clampPinLayerWidth(raw) ?? pinLayerResize.startWidth };
+    };
+    const handlePointerMove = (event: globalThis.PointerEvent) => {
+      setPinLayerResizeWidths((current) => {
+        if (!current) return current;
+        const { side, width } = resizeWidthFor(event.clientX);
+        return { ...current, [side]: width };
+      });
+    };
+    const settle = (persisted: boolean, clientX?: number) => {
+      document.body.classList.remove("pin-layer-resizing");
+      setPinLayerResize(null);
+      setPinLayerResizeWidths(null);
+      if (!persisted || clientX === undefined) return;
+      const { side, width } = resizeWidthFor(clientX);
+      void updateDockSettings({
+        columnWidths: {
+          left: side === "left" ? width : (customPinColumnWidths?.left ?? undefined),
+          right: side === "right" ? width : (customPinColumnWidths?.right ?? undefined),
+        },
+      }).catch(() => undefined);
+    };
+    const handlePointerUp = (event: globalThis.PointerEvent) => settle(true, event.clientX);
+    const handleAbort = () => settle(false);
+    document.addEventListener("pointermove", handlePointerMove);
+    document.addEventListener("pointerup", handlePointerUp);
+    document.addEventListener("pointercancel", handleAbort);
+    window.addEventListener("blur", handleAbort);
+    return () => {
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", handlePointerUp);
+      document.removeEventListener("pointercancel", handleAbort);
+      window.removeEventListener("blur", handleAbort);
+    };
+  }, [pinLayerResize, customPinColumnWidths, updateDockSettings]);
   const [pinLayerElements, setPinLayerElements] = useState<DockPinLayerElements>({ left: null, right: null });
   // ref 回调必须保持稳定标识：内联箭头函数每次渲染都是新引用，React 每次提交都会
   // detach(null)/attach(element) 并触发 setState，形成无限更新循环（React #185，
@@ -3866,7 +3931,7 @@ function AppContent() {
       />
 
       <DockPinLayersProvider value={pinLayerElements}>
-      <div className={`workspace-layout ${todoVisible ? "todo-visible" : ""} ${todoVisible && todoCollapsed ? "todo-collapsed" : ""} ${activeJobs.length > 0 ? "tasks-visible" : ""} ${activeJobs.length > 0 && jobsCollapsed ? "tasks-collapsed" : ""} ${deliverablesVisible ? "deliverables-visible" : ""} ${deliverablesVisible && deliverablesCollapsed ? "deliverables-collapsed" : ""}`} style={{ "--sidebar-width": `${sidebarWidth}px`, "--pin-left-width": `${pinLayerWidths.left}px`, "--pin-right-width": `${pinLayerWidths.right}px` } as CSSProperties}>
+      <div className={`workspace-layout ${todoVisible ? "todo-visible" : ""} ${todoVisible && todoCollapsed ? "todo-collapsed" : ""} ${activeJobs.length > 0 ? "tasks-visible" : ""} ${activeJobs.length > 0 && jobsCollapsed ? "tasks-collapsed" : ""} ${deliverablesVisible ? "deliverables-visible" : ""} ${deliverablesVisible && deliverablesCollapsed ? "deliverables-collapsed" : ""}`} style={{ "--sidebar-width": `${sidebarWidth}px`, "--pin-left-width": `${effectivePinLayerWidths.left}px`, "--pin-right-width": `${effectivePinLayerWidths.right}px` } as CSSProperties}>
         <SessionSidebar
           search={search}
           onSearchChange={setSearch}
@@ -3924,7 +3989,21 @@ function AppContent() {
           }}
         />
 
-        <div className={`pin-layer pin-layer-left${pinLayerWidths.left > 0 ? " active" : ""}`} ref={registerLeftPinLayer} aria-hidden={!pinLayerWidths.left} />
+        <div className={`pin-layer pin-layer-left${pinLayerWidths.left > 0 ? " active" : ""}`} ref={registerLeftPinLayer} aria-hidden={!pinLayerWidths.left}>
+          {pinLayerWidths.left > 0 && (
+            <div
+              className="pin-layer-resizer"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整左分栏宽度"
+              aria-valuemin={PIN_LAYER_MIN_WIDTH}
+              aria-valuemax={PIN_LAYER_MAX_WIDTH}
+              aria-valuenow={effectivePinLayerWidths.left}
+              onPointerDown={(event) => beginPinLayerResize(event, "left")}
+              onDoubleClick={() => resetPinLayerWidth("left")}
+            />
+          )}
+        </div>
 
         <section className="conversation-panel">
           <ConversationHeader
@@ -4159,7 +4238,21 @@ function AppContent() {
           />
            </section>
 
-        <div className={`pin-layer pin-layer-right${pinLayerWidths.right > 0 ? " active" : ""}`} ref={registerRightPinLayer} aria-hidden={!pinLayerWidths.right} />
+        <div className={`pin-layer pin-layer-right${pinLayerWidths.right > 0 ? " active" : ""}`} ref={registerRightPinLayer} aria-hidden={!pinLayerWidths.right}>
+          {pinLayerWidths.right > 0 && (
+            <div
+              className="pin-layer-resizer"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整右分栏宽度"
+              aria-valuemin={PIN_LAYER_MIN_WIDTH}
+              aria-valuemax={PIN_LAYER_MAX_WIDTH}
+              aria-valuenow={effectivePinLayerWidths.right}
+              onPointerDown={(event) => beginPinLayerResize(event, "right")}
+              onDoubleClick={() => resetPinLayerWidth("right")}
+            />
+          )}
+        </div>
       </div>
       </DockPinLayersProvider>
 

@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  PIN_LAYER_MAX_WIDTH,
+  PIN_LAYER_MIN_WIDTH,
   PINNABLE_DOCKS,
+  clampPinLayerWidth,
   computePinLayerWidths,
   isDockPinned,
   isValidDockId,
   normalizePinnedDocks,
+  resolvePinLayerWidths,
   withDockPinned,
 } from "./dock-pin.ts";
 
@@ -71,4 +75,45 @@ test("unpinned expanded docks are ignored", () => {
     expandedById: { "git-dock": true, "todo-dock": true },
   });
   assert.deepEqual(widths, { left: 0, right: 0 });
+});
+
+test("clamps custom layer widths into the allowed range", () => {
+  assert.equal(clampPinLayerWidth(420), 420);
+  assert.equal(clampPinLayerWidth(10), PIN_LAYER_MIN_WIDTH);
+  assert.equal(clampPinLayerWidth(99_999), PIN_LAYER_MAX_WIDTH);
+  assert.equal(clampPinLayerWidth(480.6), 481);
+  assert.equal(clampPinLayerWidth("300"), null);
+  assert.equal(clampPinLayerWidth(Number.NaN), null);
+  assert.equal(clampPinLayerWidth(undefined), null);
+});
+
+test("custom widths only apply to active sides and fall back to defaults", () => {
+  const computed = computePinLayerWidths({
+    pinned: { "git-dock": true, "todo-dock": true },
+    expandedById: { "git-dock": true, "todo-dock": true },
+  });
+  assert.deepEqual(computed, { left: 600, right: 286 });
+  // 拖拽后的自定义宽度覆盖默认求和。
+  assert.deepEqual(
+    resolvePinLayerWidths({ computed, custom: { left: 360 } }),
+    { left: 360, right: 286 },
+  );
+  // 该侧没有激活分栏时忽略自定义宽度，避免空层占位。
+  const inactiveLeft = computePinLayerWidths({
+    pinned: { "todo-dock": true },
+    expandedById: { "todo-dock": true },
+  });
+  assert.deepEqual(
+    resolvePinLayerWidths({ computed: inactiveLeft, custom: { left: 360 } }),
+    { left: 0, right: 286 },
+  );
+  // 缺失或越界的自定义值回退到默认宽度。
+  assert.deepEqual(
+    resolvePinLayerWidths({ computed, custom: {} }),
+    { left: 600, right: 286 },
+  );
+  assert.deepEqual(
+    resolvePinLayerWidths({ computed, custom: { left: 1_000_000, right: -5 } }),
+    { left: PIN_LAYER_MAX_WIDTH, right: PIN_LAYER_MIN_WIDTH },
+  );
 });

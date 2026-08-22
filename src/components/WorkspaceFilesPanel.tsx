@@ -464,7 +464,6 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError, o
       title="文件"
       kicker="工作区"
       icon="▤"
-      total={rootEntries?.length ?? 0}
       toggleGlyph="‹"
       onToggle={onToggle}
       railClassName="workspace-files-rail"

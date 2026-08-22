@@ -89,3 +89,39 @@ export function computePinLayerWidths({ pinned, expandedById }: PinLayerWidthsIn
   }
   return { left, right };
 }
+
+/** 钉住分栏层允许的宽度范围；与 Rust 端 dock_settings 的夹取范围保持一致。 */
+export const PIN_LAYER_MIN_WIDTH = 220;
+export const PIN_LAYER_MAX_WIDTH = 800;
+
+export type PinLayerCustomWidths = {
+  left?: number | null;
+  right?: number | null;
+};
+
+/** 把任意输入夹取为合法的分栏宽度；无法解释时返回 null。 */
+export function clampPinLayerWidth(px: unknown): number | null {
+  if (typeof px !== "number" || !Number.isFinite(px)) return null;
+  const width = Math.round(px);
+  if (width < PIN_LAYER_MIN_WIDTH) return PIN_LAYER_MIN_WIDTH;
+  if (width > PIN_LAYER_MAX_WIDTH) return PIN_LAYER_MAX_WIDTH;
+  return width;
+}
+
+/**
+ * 合成最终分栏宽度：仅当该侧存在激活的分栏时，才应用用户拖拽出的自定义
+ * 宽度（夹取后）；否则回退到按 Dock 求和的默认值。
+ */
+export function resolvePinLayerWidths({
+  computed,
+  custom,
+}: {
+  computed: PinLayerWidths;
+  custom?: PinLayerCustomWidths | null;
+}): PinLayerWidths {
+  const resolveSide = (side: DockPinSide): number => {
+    if (computed[side] <= 0) return 0;
+    return clampPinLayerWidth(custom?.[side]) ?? computed[side];
+  };
+  return { left: resolveSide("left"), right: resolveSide("right") };
+}

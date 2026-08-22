@@ -1252,7 +1252,8 @@
 @media (max-width: 640px) { .about-identity { grid-template-columns: 52px minmax(0, 1fr); gap: 12px; padding: 13px; } .about-mark { width: 52px; height: 52px; font-size: 28px; } .about-update-card { align-items: flex-start; flex-direction: column; } .about-update-actions { justify-content: flex-start; } }
 
 /* 两层头部：主题化头部壳统一收窄为壳级内边距，行内间距交给 titlebar/toolbar 基础样式。
-   用复合选择器提高特异性，保证覆盖各 dock 文件里的原始 padding。 */
+   用复合选择器提高特异性，同时压过各 dock 文件里遗留的单行布局
+   （display:flex 行向 / space-between / 大内边距），保证标题行+工具条两层结构。 */
 .dock-frame-header.todo-panel-header,
 .dock-frame-header.task-panel-header,
 .dock-frame-header.deliverables-panel-header,
@@ -1260,12 +1261,17 @@
 .dock-frame-header.workspace-files-header,
 .dock-frame-header.terminal-panel-header,
 .dock-frame-header.subagent-dock-header {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0;
   padding: 6px 6px 2px;
 }
 
 /* 钉住的 Dock：portal 进 workspace-layout 的流内分栏层，成为真实网格列。
    桌面宽度下模板扩为 侧栏 | 左分栏 | 对话 | 右分栏；层未激活时宽度为 0。
-   分栏宽度由 App 写入 --pin-left-width/--pin-right-width（纯模型 dock-pin 计算）。 */
+   分栏宽度由 App 写入 --pin-left-width/--pin-right-width（纯模型 dock-pin 计算），
+   拖拽分栏内缘的手柄可调整并持久化。 */
 .pin-layer { display: none; min-width: 0; min-height: 0; }
 
 @media (min-width: 761px) {
@@ -1282,10 +1288,36 @@
 
   .pin-layer.active {
     display: flex;
+    position: relative;
     flex-direction: column;
     gap: var(--right-surface-gap, 12px);
     padding: 10px 12px;
     overflow: hidden;
+  }
+
+  /* 分栏内缘的宽度拖拽手柄：骑在层与对话列的分界上。 */
+  .pin-layer.active > .pin-layer-resizer {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 8px;
+    z-index: 30;
+    cursor: col-resize;
+    touch-action: none;
+  }
+  .pin-layer-left.active > .pin-layer-resizer { right: -4px; }
+  .pin-layer-right.active > .pin-layer-resizer { left: -4px; }
+  .pin-layer.active > .pin-layer-resizer::after,
+  body.pin-layer-resizing .pin-layer.active > .pin-layer-resizer::after {
+    position: absolute;
+    inset: 0 3px;
+    border-radius: 3px;
+    background: transparent;
+    content: "";
+  }
+  .pin-layer.active > .pin-layer-resizer:hover::after,
+  body.pin-layer-resizing .pin-layer.active > .pin-layer-resizer::after {
+    background: var(--accent);
   }
 
   /* 分栏内的卡片铺满整列高度；同侧多个钉住卡片纵向均分。 */
@@ -1298,4 +1330,10 @@
     flex: 1 1 0;
     min-height: 220px;
   }
+}
+
+body.pin-layer-resizing,
+body.pin-layer-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }

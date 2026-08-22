@@ -286,7 +286,7 @@ export function TerminalDock({ workspace, collapsed, onToggle, onError }: Termin
       title="终端"
       kicker="当前工作区"
       icon="›_"
-      total={sessionId ? "运行中" : terminals.length > 0 ? `${terminals.length} 个` : undefined}
+      total={sessionId ? "运行中" : terminals.length > 0 ? `${terminals.length} 个终端` : undefined}
       toggleGlyph="‹"
       onToggle={onToggle}
       railClassName="terminal-panel-rail"

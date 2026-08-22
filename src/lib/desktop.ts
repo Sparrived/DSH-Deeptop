@@ -27,6 +27,11 @@ export interface DockSettings {
   autoCollapseOnOutsideClick: boolean;
   /** 钉住的 Dock id → true；由 dock-pin 模块负责归一化与让位计算。 */
   pinned: Record<string, boolean>;
+  /** 用户拖拽调整后的钉住分栏层宽度（px）；缺失的侧使用默认宽度。 */
+  columnWidths?: {
+    left?: number | null;
+    right?: number | null;
+  };
 }
 
 export interface DshProcessInfo {
@@ -617,6 +622,7 @@ export async function getDockSettings(): Promise<DockSettings> {
   return {
     autoCollapseOnOutsideClick: settings.autoCollapseOnOutsideClick === true,
     pinned: settings.pinned && typeof settings.pinned === "object" ? settings.pinned : {},
+    columnWidths: settings.columnWidths && typeof settings.columnWidths === "object" ? settings.columnWidths : {},
   };
 }
 
