@@ -1185,10 +1185,14 @@
 /* Running indicator: one quiet customization surface for copy, color, and motion. */
 .agent-working { color: var(--working-indicator-color, var(--accent)); background: none; -webkit-text-fill-color: currentColor; background-clip: initial; animation: none; }
 .agent-working > span { display: inline-block; color: var(--working-indicator-color, var(--accent)); }
-.agent-working.effect-shimmer > span { color: transparent; background: linear-gradient(100deg, var(--working-indicator-color, var(--accent)) 35%, color-mix(in srgb, var(--working-indicator-color, var(--accent)) 35%, white) 50%, var(--working-indicator-color, var(--accent)) 65%); background-size: 220% 100%; background-position: 100% 50%; background-clip: text; -webkit-background-clip: text; animation: dsh-custom-indicator-shimmer 2.4s ease-in-out infinite; }
-.agent-working.effect-pulse > span { animation: dsh-custom-indicator-pulse 1.6s ease-in-out infinite; }
-.agent-working.effect-glow > span { text-shadow: 0 0 10px color-mix(in srgb, var(--working-indicator-color, var(--accent)) 70%, transparent); }
+.agent-working.effect-shimmer > span,
+.working-indicator-preview > .effect-shimmer { color: transparent; background: linear-gradient(100deg, var(--working-indicator-color, var(--accent)) 35%, color-mix(in srgb, var(--working-indicator-color, var(--accent)) 35%, white) 50%, var(--working-indicator-color, var(--accent)) 65%); background-size: 220% 100%; background-position: 100% 50%; background-clip: text; -webkit-background-clip: text; animation: dsh-custom-indicator-shimmer 2.4s ease-in-out infinite; }
+.agent-working.effect-pulse > span,
+.working-indicator-preview > .effect-pulse { animation: dsh-custom-indicator-pulse 1.6s ease-in-out infinite; }
+.agent-working.effect-glow > span,
+.working-indicator-preview > .effect-glow { text-shadow: 0 0 10px color-mix(in srgb, var(--working-indicator-color, var(--accent)) 70%, transparent); }
 .working-indicator-preview { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 13px 14px; border: 1px solid var(--line); background: var(--surface-soft); color: var(--working-indicator-color, var(--accent)); font-size: 14px; }
+.working-indicator-preview > span { display: inline-block; min-width: 0; overflow-wrap: anywhere; }
 .working-indicator-preview small { color: var(--ink-faint); font-size: 11px; }
 .appearance-custom-field textarea { min-height: 88px; resize: vertical; }
 .appearance-color-control { display: inline-flex; align-items: center; gap: 8px; }
@@ -1199,7 +1203,7 @@
   50% { background-position: 0% 50%; }
 }
 @keyframes dsh-custom-indicator-pulse { 0%, 100% { opacity: .48; } 50% { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .agent-working.effect-shimmer > span, .agent-working.effect-pulse > span { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .agent-working.effect-shimmer > span, .working-indicator-preview > .effect-shimmer, .agent-working.effect-pulse > span, .working-indicator-preview > .effect-pulse { animation: none; } }
 
 /* About surface: use the project's quiet workbench language, with one strong D-mark. */
 .settings-about-page { gap: 20px; }
