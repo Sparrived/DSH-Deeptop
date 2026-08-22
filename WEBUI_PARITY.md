@@ -38,7 +38,7 @@
 - [x] Workspace/Session 树：工作区分组、折叠、平铺模式、排序、拖拽重排。
 - [x] 工作区管理：选择、创建、重命名、删除、归档、会话移动和目录浏览器。
 - [x] 会话搜索：防抖全文搜索、摘要片段、Host 排序和 Host 限定的结果上限。
-- [~] 可调整布局：侧栏拖拽和宽度持久化、可持久化的右栏 Dock（队列/终端/子 Agent/Git、含显示与位置偏好）已完成；Inspector 仍是弹出模态面板，未实现 WebUI 的可拖拽三栏布局。
+- [~] 可调整布局：侧栏拖拽和宽度持久化、可持久化的右栏 Dock（队列/终端/子 Agent/Git、含显示与位置偏好）已完成；WebUI 的可拖拽三栏布局明确以桌面端可拖拽 Dock 范式替代，不作为对齐目标，设置与运行时诊断仍走弹出模态 Inspector；后续仅在需要时为 DockFrame 增加钉住模式，让展开的 Dock 获得不遮挡对话流的固定分栏。
 - [x] 对话流：`assistant/chunk` 文本/reasoning 流式拼装、Think 折叠行和实时尾部更新。
 - [~] 历史分页：`load older`、尾部跟随暂停和完整导出已完成；未做长会话虚拟化。
 - [x] 消息操作：复制、按 `atSeq` 分叉、assistant Like/Dislike/反馈备注，以及用户消息“重试”（从最近已完成回合分支后重发当前提示词）已完成。
@@ -121,3 +121,5 @@
 ## 对齐结论
 
 当前桌面端已经覆盖 WebUI 的核心会话、工作区、输入、运行状态、Provider、媒体工作流，以及本轮选定的官方命令、反馈、权限、Plan、统计和 ZIP Host 能力；进一步补齐了输入区 GoalBar、Agent Preset 管理、右栏 Dock（终端/子 Agent/队列/Git）与完整统计条。Plan chip/Review、Schema 设置、完整本地化、Subagent 递归树、更多领域卡片和 ZIP 原生流传输仍需原生实现或优化；WebUI ModuleLoader、Client runner、slot registry 和客户端生命周期则是明确排除项。整体策略是复用官方 Host/Remote contract，在原生界面完成功能兼容，而不是加载整套 WebUI client bundle。
+
+界面结构同理：右侧工具区已由可拖拽、可持久化的 Dock 体系承载，不复刻 WebUI 三栏布局；Inspector 保持设置与诊断的模态入口，Dock 钉住模式（非重叠常驻分栏）视需求另行实现。
