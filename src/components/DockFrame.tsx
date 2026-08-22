@@ -281,16 +281,30 @@ export function DockFrame({
       hidden={collapsed}
     >
       <header className={joinClasses("dock-frame-header", headerClassName, dragging ? "dock-frame-header-dragging" : undefined)} onPointerDown={handleDragPointerDown}>
-        <div className={joinClasses("dock-frame-heading", headingClassName)}>
-          <span className={joinClasses("dock-frame-mark", headerMarkClassName ?? markClassName)} aria-hidden="true">{icon}</span>
-          <div>
-            <span className={joinClasses("dock-frame-kicker", kickerClassName)}>{kicker}</span>
-            <h2>{title}</h2>
-            {headerContent}
+        <div className="dock-frame-titlebar">
+          <div className={joinClasses("dock-frame-heading", headingClassName)}>
+            <span className={joinClasses("dock-frame-mark", headerMarkClassName ?? markClassName)} aria-hidden="true">{icon}</span>
+            <div className="dock-frame-titles">
+              <span className={joinClasses("dock-frame-kicker", kickerClassName)}>{kicker}</span>
+              <h2>{title}</h2>
+              {headerContent}
+            </div>
           </div>
+          <button
+            className={joinClasses("dock-frame-toggle", toggleClassName)}
+            type="button"
+            onClick={onToggle}
+            aria-controls={contentId}
+            aria-expanded={!collapsed}
+            aria-label={`收起${label}`}
+            title={`收起${label}`}
+          >
+            <span aria-hidden="true">{toggleGlyph}</span>
+          </button>
         </div>
-        <div className={joinClasses("dock-frame-header-actions", headerActionsClassName)}>
+        <div className={joinClasses("dock-frame-toolbar", headerActionsClassName)} role="group" aria-label={`${label}操作`}>
           {total !== undefined && <span className={joinClasses("dock-frame-total", totalClassName)}>{total}</span>}
+          <span className="dock-frame-toolbar-spacer" aria-hidden="true" />
           <button
             className={joinClasses("dock-frame-pin", pinned ? "active" : undefined)}
             type="button"
@@ -312,17 +326,6 @@ export function DockFrame({
               <span aria-hidden="true">↺</span>
             </button>
           )}
-          <button
-            className={joinClasses("dock-frame-toggle", toggleClassName)}
-            type="button"
-            onClick={onToggle}
-            aria-controls={contentId}
-            aria-expanded={!collapsed}
-            aria-label={`收起${label}`}
-            title={`收起${label}`}
-          >
-            <span aria-hidden="true">{toggleGlyph}</span>
-          </button>
         </div>
       </header>
       <div className={joinClasses("dock-frame-body", bodyClassName)}>{children}</div>
