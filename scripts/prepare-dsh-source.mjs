@@ -5,23 +5,23 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourceRoot = path.join(root, "vendor", "dsh");
-const publicBase = "528c682e061696f5a160f363f236ecbf53cbd006";
-const publicTag = "dsh-v0.1.1-rc.1";
-const patchedCommit = "5434a0dfacb9b9028648e662fc21711bfec705be";
+const publicBase = "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e";
+const publicTag = "dsh-v0.1.1-rc.2";
+const patchedCommit = "9270fce86d6a068e00b1cae955273220ceffa1a5";
 const upstream = "https://github.com/deepseek-ai/deepseek-harness.git";
 
-// The vendored runtime ships two local commits on top of the public RC1 tag.
+// The vendored runtime ships two local commits on top of the public RC2 tag.
 // Each entry reproduces one of them deterministically from its patch file:
 // identical tree, parents, message, and author/committer identity reproduce
 // the exact commit id pinned by src-tauri/src/main.rs.
 const patches = [
   {
     file: "dsh-fork-migration.patch",
-    commit: "6c028cea7bba484b2af95aa1a2f36d3ab8bc1f37",
+    commit: "c71b89977a95c3de951f9360225851e1f479e129",
     authorName: "Sparrived",
     authorEmail: "sparrived@outlook.com",
     authorDate: "2026-08-20T10:47:25+0800",
-    committerDate: "2026-08-22T10:15:56+0800",
+    committerDate: "2026-08-22T10:56:03+08:00",
     message: [
       "feat(session): 支持显式 preset 迁移副本",
       "",
@@ -35,11 +35,11 @@ const patches = [
   },
   {
     file: "dsh-reasoning-tokens.patch",
-    commit: "5434a0dfacb9b9028648e662fc21711bfec705be",
+    commit: "9270fce86d6a068e00b1cae955273220ceffa1a5",
     authorName: "deeptop",
     authorEmail: "deeptop@local",
     authorDate: "2026-08-21T22:09:38+0800",
-    committerDate: "2026-08-22T10:15:56+0800",
+    committerDate: "2026-08-22T10:56:15+08:00",
     message: [
       "fix(llm-pi-ai): usage 透出 provider 上报的思考 tokens",
       "",
@@ -83,7 +83,7 @@ if (!fs.existsSync(path.join(sourceRoot, ".git"))) {
 }
 
 // The patches are generated against LF worktree files. Git for Windows may
-// inherit core.autocrlf=true, which changes the public RC1 checkout before
+// inherit core.autocrlf=true, which changes the public RC2 checkout before
 // git apply. Pin the temporary source checkout to LF on every platform.
 sourceGit(["config", "core.autocrlf", "false"]);
 sourceGit(["config", "core.eol", "lf"]);
@@ -97,7 +97,7 @@ if (current === patchedCommit) {
 
 sourceGit(["fetch", "--depth=1", "origin", "tag", publicTag]);
 sourceGit(["checkout", "--detach", publicBase]);
-if (sourceGit(["status", "--porcelain"])) throw new Error("公开 RC1 基线工作区不干净");
+if (sourceGit(["status", "--porcelain"])) throw new Error("公开 RC2 基线工作区不干净");
 
 for (const patch of patches) {
   // The repository patch itself can be checked out as CRLF by Git for Windows.
@@ -135,4 +135,4 @@ for (const patch of patches) {
   sourceGit(["reset", "--hard", commit]);
 }
 if (sourceGit(["status", "--porcelain"])) throw new Error("DSH 补丁应用后工作区不干净");
-console.log("✅ 已从公开 RC1 基线重建 DSH 补丁链：" + patchedCommit);
+console.log("✅ 已从公开 RC2 基线重建 DSH 补丁链：" + patchedCommit);
