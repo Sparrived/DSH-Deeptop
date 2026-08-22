@@ -23,16 +23,16 @@ export function GitTreeGraph({ lines, selectedHash, onSelect }: GitTreeGraphProp
   const laneX = (lane: number) => (lane + 0.5) * LANE_W;
   const nodeY = (row: number) => row * ROW_H + ROW_H / 2;
 
-  const laneLines = layout.lanes.map((lane) => {
-    const color = gitGraphLaneColor(lane.lane);
-    const x = laneX(lane.lane);
+  const laneLines = layout.laneSegments.map((seg, index) => {
+    const color = gitGraphLaneColor(seg.lane);
+    const x = laneX(seg.lane);
     return (
       <line
-        key={`l${lane.lane}`}
+        key={`l${index}`}
         x1={x}
-        y1={nodeY(lane.fromRow)}
+        y1={nodeY(seg.fromRow)}
         x2={x}
-        y2={nodeY(lane.toRow)}
+        y2={nodeY(seg.toRow)}
         stroke={color}
         strokeWidth={2}
         strokeLinecap="round"

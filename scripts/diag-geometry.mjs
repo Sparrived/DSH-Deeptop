@@ -20,9 +20,9 @@ for (let rawLine of raw.split("\n")) {
 const layout = gitGraphLayout(lines);
 const byHash = new Map(lines.map((l) => [l.hash, l]));
 
-console.log("== 泳道区间 ==");
-for (const lane of layout.lanes) {
-  console.log(`lane${lane.lane}: rows [${lane.fromRow}..${lane.toRow}] (${lane.toRow - lane.fromRow + 1} 行)`);
+console.log("== 泳道占用段 ==");
+for (const seg of layout.laneSegments) {
+  console.log(`lane${seg.lane}: rows [${seg.fromRow}..${seg.toRow}] (${seg.toRow - seg.fromRow + 1} 行)`);
 }
 console.log("\n== 边 ==");
 for (const edge of layout.edges) {
