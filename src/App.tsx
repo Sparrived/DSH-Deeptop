@@ -30,7 +30,7 @@ import { UtilityDockShelf } from "./components/UtilityDockShelf";
 import { WindowChrome } from "./components/WindowChrome";
 import { DockSettingsProvider, useDockSettings } from "./app/dock-settings";
 import { computePinLayerWidths } from "./app/dock-pin";
-import { DockPinLayersProvider, type DockPinLayerElements, type DockPinLayerSide } from "./components/DockPinLayers";
+import { DockPinLayersProvider, type DockPinLayerElements } from "./components/DockPinLayers";
 import { PopupDialog } from "./components/PopupDialog";
 import { PluginInstallDialog, type PluginInstallDraft } from "./components/PluginInstallDialog";
 import { useProviderSettings } from "./app/useProviderSettings";
@@ -1211,8 +1211,14 @@ function AppContent() {
   };
   const pinLayerWidths = computePinLayerWidths({ pinned: pinnedDocks, expandedById: dockExpandedById });
   const [pinLayerElements, setPinLayerElements] = useState<DockPinLayerElements>({ left: null, right: null });
-  const registerPinLayer = useCallback((side: DockPinLayerSide, element: HTMLElement | null) => {
-    setPinLayerElements((current) => (current[side] === element ? current : { ...current, [side]: element }));
+  // ref 回调必须保持稳定标识：内联箭头函数每次渲染都是新引用，React 每次提交都会
+  // detach(null)/attach(element) 并触发 setState，形成无限更新循环（React #185，
+  // 主界面首次渲染即整树卸载、窗口黑屏）。
+  const registerLeftPinLayer = useCallback((element: HTMLElement | null) => {
+    setPinLayerElements((current) => (current.left === element ? current : { ...current, left: element }));
+  }, []);
+  const registerRightPinLayer = useCallback((element: HTMLElement | null) => {
+    setPinLayerElements((current) => (current.right === element ? current : { ...current, right: element }));
   }, []);
   const composerTrigger = useMemo(() => detectComposerTrigger(composer), [composer]);
   const composerCandidates = useMemo<ComposerCandidate[]>(() => {
@@ -3918,7 +3924,7 @@ function AppContent() {
           }}
         />
 
-        <div className={`pin-layer pin-layer-left${pinLayerWidths.left > 0 ? " active" : ""}`} ref={(element) => registerPinLayer("left", element)} aria-hidden={!pinLayerWidths.left} />
+        <div className={`pin-layer pin-layer-left${pinLayerWidths.left > 0 ? " active" : ""}`} ref={registerLeftPinLayer} aria-hidden={!pinLayerWidths.left} />
 
         <section className="conversation-panel">
           <ConversationHeader
@@ -4153,7 +4159,7 @@ function AppContent() {
           />
            </section>
 
-        <div className={`pin-layer pin-layer-right${pinLayerWidths.right > 0 ? " active" : ""}`} ref={(element) => registerPinLayer("right", element)} aria-hidden={!pinLayerWidths.right} />
+        <div className={`pin-layer pin-layer-right${pinLayerWidths.right > 0 ? " active" : ""}`} ref={registerRightPinLayer} aria-hidden={!pinLayerWidths.right} />
       </div>
       </DockPinLayersProvider>
 
