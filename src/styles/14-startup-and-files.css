@@ -33,17 +33,7 @@
   letter-spacing: 0.16em;
 }
 
-.startup-status-item i {
-  display: block;
-  width: 6px;
-  height: 6px;
-  flex: 0 0 auto;
-  border-radius: 50%;
-  background: #5ee5b2;
-}
-
 .startup-phase-error .startup-kicker { color: #f0a39d; }
-.startup-phase-error .startup-status-item i { background: #e06c75; }
 
 .startup-content h1 {
   max-width: 620px;
@@ -92,30 +82,39 @@
   background: #d96069;
 }
 
-.startup-status-list {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.startup-readout {
+  margin-top: 18px;
   border-top: 1px solid rgba(181, 220, 211, 0.13);
-  border-bottom: 1px solid rgba(181, 220, 211, 0.13);
 }
 
-.startup-status-item {
+.startup-readout-row {
   min-width: 0;
   display: grid;
-  grid-template-columns: 8px minmax(0, 1fr);
-  align-items: center;
-  gap: 9px;
-  padding: 12px 14px;
-  border-right: 1px solid rgba(181, 220, 211, 0.1);
-  color: rgba(165, 191, 187, 0.58);
+  grid-template-columns: 118px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(181, 220, 211, 0.08);
   font: 10px var(--mono);
 }
 
-.startup-status-item:last-child { border-right: 0; }
-.startup-status-item.active { color: rgba(216, 246, 235, 0.9); background: rgba(94, 229, 178, 0.07); }
-.startup-status-item em { grid-column: 2; color: rgba(144, 176, 169, 0.58); font-style: normal; font-size: 9px; }
-.startup-status-item.active em { color: rgba(132, 224, 191, 0.78); }
-.startup-status-item:not(.active) i { background: rgba(142, 173, 168, 0.4); box-shadow: none; }
+.startup-readout-row > span {
+  color: rgba(144, 176, 169, 0.62);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.startup-readout-row code {
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(196, 222, 216, 0.82);
+  font: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.startup-readout-row.tone-ok code { color: rgba(132, 224, 191, 0.9); }
+.startup-readout-row.tone-bad code { color: #f0a39d; }
 
 .startup-log-panel {
   margin-top: 16px;
@@ -136,7 +135,8 @@
 }
 
 .startup-log-heading em { color: rgba(142, 173, 168, 0.54); font-style: normal; letter-spacing: 0; }
-.startup-log-viewport { height: 122px; padding: 8px 12px; overflow: auto; scrollbar-color: rgba(94, 229, 178, 0.38) transparent; }
+.startup-log-viewport { padding: 8px 12px; overflow: visible; }
+.startup-log-panel.has-logs .startup-log-viewport { height: 122px; overflow: auto; scrollbar-color: rgba(94, 229, 178, 0.38) transparent; }
 .startup-log-empty { margin: 0; color: rgba(142, 173, 168, 0.5); font: 10px/1.6 var(--mono); }
 .startup-log-line { min-width: 0; display: grid; grid-template-columns: 10px 58px minmax(0, 1fr); align-items: baseline; gap: 7px; padding: 2px 0; color: rgba(185, 216, 208, 0.75); font: 10px/1.5 var(--mono); }
 .startup-log-line > span { color: rgba(94, 229, 178, 0.78); }
@@ -173,7 +173,6 @@
 .startup-actions .startup-retry { margin-top: 0; }
 .startup-nodejs { min-height: 38px; padding: 0 14px; border: 1px solid rgba(94, 229, 178, 0.42); background: rgba(94, 229, 178, 0.08); color: #baf4df; font: 11px var(--mono); }
 .startup-nodejs:hover { border-color: #5ee5b2; background: rgba(94, 229, 178, 0.16); color: #effff9; }
-.startup-package { margin-top: 28px; color: rgba(142, 173, 168, 0.48); font-size: 10px; }
 
 @keyframes startup-blink {
   50% { opacity: 0; }
@@ -183,11 +182,9 @@
   .startup-content { width: calc(100% - 32px); padding: 16px 0; }
   .startup-content h1 { font-size: clamp(30px, 11vw, 44px); }
   .startup-message { font-size: 13px; }
-  .startup-status-list { grid-template-columns: 1fr; }
-  .startup-status-item { border-right: 0; border-bottom: 1px solid rgba(181, 220, 211, 0.1); }
-  .startup-log-viewport { height: 106px; }
+  .startup-readout-row { grid-template-columns: 92px minmax(0, 1fr); gap: 10px; }
+  .startup-log-panel.has-logs .startup-log-viewport { height: 106px; }
   .startup-log-line { grid-template-columns: 10px 50px minmax(0, 1fr); font-size: 9px; }
-  .startup-status-item:last-child { border-bottom: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
