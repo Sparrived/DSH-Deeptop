@@ -81,3 +81,32 @@ test("tool result patches the original tool call record", () => {
   assert.equal(tools[0].resultText, "文件内容");
   assert.ok(tools[0].detail.includes("呈现视图"), "tool detail keeps the view snapshot");
 });
+
+test("folds approval audit pairs into per-tool permission records", () => {
+  const entries = [
+    event(1, "approval/asked", { id: "a1", toolName: "fs.write", callId: "w-1", reason: "改写文件", turn: 1 }),
+    event(2, "approval/decided", { id: "a1", outcome: "allowed-once", turn: 1 }),
+    event(3, "approval/asked", { id: "a2", toolName: "fs.remove", callId: "r-1", turn: 1 }),
+    event(4, "approval/decided", { id: "a2", outcome: "rejected", turn: 1 }),
+  ];
+  const records = buildTrajectoryRecords(entries);
+  const approvals = records.filter((record) => record.kind === "approval");
+  assert.equal(approvals.length, 2);
+  assert.equal(approvals[0].title, "fs.write");
+  assert.equal(approvals[0].status, "complete");
+  assert.ok(approvals[0].summary.includes("已允许"));
+  assert.equal(approvals[0].callId, "w-1");
+  assert.equal(approvals[1].title, "fs.remove");
+  assert.equal(approvals[1].status, "error");
+  assert.ok(approvals[1].summary.includes("已拒绝"));
+});
+
+test("approval record stays running until the decision lands", () => {
+  const records = buildTrajectoryRecords([
+    event(1, "approval/asked", { id: "a1", toolName: "terminal", callId: "t-1" }),
+  ]);
+  const approval = records.find((record) => record.kind === "approval");
+  assert.ok(approval);
+  assert.equal(approval.status, "running");
+  assert.ok(approval.summary.includes("等待审批"));
+});

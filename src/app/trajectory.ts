@@ -1,6 +1,7 @@
 import type { DshHistoryEntry, DshSessionEvent } from "../lib/desktop";
+import { toolApprovalLabel, type ToolApprovalOutcome } from "./permission-audit.ts";
 
-export type TrajectoryKind = "system" | "user" | "context" | "assistant" | "tool" | "turn";
+export type TrajectoryKind = "system" | "user" | "context" | "assistant" | "tool" | "turn" | "approval";
 export type TrajectoryStatus = "complete" | "running" | "error" | "info";
 
 export type TrajectoryRecord = {
@@ -54,6 +55,21 @@ type CompactionState = {
   summary?: DshSessionEvent;
   end?: DshSessionEvent;
 };
+
+type ApprovalState = {
+  key: string;
+  turn?: number;
+  seq: number;
+  time: number;
+  toolName: string;
+  reason?: string;
+  callId?: string;
+  outcome?: ToolApprovalOutcome;
+};
+
+function approvalKeyOf(id: string): string {
+  return `approval-${id}`;
+}
 
 function recordValue(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -273,12 +289,37 @@ function buildCompactionRecord(state: CompactionState): TrajectoryRecord {
   };
 }
 
+const APPROVAL_OUTCOMES: Record<ToolApprovalOutcome, TrajectoryStatus> = {
+  "allowed-once": "complete",
+  rejected: "error",
+  cancelled: "info",
+  unavailable: "error",
+};
+
+function buildApprovalRecord(state: ApprovalState): TrajectoryRecord {
+  const outcome = state.outcome;
+  const label = outcome ? toolApprovalLabel(outcome) : "等待审批";
+  return {
+    key: state.key,
+    seq: state.seq,
+    time: state.time,
+    kind: "approval",
+    status: outcome ? APPROVAL_OUTCOMES[outcome] : "running",
+    title: state.toolName,
+    summary: `${label}${state.reason ? ` · ${preview(state.reason)}` : ""}`,
+    detail: pretty({ toolName: state.toolName, callId: state.callId, reason: state.reason, outcome }),
+    turn: state.turn,
+    callId: state.callId,
+  };
+}
+
 export function buildTrajectoryRecords(entries: DshHistoryEntry[]): TrajectoryRecord[] {
   const records = new Map<string, TrajectoryRecord>();
   const order: string[] = [];
   const assistants = new Map<string, AssistantState>();
   const tools = new Map<string, string>();
   const compactions = new Map<string, CompactionState>();
+  const approvals = new Map<string, ApprovalState>();
   const turnStarts = new Map<number, number>();
   const stepStarts = new Map<string, number>();
   let currentTurn: number | undefined;
@@ -524,6 +565,36 @@ export function buildTrajectoryRecords(entries: DshHistoryEntry[]): TrajectoryRe
         durationMs: durationMs(turn === undefined ? undefined : turnStarts.get(turn), event.time),
       });
       currentStep = undefined;
+      continue;
+    }
+
+    if (event.type === "approval/asked" || event.type === "approval/decided") {
+      const id = stringValue(data.id);
+      if (!id) continue;
+      const key = approvalKeyOf(id);
+      const current = approvals.get(key) ?? {
+        key,
+        turn,
+        seq: event.seq,
+        time: event.time,
+        toolName: stringValue(data.toolName) ?? "tool",
+      };
+      if (event.type === "approval/asked") {
+        current.toolName = stringValue(data.toolName) ?? current.toolName;
+        current.reason = stringValue(data.reason) ?? current.reason;
+        current.callId = stringValue(data.callId) ?? current.callId;
+        current.seq = event.seq;
+        current.time = event.time;
+      } else if (current.outcome === undefined) {
+        const outcome = stringValue(data.outcome);
+        if (outcome !== undefined && outcome in APPROVAL_OUTCOMES) {
+          current.outcome = outcome as ToolApprovalOutcome;
+          current.seq = event.seq;
+          current.time = event.time;
+        }
+      }
+      approvals.set(key, current);
+      put(buildApprovalRecord(current));
       continue;
     }
 

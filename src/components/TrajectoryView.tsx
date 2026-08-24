@@ -8,6 +8,7 @@ function kindLabel(kind: TrajectoryKind): string {
   if (kind === "system") return "系统";
   if (kind === "tool") return "工具";
   if (kind === "turn") return "轮次";
+  if (kind === "approval") return "审批";
   return "用户";
 }
 
@@ -31,7 +32,7 @@ const TRAJECTORY_LANES: Array<{ key: TrajectoryLane; label: string }> = [
 ];
 
 function trajectoryLane(kind: TrajectoryKind): TrajectoryLane {
-  if (kind === "tool") return "tools";
+  if (kind === "tool" || kind === "approval") return "tools";
   if (kind === "assistant") return "model";
   return "input";
 }

@@ -226,6 +226,7 @@ import { SEND_SHORTCUT_STORAGE_KEY, readSendShortcut, type SendShortcut } from "
 import { defaultWorkingIndicator, normalizeWorkingIndicator } from "./app/working-indicator";
 import { externalLaunchKey } from "./lib/external-launch";
 import { DEFAULT_PERMISSION_OPTIONS, isDefaultPermission, readStoredDefaultModel, readStoredDefaultPermission, writeStoredDefaultModel, writeStoredDefaultPermission, type DefaultPermission } from "./app/session-defaults";
+import { isSchemaEnvelope, schemaEnumChoices, schemaNodeAtPath } from "./app/schema-model";
 import { reconcileSessionIndicators } from "./app/session-runtime-state";
 import type { PlanReviewQuestion } from "./app/ui-model";
 import { buildTraySessionMenu } from "./app/tray-model";
@@ -1318,12 +1319,32 @@ function AppContent() {
     const value = valueAtPath(configured, ["defaultPreset"]);
     return isDefaultPermission(value) ? value : storedDefaultPermission;
   }, [settings, storedDefaultPermission]);
+  // The official permission namespace declares its defaultPreset enum via the
+  // schemastery schema; when present the desktop offers exactly those presets
+  // (workspace-write / danger-full-access by default, deployment-extended),
+  // and falls back to the local three-tier list only when the namespace or its
+  // schema does not expose choices. read-only stays a local-only option.
+  const permissionOptions = useMemo(() => {
+    const namespace = settings?.namespaces.find((item) => item.ns === "permission");
+    const envelope = namespace?.schema;
+    if (isSchemaEnvelope(envelope)) {
+      const defaultPresetNode = schemaNodeAtPath(envelope, ["defaultPreset"]);
+      const choices = schemaEnumChoices(defaultPresetNode, envelope);
+      const mapped = choices.map((choice) => ({
+        value: String(choice.value),
+        name: choice.label ?? String(choice.value),
+        ...(choice.description ? { description: choice.description } : {}),
+      }));
+      if (mapped.length > 0) return mapped;
+    }
+    return DEFAULT_PERMISSION_OPTIONS;
+  }, [settings]);
   const newSessionPermissionSelect = useMemo<DshPermissionSelect | null>(() => {
     const currentValue = draftPermission ?? defaultPermission;
     return currentValue
-      ? { options: DEFAULT_PERMISSION_OPTIONS, currentValue }
+      ? { options: permissionOptions, currentValue }
       : null;
-  }, [defaultPermission, draftPermission]);
+  }, [defaultPermission, draftPermission, permissionOptions]);
   const composerPermissions = activeSessionId ? permissionSelect : newSessionPermissionSelect;
   const defaultModelName = useMemo(() => {
     if (!defaultModelSelection) return "默认模型";
@@ -3601,12 +3622,16 @@ function AppContent() {
     }
   }
 
-  async function persistDefaultPermission(value: DefaultPermission) {
+  async function persistDefaultPermission(value: string) {
     try {
       const namespace = settings?.namespaces.find((item) => item.ns === "permission");
       if (!namespace) {
-        writeStoredDefaultPermission(value);
-        setStoredDefaultPermission(value);
+        if (isDefaultPermission(value)) {
+          writeStoredDefaultPermission(value);
+          setStoredDefaultPermission(value);
+        } else {
+          throw new Error("当前 Host 未暴露 permission 设置命名空间，无法保存部署预设");
+        }
       } else {
         await desktopRequest("settings.update", { ns: "permission", patch: { defaultPreset: value } });
         await refreshSettings();
@@ -3618,7 +3643,9 @@ function AppContent() {
   }
 
   async function setDefaultPermission(value: string) {
-    if (value !== "read-only" && value !== "workspace-write" && value !== "danger-full-access") return;
+    // Values outside the local trio are still writable when the official
+    // schema exposes them as defaultPreset choices (deployment presets).
+    if (!isDefaultPermission(value) && !permissionOptions.some((option) => option.value === value)) return;
     const next = value as DefaultPermission;
     if (next === "danger-full-access") {
       setPendingDefaultPermission(next);
@@ -4828,6 +4855,7 @@ function AppContent() {
                     hostModels={hostModels}
                     defaultModel={defaultModelSelection}
                     defaultPermission={defaultPermission}
+                    permissionOptions={permissionOptions}
                     workspace={workspace}
                     runtimeDirectory={status.runtimeDirectory}
                     sidebarWidth={sidebarWidth}

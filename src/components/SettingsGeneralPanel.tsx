@@ -2,15 +2,14 @@ import type { CloseBehavior, DshEffectiveNetworkProxy, DshNetworkProxy, DshPrese
 import { useState, useEffect } from "react";
 import { presetDisplayName } from "../app/model";
 import type { DshHostModelCatalog, ModelSelection } from "../app/model";
-
-const PERMISSION_PRESETS = [
-  { value: "read-only", label: "只读", description: "仅读取和分析内容" },
-  { value: "workspace-write", label: "工作区可写", description: "可修改当前工作区文件" },
-  { value: "danger-full-access", label: "完全访问", description: "允许不受限制的文件与外部操作" },
-] as const;
+import type { DshPermissionSelect } from "../lib/desktop";
 
 function modelKey(selection: ModelSelection | null) {
   return selection ? `${selection.provider}\u0000${selection.model}` : "";
+}
+
+function permissionLabel(option: DshPermissionSelect["options"][number]) {
+  return typeof option.name === "string" && option.name.trim() ? option.name : option.value;
 }
 
 type SettingsGeneralPanelProps = {
@@ -19,6 +18,8 @@ type SettingsGeneralPanelProps = {
   hostModels: DshHostModelCatalog | null;
   defaultModel: ModelSelection | null;
   defaultPermission: string | null;
+  /** Preset options exposed by the official permission namespace schema (fallback: local trio). */
+  permissionOptions: DshPermissionSelect["options"];
   workspace: string;
   runtimeDirectory: string;
   sidebarWidth: number;
@@ -49,6 +50,7 @@ export function SettingsGeneralPanel({
   hostModels,
   defaultModel,
   defaultPermission,
+  permissionOptions,
   workspace,
   runtimeDirectory,
   sidebarWidth,
@@ -80,7 +82,7 @@ export function SettingsGeneralPanel({
     reasoning: model.reasoning,
   }))) ?? [];
   const selectedModel = modelOptions.find((option) => option.value === modelKey(defaultModel));
-  const permission = PERMISSION_PRESETS.find((option) => option.value === defaultPermission);
+  const permission = permissionOptions.find((option) => option.value === defaultPermission);
   const permissionNamespace = settings?.namespaces.find((namespace) => namespace.ns === "permission");
   const modelNamespace = settings?.namespaces.find((namespace) => namespace.ns === "agent-default-model");
   const permissionStorageHint = permissionNamespace ? "由 DSH Host 应用到新会话" : "保存在此桌面端，并应用到新会话";
@@ -104,7 +106,7 @@ export function SettingsGeneralPanel({
         <div className="settings-block-heading"><div><h3>会话</h3><p>这些选项只影响之后创建的新会话；已打开的会话保持自己的运行状态。</p></div></div>
         <div className="settings-preference-list">
           <label className="settings-preference-row"><span><strong>默认 Agent Preset</strong><small>决定新会话使用的工具和能力</small></span><select disabled={settings?.writable === false} value={presets.find((preset) => preset.isDefault)?.id || ""} onChange={(event) => void onSetDefaultPreset(event.target.value)}>{presets.filter((preset) => !preset.broken).map((preset) => <option value={preset.id} key={preset.id}>{presetDisplayName(preset.id, presets)}</option>)}</select></label>
-          <label className="settings-preference-row"><span><strong>默认权限模式</strong><small>{permission?.description ?? "选择新会话启动时的权限"} · {permissionStorageHint}</small></span><select disabled={!settings || settings.writable === false} value={defaultPermission ?? ""} onChange={(event) => void onSetDefaultPermission(event.target.value)}><option value="" disabled>Host 未提供</option>{PERMISSION_PRESETS.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
+          <label className="settings-preference-row"><span><strong>默认权限模式</strong><small>{permission?.description ?? "选择新会话启动时的权限"} · {permissionStorageHint}</small></span><select disabled={!settings || settings.writable === false} value={defaultPermission ?? ""} onChange={(event) => void onSetDefaultPermission(event.target.value)}><option value="" disabled>Host 未提供</option>{permissionOptions.map((option) => <option value={option.value} key={option.value}>{permissionLabel(option)}</option>)}</select></label>
           <label className="settings-preference-row"><span><strong>默认模型</strong><small>{modelNamespace ? "通过 DSH 设置保存，并应用到新会话" : "保存在此桌面端，并应用到新会话"}</small></span><select disabled={modelOptions.length === 0} value={modelKey(defaultModel)} onChange={(event) => { const option = modelOptions.find((item) => item.value === event.target.value); if (option) void onSetDefaultModel({ provider: option.provider, model: option.model, ...(option.reasoning?.defaultEffort ? { reasoningEffort: option.reasoning.defaultEffort } : {}) }); }}><option value="" disabled>选择模型</option>{modelOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
           {modelReasoning && <label className="settings-preference-row"><span><strong>默认思考程度</strong><small>仅对支持思考程度的模型生效</small></span><select disabled={!defaultModel} value={reasoningValue} onChange={(event) => { if (defaultModel) void onSetDefaultModel({ ...defaultModel, reasoningEffort: event.target.value || undefined }); }}><option value="">跟随模型默认</option>{modelReasoning.efforts.map((effort) => <option value={effort.id} key={effort.id}>{effort.name}</option>)}</select></label>}
           <div className="settings-preference-row"><span><strong>工作目录</strong><small>{workspace || runtimeDirectory || "使用 DSH 运行目录"}</small></span><button onClick={() => void onAddWorkspace()}>选择目录</button></div>

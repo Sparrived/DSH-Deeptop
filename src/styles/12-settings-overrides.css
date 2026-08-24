@@ -762,6 +762,8 @@
 .trajectory-record.turn { --trajectory-tone: var(--info); }
 .trajectory-overview-mark.system,
 .trajectory-record.system { --trajectory-tone: var(--ink-muted); }
+.trajectory-overview-mark.approval,
+.trajectory-record.approval { --trajectory-tone: #c9a32e; }
 
 .trajectory-body { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); gap: 18px; align-items: start; }
 .trajectory-ledger { min-width: 0; display: grid; gap: 18px; }
