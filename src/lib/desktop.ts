@@ -393,7 +393,8 @@ export type DshCapabilityKey =
   | "llm"
   | "plugins"
   | "sessionExport"
-  | "commands";
+  | "commands"
+  | "uiPlugins";
 
 /** `desktop.capabilities` 的探测结果：每个官方能力键是否已在 Host 中就绪。 */
 export interface DshHostCapabilities {
@@ -404,6 +405,21 @@ export interface DshHostCapabilities {
 /** 查询桌面桥可提供的官方能力（插件缺失时相应键为 false，由前端降级）。 */
 export async function queryHostCapabilities(): Promise<DshHostCapabilities> {
   return bridgeRequest<DshHostCapabilities>("desktop.capabilities");
+}
+
+/** `resolve_ui_plugin_bundle` 的结果：受控协议校验通过后的 WebView 可导入 URL。 */
+export interface DshUiPluginBundleResolution {
+  url: string;
+  sizeBytes: number;
+}
+
+/**
+ * 解析一个 UI 插件的客户端 bundle（docs/DEEPTOP_UI_RUNTIME.md §9.3）。
+ * Rust 侧完成桥查询、路径围栏与 SHA-256 校验后返回可 import 的 URL；
+ * 失败（未登记、越界、完整性不符、超限）抛出携带稳定错误码的异常。
+ */
+export async function resolveUiPluginBundle(pluginId: string): Promise<DshUiPluginBundleResolution> {
+  return invoke<DshUiPluginBundleResolution>("resolve_ui_plugin_bundle", { pluginId });
 }
 
 export interface DshBridgeEvent {

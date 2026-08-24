@@ -73,6 +73,7 @@ export const CAPABILITY_LABELS: Record<DshCapabilityKey, string> = {
   plugins: "插件管理",
   sessionExport: "会话 ZIP 导出",
   commands: "命令目录",
+  uiPlugins: "UI 插件运行时",
 };
 
 /** 把探测结果压缩为一条面向用户的降级提示；无缺失返回 null。 */

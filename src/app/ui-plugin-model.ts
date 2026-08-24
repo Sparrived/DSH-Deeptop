@@ -42,6 +42,7 @@ export const UiPluginErrorCode = {
   hostUnavailable: "ui-host-unavailable",
   invalidRequest: "ui-invalid-request",
   manifestInvalid: "ui-manifest-invalid",
+  moduleUnavailable: "ui-module-unavailable",
   storageLimitExceeded: "ui-storage-limit-exceeded",
   storageInvalidKey: "ui-storage-invalid-key",
 } as const;
