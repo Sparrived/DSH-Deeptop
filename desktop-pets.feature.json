@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "id": "desktop-pets",
+  "markerFiles": [
+    ".gitignore",
+    "ARCHITECTURE.md",
+    "README.md",
+    "README.zh.md",
+    "src/App.tsx",
+    "src/lib/desktop.ts",
+    "src/main.tsx",
+    "src/styles.css",
+    "src-tauri/Cargo.toml",
+    "src-tauri/src/main.rs"
+  ],
+  "ownedPaths": [
+    "docs/PET_PACKS.md",
+    "docs/PET_PACKS.zh.md",
+    "examples/pets",
+    "scripts/create-pet-pack.mjs",
+    "scripts/create-pet-pack.test.mjs",
+    "src/app/pet-attention-model.test.mjs",
+    "src/app/pet-attention-model.ts",
+    "src/app/pet-model.test.mjs",
+    "src/app/pet-model.ts",
+    "src/app/usePetSystem.ts",
+    "src/components/PetCanvas.tsx",
+    "src/components/PetCareCard.tsx",
+    "src/components/PetHost.tsx",
+    "src/components/PetNoticeCard.tsx",
+    "src/components/PetWindow.tsx",
+    "src/components/SettingsPetPanel.tsx",
+    "src/pet-styles.css",
+    "src/styles/19-pets.css",
+    "src/styles/20-pet-window.css",
+    "src-tauri/capabilities/desktop-pet.json",
+    "src-tauri/src/pet_feature"
+  ],
+  "generatedPaths": [
+    "dist",
+    "src-tauri/gen"
+  ],
+  "removalToolPaths": [
+    "scripts/remove-desktop-pets.test.mjs",
+    "scripts/remove-desktop-pets.mjs",
+    "desktop-pets.feature.json"
+  ],
+  "packageJson": {
+    "scripts": [
+      "pet:pack",
+      "pets:remove",
+      "pets:remove:check"
+    ],
+    "testEntries": [
+      "scripts/create-pet-pack.test.mjs",
+      "scripts/remove-desktop-pets.test.mjs",
+      "src/app/pet-model.test.mjs",
+      "src/app/pet-attention-model.test.mjs"
+    ],
+    "devDependencies": [
+      "fflate"
+    ]
+  },
+  "packageLock": {
+    "rootDevDependencies": [
+      "fflate"
+    ],
+    "packages": [
+      "node_modules/fflate"
+    ]
+  },
+  "cargo": {
+    "tauriFeatures": [
+      "macos-private-api"
+    ]
+  },
+  "tauriConfig": {
+    "appKeys": [
+      "macOSPrivateApi"
+    ]
+  }
+}

@@ -13,6 +13,9 @@ import { SettingsDockPanel } from "./components/SettingsDockPanel";
 import { SettingsKeyboardPanel } from "./components/SettingsKeyboardPanel";
 import { SettingsLogsPanel } from "./components/SettingsLogsPanel";
 import { SettingsModelsPanel } from "./components/SettingsModelsPanel";
+// @deeptop-pets:start app-settings-import
+import { SettingsPetPanel } from "./components/SettingsPetPanel";
+// @deeptop-pets:end app-settings-import
 import { SettingsPluginsPanel } from "./components/SettingsPluginsPanel";
 import { SettingsPresetPanel } from "./components/SettingsPresetPanel";
 import { QueueDock } from "./components/QueueDock";
@@ -216,6 +219,15 @@ import { DEFAULT_PERMISSION_OPTIONS, isDefaultPermission, readStoredDefaultModel
 import { reconcileSessionIndicators } from "./app/session-runtime-state";
 import { buildTraySessionMenu } from "./app/tray-model";
 import { updateCheckStateFromResult, updateCheckErrorMessage, updateDownloadStateFromEvent, type UpdateChannel, type UpdateCheckState, type UpdateDownloadState } from "./app/update-model";
+// @deeptop-pets:start app-runtime-imports
+import { listenToPetActionRequests, updatePetActivity, type PetAction } from "./lib/desktop";
+import { usePetSystem } from "./app/usePetSystem";
+import {
+  petCompletionMessageFromHistory,
+  projectPetActivity,
+  type PetCompletionSignal,
+} from "./app/pet-attention-model";
+// @deeptop-pets:end app-runtime-imports
 
 const demoStatus: DshStatus = {
   dshHome: "",
@@ -499,6 +511,9 @@ function AppContent() {
   const [gitOpen, setGitOpen] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState<Record<string, PendingApproval>>({});
   const [pendingQuestions, setPendingQuestions] = useState<Record<string, PendingQuestion>>({});
+  // @deeptop-pets:start app-completion-state
+  const [petCompletions, setPetCompletions] = useState<Record<string, PetCompletionSignal>>({});
+  // @deeptop-pets:end app-completion-state
   const [questionAnswersBySession, setQuestionAnswersBySession] = useState<Record<string, Record<string, string[]>>>({});
   const [questionCustomAnswersBySession, setQuestionCustomAnswersBySession] = useState<Record<string, Record<string, string>>>({});
   const [sessionContextMenu, setSessionContextMenu] = useState<SessionContextMenu | null>(null);
@@ -520,6 +535,17 @@ function AppContent() {
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const sessionsRef = useRef<DshSessionSummary[]>(sessions);
   sessionsRef.current = sessions;
+  // @deeptop-pets:start app-action-refs
+  const pendingApprovalsRef = useRef(pendingApprovals);
+  pendingApprovalsRef.current = pendingApprovals;
+  const pendingQuestionsRef = useRef(pendingQuestions);
+  pendingQuestionsRef.current = pendingQuestions;
+  const petCompletionPreviewRequestsRef = useRef(new Set<string>());
+  const petActionHandlerRef = useRef<(action: PetAction) => void>(() => undefined);
+  useEffect(() => {
+    petActionHandlerRef.current = (action) => { void handlePetAction(action); };
+  });
+  // @deeptop-pets:end app-action-refs
   // 拖放处理注册一次即可，因此通过 ref 读取随渲染变化的工作区、模型限制和附件。
   const workspaceRef = useRef(workspace);
   workspaceRef.current = workspace;
@@ -676,6 +702,15 @@ function AppContent() {
     openThemesDirectory,
     resetAppearance,
   } = useAppearanceSettings({ onNotice: setNotice, onError: setErrorNotice });
+  // @deeptop-pets:start app-system-hook
+  const petSystem = usePetSystem({
+    desktop,
+    libraryRequested: (settingsSection as string) === "pets",
+    onNotice: setNotice,
+    onError: setErrorNotice,
+    onConfirm: requestConfirm,
+  });
+  // @deeptop-pets:end app-system-hook
   const { settings: dockSettings, loaded: dockSettingsLoaded, updateSettings: updateDockSettings, pinnedDocks } = useDockSettings();
   const [dockSettingsUpdating, setDockSettingsUpdating] = useState(false);
 
@@ -785,6 +820,112 @@ function AppContent() {
   const activeJobs = activeSessionId ? sessionJobs[activeSessionId] ?? [] : [];
   const approval = activeSessionId ? pendingApprovals[activeSessionId] ?? null : null;
   const question = activeSessionId ? pendingQuestions[activeSessionId] ?? null : null;
+  // @deeptop-pets:start app-activity-projection
+  const petSessions = useMemo(() => sessions.map((session) => ({
+    sessionId: session.sessionId,
+    title: displayTitle(session),
+    running: session.running,
+    updatedAt: session.updatedAt,
+  })), [sessions]);
+
+  const petCompletionCandidates = useMemo<PetCompletionSignal[]>(() => sessions
+    .filter((session) => !session.running)
+    .filter((session) => sessionIndicators[session.sessionId] === "completed" || sessionIndicators[session.sessionId] === "error")
+    .map((session) => {
+      const kind = sessionIndicators[session.sessionId] === "error" ? "failed" : "completed";
+      return {
+        id: `${kind}:${session.sessionId}:${session.updatedAt}`,
+        sessionId: session.sessionId,
+        kind,
+        title: displayTitle(session),
+        message: "",
+        updatedAt: session.updatedAt,
+        previewLoaded: false,
+      };
+    }), [sessionIndicators, sessions]);
+
+  useEffect(() => {
+    setPetCompletions((current) => {
+      const next: Record<string, PetCompletionSignal> = {};
+      let changed = Object.keys(current).length !== petCompletionCandidates.length;
+      for (const candidate of petCompletionCandidates) {
+        const existing = current[candidate.sessionId];
+        if (existing?.id === candidate.id && existing.title === candidate.title) {
+          next[candidate.sessionId] = existing;
+          continue;
+        }
+        changed = true;
+        next[candidate.sessionId] = candidate;
+      }
+      return changed ? next : current;
+    });
+  }, [petCompletionCandidates]);
+
+  useEffect(() => {
+    if (!desktop) return;
+    for (const completion of Object.values(petCompletions)) {
+      if (completion.previewLoaded || petCompletionPreviewRequestsRef.current.has(completion.id)) continue;
+      petCompletionPreviewRequestsRef.current.add(completion.id);
+      void bridgeRequest<{ events: DshHistoryEntry[] }>("session.history", {
+        sessionId: completion.sessionId,
+        maxMessages: 40,
+      }).then((result) => {
+        const message = petCompletionMessageFromHistory(result.events);
+        setPetCompletions((current) => {
+          const existing = current[completion.sessionId];
+          if (existing?.id !== completion.id) return current;
+          return {
+            ...current,
+            [completion.sessionId]: { ...existing, message, previewLoaded: true },
+          };
+        });
+      }).catch((error) => {
+        console.error(`读取桌宠会话摘要失败：${completion.sessionId}`, error);
+        setPetCompletions((current) => {
+          const existing = current[completion.sessionId];
+          if (existing?.id !== completion.id) return current;
+          return {
+            ...current,
+            [completion.sessionId]: { ...existing, previewLoaded: true },
+          };
+        });
+      }).finally(() => {
+        petCompletionPreviewRequestsRef.current.delete(completion.id);
+      });
+    }
+  }, [desktop, petCompletions]);
+
+  const petActivity = useMemo(() => projectPetActivity({
+    activeSessionId,
+    sessions: petSessions,
+    approvals: Object.values(pendingApprovals),
+    questions: Object.values(pendingQuestions),
+    completions: Object.values(petCompletions),
+  }), [activeSessionId, pendingApprovals, pendingQuestions, petCompletions, petSessions]);
+
+  useEffect(() => {
+    if (!desktop || !petSystem.loaded || !petSystem.settings.enabled) return;
+    void updatePetActivity(petActivity).catch((error) => {
+      console.error("同步桌宠任务状态失败", error);
+    });
+  }, [desktop, petActivity, petSystem.loaded, petSystem.settings.enabled]);
+
+  useEffect(() => {
+    if (!desktop) return;
+    let active = true;
+    let unlisten: UnlistenFn | undefined;
+    void listenToPetActionRequests((action) => {
+      if (active) petActionHandlerRef.current(action);
+    }).then((nextUnlisten) => {
+      if (active) unlisten = nextUnlisten;
+      else nextUnlisten();
+    }).catch((error) => console.error("监听桌宠快捷动作失败", error));
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [desktop]);
+  // @deeptop-pets:end app-activity-projection
   const pendingSessionIds = useMemo(
     () => new Set([...Object.keys(pendingApprovals), ...Object.keys(pendingQuestions)]),
     [pendingApprovals, pendingQuestions],
@@ -3663,6 +3804,108 @@ function AppContent() {
     }
   }
 
+  // @deeptop-pets:start app-action-handlers
+  async function respondToPetApprovalRequest(request: PendingApproval, outcome: "allowed-once" | "rejected") {
+    await bridgeRequest("respond", {
+      type: "client-response",
+      rpcId: request.rpcId,
+      result: {
+        ok: true,
+        value: { sessionId: request.sessionId, approvalId: request.approvalId, outcome },
+      },
+    });
+    setPendingApprovals((current) => {
+      if (current[request.sessionId]?.rpcId !== request.rpcId) return current;
+      const next = { ...current };
+      delete next[request.sessionId];
+      return next;
+    });
+  }
+
+  async function respondToPetQuestionRequest(
+    request: PendingQuestion,
+    answers: Record<string, string[]>,
+    customAnswers: Record<string, string>,
+  ) {
+    const answer = {
+      answers: questionAnswerItems(request.questions, answers, customAnswers),
+    };
+    await bridgeRequest("respond", {
+      type: "client-response",
+      rpcId: request.rpcId,
+      result: { ok: true, value: { sessionId: request.sessionId, answer } },
+    });
+    setPendingQuestions((current) => {
+      if (current[request.sessionId]?.rpcId !== request.rpcId) return current;
+      const next = { ...current };
+      delete next[request.sessionId];
+      return next;
+    });
+    setQuestionAnswersBySession((current) => {
+      const next = { ...current };
+      delete next[request.sessionId];
+      return next;
+    });
+    setQuestionCustomAnswersBySession((current) => {
+      const next = { ...current };
+      delete next[request.sessionId];
+      return next;
+    });
+  }
+
+  async function sendPetReply(sessionId: string, text: string) {
+    const message = text.trim();
+    if (!message) throw new Error("快捷回复不能为空");
+    const session = sessionsRef.current.find((item) => item.sessionId === sessionId);
+    if (!session) throw new Error("目标会话已经不存在");
+    const sessionModels = await bridgeRequest<DshSessionModels>("session.models", { sessionId });
+    if (!sessionModels.routable) throw new Error("目标会话当前没有可用模型路由");
+    const promptPayload: DshSessionPromptPayload = {
+      sessionId,
+      mode: "queue",
+      content: promptContentParts(message, []),
+      clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    };
+    await bridgeRequest("session.prompt", { ...promptPayload });
+    setSessionIndicators((current) => ({ ...current, [sessionId]: "running" }));
+    setNotice(`已从桌宠向“${displayTitle(session)}”发送消息`);
+  }
+
+  async function handlePetAction(action: PetAction) {
+    try {
+      if (action.kind === "open") {
+        await openNotificationSession(action.sessionId);
+        return;
+      }
+      if (action.kind === "reply") {
+        await sendPetReply(action.sessionId, action.text ?? "");
+        return;
+      }
+      if (action.kind === "approval-allow" || action.kind === "approval-reject") {
+        const request = pendingApprovalsRef.current[action.sessionId];
+        if (!request) throw new Error("该权限请求已经处理或失效");
+        await respondToPetApprovalRequest(request, action.kind === "approval-allow" ? "allowed-once" : "rejected");
+        return;
+      }
+      const request = pendingQuestionsRef.current[action.sessionId];
+      if (!request) throw new Error("该问题已经处理或失效");
+      if (request.questions.length !== 1 || !request.questions[0]) {
+        await openNotificationSession(action.sessionId);
+        return;
+      }
+      const questionId = request.questions[0].id;
+      const text = action.text?.trim() ?? "";
+      await respondToPetQuestionRequest(
+        request,
+        action.selectedOption ? { [questionId]: [text] } : {},
+        action.selectedOption ? {} : { [questionId]: text },
+      );
+    } catch (error) {
+      setErrorNotice(`桌宠快捷操作失败：${errorText(error)}`);
+    }
+  }
+  // @deeptop-pets:end app-action-handlers
+
   async function removeQueueItem(itemId: string) {
     if (!activeSessionId) return;
     try {
@@ -4170,6 +4413,11 @@ function AppContent() {
                       {(["theme", "background", "typography", "css"] as AppearanceSection[]).map((item) => <button key={item} className={`settings-navigation-subitem${appearanceSection === item ? " selected" : ""}`} onClick={() => setAppearanceSection(item)}>{item === "theme" ? "主题" : item === "background" ? "背景工作台" : item === "typography" ? "文字" : "CSS 主题"}</button>)}
                     </div>}
                   </div>
+                  {/* @deeptop-pets:start app-settings-nav */}
+                  <button className={(settingsSection as string) === "pets" ? "selected" : ""} onClick={() => setSettingsSection("pets" as SettingsSection)}>
+                    <strong>宠物</strong><small>桌宠、安装与分享</small>
+                  </button>
+                  {/* @deeptop-pets:end app-settings-nav */}
                    <button className={settingsSection === "general" ? "selected" : ""} onClick={(event) => setSettingsSection(event.currentTarget.textContent?.includes("Dock") ? "dock" : "general")}>
                      <strong data-legacy-general="true">通用</strong><small>会话与 Host</small>
                    </button>{/*
@@ -4214,6 +4462,29 @@ function AppContent() {
 
                 <section className="settings-main">
                    {settingsSection === "dock" && <SettingsDockPanel settings={dockSettings} loaded={dockSettingsLoaded} updating={dockSettingsUpdating} onUpdate={updateDockSettingsWithNotice} />}
+                  {/* @deeptop-pets:start app-settings-panel */}
+                  {(settingsSection as string) === "pets" && <SettingsPetPanel
+                    desktop={desktop}
+                    settings={petSystem.settings}
+                    entries={petSystem.entries}
+                    selectedPet={petSystem.selectedPet}
+                    directory={petSystem.library.directory}
+                    warnings={petSystem.library.warnings}
+                    loaded={petSystem.loaded && petSystem.libraryLoaded}
+                    busy={petSystem.busy}
+                    previewBundle={petSystem.previewBundle}
+                    previewLoading={petSystem.previewLoading}
+                    previewError={petSystem.previewError}
+                    careState={petSystem.careState}
+                    careError={petSystem.careError}
+                    onUpdate={petSystem.updateSettings}
+                    onSelect={petSystem.selectPet}
+                    onImport={petSystem.importBundle}
+                    onExport={petSystem.exportSelected}
+                    onRemove={petSystem.removeSelected}
+                    onOpenDirectory={petSystem.openDirectory}
+                  />}
+                  {/* @deeptop-pets:end app-settings-panel */}
                   {settingsSection === "about" && <SettingsAboutPanel
                      version={DEEPTOP_VERSION}
                      desktop={desktop}

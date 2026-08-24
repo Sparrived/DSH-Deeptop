@@ -1,0 +1,7 @@
+{
+  "id": "io.github.suakitsu.sawatari-shizuku",
+  "displayName": "沢渡雫",
+  "description": "会跟随鼠标、回应互动和任务状态的沢渡雫桌宠。",
+  "spriteVersionNumber": 2,
+  "spritesheetPath": "spritesheet.webp"
+}

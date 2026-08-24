@@ -17,5 +17,10 @@ src-tauri/gen/
 .DS_Store
 *.log
 
+# @deeptop-pets:start ignored-packages
+# Locally built, shareable pet archives; source examples remain versioned.
+examples/pets/**/*.deeptop-pet
+# @deeptop-pets:end ignored-packages
+
 # Local DSH profile/session probes and repro artifacts
 work/

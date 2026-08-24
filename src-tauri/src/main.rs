@@ -36,6 +36,9 @@ mod about;
 mod dock_position;
 mod dock_settings;
 mod external_launch;
+// @deeptop-pets:start native-module
+mod pet_feature;
+// @deeptop-pets:end native-module
 mod terminal;
 mod window_behavior;
 mod windows_context_menu;
@@ -5382,6 +5385,9 @@ fn main() {
             }
         }));
     }
+    // @deeptop-pets:start native-registration
+    builder = builder.plugin(pet_feature::init());
+    // @deeptop-pets:end native-registration
     builder = builder
         .manage(BridgeManager::default())
         .manage(TrayMenuState::default())
@@ -5421,6 +5427,26 @@ fn main() {
             reset_dock_position,
             get_dock_settings,
             set_dock_settings,
+            // @deeptop-pets:start native-commands
+            pet_feature::store::get_pet_settings,
+            pet_feature::window::set_pet_settings,
+            pet_feature::care::get_pet_care_state,
+            pet_feature::care::perform_pet_care_action,
+            pet_feature::store::get_pet_library,
+            pet_feature::store::read_pet_bundle,
+            pet_feature::store::pick_pet_bundle,
+            pet_feature::store::install_pet_bundle,
+            pet_feature::store::export_pet_bundle,
+            pet_feature::store::remove_pet_bundle,
+            pet_feature::open_pets_directory,
+            pet_feature::window::get_pet_window_context,
+            pet_feature::window::show_pet_window,
+            pet_feature::window::begin_pet_window_drag,
+            pet_feature::window::set_pet_window_expanded,
+            pet_feature::window::get_pet_pointer_context,
+            pet_feature::window::update_pet_activity,
+            pet_feature::window::dispatch_pet_action,
+            // @deeptop-pets:end native-commands
             get_windows_context_menu_status,
             set_windows_context_menu_enabled,
             get_window_behavior_settings,

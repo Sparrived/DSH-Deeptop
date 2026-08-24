@@ -29,6 +29,169 @@ export interface DockSettings {
   pinned: Record<string, boolean>;
 }
 
+// @deeptop-pets:start desktop-types
+export type PetAnchor = "bottom-left" | "bottom-right";
+export type PetImageMediaType = "image/webp";
+export type PetAnimationState = "idle" | "running-right" | "running-left" | "waving" | "jumping" | "failed" | "waiting" | "running" | "review";
+export type PetActivityState = "idle" | "running" | "waiting" | "failed" | "review";
+export type PetInteractionEvent = "pointerEnter" | "pointerLeave" | "tap" | "doubleTap" | "longPress" | "dragStart" | "dragEnd" | "idleTimeout";
+export type PetAttentionKind = "approval" | "question" | "completed" | "failed" | "running";
+export type PetActionKind = "open" | "reply" | "answer" | "approval-allow" | "approval-reject";
+export type PetCareCondition = "happy" | "content" | "hungry" | "lonely";
+export type PetCareActionKind = "meal" | "treat" | "pet" | "play";
+
+export type PetCareActionReadyAtMs = Record<PetCareActionKind, number>;
+
+/** 可随时关闭的桌面宠物展示设置，由 Tauri 持久化，不进入 DSH 配置。 */
+export interface PetSettings {
+  enabled: boolean;
+  selectedPetId: string;
+  anchor: PetAnchor;
+  size: number;
+  motionEnabled: boolean;
+  interactionsEnabled: boolean;
+  careEnabled: boolean;
+}
+
+/** 独立于角色皮肤的温和养成状态；所有宠物包共用这一份本地数据。 */
+export interface PetCareState {
+  schemaVersion: 1;
+  satiety: number;
+  mood: number;
+  affection: number;
+  updatedAtMs: number;
+  revision: number;
+  condition: PetCareCondition;
+  actionReadyAtMs: PetCareActionReadyAtMs;
+  actionAllowed: Record<PetCareActionKind, boolean>;
+}
+
+export interface PetCareActionResult {
+  state: PetCareState;
+  accepted: boolean;
+  reaction?: PetAnimationState;
+  message: string;
+}
+
+export interface PetCanvas {
+  width: number;
+  height: number;
+}
+
+/** 固定事件到动画的声明式映射；同一事件有多个规则时由运行时随机选择。 */
+export interface PetInteraction {
+  on: PetInteractionEvent;
+  play: PetAnimationState;
+  then?: PetAnimationState;
+  cooldownMs: number;
+}
+
+/** Deeptop 从 `pet.json` 与可选扩展元数据合并出的只读运行时清单。 */
+export interface PetManifest {
+  kind: "deeptop-pet";
+  schemaVersion: 2;
+  runtimeProfile: "deeptop";
+  id: string;
+  version: string;
+  name: string;
+  author: string;
+  license: string;
+  description?: string;
+  canvas: PetCanvas;
+  spriteVersionNumber: 2;
+  spritesheetPath: string;
+  interactions: PetInteraction[];
+}
+
+export interface PetRuntimeAsset {
+  mediaType: PetImageMediaType;
+  data: string;
+  width: number;
+  height: number;
+}
+
+/** 原生端校验归档后交给隔离渲染器的运行时对象。 */
+export interface PetBundle {
+  manifest: PetManifest;
+  assets: Record<string, PetRuntimeAsset>;
+}
+
+export interface PetBundleDescriptor {
+  id: string;
+  version: string;
+  name: string;
+  author: string;
+  license: string;
+  description?: string;
+  canvas: PetCanvas;
+  spriteVersionNumber: 2;
+  builtIn: boolean;
+}
+
+export interface PetLibrarySnapshot {
+  directory: string;
+  pets: PetBundleDescriptor[];
+  warnings: string[];
+}
+
+/** 启动独立桌宠渲染器所需的最小宿主状态。 */
+export interface PetWindowContext {
+  settings: PetSettings;
+  activity: PetActivity;
+}
+
+/** 桌宠可以展示的会话入口；不包含文件、模型或 Bridge 凭据。 */
+export interface PetSessionTarget {
+  sessionId: string;
+  title: string;
+}
+
+/** 主业务投影给桌宠的一次可见提醒。所有动作仍由主窗口执行。 */
+export interface PetAttention extends PetSessionTarget {
+  id: string;
+  kind: PetAttentionKind;
+  message: string;
+  toolName?: string;
+  options: string[];
+  canReply: boolean;
+}
+
+export interface PetActivityUpdate {
+  state: PetActivityState;
+  activities: PetAttention[];
+  attention?: PetAttention;
+  target?: PetSessionTarget;
+}
+
+export interface PetActivity extends PetActivityUpdate {
+  revision: number;
+}
+
+/** 独立桌宠发回主窗口的受限语义动作。 */
+export interface PetAction {
+  kind: PetActionKind;
+  sessionId: string;
+  activityId?: string;
+  text?: string;
+  selectedOption?: boolean;
+}
+
+/** 全局指针相对宠物窗口中心的逻辑像素位置。 */
+export interface PetPointerContext {
+  deltaX: number;
+  deltaY: number;
+  distance: number;
+}
+
+export interface PetBundleCandidate {
+  path: string;
+  pet: PetBundleDescriptor;
+  replaceRequired: boolean;
+  sha256: string;
+  sizeBytes: number;
+}
+// @deeptop-pets:end desktop-types
+
 export interface DshProcessInfo {
   pid: number;
   name: string;
@@ -624,6 +787,143 @@ export async function setDockSettings(settings: DockSettings): Promise<DockSetti
   if (!isTauri()) return settings;
   return invoke<DockSettings>("set_dock_settings", { settings });
 }
+
+// @deeptop-pets:start desktop-bridge
+export async function getPetSettings(): Promise<PetSettings> {
+  if (!isTauri()) {
+    return {
+      enabled: false,
+      selectedPetId: "",
+      anchor: "bottom-right",
+      size: 112,
+      motionEnabled: true,
+      interactionsEnabled: true,
+      careEnabled: true,
+    };
+  }
+  return invoke<PetSettings>("get_pet_settings");
+}
+
+export async function setPetSettings(settings: PetSettings): Promise<PetSettings> {
+  if (!isTauri()) return settings;
+  return invoke<PetSettings>("set_pet_settings", { settings });
+}
+
+export async function getPetWindowContext(): Promise<PetWindowContext> {
+  if (!isTauri()) return {
+    settings: await getPetSettings(),
+    activity: { state: "idle", activities: [], revision: 0 },
+  };
+  return invoke<PetWindowContext>("get_pet_window_context");
+}
+
+export async function getPetCareState(): Promise<PetCareState> {
+  if (!isTauri()) return {
+    schemaVersion: 1,
+    satiety: 78,
+    mood: 72,
+    affection: 12,
+    updatedAtMs: Date.now(),
+    revision: 0,
+    condition: "content",
+    actionReadyAtMs: { meal: 0, treat: 0, pet: 0, play: 0 },
+    actionAllowed: { meal: true, treat: true, pet: true, play: true },
+  };
+  return invoke<PetCareState>("get_pet_care_state");
+}
+
+export async function performPetCareAction(action: PetCareActionKind): Promise<PetCareActionResult> {
+  if (!isTauri()) throw new Error("养成互动只在 Deeptop 桌面端可用");
+  return invoke<PetCareActionResult>("perform_pet_care_action", { action });
+}
+
+export async function showPetWindow(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("show_pet_window");
+}
+
+/** 让操作系统接管桌宠窗口拖动，使指针可以跨越 Deeptop 和显示器边界。 */
+export async function beginPetWindowDrag(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("begin_pet_window_drag");
+}
+
+/** 展开或收起桌宠旁的快捷交互卡片，并保持宠物本身的屏幕位置。 */
+export async function setPetWindowExpanded(expanded: boolean): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("set_pet_window_expanded", { expanded });
+}
+
+export async function updatePetActivity(activity: PetActivityUpdate): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("update_pet_activity", { activity });
+}
+
+export async function dispatchPetAction(action: PetAction): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("dispatch_pet_action", { action });
+}
+
+/** 读取跨窗口、跨显示器的系统指针方向；仅独立桌宠 WebView 调用。 */
+export async function getPetPointerContext(): Promise<PetPointerContext> {
+  if (!isTauri()) return { deltaX: 0, deltaY: 0, distance: 0 };
+  return invoke<PetPointerContext>("get_pet_pointer_context");
+}
+
+export async function listenToPetSettingsChanges(handler: (settings: PetSettings) => void): Promise<UnlistenFn> {
+  return listen<PetSettings>("deeptop-pet-settings-changed", (event) => handler(event.payload));
+}
+
+export async function listenToPetActivityChanges(handler: (activity: PetActivity) => void): Promise<UnlistenFn> {
+  return listen<PetActivity>("deeptop-pet-activity-changed", (event) => handler(event.payload));
+}
+
+export async function listenToPetCareChanges(handler: (state: PetCareState) => void): Promise<UnlistenFn> {
+  return listen<PetCareState>("deeptop-pet-care-changed", (event) => handler(event.payload));
+}
+
+export async function listenToPetActionRequests(handler: (action: PetAction) => void): Promise<UnlistenFn> {
+  return listen<PetAction>("deeptop-pet-action-requested", (event) => handler(event.payload));
+}
+
+export async function getPetLibrary(): Promise<PetLibrarySnapshot> {
+  if (!isTauri()) return { directory: "", pets: [], warnings: [] };
+  return invoke<PetLibrarySnapshot>("get_pet_library");
+}
+
+export async function readPetBundle(id: string): Promise<PetBundle> {
+  if (!isTauri()) throw new Error("宠物包只在 Deeptop 桌面端读取");
+  return invoke<PetBundle>("read_pet_bundle", { id });
+}
+
+/** 打开原生选择器并校验宠物包；取消时返回 null，尚未写入宠物库。 */
+export async function pickPetBundle(): Promise<PetBundleCandidate | null> {
+  if (!isTauri()) return null;
+  return invoke<PetBundleCandidate | null>("pick_pet_bundle");
+}
+
+/** 安装本地或市场下载的包；市场可传入目录中的 SHA-256 让原生层在写入前复核。 */
+export async function installPetBundle(path: string, replaceExisting: boolean, expectedSha256?: string): Promise<PetBundleDescriptor> {
+  if (!isTauri()) throw new Error("宠物包只在 Deeptop 桌面端安装");
+  return invoke<PetBundleDescriptor>("install_pet_bundle", { path, replaceExisting, expectedSha256: expectedSha256 ?? null });
+}
+
+/** 使用原生“另存为”对话框导出已安装的宠物包；取消时返回 null。 */
+export async function exportPetBundle(id: string): Promise<string | null> {
+  if (!isTauri()) return null;
+  return invoke<string | null>("export_pet_bundle", { id });
+}
+
+export async function removePetBundle(id: string): Promise<void> {
+  if (!isTauri()) throw new Error("宠物包只在 Deeptop 桌面端管理");
+  await invoke("remove_pet_bundle", { id });
+}
+
+export async function openPetsDirectory(): Promise<void> {
+  if (!isTauri()) throw new Error("宠物目录只在 Deeptop 桌面端可用");
+  await invoke("open_pets_directory");
+}
+// @deeptop-pets:end desktop-bridge
 
 export async function getWindowBehaviorSettings(): Promise<WindowBehaviorSettings> {
   if (!isTauri()) return { minimizeToTray: false, closeBehavior: "ask" };
