@@ -11,6 +11,9 @@
     "./skill-install-plugin": "./skill-install-plugin.mjs",
     "./package.json": "./package.json"
   },
+  "dependencies": {
+    "undici": "^8.10.0"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"

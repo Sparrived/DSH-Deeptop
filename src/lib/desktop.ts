@@ -793,6 +793,26 @@ export async function bridgeRequest<T>(
   }
 }
 
+export interface DshNetworkProxy {
+  enabled: boolean;
+  url: string;
+}
+
+export interface DshNetworkProxyResult {
+  proxy: DshNetworkProxy;
+  applied: boolean;
+}
+
+/** 读取当前 DSH 进程的网络代理设置（已保存值）。 */
+export async function getNetworkProxy(): Promise<DshNetworkProxy> {
+  return bridgeRequest<DshNetworkProxy>("network.getProxy");
+}
+
+/** 保存并即时应用网络代理（setProxy 会立即 setGlobalDispatcher，无需重启）。 */
+export async function setNetworkProxy(proxy: DshNetworkProxy): Promise<DshNetworkProxyResult> {
+  return bridgeRequest<DshNetworkProxyResult>("network.setProxy", { proxy });
+}
+
 export interface DshSessionRepairResult {
   repaired: boolean;
   recoveredEvents: number;

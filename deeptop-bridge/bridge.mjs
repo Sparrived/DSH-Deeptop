@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 import { routeDesktopRequest } from './routes.mjs'
+import { initNetworkProxy } from './network-proxy.mjs'
 
 const PROTOCOL = 'deeptop/1'
 
@@ -45,6 +46,12 @@ export class DesktopBridge {
     if (this.closed) return
     if (this.ctx.get('apiProxy') === undefined) {
       throw new Error('deeptop-bridge requires @deepseek-ai/dsh-host-apiproxy')
+    }
+
+    // 在开始读取请求前安装已保存的代理，避免重启后的首个模型请求绕过代理。
+    const proxyResult = await initNetworkProxy()
+    if (!proxyResult.ok) {
+      console.warn(`[deeptop-bridge] 初始化网络代理失败：${proxyResult.error}`)
     }
 
     this.input = createInterface({ input: process.stdin, crlfDelay: Infinity })

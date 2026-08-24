@@ -18,6 +18,8 @@ import type {
   DshSessionRepairResult,
   DshSessionSummary,
   DshSettingsDescription,
+  DshNetworkProxy,
+  DshNetworkProxyResult,
   DshSkill,
   DshSkillInstallResult,
   DshSubagentCatalog,
@@ -372,6 +374,16 @@ const settings = {
     requires: "credentials",
     payload: {} as { ref: string },
     value: {} as unknown,
+  },
+  "network.getProxy": {
+    requires: "settings",
+    payload: {} as Record<string, never>,
+    value: {} as DshNetworkProxy,
+  },
+  "network.setProxy": {
+    requires: "settings",
+    payload: {} as { proxy: DshNetworkProxy },
+    value: {} as DshNetworkProxyResult,
   },
 } as const satisfies Record<string, BridgeMethodContract>;
 

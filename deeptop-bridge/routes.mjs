@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join } from 'node:path'
 import { installSkillFromSource } from './skill-installer.mjs'
 import { repairCorruptLog } from './session-repair.mjs'
 import { describePluginConfig, filterInventory, mutatePluginConfig } from './plugin-config.mjs'
+import { loadProxySetting, setProxySetting } from './network-proxy.mjs'
 
 function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -641,6 +642,8 @@ export async function routeDesktopRequest(ctx, method, payload, signal) {
     case 'plugin.list': return filterInventory(await ctx.pluginInventory.list())
     case 'plugin.config.describe': return describePluginConfig(ctx)
     case 'plugin.config.mutate': return mutatePluginConfig(ctx, payload)
+    case 'network.getProxy': return loadProxySetting()
+    case 'network.setProxy': return setProxySetting(payload?.proxy)
     case 'respond': return api.respond(payload)
     default: throw new Error(`desktop bridge does not expose ${JSON.stringify(method)}`)
   }

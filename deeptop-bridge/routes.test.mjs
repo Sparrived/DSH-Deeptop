@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createServer } from 'node:http'
 import { mkdtemp, readFile, rm as removePath, stat, writeFile } from 'node:fs/promises'
 import test from 'node:test'
 import { join } from 'node:path'
@@ -6,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { constants, zstdCompressSync, zstdDecompressSync } from 'node:zlib'
 import { routeDesktopRequest } from './routes.mjs'
 import { bridgeErrorFrame } from './bridge.mjs'
+import { applyProxy, initNetworkProxy, loadProxySetting, setProxySetting } from './network-proxy.mjs'
 import { describePluginConfig, mutatePluginConfig } from './plugin-config.mjs'
 import { parseGitHubSource, validateRelativeRepoPath } from './skill-installer.mjs'
 import { reconstructContiguous, rowSeqs, scanZstdFrames, verifyReadable } from './session-repair.mjs'
@@ -67,6 +69,86 @@ test('routes plugin inventory and config methods through the desktop bridge', as
     assert.deepEqual(config.plugins, [])
   } finally {
     await removePath(root, { recursive: true, force: true })
+  }
+})
+
+test('validates, persists, and routes the desktop HTTP proxy setting', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-network-proxy-'))
+  const previousHome = process.env.DSH_HOME
+  process.env.DSH_HOME = root
+  try {
+    await assert.rejects(
+      setProxySetting({ enabled: true, url: 'socks5://127.0.0.1:7890' }),
+      /HTTP\/HTTPS/,
+    )
+    assert.deepEqual(await loadProxySetting(), { enabled: false, url: '' })
+
+    const saved = await routeDesktopRequest({}, 'network.setProxy', {
+      proxy: { enabled: true, url: ' http://127.0.0.1:7890 ' },
+    }, signal)
+    assert.deepEqual(saved, {
+      proxy: { enabled: true, url: 'http://127.0.0.1:7890/' },
+      applied: true,
+    })
+    assert.deepEqual(await routeDesktopRequest({}, 'network.getProxy', {}, signal), saved.proxy)
+
+    const direct = await routeDesktopRequest({}, 'network.setProxy', {
+      proxy: { enabled: false, url: '' },
+    }, signal)
+    assert.deepEqual(direct, { proxy: { enabled: false, url: '' }, applied: true })
+  } finally {
+    await applyProxy({ enabled: false, url: '' })
+    if (previousHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previousHome
+    await removePath(root, { recursive: true, force: true })
+  }
+})
+
+test('does not block bridge startup when a persisted proxy is unusable', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-network-proxy-'))
+  const previousHome = process.env.DSH_HOME
+  process.env.DSH_HOME = root
+  try {
+    await writeFile(join(root, 'network-proxy.json'), JSON.stringify({ enabled: true, url: 'socks5://127.0.0.1:7890' }), 'utf8')
+    const result = await initNetworkProxy()
+    assert.equal(result.ok, false)
+    assert.equal(result.applied, false)
+    assert.match(result.error, /HTTP\/HTTPS/)
+  } finally {
+    if (previousHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previousHome
+    await removePath(root, { recursive: true, force: true })
+  }
+})
+
+test('routes Node global fetch through the selected HTTP proxy', async () => {
+  let received
+  let receivedConnect
+  const proxy = createServer((request, response) => {
+    received = { method: request.method, url: request.url, host: request.headers.host }
+    response.writeHead(200, { 'content-type': 'text/plain' })
+    response.end('proxied')
+  })
+  proxy.on('connect', (request, socket) => {
+    receivedConnect = { method: request.method, url: request.url, host: request.headers.host }
+    socket.end('HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n')
+  })
+  await new Promise((resolve, reject) => {
+    proxy.once('error', reject)
+    proxy.listen(0, '127.0.0.1', resolve)
+  })
+  const address = proxy.address()
+  if (address === null || typeof address === 'string') throw new Error('test proxy did not bind a TCP port')
+  try {
+    await applyProxy({ enabled: true, url: `http://127.0.0.1:${address.port}` })
+    const response = await fetch('http://model.invalid/probe')
+    assert.equal(await response.text(), 'proxied')
+    assert.deepEqual(received, { method: 'GET', url: 'http://model.invalid/probe', host: 'model.invalid' })
+    await assert.rejects(fetch('https://model.invalid/probe'))
+    assert.deepEqual(receivedConnect, { method: 'CONNECT', url: 'model.invalid:443', host: 'model.invalid' })
+  } finally {
+    await applyProxy({ enabled: false, url: '' })
+    await new Promise((resolve, reject) => proxy.close(error => error === undefined ? resolve() : reject(error)))
   }
 })
 

@@ -1,4 +1,5 @@
-import type { CloseBehavior, DshPreset, DshSettingsDescription, DshSettingsNamespace, WindowBehaviorSettings, WindowsContextMenuStatus } from "../lib/desktop";
+import type { CloseBehavior, DshNetworkProxy, DshPreset, DshSettingsDescription, DshSettingsNamespace, WindowBehaviorSettings, WindowsContextMenuStatus } from "../lib/desktop";
+import { useState, useEffect } from "react";
 import { presetDisplayName } from "../app/model";
 import type { DshHostModelCatalog, ModelSelection } from "../app/model";
 
@@ -27,6 +28,9 @@ type SettingsGeneralPanelProps = {
   windowBehavior: WindowBehaviorSettings;
   windowBehaviorSupported: boolean;
   windowBehaviorUpdating: boolean;
+  networkProxy: DshNetworkProxy;
+  networkProxyUpdating: boolean;
+  onUpdateNetworkProxy: (proxy: DshNetworkProxy) => void | Promise<void>;
   onSetContextMenuEnabled: (enabled: boolean) => void | Promise<void>;
   onUpdateWindowBehavior: (patch: Partial<WindowBehaviorSettings>) => void | Promise<void>;
   onOpenDocument: () => void | Promise<void>;
@@ -53,6 +57,9 @@ export function SettingsGeneralPanel({
   windowBehavior,
   windowBehaviorSupported,
   windowBehaviorUpdating,
+  networkProxy,
+  networkProxyUpdating,
+  onUpdateNetworkProxy,
   onSetContextMenuEnabled,
   onUpdateWindowBehavior,
   onOpenDocument,
@@ -77,6 +84,12 @@ export function SettingsGeneralPanel({
   const permissionStorageHint = permissionNamespace ? "由 DSH Host 应用到新会话" : "保存在此桌面端，并应用到新会话";
   const modelReasoning = selectedModel?.reasoning;
   const reasoningValue = defaultModel?.reasoningEffort ?? modelReasoning?.defaultEffort ?? "";
+  const [proxyUrl, setProxyUrl] = useState(networkProxy.url);
+  const [proxyEnabled, setProxyEnabled] = useState(networkProxy.enabled);
+  useEffect(() => {
+    setProxyUrl(networkProxy.url);
+    setProxyEnabled(networkProxy.enabled);
+  }, [networkProxy.url, networkProxy.enabled]);
 
   return (
     <div className="settings-page">
@@ -108,6 +121,15 @@ export function SettingsGeneralPanel({
           <div className="settings-preference-row"><span><strong>最小化到托盘</strong><small>点击最小化按钮时隐藏窗口，并保留后台任务与托盘入口。</small></span><label className="settings-plugin-toggle" aria-label="启用最小化到托盘"><input type="checkbox" checked={windowBehavior.minimizeToTray} disabled={windowBehaviorUpdating} onChange={(event) => void onUpdateWindowBehavior({ minimizeToTray: event.target.checked })} /><span aria-hidden="true" /></label></div>
           <div className="settings-preference-row"><span><strong>关闭窗口时</strong><small>首次关闭会询问；选择后会记录为后续默认行为。</small></span><select disabled={windowBehaviorUpdating} value={windowBehavior.closeBehavior} onChange={(event) => void onUpdateWindowBehavior({ closeBehavior: event.target.value as CloseBehavior })}><option value="ask">首次关闭时询问</option><option value="hide-to-tray">隐藏到托盘并继续运行</option><option value="exit">退出 Deeptop</option></select></div>
         </div> : <p className="settings-empty">窗口托盘行为仅在 Deeptop 桌面端可用。</p>}
+      </div>
+
+      <div className="settings-block">
+        <div className="settings-block-heading"><div><h3>网络代理</h3><p>DSH 运行时经 HTTP 正向代理访问外部模型服务（部分网络需代理才能直连）。保存后即时生效，无需重启。</p></div></div>
+        <div className="settings-preference-list">
+          <label className="settings-preference-row"><span><strong>启用代理</strong><small>开启后所有模型请求经下方代理地址转发</small></span><label className="settings-plugin-toggle" aria-label="启用网络代理"><input type="checkbox" checked={proxyEnabled} disabled={networkProxyUpdating} onChange={(event) => setProxyEnabled(event.target.checked)} /><span aria-hidden="true" /></label></label>
+          <div className="settings-preference-row"><span><strong>代理地址</strong><small>例如 http://127.0.0.1:7890；若使用 SOCKS，请填写客户端提供的 HTTP 监听端口。留空并关闭则直连</small></span><input className="settings-text-input" type="text" value={proxyUrl} placeholder="http://127.0.0.1:7890" disabled={networkProxyUpdating} onChange={(event) => setProxyUrl(event.target.value)} /></div>
+          <div className="settings-preference-row"><span><strong>应用</strong><small>{networkProxyUpdating ? "正在应用代理…" : "保存并立即切换代理；下次启动自动恢复"}</small></span><button disabled={networkProxyUpdating} onClick={() => void onUpdateNetworkProxy({ enabled: proxyEnabled, url: proxyUrl })}>{networkProxyUpdating ? "应用中…" : proxyEnabled ? "应用代理" : "关闭并直连"}</button></div>
+        </div>
       </div>
 
       <div className="settings-block">

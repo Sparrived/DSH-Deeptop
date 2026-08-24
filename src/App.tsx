@@ -65,6 +65,9 @@ import {
   setWindowsContextMenuEnabled,
   getWindowBehaviorSettings,
   setWindowBehaviorSettings,
+  getNetworkProxy,
+  setNetworkProxy,
+  type DshNetworkProxy,
   resolveWindowClose,
   listPendingWindowClose,
   cancelWindowClose,
@@ -479,6 +482,8 @@ function AppContent() {
   const [contextMenuUpdating, setContextMenuUpdating] = useState(false);
   const [windowBehavior, setWindowBehavior] = useState<WindowBehaviorSettings>({ minimizeToTray: false, closeBehavior: "ask" });
   const [windowBehaviorUpdating, setWindowBehaviorUpdating] = useState(false);
+  const [networkProxy, setNetworkProxyState] = useState<DshNetworkProxy>({ enabled: false, url: "" });
+  const [networkProxyUpdating, setNetworkProxyUpdating] = useState(false);
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft | null>(null);
   const [goal, setGoal] = useState<DshGoalProjection | null | undefined>(undefined);
   const [goalDraft, setGoalDraft] = useState("");
@@ -640,6 +645,19 @@ function AppContent() {
       setErrorNotice(`窗口行为设置保存失败：${errorText(error)}`);
     } finally {
       setWindowBehaviorUpdating(false);
+    }
+  }
+
+  async function updateNetworkProxy(proxy: DshNetworkProxy) {
+    setNetworkProxyUpdating(true);
+    try {
+      const result = await setNetworkProxy(proxy);
+      setNetworkProxyState(result.proxy);
+      setNotice(result.applied ? "网络代理已保存并即时生效" : "网络代理已保存（等待运行时加载 undici 后生效）");
+    } catch (error) {
+      setErrorNotice(`网络代理设置失败：${errorText(error)}`);
+    } finally {
+      setNetworkProxyUpdating(false);
     }
   }
 
@@ -811,6 +829,7 @@ function AppContent() {
   useEffect(() => {
     if (!desktop) return;
     void getWindowBehaviorSettings().then(normalizeWindowBehavior).then(setWindowBehavior).catch((error) => setErrorNotice(`读取窗口行为设置失败：${errorText(error)}`));
+    void getNetworkProxy().then((proxy) => setNetworkProxyState(proxy)).catch(() => { /* 读取失败不阻断启动 */ });
     let disposed = false;
     let unlisten: UnlistenFn | undefined;
     const setupWindowCloseListener = async () => {
@@ -4425,6 +4444,9 @@ function AppContent() {
                     onAddWorkspace={addWorkspace}
                     onResetSidebar={() => setSidebarWidth(320)}
                     onOpenNamespace={openSettingsNamespace}
+                    networkProxy={networkProxy}
+                    networkProxyUpdating={networkProxyUpdating}
+                    onUpdateNetworkProxy={updateNetworkProxy}
                   />}
 
                   {settingsSection === "keyboard" && <SettingsKeyboardPanel

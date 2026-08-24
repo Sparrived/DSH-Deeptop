@@ -252,6 +252,7 @@ const BRIDGE_SKILL_INSTALLER: &str = include_str!("../../deeptop-bridge/skill-in
 const BRIDGE_SKILL_INSTALL_PLUGIN: &str =
     include_str!("../../deeptop-bridge/skill-install-plugin.mjs");
 const BRIDGE_PLUGIN_CONFIG: &str = include_str!("../../deeptop-bridge/plugin-config.mjs");
+const BRIDGE_NETWORK_PROXY: &str = include_str!("../../deeptop-bridge/network-proxy.mjs");
 const PROFILE_TEMPLATE: &str = include_str!("../../deeptop-bridge/desktop-profile.json");
 const PROFILE_PATCH_TEMPLATE: &str = include_str!("../../deeptop-bridge/profile.patch.yml");
 const PROFILE_PNPM_WORKSPACE: &str =
@@ -1011,6 +1012,7 @@ fn materialize_desktop_profile() -> Result<(), String> {
         BRIDGE_SKILL_INSTALL_PLUGIN,
     )?;
     write_text(&bridge_dir.join("plugin-config.mjs"), BRIDGE_PLUGIN_CONFIG)?;
+    write_text(&bridge_dir.join("network-proxy.mjs"), BRIDGE_NETWORK_PROXY)?;
     Ok(())
 }
 
@@ -1561,6 +1563,7 @@ fn bundled_dsh_launch(app: &AppHandle) -> Result<DshLaunch, String> {
         .args(["--profile", DSH_PROFILE])
         .current_dir(dsh_home())
         .env("DSH_HOME", dsh_home())
+        .env("DEEPTOP_DSH_RUNTIME_ROOT", &runtime)
         .env_remove("DSH_CWD");
     #[cfg(windows)]
     configure_hidden_process(&mut command);
