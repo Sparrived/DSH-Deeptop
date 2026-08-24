@@ -226,6 +226,7 @@ import { defaultWorkingIndicator, normalizeWorkingIndicator } from "./app/workin
 import { externalLaunchKey } from "./lib/external-launch";
 import { DEFAULT_PERMISSION_OPTIONS, isDefaultPermission, readStoredDefaultModel, readStoredDefaultPermission, writeStoredDefaultModel, writeStoredDefaultPermission, type DefaultPermission } from "./app/session-defaults";
 import { reconcileSessionIndicators } from "./app/session-runtime-state";
+import type { PlanReviewQuestion } from "./app/ui-model";
 import { buildTraySessionMenu } from "./app/tray-model";
 import { updateCheckStateFromResult, updateCheckErrorMessage, updateDownloadStateFromEvent, type UpdateChannel, type UpdateCheckState, type UpdateDownloadState } from "./app/update-model";
 // @deeptop-pets:start app-runtime-imports
@@ -3661,6 +3662,48 @@ function AppContent() {
     await runCommand(plan?.active ? "/plan off" : "/plan");
   }
 
+  async function exitPlanMode() {
+    await runCommand("/plan off");
+  }
+
+  async function respondPlanReview(review: PlanReviewQuestion, label: string) {
+    if (!question) return;
+    const request = question;
+    if (!claimRespond(request.rpcId)) return;
+    try {
+      await desktopRequest("respond", {
+        type: "client-response",
+        rpcId: request.rpcId,
+        result: {
+          ok: true,
+          value: {
+            sessionId: request.sessionId,
+            answer: { answers: [{ id: review.item.id, selected: [label] }] },
+          },
+        },
+      });
+      setPendingQuestions((current) => {
+        if (current[request.sessionId]?.rpcId !== request.rpcId) return current;
+        const next = { ...current };
+        delete next[request.sessionId];
+        return next;
+      });
+      setQuestionAnswersBySession((current) => {
+        const next = { ...current };
+        delete next[request.sessionId];
+        return next;
+      });
+      setQuestionCustomAnswersBySession((current) => {
+        const next = { ...current };
+        delete next[request.sessionId];
+        return next;
+      });
+    } catch (error) {
+      releaseRespondClaim(request.rpcId);
+      setErrorNotice(errorText(error));
+    }
+  }
+
   async function exportSession(sessionId = activeSessionRef.current) {
     if (!sessionId) return;
     setNotice("正在导出会话");
@@ -4540,6 +4583,7 @@ function AppContent() {
             }}
             onCancelQuestion={cancelQuestion}
             onSubmitQuestion={respondToQuestion}
+            onPlanReview={respondPlanReview}
           />
 
           <QueueDock
@@ -4581,6 +4625,8 @@ function AppContent() {
             sessionRunningMs={sessionRunningMs}
              sendShortcut={sendShortcut}
              dropActive={composerDropActive}
+             plan={plan}
+             onExitPlan={exitPlanMode}
             onComposerChange={(value) => {
               setComposer(value);
               setComposerMenuDismissed(false);

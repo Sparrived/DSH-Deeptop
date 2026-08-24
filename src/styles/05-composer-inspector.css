@@ -328,6 +328,58 @@
 
 .composer-attachment button:hover { color: var(--accent-deep); }
 
+/* Plan mode is active: a warn pill above the composer showing the state and an
+   exit affordance. It mirrors the official ui-plan chip (fixed "Plan" label). */
+.composer-plan-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 0 10px 8px;
+  padding: 3px 5px 3px 10px;
+  border: 1px solid #e2b93b;
+  border-radius: 999px;
+  background: rgba(226, 185, 59, 0.14);
+  color: #9a7b10;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.composer-plan-chip-label {
+  font-family: var(--mono);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.composer-plan-chip-note {
+  min-width: 0;
+  overflow: hidden;
+  color: #a68c2a;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-plan-chip-exit {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.composer-plan-chip-exit:hover {
+  border-color: #e2b93b;
+  background: rgba(226, 185, 59, 0.18);
+  color: #6d520a;
+}
+
 .composer-candidates {
   position: absolute;
   z-index: 5;

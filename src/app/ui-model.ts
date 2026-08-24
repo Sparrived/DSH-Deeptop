@@ -1,5 +1,48 @@
-import type { DshImageAttachmentLimits, DshFileReferenceCandidate, DshModel, DshModelGroup, DshPluginInventoryEntry, DshPreset, DshPromptContentPart, DshQuestion, DshRuntimeLog, DshSessionModels, DshSessionReferenceCandidate, DshSessionSummary, DshStatus } from "../lib/desktop";
+import type { DshImageAttachmentLimits, DshFileReferenceCandidate, DshModel, DshModelGroup, DshPlanProjection, DshPluginInventoryEntry, DshPreset, DshPromptContentPart, DshQuestion, DshRuntimeLog, DshSessionModels, DshSessionReferenceCandidate, DshSessionSummary, DshStatus } from "../lib/desktop";
 import type { ChildSubagentEntry, ComposerAttachment, ComposerCandidate, ComposerTrigger } from "./model-types";
+
+/**
+ * Fold the official plan projection into the effective plan-mode target.
+ * `pending` is a logged-but-not-yet-committed selection; while it is set the
+ * client trusts the wanted state instead of the committed `active` value.
+ */
+export function planEffectiveTarget(plan: DshPlanProjection | null | undefined): boolean {
+  if (!plan) return false;
+  return plan.pending ? !plan.active : plan.active;
+}
+
+/**
+ * A plan-review question, per the official user-questions intent contract.
+ * The approve label is named (not positional) so a UI cannot infer the
+ * decision from option order; any other option or a custom answer rejects.
+ */
+export type PlanReviewQuestion = {
+  item: DshQuestion;
+  approve: string;
+  decline?: string;
+  /** Question requires a detail block carrying the plan markdown. */
+  hasPlan: boolean;
+};
+
+export function planReviewOf(questions: DshQuestion[] | undefined): PlanReviewQuestion | null {
+  if (!questions || questions.length !== 1) return null;
+  const item = questions[0];
+  const intent = item.intent;
+  if (!intent || intent.kind !== "plan-review") return null;
+  const options = item.options ?? [];
+  if (options.length === 0 || options.length > 2 || item.multiSelect) return null;
+  if (!options.some((option) => option.label === intent.approve)) return null;
+  // The official ask() validates that plan-review questions carry the plan
+  // markdown as detail; without it the question is not a review card.
+  if (!item.detail || item.detail.trim().length === 0) return null;
+  const decline = options.find((option) => option.label !== intent.approve)?.label;
+  return {
+    item,
+    approve: intent.approve,
+    ...(decline ? { decline } : {}),
+    hasPlan: true,
+  };
+}
 
 export function questionAnswerItems(
   questions: DshQuestion[],

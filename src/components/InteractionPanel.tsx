@@ -1,4 +1,5 @@
 import { MarkdownContent } from "../lib/markdown";
+import { planReviewOf, type PlanReviewQuestion } from "../app/ui-model";
 import type { PendingApproval, PendingQuestion } from "../app/model";
 
 type ApprovalOutcome = "allowed-once" | "rejected";
@@ -20,7 +21,33 @@ type InteractionPanelProps = {
   onCustomAnswerChange: (questionId: string, value: string) => void;
   onCancelQuestion: () => void | Promise<void>;
   onSubmitQuestion: () => void | Promise<void>;
+  /** Resolve a plan-review question by sending the given option label verbatim. */
+  onPlanReview: (review: PlanReviewQuestion, label: string) => void | Promise<void>;
 };
+
+function PlanReviewPanel({
+  review,
+  onReview,
+  onDiscuss,
+}: {
+  review: PlanReviewQuestion;
+  onReview: (label: string) => void | Promise<void>;
+  onDiscuss: () => void | Promise<void>;
+}) {
+  return <div className="plan-review-request" data-plan-review-key={review.item.id}>
+    <div className="plan-review-head">
+      <strong>{review.item.header || "Plan Review"}</strong>
+      <span>计划待审</span>
+    </div>
+    <p>{review.item.question}</p>
+    {review.hasPlan && <div className="plan-review-detail"><MarkdownContent text={review.item.detail ?? ""} /></div>}
+    <div className="interaction-actions">
+      <button onClick={() => void onDiscuss()}>去聊天里说</button>
+      {review.decline && <button onClick={() => void onReview(review.decline!)}>拒绝</button>}
+      <button className="confirm" onClick={() => void onReview(review.approve)}>确认执行</button>
+    </div>
+  </div>;
+}
 
 export function InteractionPanel({
   approval,
@@ -32,8 +59,10 @@ export function InteractionPanel({
   onCustomAnswerChange,
   onCancelQuestion,
   onSubmitQuestion,
+  onPlanReview,
 }: InteractionPanelProps) {
   if (!approval && !question) return null;
+  const planReview = question ? planReviewOf(question.questions) : null;
 
   return (
     <section className="interaction-panel">
@@ -43,7 +72,9 @@ export function InteractionPanel({
           <div className="interaction-actions"><button onClick={() => void onApproval("rejected")}>拒绝</button><button className="confirm" onClick={() => void onApproval("allowed-once")}>允许一次</button></div>
         </div>
       )}
-      {question && (
+      {planReview ? (
+        <PlanReviewPanel review={planReview} onReview={(label) => void onPlanReview(planReview, label)} onDiscuss={onCancelQuestion} />
+      ) : question && (
         <div className="question-request">
           {question.questions.map((item) => (
             <div className="question-item" key={item.id}>

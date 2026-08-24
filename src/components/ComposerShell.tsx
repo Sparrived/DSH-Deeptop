@@ -5,7 +5,8 @@ import { ModelPicker } from "./ModelPicker";
 import { PermissionPicker } from "./PermissionPicker";
 import type { ComposerAttachment, ComposerCandidate, ComposerTrigger, ModelMenuPane, PromptMode, SessionStats } from "../app/model";
 import { contextPercent, formatSessionElapsed, formatTokens } from "../app/model";
-import type { DshModel, DshPermissionSelect, DshSessionModels } from "../lib/desktop";
+import { planEffectiveTarget } from "../app/ui-model";
+import type { DshModel, DshPermissionSelect, DshPlanProjection, DshSessionModels } from "../lib/desktop";
 
 type ReasoningChoice = {
   key: string;
@@ -43,6 +44,9 @@ interface ComposerShellProps {
   sendShortcut: SendShortcut;
   /** Native OS drag is hovering this composer; highlights the drop target. */
   dropActive?: boolean;
+  /** Official plan-mode projection; renders the input-area chip while active. */
+  plan?: DshPlanProjection | null;
+  onExitPlan: () => void | Promise<unknown>;
   onComposerChange: (value: string) => void;
   onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
   onAddFiles: (files: FileList | File[]) => void | Promise<unknown>;
@@ -89,6 +93,8 @@ export function ComposerShell({
   sessionRunningMs,
   sendShortcut,
   dropActive,
+  plan,
+  onExitPlan,
   onComposerChange,
   onPaste,
   onAddFiles,
@@ -171,7 +177,7 @@ export function ComposerShell({
         onChange={(event) => onComposerChange(event.target.value)}
         onPaste={onPaste}
         onKeyDown={handleKeyDown}
-        placeholder={activeRunning ? "输入要排队或插入当前回合的内容" : "输入消息，开始与 DSH 对话"}
+        placeholder={planEffectiveTarget(plan) ? "描述你的任务以生成计划" : activeRunning ? "输入要排队或插入当前回合的内容" : "输入消息，开始与 DSH 对话"}
         rows={3}
         disabled={!runtimeAvailable}
         aria-controls={candidates.length > 0 && !candidatesDismissed ? "composer-candidates" : undefined}
@@ -185,6 +191,11 @@ export function ComposerShell({
             <button type="button" onClick={() => onRemoveAttachment(attachment.id)} title="移除图片" aria-label={"移除 " + attachment.name}>×</button>
           </div>
         ))}
+      </div>}
+      {planEffectiveTarget(plan) && <div className="composer-plan-chip" role="status" aria-label="Plan 模式已开启">
+        <span className="composer-plan-chip-label">Plan</span>
+        <span className="composer-plan-chip-note">规划中，下一步提交计划</span>
+        <button type="button" className="composer-plan-chip-exit" onClick={() => void onExitPlan()} title="退出 Plan 模式（/plan off）" aria-label="退出 Plan 模式">×</button>
       </div>}
       <ComposerCandidates
         candidates={candidates}

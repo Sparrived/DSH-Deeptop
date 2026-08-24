@@ -1301,6 +1301,64 @@
   gap: 16px;
 }
 
+/* The structured plan-review decision card: approve / decline / discuss in the
+   chat, sharing the interaction panel actions styling. */
+.plan-review-request {
+  width: min(1040px, 100%);
+  box-sizing: border-box;
+  margin: 0 auto;
+  padding: 18px;
+  border: 1px solid #e2b93b;
+  border-left: 3px solid #e2b93b;
+  border-radius: var(--radius-panel);
+  background: color-mix(in srgb, #e2b93b 8%, var(--surface-raised));
+}
+
+.plan-review-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.plan-review-head strong {
+  color: var(--ink-strong);
+  font-size: 15px;
+}
+
+.plan-review-head span {
+  color: #a68c2a;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+}
+
+.plan-review-request > p {
+  margin: 8px 0 0;
+  color: var(--ink-muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.plan-review-detail {
+  max-height: 320px;
+  overflow: auto;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-panel);
+  background: var(--surface-raised);
+}
+
+.plan-review-request .interaction-actions {
+  margin-top: 14px;
+}
+
+.plan-review-request .interaction-actions button.confirm {
+  border-color: #c9a32e;
+  background: #c9a32e;
+  color: #1f1b08;
+}
+
 .question-options {
   display: flex;
   flex-wrap: wrap;

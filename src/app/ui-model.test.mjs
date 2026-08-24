@@ -1,6 +1,59 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { composerReferenceText, detectComposerTrigger, droppedImageMediaType, imageBatchLimitError, imageDimensionLimitError, imageLimitsFromProjection, insertComposerCandidate, modelPickerGroups, modelSupportsImages, promptContentParts, referenceComposerCandidates, relativeWorkspacePath, insertComposerText, formatRuntimeLog, formatRuntimeLogs, runtimeLogMatches, questionAnswerItems, sessionPath } from "./ui-model.ts";
+import { composerReferenceText, detectComposerTrigger, droppedImageMediaType, imageBatchLimitError, imageDimensionLimitError, imageLimitsFromProjection, insertComposerCandidate, modelPickerGroups, modelSupportsImages, promptContentParts, referenceComposerCandidates, relativeWorkspacePath, insertComposerText, formatRuntimeLog, formatRuntimeLogs, runtimeLogMatches, questionAnswerItems, sessionPath, planEffectiveTarget, planReviewOf } from "./ui-model.ts";
+
+test("folds the plan projection into the effective target", () => {
+  assert.equal(planEffectiveTarget(null), false);
+  assert.equal(planEffectiveTarget(undefined), false);
+  assert.equal(planEffectiveTarget({ active: false, pending: false }), false);
+  assert.equal(planEffectiveTarget({ active: true, pending: false }), true);
+  // A pending selection wins over the committed value.
+  assert.equal(planEffectiveTarget({ active: false, pending: true }), true);
+  assert.equal(planEffectiveTarget({ active: true, pending: true }), false);
+});
+
+test("identifies a plan-review question by the official intent contract", () => {
+  const plan = {
+    id: "plan-review",
+    header: "Plan review",
+    question: "Approve this plan and leave plan mode?",
+    detail: "# Plan\n\nStep 1",
+    options: [
+      { label: "Approve", description: "Leave plan mode" },
+      { label: "Keep planning", description: "Stay in plan mode" },
+    ],
+    intent: { kind: "plan-review", approve: "Approve" },
+  };
+  assert.deepEqual(planReviewOf([plan]), {
+    item: plan,
+    approve: "Approve",
+    decline: "Keep planning",
+    hasPlan: true,
+  });
+});
+
+test("rejects non-review or malformed plan-review questions", () => {
+  const base = {
+    id: "plan-review",
+    header: "Plan review",
+    question: "Approve this plan?",
+    options: [{ label: "Approve" }, { label: "Keep planning" }],
+    intent: { kind: "plan-review", approve: "Approve" },
+  };
+  assert.equal(planReviewOf(undefined), null);
+  assert.equal(planReviewOf([]), null);
+  assert.equal(planReviewOf([base, { ...base, id: "second" }]), null);
+  assert.equal(planReviewOf([{ ...base, intent: undefined }]), null);
+  assert.equal(planReviewOf([{ ...base, intent: { kind: "other" } }]), null);
+  // Approve label must hit its own options.
+  assert.equal(planReviewOf([{ ...base, intent: { kind: "plan-review", approve: "Nope" } }]), null);
+  // plan-review requires a detail block (the plan markdown).
+  assert.equal(planReviewOf([{ ...base, detail: "" }]), null);
+  // Single-option review has no decline branch.
+  const single = planReviewOf([{ ...base, detail: "# Plan", options: [{ label: "Approve" }] }]);
+  assert.equal(single?.approve, "Approve");
+  assert.equal(single?.decline, undefined);
+});
 test("keeps an RC8 current model when the advisory groups omit it", () => {
   const groups = modelPickerGroups({ groups: [{ id: "provider", name: "Provider", models: [{ id: "listed", name: "Listed" }] }], current: { provider: "provider", model: "custom-model" } });
   assert.equal(groups[0].models.at(-1)?.name, "custom-model（当前未列出）");
