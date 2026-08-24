@@ -26,6 +26,7 @@ import {
   type SessionIndicator,
 } from "./session-runtime-state";
 import { sessionProjectionCache } from "./projection-cache";
+import { historyPageCache } from "./history-page-cache";
 import type {
   PendingApproval,
   PendingQuestion,
@@ -459,6 +460,7 @@ function routeHostEvent(event: DshBridgeEvent, context: BridgeEventHandlerContex
   if (type === "host/session-removed") {
     const sessionId = String(payload.sessionId ?? "");
     sessionProjectionCache.removeSession(sessionId);
+    historyPageCache.removeSession(sessionId);
     setSessions((current) => current.filter((session) => session.sessionId !== sessionId));
     setSubagents((current) => current ? { ...current, entries: current.entries.filter((entry) => entry.id !== sessionId) } : current);
     if (sessionId === selectedSubagentRef.current) {

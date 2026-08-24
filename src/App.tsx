@@ -139,6 +139,10 @@ import { desktopClientRuntime } from "./lib/desktop-client-runtime";
 import { desktopRequest, desktopRemoteInvoke } from "./lib/desktop-api";
 import { seedBridgeLinkStatus } from "./lib/bridge-link";
 import { overlayProjections, sessionProjectionCache } from "./app/projection-cache";
+import { historyPageCache, HISTORY_PAGE_SIZE_DEFAULT } from "./app/history-page-cache";
+
+/** 历史向前分页的页大小：更细粒度缓存，避免一次拉取过多造成长页渲染卡顿。 */
+const HISTORY_PAGE_SIZE = HISTORY_PAGE_SIZE_DEFAULT;
 import { capabilityNotice, capabilityStatus } from "./app/capability-model";
 import {
   composerReferenceText,
@@ -2449,6 +2453,18 @@ function AppContent() {
     const sessionId = activeSessionRef.current;
     const beforeSeq = history[0]?.event.seq;
     if (!sessionId || beforeSeq === undefined || !historyHasMore || historyLoadingOlderRef.current) return;
+    // 细粒度分页缓存：同一段历史已拉取过（回看后前进）则直接合并，不重复请求。
+    const cached = historyPageCache.get(sessionId, beforeSeq);
+    if (cached) {
+      setHistory((current) => {
+        const known = new Set(current.map((entry) => entry.event.seq));
+        const additions = cached.entries.filter((entry) => !known.has(entry.event.seq));
+        return additions.length > 0 ? [...additions, ...current] : current;
+      });
+      setHistoryHasMore(cached.hasMore);
+      return;
+    }
+    if (!historyPageCache.markLoading(sessionId, beforeSeq)) return;
     const scroll = transcriptScroll.current;
     const previousHeight = scroll?.scrollHeight ?? 0;
     const previousTop = scroll?.scrollTop ?? 0;
@@ -2458,8 +2474,9 @@ function AppContent() {
       const result = await desktopRequest("session.history", {
         sessionId,
         beforeSeq,
-        maxMessages: 100,
+        maxMessages: HISTORY_PAGE_SIZE,
       });
+      historyPageCache.put(sessionId, beforeSeq, result.events, result.hasMore);
       setHistory((current) => {
         const known = new Set(current.map((entry) => entry.event.seq));
         return [...result.events.filter((entry) => !known.has(entry.event.seq)), ...current];
@@ -2473,6 +2490,7 @@ function AppContent() {
     } catch (error) {
       setErrorNotice(errorText(error));
     } finally {
+      historyPageCache.unmarkLoading(sessionId, beforeSeq);
       historyLoadingOlderRef.current = false;
       setHistoryLoadingOlder(false);
     }

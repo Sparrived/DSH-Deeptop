@@ -1579,6 +1579,18 @@ textarea:focus-visible {
   padding: 28px 36px 48px;
 }
 
+/* 长会话虚拟化：把每条消息的布局/绘制交给浏览器按视口跳过。滚动到附近时
+   才排版与绘制，历史翻页合并不再一次性重排全量消息（配合细粒度分页缓存）。 */
+.transcript-inner > .message-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 140px;
+}
+.transcript-inner > .working-indicator-wrap,
+.transcript-inner > .special-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 48px;
+}
+
 .empty-conversation {
   width: min(640px, 100%);
   min-height: min(560px, 100%);
