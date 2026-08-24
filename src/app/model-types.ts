@@ -193,6 +193,8 @@ export type SettingsDraft = {
   revision: number;
   original: unknown;
   secrets: string[][];
+  /** Schemastery envelope of the namespace; enables the Schema-driven form. */
+  schema?: unknown;
 };
 
 export type GoalRef = { id: string; revision: number };

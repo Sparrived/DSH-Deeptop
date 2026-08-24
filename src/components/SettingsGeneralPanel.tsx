@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { presetDisplayName } from "../app/model";
 import type { DshHostModelCatalog, ModelSelection } from "../app/model";
 import type { DshPermissionSelect } from "../lib/desktop";
+import { isSchemaEnvelope } from "../app/schema-model";
 
 function modelKey(selection: ModelSelection | null) {
   return selection ? `${selection.provider}\u0000${selection.model}` : "";
@@ -140,7 +141,7 @@ export function SettingsGeneralPanel({
       <div className="settings-block">
         <div className="settings-block-heading"><div><h3>Host 设置</h3><p>公开字段可由桌面端保存；密钥始终由 DSH Host 保管。</p></div><span className="settings-count">{settings?.namespaces.length ?? "未提供"}</span></div>
         <div className="settings-namespace-list">
-          {pluginSettings.length === 0 ? <p className="settings-empty">当前 Host 没有额外的可配置插件设置。</p> : pluginSettings.map((namespace) => <div className="settings-namespace-row" key={namespace.ns}><div><strong>{namespace.ns}</strong><small>{namespace.applies === "restart" ? "重启生效" : "实时生效"} · revision {namespace.revision}{namespace.secrets.length ? ` · ${namespace.secrets.filter((secret) => secret.set).length}/${namespace.secrets.length} 个密钥已配置` : ""}</small></div><button disabled={!settings?.writable} onClick={() => onOpenNamespace(namespace)}>编辑 JSON</button></div>)}
+          {pluginSettings.length === 0 ? <p className="settings-empty">当前 Host 没有额外的可配置插件设置。</p> : pluginSettings.map((namespace) => <div className="settings-namespace-row" key={namespace.ns}><div><strong>{namespace.ns}</strong><small>{namespace.applies === "restart" ? "重启生效" : "实时生效"} · revision {namespace.revision}{namespace.secrets.length ? ` · ${namespace.secrets.filter((secret) => secret.set).length}/${namespace.secrets.length} 个密钥已配置` : ""}</small></div><button disabled={!settings?.writable} onClick={() => onOpenNamespace(namespace)}>{isSchemaEnvelope(namespace.schema) ? "编辑设置" : "编辑 JSON"}</button></div>)}
         </div>
       </div>
     </div>

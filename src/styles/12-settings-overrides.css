@@ -472,6 +472,7 @@
 }
 
 .popup-json-dialog .popup-window { width: min(860px, 100%); }
+.popup-schema-dialog .popup-window { width: min(680px, 100%); }
 .popup-preview-dialog .popup-window { width: min(820px, 100%); }
 .popup-form-dialog .popup-window { width: min(500px, 100%); }
 .popup-permission-dialog .popup-window { width: min(560px, 100%); }
@@ -921,3 +922,108 @@
   background: color-mix(in srgb, var(--chrome) var(--bg-windowbar-panel-opacity, 94%), transparent);
   backdrop-filter: blur(14px);
 }
+
+/* Schemastery Schema 驱动设置表单：字段行、容器折叠与写只读密钥语义。 */
+.schema-form { min-width: 0; display: grid; gap: 6px; }
+.schema-form-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.schema-form-ns { color: var(--ink-strong); font: 600 12px var(--mono); overflow-wrap: anywhere; }
+.schema-form-head em { color: var(--ink-muted); font-size: 10px; font-style: normal; }
+.schema-field { min-width: 0; display: grid; grid-template-columns: minmax(140px, 1fr) minmax(0, 220px); align-items: center; gap: 12px; }
+.schema-field.nested { margin-left: 8px; }
+.schema-field-label { min-width: 0; display: grid; gap: 3px; color: var(--ink-muted); font-size: 12px; line-height: 1.4; }
+.schema-field-label strong { color: var(--ink); font-size: 12px; }
+.schema-field-label small,
+.schema-field-label em { overflow-wrap: anywhere; }
+.schema-field-label small { color: var(--ink-muted); font-size: 10px; }
+.schema-secret-badge {
+  width: fit-content;
+  color: #a68c2a;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 600;
+}
+.schema-field input[type="text"],
+.schema-field input[type="password"],
+.schema-field input[type="number"],
+.schema-field select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-raised, var(--paper-deep));
+  color: var(--ink);
+  font-size: 12px;
+}
+.schema-field input:focus,
+.schema-field select:focus { border-color: var(--accent); outline: none; }
+.schema-field-toggle { display: inline-flex; }
+.schema-field-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.schema-field-toggle span {
+  position: relative;
+  width: 34px;
+  height: 18px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line-strong) 70%, transparent);
+  transition: background 120ms ease;
+}
+.schema-field-toggle span::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--surface-raised, #fff);
+  content: "";
+  transition: left 120ms ease;
+}
+.schema-field-toggle input:checked + span { background: var(--accent); }
+.schema-field-toggle input:checked + span::after { left: 19px; }
+.schema-container { display: grid; gap: 5px; }
+.schema-container-toggle {
+  width: fit-content;
+  min-width: 0;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-muted);
+  text-align: left;
+}
+.schema-container-toggle:hover { border-color: var(--line); background: var(--surface-soft, var(--paper-deep)); }
+.schema-container-toggle strong { color: var(--ink-strong); font-size: 12px; }
+.schema-container-toggle small { overflow: hidden; color: var(--ink-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.schema-container-body { display: grid; gap: 7px; padding: 8px 0 8px 12px; border-left: 2px solid var(--line); }
+.schema-empty { margin: 0; color: var(--ink-muted); font-size: 11px; }
+.schema-add-row {
+  width: fit-content;
+  padding: 3px 9px;
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 10px;
+}
+.schema-form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.schema-form-actions button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+.schema-form-actions button.confirm { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
+.schema-form-actions button.confirm:disabled { opacity: 0.55; }

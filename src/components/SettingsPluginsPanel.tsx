@@ -6,6 +6,7 @@ import type {
   DshSettingsDescription,
 } from "../lib/desktop";
 import { pluginDisplayName, pluginPhaseLabel } from "../app/model";
+import { isSchemaEnvelope } from "../app/schema-model";
 
 type SettingsPluginsPanelProps = {
   inventory: DshPluginInventoryEntry[] | null;
@@ -141,7 +142,7 @@ export function SettingsPluginsPanel({
 
       <section className="settings-block">
         <div className="settings-block-heading"><div><h3>插件设置</h3><p>由 Host 暴露的插件设置命名空间。</p></div></div>
-        {pluginSettings.length === 0 ? <p className="settings-empty">当前没有单独的插件设置项。</p> : <div className="settings-namespace-list">{pluginSettings.map((namespace) => <div className="settings-namespace-row" key={namespace.ns}><div><strong>{namespace.ns}</strong><small>{namespace.applies === "restart" ? "重启生效" : "实时生效"} · revision {namespace.revision}</small></div><button disabled={!settings?.writable} onClick={() => onOpenNamespace(namespace)}>编辑 JSON</button></div>)}</div>}
+        {pluginSettings.length === 0 ? <p className="settings-empty">当前没有单独的插件设置项。</p> : <div className="settings-namespace-list">{pluginSettings.map((namespace) => <div className="settings-namespace-row" key={namespace.ns}><div><strong>{namespace.ns}</strong><small>{namespace.applies === "restart" ? "重启生效" : "实时生效"} · revision {namespace.revision}{namespace.secrets.length ? ` · ${namespace.secrets.filter((secret) => secret.set).length}/${namespace.secrets.length} 个密钥已配置` : ""}</small></div><button disabled={!settings?.writable} onClick={() => onOpenNamespace(namespace)}>{isSchemaEnvelope(namespace.schema) ? "编辑设置" : "编辑 JSON"}</button></div>)}</div>}
       </section>
     </div>
   );

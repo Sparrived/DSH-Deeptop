@@ -13,6 +13,7 @@ import { SettingsDockPanel } from "./components/SettingsDockPanel";
 import { SettingsKeyboardPanel } from "./components/SettingsKeyboardPanel";
 import { SettingsLogsPanel } from "./components/SettingsLogsPanel";
 import { SettingsModelsPanel } from "./components/SettingsModelsPanel";
+import { SchemaFormPanel, type SchemaPathOp } from "./components/SchemaFormPanel";
 // @deeptop-pets:start app-settings-import
 import { SettingsPetPanel } from "./components/SettingsPetPanel";
 // @deeptop-pets:end app-settings-import
@@ -509,6 +510,7 @@ function AppContent() {
   const [networkEffective, setNetworkEffective] = useState<DshEffectiveNetworkProxy>({ source: "none", url: "", noProxy: "" });
   const [networkProxyUpdating, setNetworkProxyUpdating] = useState(false);
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft | null>(null);
+  const [settingsSaving, setSettingsSaving] = useState(false);
   const [goal, setGoal] = useState<DshGoalProjection | null | undefined>(undefined);
   const [goalDraft, setGoalDraft] = useState("");
   const [goalMaxRoundsDraft, setGoalMaxRoundsDraft] = useState("");
@@ -2097,6 +2099,43 @@ function AppContent() {
     } catch (error) {
       setErrorNotice(errorText(error));
     }
+  }
+
+  /** Save a Schema-driven form diff through the official mutate path. */
+  async function saveSettingsOps(ns: string, ops: SchemaPathOp[], revision: number, draft: SettingsDraft) {
+    if (ops.length === 0) {
+      setSettingsDraft(null);
+      return;
+    }
+    setSettingsSaving(true);
+    try {
+      await desktopRequest("settings.mutate", {
+        ns,
+        ops,
+        expectedRevision: revision,
+      });
+      if (settingsDraft?.ns === ns) setSettingsDraft(null);
+      await refreshSettings();
+      setNotice(`${ns} 已更新`);
+    } catch (error) {
+      setErrorNotice(errorText(error));
+    } finally {
+      setSettingsSaving(false);
+    }
+  }
+
+  /** Rebuild the draft namespace from the latest settings view for the form. */
+  function settingsSchemaNamespace(draft: SettingsDraft, view: DshSettingsDescription | null): DshSettingsNamespace {
+    const latest = view?.namespaces.find((item) => item.ns === draft.ns);
+    return latest ?? {
+      ns: draft.ns,
+      schema: draft.schema,
+      value: draft.original,
+      user: draft.original,
+      applies: "restart",
+      secrets: draft.secrets.map((path) => ({ path, set: false })),
+      revision: draft.revision,
+    };
   }
 
   async function openSession(session: DshSessionSummary, allowAutoRepair = true): Promise<boolean> {
@@ -4274,6 +4313,7 @@ function AppContent() {
       original: namespace.user ?? {},
       revision: namespace.revision,
       secrets: namespace.secrets.map((secret) => secret.path),
+      schema: namespace.schema,
     });
   }
 
@@ -4975,7 +5015,15 @@ function AppContent() {
                   />}
                 </section>
                 {/* settings JSON popup is rendered below the settings sheet */}
-                 {settingsDraft && <PopupDialog title={`编辑 ${settingsDraft.ns}`} eyebrow="公开设置 / JSON" description="仅修改公开字段；密钥和其他 Host 专属字段不会被覆盖。" className="popup-json-dialog" onClose={() => setSettingsDraft(null)} footer={<><button type="button" onClick={() => setSettingsDraft(null)}>取消</button><button type="button" className="confirm" onClick={() => void saveSettings()}>保存设置</button></>}><textarea className="surface-code-input popup-code-input" value={settingsDraft.value} onChange={(event) => setSettingsDraft({ ...settingsDraft, value: event.target.value })} autoFocus aria-label={`${settingsDraft.ns} JSON`} /></PopupDialog>}
+                 {settingsDraft && !isSchemaEnvelope(settingsDraft.schema) && <PopupDialog title={`编辑 ${settingsDraft.ns}`} eyebrow="公开设置 / JSON" description="仅修改公开字段；密钥和其他 Host 专属字段不会被覆盖。" className="popup-json-dialog" onClose={() => setSettingsDraft(null)} footer={<><button type="button" onClick={() => setSettingsDraft(null)}>取消</button><button type="button" className="confirm" onClick={() => void saveSettings()}>保存设置</button></>}><textarea className="surface-code-input popup-code-input" value={settingsDraft.value} onChange={(event) => setSettingsDraft({ ...settingsDraft, value: event.target.value })} autoFocus aria-label={`${settingsDraft.ns} JSON`} /></PopupDialog>}
+                {settingsDraft && isSchemaEnvelope(settingsDraft.schema) && <PopupDialog title={`设置 ${settingsDraft.ns}`} eyebrow="公开设置 / Schema 表单" description="按官方 Schema 渲染可编辑字段；密钥始终由 Host 保管，不回显。" className="popup-schema-dialog" onClose={() => setSettingsDraft(null)}>
+                  <SchemaFormPanel
+                    namespace={settingsSchemaNamespace(settingsDraft, settings)}
+                    onSave={(ops, revision) => void saveSettingsOps(settingsDraft.ns, ops, revision, settingsDraft)}
+                    onCancel={() => setSettingsDraft(null)}
+                    saving={settingsSaving}
+                  />
+                </PopupDialog>}
                 {presetCopy && <PopupDialog title={`复制 ${presetCopy.from}`} eyebrow="AGENT PRESET / 新建" description="从现有 Preset 创建一份用户组合，创建后可继续在本地文件中编辑。" className="popup-form-dialog" onClose={() => setPresetCopy(null)} footer={<><button type="button" onClick={() => setPresetCopy(null)}>取消</button><button type="button" className="confirm" disabled={!presetCopy.id.trim()} onClick={() => void copyPreset()}>创建 Preset</button></>}><label className="popup-field"><span>Preset id</span><input placeholder="例如：researcher-local" value={presetCopy.id} onChange={(event) => setPresetCopy({ ...presetCopy, id: event.target.value })} autoFocus /></label><label className="popup-field"><span>显示名称 <em>可选</em></span><input placeholder="例如：本地研究助手" value={presetCopy.name} onChange={(event) => setPresetCopy({ ...presetCopy, name: event.target.value })} /></label></PopupDialog>}
                 {presetView && <PopupDialog title={`${presetView.id} / agent.cordis.yml`} eyebrow="AGENT PRESET / 预览" description="查看该 Preset 的组合内容。" className="popup-preview-dialog" onClose={() => setPresetView(null)} footer={<button type="button" className="confirm" onClick={() => setPresetView(null)}>完成</button>}><pre className="surface-code popup-code-preview">{presetView.content}</pre></PopupDialog>}
               </div>
