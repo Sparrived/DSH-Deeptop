@@ -1,6 +1,6 @@
 {
   "name": "deeptop-bridge",
-  "version": "0.1.4",
+  "version": "0.2.0-dev.1",
   "private": true,
   "type": "module",
   "main": "./index.mjs",
@@ -9,8 +9,8 @@
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./message-annotations": "./message-annotations.mjs",
     "./skill-install-plugin": "./skill-install-plugin.mjs",
-    "./package.json": "./package.json",
-    "./theme-settings": "./theme-settings.mjs"
+    "./theme-settings": "./theme-settings.mjs",
+    "./package.json": "./package.json"
   },
   "dependencies": {
     "undici": "^8.10.0"
