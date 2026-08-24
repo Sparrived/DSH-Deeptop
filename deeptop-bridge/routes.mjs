@@ -6,6 +6,7 @@ import { repairCorruptLog } from './session-repair.mjs'
 import { describePluginConfig, filterInventory, mutatePluginConfig } from './plugin-config.mjs'
 import {
   deleteUiPluginStorage,
+  getUiPluginBundle,
   getUiPluginModule,
   getUiPluginStorage,
   invokeUiPluginRemote,
@@ -574,6 +575,7 @@ function probeDesktopCapabilities(ctx) {
     plugins: has(ctx.pluginInventory, 'list'),
     sessionExport: has(api?.downloads, 'sessionLog'),
     commands: has(get('typertGateway'), 'invoke'),
+    uiPlugins: has(get('deeptopUiRegistry'), 'list'),
   }
   return { probedAt: Date.now(), services }
 }
@@ -649,6 +651,7 @@ export async function routeDesktopRequest(ctx, method, payload, signal) {
     case 'desktop.capabilities': return probeDesktopCapabilities(ctx)
     case 'ui.plugin.list': return listUiPlugins(ctx)
     case 'ui.plugin.module': return getUiPluginModule(ctx, payload)
+    case 'ui.plugin.bundle': return getUiPluginBundle(ctx, payload)
     case 'ui.plugin.invoke': return invokeUiPluginRemote(ctx, payload, signal)
     case 'ui.plugin.storage.get': return getUiPluginStorage(ctx, payload)
     case 'ui.plugin.storage.set': return setUiPluginStorage(ctx, payload)

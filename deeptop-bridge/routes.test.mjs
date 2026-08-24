@@ -229,6 +229,7 @@ test('probes official Host capabilities without failing when services are missin
     plugins: true,
     sessionExport: true,
     commands: true,
+    uiPlugins: false,
   })
 })
 
