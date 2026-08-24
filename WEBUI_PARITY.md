@@ -40,10 +40,10 @@
 - [x] 会话搜索：防抖全文搜索、摘要片段、Host 排序和 Host 限定的结果上限。
 - [x] 可调整布局：侧栏拖拽和宽度持久化、可持久化的右栏 Dock（队列/终端/子 Agent/Git、含显示与位置偏好）已完成；DockFrame 钉住模式已实现，钉住的展开面板经 portal 固定为窗口边缘的满高分栏，对话列由网格布局天然让位；WebUI 的可拖拽三栏布局明确以桌面端可拖拽 Dock 范式替代，不作为对齐目标，设置与运行时诊断仍走弹出模态 Inspector。
 - [x] 对话流：`assistant/chunk` 文本/reasoning 流式拼装、Think 折叠行和实时尾部更新。
-- [~] 历史分页：`load older`、尾部跟随暂停和完整导出已完成；未做长会话虚拟化。
+- [~] 历史分页：`load older`、尾部跟随暂停、完整导出和会话隔离的分页缓存已完成；长会话虚拟化已通过 `content-visibility` + 更细粒度分页缓存实现（浏览器按视口跳过屏外消息渲染）。
 - [x] 消息操作：复制、按 `atSeq` 分叉、assistant Like/Dislike/反馈备注，以及用户消息“重试”（从最近已完成回合分支后重发当前提示词）已完成。
 - [~] 工具视图：通用 call/result、Workflow、Produced Files、Diff 统计、路径/连接卡片和文件看板已完成；搜索/Web/Skill 领域卡片已按官方 presentResult 投影补上（来源列表、抓取目标、Skill 加载记录），终端以原生 PTY Dock 提供，Todo 有 Inspector 面板。
-- [~] Markdown/媒体：GFM、图片展示、粘贴/拖放上传和图片点击放大已完成；缺少数学公式和更完整的附件画廊。
+- [~] Markdown/媒体：GFM、图片展示、粘贴/拖放上传、图片点击放大、附件画廊 Lightbox（前后导航/缩略图/键盘）与数学公式（remark-math + KaTeX）已完成；缺少更完整的音频/视频附件画廊（按需扩展）。
 
 ### P1：输入和运行交互
 
@@ -61,8 +61,8 @@
 ### P1：设置和模型管理
 
 - [~] Provider/模型设置：已有新增/移除、API Key 写入/清除、Base URL/协议、模型发现和模型增删；有 schema 的命名空间（含 Provider 配置）改用官方 Schemastery Schema 驱动表单编辑，凭据仍由 Host 保管、写只输入；自定义 Provider 与本地凭据安全边界保留。
-- [~] Light/Dark/System 主题及持久化：桌面端本地主题及外部 CSS/背景/文字自定义已完成，尚未与 Host `ui-theme` 设置双向同步。
-- [ ] 中英文语言切换和本地化资源。
+- [~] Light/Dark/System 主题及持久化：桌面端本地主题及外部 CSS/背景/文字自定义已完成；与 Host `ui-theme` 设置命名空间双向同步（bridge 注册官方同名 ns，mutate 写回 / document-updated 采纳）。
+- [~] 中英文语言切换和本地化资源：zh/en i18n 基础（字典 + t() 回退中文）、设置面板语言行，与官方 `locale` 命名空间双向同步；设置导航与输入区文案已接入翻译，其余文案保持中文并作为后续增量。
 - [~] 插件设置：原生安装流程（来源/名称/Entry 校验、安装与取消）、启停配置、运行时清单与 Schema 表单编辑均已具备，原始 JSON 编辑作为诊断后备。
 - [x] Agent Preset：选择、默认值、新建、复制、删除、查看和打开文件，以及新会话 chip 与缺失 Preset 迁移。
 - [x] 消息 Like/Dislike 及反馈备注：复用官方 `messageFeedback` Remote，使用版本号做并发冲突对账。
@@ -93,7 +93,8 @@
 - [x] 官方 Remote 契约统一登记（`bridge-contracts` + `desktopRequest` 类型推断），桥错误帧带 `code/details` 并统一还原；`desktop.capabilities` 能力探测与前端降级（引用/命令/注记/ZIP 导出），通用 Projection 缓存（会话隔离 + seq 水位叠加），DSH 断线重连（`waitForReconnect`）与前端超时（`timeoutMs`）。
 - [x] P1 原生体验补齐：Plan chip（输入区）+ 结构化 Plan Review 决策卡、`sessionStats` 全字段（LLM/工具/首 Token/解码墙钟）展示、Permission Schema 驱动默认权限 + 轨迹审批审计、Session ZIP 原生流式/临时文件转移、导出/命令/注记的可见状态与会话切换守卫。
 - [x] P1 官方契约深化：Schemastery Schema 驱动设置表单（Provider/插件命名空间，凭据 Host 保管、写只输入）、Subagent 递归树（任意深度懒加载导航）、Workflow 成员卡打开子会话、Web 搜索/抓取与 Skill 领域卡片。
-- [x] 明确未推进，保留为缺口：数学公式/附件画廊、i18n 本地化、`ui-theme` 双向同步、长会话虚拟化。
+- [x] P2 桌面体验补齐：数学公式（KaTeX）与附件画廊 Lightbox、Host `ui-theme` 双向同步、zh/en 语言切换（官方 `locale` 命名空间联动）、长会话虚拟化（`content-visibility` + 会话隔离历史分页缓存）。
+- [x] 明确未推进，保留为缺口：完整音频/视频附件画廊、全量文案本地化、更深度虚拟滚动（当前为浏览器级跳过渲染）。
 
 ## 后续顺序
 
@@ -123,6 +124,6 @@
 
 ## 对齐结论
 
-当前桌面端已经覆盖 WebUI 的核心会话、工作区、输入、运行状态、Provider、媒体工作流，以及官方命令、反馈、权限、Plan、统计和 ZIP Host 能力；并完成 P1 原生体验补齐与官方契约深化：输入区 GoalBar、Agent Preset 管理、右栏 Dock（终端/子 Agent/队列/Git）与完整统计条，Plan chip/Review、Permission Schema 驱动默认值与审批审计、ZIP 原生流传输、Provider/插件 Schema 表单、Subagent 递归树、Workflow 成员卡与 Web/搜索/Skill 领域卡片。仍缺：数学公式/附件画廊、i18n 本地化、`ui-theme` 双向同步、长会话虚拟化。WebUI ModuleLoader、Client runner、slot registry 和客户端生命周期则是明确排除项。整体策略是复用官方 Host/Remote contract，在原生界面完成功能兼容，而不是加载整套 WebUI client bundle。
+当前桌面端已经覆盖 WebUI 的核心会话、工作区、输入、运行状态、Provider、媒体工作流，以及官方命令、反馈、权限、Plan、统计和 ZIP Host 能力；并完成 P1 原生体验补齐与官方契约深化（Plan chip/Review、Permission Schema 默认值与审批审计、ZIP 原生流式、Schema 表单、Subagent 递归树、Workflow 成员卡、Web/搜索/Skill 领域卡片）与 P2 桌面体验增强（数学公式与附件画廊 Lightbox、Host `ui-theme`/`locale` 双向同步、中英文语言切换、长会话虚拟化与历史分页缓存）。仍缺：完整音频/视频附件画廊、全量文案本地化。WebUI ModuleLoader、Client runner、slot registry 和客户端生命周期则是明确排除项。整体策略是复用官方 Host/Remote contract，在原生界面完成功能兼容，而不是加载整套 WebUI client bundle。
 
 界面结构同理：右侧工具区由可拖拽、可持久化的 Dock 体系承载，不复刻 WebUI 三栏布局；Inspector 保持设置与诊断的模态入口。Dock 钉住模式已实现：钉住的展开面板固定为窗口边缘的流内分栏（portal 渲染，对话列让位），钉住状态经桌面桥接持久化。
