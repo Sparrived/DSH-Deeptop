@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { t, type UiLocale } from "./i18n.ts";
 import type {
   AppearanceSettings,
   AppTheme,
@@ -18,13 +19,13 @@ import {
 /** 背景图作用区域，顺序即工作台页面的展示顺序。 */
 export const backgroundZones: BackgroundZone[] = ["global", "windowbar", "sidebar", "conversation", "composer", "dock"];
 
-export const backgroundZoneLabels: Record<BackgroundZone, { label: string; hint: string }> = {
-  global: { label: "全局", hint: "整个应用窗口的底层背景，未被其他区域覆盖时透出" },
-  windowbar: { label: "标题栏", hint: "顶部窗口栏区域" },
-  sidebar: { label: "侧栏", hint: "左侧会话侧栏" },
-  conversation: { label: "对话栏", hint: "消息对话区域（含对话标题）" },
-  composer: { label: "对话框", hint: "底部消息输入区域" },
-  dock: { label: "工具面板", hint: "右侧待办 / 交付物 / 工作区文件 / 子 Agent 面板" },
+export const backgroundZoneLabels: Record<BackgroundZone, { labelKey: string; hintKey: string }> = {
+  global: { labelKey: "background.zone.global.label", hintKey: "background.zone.global.hint" },
+  windowbar: { labelKey: "background.zone.windowbar.label", hintKey: "background.zone.windowbar.hint" },
+  sidebar: { labelKey: "background.zone.sidebar.label", hintKey: "background.zone.sidebar.hint" },
+  conversation: { labelKey: "background.zone.conversation.label", hintKey: "background.zone.conversation.hint" },
+  composer: { labelKey: "background.zone.composer.label", hintKey: "background.zone.composer.hint" },
+  dock: { labelKey: "background.zone.dock.label", hintKey: "background.zone.dock.hint" },
 };
 
 /** 各区域面板表面的默认不透明度（%）；global 无独立面板，不使用该值。 */
@@ -85,16 +86,16 @@ export const defaultAppearance: AppearanceSettings = {
 };
 
 export const appearanceFontPresets = [
-  { value: defaultAppearance.fontFamily, label: "系统无衬线" },
-  { value: '"Microsoft YaHei UI", "Microsoft YaHei", sans-serif', label: "微软雅黑" },
-  { value: '"Noto Sans SC", "Noto Sans CJK SC", sans-serif', label: "Noto Sans" },
-  { value: 'Georgia, "Times New Roman", serif', label: "衬线阅读" },
+  { value: defaultAppearance.fontFamily, labelKey: "appearance.font.system" },
+  { value: '"Microsoft YaHei UI", "Microsoft YaHei", sans-serif', labelKey: "appearance.font.yahei" },
+  { value: '"Noto Sans SC", "Noto Sans CJK SC", sans-serif', labelKey: "appearance.font.notoSans" },
+  { value: 'Georgia, "Times New Roman", serif', labelKey: "appearance.font.serif" },
 ];
 
 export const appearanceCodeFontPresets = [
-  { value: defaultAppearance.codeFontFamily, label: "Cascadia Mono" },
-  { value: '"JetBrains Mono", "Cascadia Mono", Consolas, monospace', label: "JetBrains Mono" },
-  { value: '"Sarasa Mono SC", "Cascadia Mono", Consolas, monospace', label: "更纱黑体 Mono" },
+  { value: defaultAppearance.codeFontFamily, labelKey: "appearance.codeFont.cascadia" },
+  { value: '"JetBrains Mono", "Cascadia Mono", Consolas, monospace', labelKey: "appearance.codeFont.jetbrainsMono" },
+  { value: '"Sarasa Mono SC", "Cascadia Mono", Consolas, monospace', labelKey: "appearance.codeFont.sarasa" },
 ];
 
 const THEME_CSS_PATH_MAX = 2000;
@@ -198,11 +199,12 @@ function readAppTheme(): AppTheme {
 }
 
 type UseAppearanceSettingsOptions = {
+  locale: UiLocale;
   onNotice: (message: string) => void;
   onError: (message: string) => void;
 };
 
-export function useAppearanceSettings({ onNotice, onError }: UseAppearanceSettingsOptions) {
+export function useAppearanceSettings({ locale, onNotice, onError }: UseAppearanceSettingsOptions) {
   const [appearance, setAppearance] = useState<AppearanceSettings>(readAppearanceSettings);
   const [appTheme, setAppThemeState] = useState<AppTheme>(readAppTheme);
   const [themeFilesInfo, setThemeFilesInfo] = useState<ThemeFilesInfo | null>(null);
@@ -240,48 +242,48 @@ export function useAppearanceSettings({ onNotice, onError }: UseAppearanceSettin
   function handleBackgroundFile(zone: BackgroundZone, file: File | undefined) {
     if (!file) return;
     if (!file.type.startsWith("image/")) {
-      onNotice("请选择图片文件");
+      onNotice(t("appearance.notice.imageType", locale));
       return;
     }
     const reader = new FileReader();
     reader.addEventListener("load", () => {
       const value = typeof reader.result === "string" ? reader.result : "";
       if (!value || value.length > 4_000_000) {
-        onError("背景图过大，请选择 3 MB 以内的图片");
+        onError(t("appearance.notice.imageTooLarge", locale));
         return;
       }
       updateBackground(zone, { image: value, name: file.name });
-      onNotice(`已应用背景图：${file.name}`);
+      onNotice(t("appearance.notice.imageApplied", locale, { name: file.name }));
     });
-    reader.addEventListener("error", () => onError("读取背景图失败"));
+    reader.addEventListener("error", () => onError(t("appearance.notice.imageReadFailed", locale)));
     reader.readAsDataURL(file);
   }
 
   function handleThemeFile(file: File | undefined) {
     if (!file) return;
     if (!file.name.toLowerCase().endsWith(".css") && file.type !== "text/css") {
-      onNotice("请选择 CSS 文件");
+      onNotice(t("appearance.notice.cssType", locale));
       return;
     }
     if (file.size > 512_000) {
-      onError("CSS 主题过大，请选择 512 KB 以内的文件");
+      onError(t("appearance.notice.cssTooLarge512", locale));
       return;
     }
     const reader = new FileReader();
     reader.addEventListener("load", () => {
       const value = typeof reader.result === "string" ? reader.result : "";
       if (!value) {
-        onError("CSS 主题为空");
+        onError(t("appearance.notice.cssEmpty", locale));
         return;
       }
       if (value.length > 500_000) {
-        onError("CSS 主题过大，请选择 500 KB 以内的文件");
+        onError(t("appearance.notice.cssTooLarge500", locale));
         return;
       }
       updateAppearance({ customCss: value, customCssName: file.name, customCssEnabled: true });
-      onNotice(`已导入 CSS 主题：${file.name}`);
+      onNotice(t("appearance.notice.cssImported", locale, { name: file.name }));
     });
-    reader.addEventListener("error", () => onError("读取 CSS 主题失败"));
+    reader.addEventListener("error", () => onError(t("appearance.notice.cssReadFailed", locale)));
     reader.readAsText(file);
   }
 
@@ -359,7 +361,7 @@ export function useAppearanceSettings({ onNotice, onError }: UseAppearanceSettin
     try {
       localStorage.setItem("deeptop.appearance", JSON.stringify(appearance));
     } catch {
-      onError("外观已应用，但背景图或 CSS 主题过大，重启后可能无法保留");
+      onError(t("appearance.notice.persistFailed", locale));
     }
   }, [appearance, onNotice, onError]);
 
@@ -389,7 +391,7 @@ export function useAppearanceSettings({ onNotice, onError }: UseAppearanceSettin
     setAppThemeState(value);
     if (value === "custom") return;
     if (!themeFilesInfo) {
-      onNotice("内置主题仅在桌面端可用");
+      onNotice(t("appearance.notice.themeDesktopOnly", locale));
       return;
     }
     updateAppearance({
@@ -403,7 +405,7 @@ export function useAppearanceSettings({ onNotice, onError }: UseAppearanceSettin
       if (!path) return;
       setAppThemeState("custom");
       updateAppearance({ themeCssPath: path });
-      onNotice("已选择外部主题 CSS 文件");
+      onNotice(t("appearance.notice.themePicked", locale));
     } catch (error) {
       onError(errorText(error));
     }
@@ -411,7 +413,7 @@ export function useAppearanceSettings({ onNotice, onError }: UseAppearanceSettin
 
   function reloadThemeCss() {
     setReloadToken((value) => value + 1);
-    onNotice("正在重新加载主题 CSS");
+    onNotice(t("appearance.notice.reloadTheme", locale));
   }
 
   async function openThemesDirectory() {
@@ -429,7 +431,7 @@ export function useAppearanceSettings({ onNotice, onError }: UseAppearanceSettin
       themeCssPath: themeFilesInfo ? themeFilesInfo.monokaiPro : current.themeCssPath,
     }));
     setAppThemeState("monokai-pro");
-    onNotice("外观已恢复默认");
+    onNotice(t("appearance.notice.resetDefault", locale));
   }
 
   const appearanceFontPreset = useMemo(

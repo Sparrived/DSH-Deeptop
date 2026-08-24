@@ -1,4 +1,5 @@
 import type { DshHistoryEntry } from "../lib/desktop";
+import type { UiLocale } from "./i18n.ts";
 
 export type RetryImageMediaType = "image/png" | "image/jpeg" | "image/webp" | "image/gif";
 
@@ -30,7 +31,7 @@ function base64Data(value: string) {
   return separator >= 0 ? value.slice(separator + 1) : value;
 }
 
-export function retryPromptSourceParts(content: unknown): RetryPromptSourcePart[] {
+export function retryPromptSourceParts(content: unknown, locale: UiLocale = "zh"): RetryPromptSourcePart[] {
   if (typeof content === "string") return content ? [{ type: "text", text: content }] : [];
   if (!Array.isArray(content)) return [];
 
@@ -43,7 +44,7 @@ export function retryPromptSourceParts(content: unknown): RetryPromptSourcePart[
       continue;
     }
     if (block.type !== "image") {
-      throw new Error(`历史消息包含暂不支持重发的内容类型：${String(block.type ?? "unknown")}`);
+      throw new Error(locale === "en" ? `The historical message contains an unsupported content type: ${String(block.type ?? "unknown")}` : `历史消息包含暂不支持重发的内容类型：${String(block.type ?? "unknown")}`);
     }
 
     const attachment = recordValue(block.attachment);
@@ -55,7 +56,7 @@ export function retryPromptSourceParts(content: unknown): RetryPromptSourcePart[
     const name = typeof block.name === "string"
       ? block.name
       : typeof attachment?.name === "string" ? attachment.name : undefined;
-    if (!mediaType || (!data && !attachmentId)) throw new Error("历史消息中的图片引用无效");
+    if (!mediaType || (!data && !attachmentId)) throw new Error(locale === "en" ? "The image reference in the historical message is invalid" : "历史消息中的图片引用无效");
     parts.push({
       type: "image",
       mediaType,

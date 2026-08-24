@@ -1,6 +1,7 @@
 import type { DshHistoryEntry, PetActivityUpdate, PetAttention, PetSessionTarget } from "../lib/desktop";
 import type { PendingApproval, PendingQuestion } from "./model-types";
 import { eventContent } from "./message-model.ts";
+import { t, type UiLocale } from "./i18n.ts";
 
 export const MAX_PET_ACTIVITIES = 12;
 const MAX_PET_PREVIEW_CHARS = 900;
@@ -39,6 +40,7 @@ interface PetActivityProjectionInput {
   approvals: readonly PendingApproval[];
   questions: readonly PendingQuestion[];
   completions: readonly PetCompletionSignal[];
+  locale?: UiLocale;
 }
 
 interface RankedAttention {
@@ -56,14 +58,14 @@ function boundedQuestionOptions(question: PendingQuestion): string[] {
     .slice(0, 3);
 }
 
-function approvalAttention(approval: PendingApproval, title: string): PetAttention {
+function approvalAttention(approval: PendingApproval, title: string, locale: UiLocale): PetAttention {
   return {
     id: `approval:${approval.rpcId}`,
     kind: "approval",
     sessionId: approval.sessionId,
     title: boundedText(title, MAX_PET_TITLE_CHARS),
     message: boundedText(
-      approval.reason?.trim() || `${approval.toolName} 需要你确认后继续。`,
+      approval.reason?.trim() || t("pet.attention.approvalNeedConfirm", locale, { tool: approval.toolName }),
       MAX_PET_MESSAGE_CHARS,
     ),
     toolName: boundedText(approval.toolName, MAX_PET_TOOL_NAME_CHARS),
@@ -72,7 +74,7 @@ function approvalAttention(approval: PendingApproval, title: string): PetAttenti
   };
 }
 
-function questionAttention(question: PendingQuestion, title: string): PetAttention {
+function questionAttention(question: PendingQuestion, title: string, locale: UiLocale): PetAttention {
   const singleQuestion = question.questions.length === 1 ? question.questions[0] : undefined;
   return {
     id: `question:${question.rpcId}`,
@@ -80,7 +82,7 @@ function questionAttention(question: PendingQuestion, title: string): PetAttenti
     sessionId: question.sessionId,
     title: boundedText(title, MAX_PET_TITLE_CHARS),
     message: boundedText(
-      singleQuestion?.question.trim() || `有 ${question.questions.length} 个问题等待处理。`,
+      singleQuestion?.question.trim() || t("pet.attention.questionsWaiting", locale, { count: question.questions.length }),
       MAX_PET_MESSAGE_CHARS,
     ),
     options: boundedQuestionOptions(question).map((option) => boundedText(option, MAX_PET_OPTION_CHARS)),
@@ -88,7 +90,7 @@ function questionAttention(question: PendingQuestion, title: string): PetAttenti
   };
 }
 
-function completionAttention(completion: PetCompletionSignal): PetAttention {
+function completionAttention(completion: PetCompletionSignal, locale: UiLocale): PetAttention {
   const failed = completion.kind === "failed";
   return {
     id: completion.id,
@@ -98,9 +100,9 @@ function completionAttention(completion: PetCompletionSignal): PetAttention {
     message: boundedText(
       completion.previewLoaded
         ? completion.message || (failed
-          ? "任务运行失败，可以打开会话查看详情或直接补充说明。"
-          : "任务已经完成，可以直接继续追问。")
-        : "正在读取最后一段回复…",
+          ? t("pet.attention.failedMessage", locale)
+          : t("pet.attention.completedMessage", locale))
+        : t("pet.attention.readingLastReply", locale),
       MAX_PET_MESSAGE_CHARS,
     ),
     options: [],
@@ -108,20 +110,21 @@ function completionAttention(completion: PetCompletionSignal): PetAttention {
   };
 }
 
-function runningAttention(session: PetSessionState): PetAttention {
+function runningAttention(session: PetSessionState, locale: UiLocale): PetAttention {
   return {
     id: `running:${session.sessionId}`,
     kind: "running",
     sessionId: session.sessionId,
     title: boundedText(session.title, MAX_PET_TITLE_CHARS),
-    message: "Agent 正在处理这个会话。",
+    message: t("pet.attention.agentProcessing", locale),
     options: [],
     canReply: false,
   };
 }
 
-function sessionTitle(sessions: readonly PetSessionState[], sessionId: string): string {
-  return sessions.find((session) => session.sessionId === sessionId)?.title || `会话 ${sessionId.slice(-8)}`;
+function sessionTitle(sessions: readonly PetSessionState[], sessionId: string, locale: UiLocale): string {
+  return sessions.find((session) => session.sessionId === sessionId)?.title
+    || t("pet.attention.sessionTitleFallback", locale, { sessionId: sessionId.slice(-8) });
 }
 
 function sessionUpdatedAt(sessions: readonly PetSessionState[], sessionId: string): number {
@@ -171,11 +174,12 @@ export function projectPetActivity({
   approvals,
   questions,
   completions,
+  locale = "zh",
 }: PetActivityProjectionInput): PetActivityUpdate {
   const ranked: RankedAttention[] = [];
   for (const approval of approvals) {
     ranked.push(rankedAttention(
-      approvalAttention(approval, sessionTitle(sessions, approval.sessionId)),
+      approvalAttention(approval, sessionTitle(sessions, approval.sessionId, locale), locale),
       0,
       activeSessionId,
       sessionUpdatedAt(sessions, approval.sessionId),
@@ -183,7 +187,7 @@ export function projectPetActivity({
   }
   for (const question of questions) {
     ranked.push(rankedAttention(
-      questionAttention(question, sessionTitle(sessions, question.sessionId)),
+      questionAttention(question, sessionTitle(sessions, question.sessionId, locale), locale),
       0,
       activeSessionId,
       sessionUpdatedAt(sessions, question.sessionId),
@@ -191,7 +195,7 @@ export function projectPetActivity({
   }
   for (const completion of completions) {
     ranked.push(rankedAttention(
-      completionAttention(completion),
+      completionAttention(completion, locale),
       completion.kind === "failed" ? 1 : 2,
       activeSessionId,
       completion.updatedAt,
@@ -199,7 +203,7 @@ export function projectPetActivity({
   }
   for (const session of sessions) {
     if (!session.running) continue;
-    ranked.push(rankedAttention(runningAttention(session), 3, activeSessionId, session.updatedAt));
+    ranked.push(rankedAttention(runningAttention(session, locale), 3, activeSessionId, session.updatedAt));
   }
 
   ranked.sort((left, right) => left.priority - right.priority

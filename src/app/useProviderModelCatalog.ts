@@ -7,11 +7,13 @@ import {
 import { desktopRequest } from "../lib/desktop-api";
 import { errorText, providerModels, providerProfile, providerSettingsOps, valueAtPath } from "./settings-model";
 import type { CustomProviderDraft, DiscoveredModel, ProviderSettingsPatch } from "./model-types";
+import { t, type UiLocale } from "./i18n.ts";
 
 type UseProviderModelCatalogOptions = {
   settings: DshSettingsDescription | null;
   credentials: Record<string, DshCredential>;
   credentialDrafts: Record<string, string>;
+  locale: UiLocale;
   onNotice: (message: string) => void;
   onError: (message: string) => void;
   onConfirm: (message: string) => Promise<boolean>;
@@ -28,7 +30,7 @@ const emptyCustomProviderDraft: CustomProviderDraft = {
   selectedModels: [],
 };
 
-export function useProviderModelCatalog({ settings, credentials, credentialDrafts, onNotice, onError, onConfirm, loadRuntimeDetails }: UseProviderModelCatalogOptions) {
+export function useProviderModelCatalog({ settings, credentials, credentialDrafts, locale, onNotice, onError, onConfirm, loadRuntimeDetails }: UseProviderModelCatalogOptions) {
   const [providerDrafts, setProviderDrafts] = useState<Record<string, { baseURL: string; api: string }>>({});
   const [discoveredModels, setDiscoveredModels] = useState<Record<string, DiscoveredModel[]>>({});
   const [discoveredSelections, setDiscoveredSelections] = useState<Record<string, string[]>>({});
@@ -90,7 +92,7 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
   async function saveProviderSettings(provider: DshProvider, patch: ProviderSettingsPatch) {
     const namespace = settings?.namespaces.find((item) => item.ns === provider.settingsNs);
     if (!namespace || !settings?.writable) {
-      onNotice("当前 Provider 设置不可写");
+      onNotice(t("provider.notice.settingsReadonly", locale));
       return false;
     }
     const ops = providerSettingsOps(provider.settingsPath, providerProfile(provider, namespace), patch);
@@ -98,7 +100,7 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
     try {
       await desktopRequest("settings.mutate", { ns: provider.settingsNs, ops, expectedRevision: namespace.revision });
       await loadRuntimeDetails();
-      onNotice(`${provider.displayName} 设置已保存`);
+      onNotice(t("provider.notice.settingsSaved", locale, { name: provider.displayName }));
       return true;
     } catch (error) {
       onError(errorText(error));
@@ -123,9 +125,9 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
       const namespace = settings?.namespaces.find((item) => item.ns === provider.settingsNs);
       const existing = new Set(providerModels(provider, namespace).map((model) => String(model.id)));
       setDiscoveredSelections((current) => ({ ...current, [provider.provider]: models.filter((model) => !existing.has(model.id)).map((model) => model.id) }));
-      onNotice(models.length > 0 ? `发现 ${models.length} 个候选模型` : "该端点没有返回模型");
+      onNotice(models.length > 0 ? t("provider.notice.modelsFound", locale, { count: models.length }) : t("provider.notice.noModels", locale));
     } catch (error) {
-      onError(`模型发现失败：${errorText(error)}`);
+      onError(t("provider.notice.discoverFailed", locale, { error: errorText(error) }));
     } finally {
       setDiscoveryBusy(null);
     }
@@ -164,7 +166,7 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
     const current = providerModels(provider, namespace);
     const target = current.find((model) => String(model.id) === modelId);
     if (!target) {
-      onNotice("请先将模型写入 Provider 配置，再声明图片输入能力");
+      onNotice(t("provider.notice.saveModelFirst", locale));
       return;
     }
     const input = Array.isArray(target.input) && target.input.includes("image") ? ["text"] : ["text", "image"];
@@ -176,23 +178,23 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
   async function removeProviderConfiguration(provider: DshProvider) {
     const namespace = settings?.namespaces.find((item) => item.ns === provider.settingsNs);
     if (!namespace || provider.settingsPath.length === 0 || valueAtPath(namespace.user, provider.settingsPath) === undefined) return;
-    if (!await onConfirm(`移除 Provider“${provider.displayName}”？`)) return;
+    if (!await onConfirm(t("provider.notice.removeProviderConfirm", locale, { name: provider.displayName }))) return;
     try {
       await desktopRequest("settings.mutate", { ns: provider.settingsNs, ops: [{ op: "unset", path: provider.settingsPath }], expectedRevision: namespace.revision });
       const profile = providerProfile(provider, namespace);
       const derivedRef = `${provider.provider.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_API_KEY`;
       if (profile?.apiKeyEnv === derivedRef && credentials[derivedRef]?.configured && credentials[derivedRef].writable) await desktopRequest("credentials.unset", { ref: derivedRef });
       await loadRuntimeDetails();
-      onNotice(`${provider.displayName} 已移除`);
+      onNotice(t("provider.notice.providerRemoved", locale, { name: provider.displayName }));
     } catch (error) {
-      onError(`移除失败：${errorText(error)}`);
+      onError(t("provider.notice.removeFailed", locale, { error: errorText(error) }));
     }
   }
 
   async function discoverCustomProviderModels() {
     const draft = customProviderDraft;
     if (!draft.baseURL.trim()) {
-      onNotice("请先输入 Provider Base URL");
+      onNotice(t("provider.notice.baseUrlRequired", locale));
       return;
     }
     setCustomProviderBusy(true);
@@ -205,9 +207,9 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
       });
       const models = (result.models ?? []).filter((model) => typeof model.id === "string" && model.id.trim());
       setCustomProviderDraft((current) => ({ ...current, models, selectedModels: models.map((model) => model.id) }));
-      onNotice(models.length > 0 ? `发现 ${models.length} 个候选模型` : "该端点没有返回模型");
+      onNotice(models.length > 0 ? t("provider.notice.modelsFound", locale, { count: models.length }) : t("provider.notice.noModels", locale));
     } catch (error) {
-      onError(`模型发现失败：${errorText(error)}`);
+      onError(t("provider.notice.discoverFailed", locale, { error: errorText(error) }));
     } finally {
       setCustomProviderBusy(false);
     }
@@ -217,18 +219,18 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
     const draft = customProviderDraft;
     const route = draft.provider.trim();
     if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(route)) {
-      onNotice("Provider ID 需使用小写字母、数字和短横线，且以字母开头");
+      onNotice(t("provider.notice.idInvalid", locale));
       return;
     }
     if (!draft.baseURL.trim() || !draft.api.trim()) {
-      onNotice("请填写 Base URL 和协议");
+      onNotice(t("provider.notice.baseUrlProtocolRequired", locale));
       return;
     }
     const namespace = settings?.namespaces.find((item) => item.ns === "llm-pi-ai");
     const exists = valueAtPath(namespace?.value, ["providers", route]) !== undefined
       || valueAtPath(namespace?.user, ["providers", route]) !== undefined;
     if (!namespace || exists) {
-      onNotice("Provider ID 已存在或当前 Host 不支持自定义 Provider");
+      onNotice(t("provider.notice.providerExists", locale));
       return;
     }
     const selected = new Set(draft.selectedModels);
@@ -239,7 +241,7 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
       ...(model.maxTokens !== undefined ? { maxTokens: model.maxTokens } : {}),
     }));
     if (models.length === 0) {
-      onNotice("至少选择一个模型");
+      onNotice(t("provider.notice.selectModel", locale));
       return;
     }
     setCustomProviderBusy(true);
@@ -254,9 +256,9 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
       await loadRuntimeDetails();
       setCustomProviderDraft(emptyCustomProviderDraft);
       setCustomProviderOpen(false);
-      onNotice("自定义 Provider 已添加");
+      onNotice(t("provider.notice.providerAdded", locale));
     } catch (error) {
-      onError(`添加失败：${errorText(error)}`);
+      onError(t("provider.notice.addFailed", locale, { error: errorText(error) }));
     } finally {
       setCustomProviderBusy(false);
     }

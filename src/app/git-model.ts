@@ -1,6 +1,7 @@
 // Git dock 的纯投影模型：只做派生与格式化，不调用 Bridge / React / Tauri。
 
 import type { WorkspaceGitBranch, WorkspaceGitFile } from "../lib/desktop";
+import type { UiLocale } from "./i18n.ts";
 
 export type GitFileState = "conflicted" | "staged" | "unstaged" | "untracked";
 
@@ -44,16 +45,34 @@ export function gitFileMark(file: WorkspaceGitFile): string {
   return "M";
 }
 
-/** 文件状态的中文说明。 */
-export function gitFileLabel(file: WorkspaceGitFile): string {
-  if (file.status === "untracked") return "未跟踪";
-  if (file.status === "conflicted") return "冲突";
-  if (file.isRenamed) return "已重命名";
-  if (file.code.includes("D")) return "已删除";
-  if (file.code.includes("A")) return "已添加";
-  if (file.status === "staged") return "已暂存";
-  if (file.status === "staged-changed") return "暂存 + 修改";
-  return "已修改";
+/** 文件状态文案。 */
+const GIT_FILE_LABELS: Record<string, { zh: string; en: string }> = {
+  untracked: { zh: "未跟踪", en: "Untracked" },
+  conflicted: { zh: "冲突", en: "Conflicted" },
+  renamed: { zh: "已重命名", en: "Renamed" },
+  deleted: { zh: "已删除", en: "Deleted" },
+  added: { zh: "已添加", en: "Added" },
+  staged: { zh: "已暂存", en: "Staged" },
+  stagedChanged: { zh: "暂存 + 修改", en: "Staged + modified" },
+  modified: { zh: "已修改", en: "Modified" },
+};
+
+function localeText(pair: { zh: string; en: string }, locale: UiLocale): string {
+  return locale === "en" ? pair.en : pair.zh;
+}
+
+/** 文件状态说明。 */
+export function gitFileLabel(file: WorkspaceGitFile, locale: UiLocale = "zh"): string {
+  const key =
+    file.status === "untracked" ? "untracked"
+    : file.status === "conflicted" ? "conflicted"
+    : file.isRenamed ? "renamed"
+    : file.code.includes("D") ? "deleted"
+    : file.code.includes("A") ? "added"
+    : file.status === "staged" ? "staged"
+    : file.status === "staged-changed" ? "stagedChanged"
+    : "modified";
+  return localeText(GIT_FILE_LABELS[key], locale);
 }
 
 export type DiffLineKind = "meta" | "hunk" | "add" | "remove" | "context";
@@ -71,18 +90,18 @@ export function diffLineKind(line: string): DiffLineKind {
   return "context";
 }
 
-/** 把 unix 秒时间格式化为相对中文时间。 */
-export function formatRelativeTime(unixSeconds: number, now = Date.now()): string {
+/** 把 unix 秒时间格式化为相对时间。 */
+export function formatRelativeTime(unixSeconds: number, now = Date.now(), locale: UiLocale = "zh"): string {
   if (!Number.isFinite(unixSeconds) || unixSeconds <= 0) return "";
   const elapsedSeconds = Math.max(0, Math.floor(now / 1000) - unixSeconds);
-  if (elapsedSeconds < 60) return "刚刚";
+  if (elapsedSeconds < 60) return locale === "en" ? "just now" : "刚刚";
   const minutes = Math.floor(elapsedSeconds / 60);
-  if (minutes < 60) return `${minutes} 分钟前`;
+  if (minutes < 60) return locale === "en" ? `${minutes} min ago` : `${minutes} 分钟前`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} 小时前`;
+  if (hours < 24) return locale === "en" ? `${hours} hr ago` : `${hours} 小时前`;
   const days = Math.floor(hours / 24);
-  if (days === 1) return "昨天";
-  if (days < 30) return `${days} 天前`;
+  if (days === 1) return locale === "en" ? "yesterday" : "昨天";
+  if (days < 30) return locale === "en" ? `${days} days ago` : `${days} 天前`;
   const date = new Date(unixSeconds * 1000);
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;

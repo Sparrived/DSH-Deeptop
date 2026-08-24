@@ -1,6 +1,12 @@
 import type { DshHistoryEntry } from "../lib/desktop";
 import { diffSummaryFromHistoryEntry, eventToolCallId, eventToolResultError, recordValue } from "./message-model.ts";
 import type { DeliverableFileDiff, TodoItem, TodoStatus, WorkflowView } from "./model-types";
+import type { UiLocale } from "./i18n.ts";
+
+type TText = { zh: string; en: string };
+function tt(pair: TText, locale: UiLocale): string {
+  return locale === "en" ? pair.en : pair.zh;
+}
 
 function diffLineCount(text: string) {
   if (!text) return 0;
@@ -104,18 +110,24 @@ export function todoDuration(item: TodoItem, now: number, stopAt?: number) {
   return formatDurationMs(Math.max(0, (item.finishedAt ?? stopAt ?? now) - item.startedAt));
 }
 
-export function todoStatusLabel(status: TodoStatus) {
-  if (status === "completed") return "已完成";
-  if (status === "in_progress") return "进行中";
-  return "待处理";
+export function todoStatusLabel(status: TodoStatus, locale: UiLocale = "zh") {
+  const labels: Record<TodoStatus, TText> = {
+    completed: { zh: "已完成", en: "Completed" },
+    in_progress: { zh: "进行中", en: "In progress" },
+    pending: { zh: "待处理", en: "Pending" },
+  };
+  return tt(labels[status] ?? labels.pending, locale);
 }
 
-export function workflowStatusLabel(status: WorkflowView["status"]) {
-  if (status === "running") return "运行中";
-  if (status === "completed") return "已完成";
-  if (status === "cancelled") return "已取消";
-  if (status === "interrupted") return "已中断";
-  return "失败";
+export function workflowStatusLabel(status: WorkflowView["status"], locale: UiLocale = "zh") {
+  const labels: Record<WorkflowView["status"], TText> = {
+    running: { zh: "运行中", en: "Running" },
+    completed: { zh: "已完成", en: "Completed" },
+    cancelled: { zh: "已取消", en: "Cancelled" },
+    interrupted: { zh: "已中断", en: "Interrupted" },
+    failed: { zh: "失败", en: "Failed" },
+  };
+  return tt(labels[status] ?? labels.failed, locale);
 }
 
 export function workflowMemberStatus(value: unknown): WorkflowView["phases"][number]["members"][number]["status"] {
@@ -134,7 +146,7 @@ export function workflowRunStatus(value: unknown): WorkflowView["status"] {
   return "running";
 }
 
-export function workflowViewsFromHistory(entries: DshHistoryEntry[]) {
+export function workflowViewsFromHistory(entries: DshHistoryEntry[], locale: UiLocale = "zh") {
   const runs = new Map<string, { seq: number; time: number; view: WorkflowView; members: Map<number, { label: string; childId: string; phase: string | null; status: WorkflowView["phases"][number]["members"][number]["status"] }> }>();
   for (const { event } of entries) {
     if (!event.type.startsWith("tool-workflow/")) continue;
@@ -155,7 +167,7 @@ export function workflowViewsFromHistory(entries: DshHistoryEntry[]) {
     if (event.type === "tool-workflow/agent-start") {
       const memberSeq = Number(data.seq ?? event.seq);
       run.members.set(memberSeq, {
-        label: typeof data.label === "string" ? data.label : String(data.childId ?? "成员"),
+        label: typeof data.label === "string" ? data.label : String(data.childId ?? (locale === "en" ? "member" : "成员")),
         childId: String(data.childId ?? ""),
         phase: typeof data.phase === "string" ? data.phase : null,
         status: "running",

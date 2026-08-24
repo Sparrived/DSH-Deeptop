@@ -1,4 +1,5 @@
 import type { DshCapabilityKey, DshHostCapabilities } from "../lib/desktop";
+import type { UiLocale } from "./i18n.ts";
 
 /**
  * 官方能力探测的前端降级模型：把 `desktop.capabilities` 的探测结果映射为
@@ -58,27 +59,33 @@ export function capabilityStatus(capabilities: DshHostCapabilities | null): Capa
   return { probed, features, missing };
 }
 
-export const CAPABILITY_LABELS: Record<DshCapabilityKey, string> = {
-  sessions: "会话运行时",
-  workspace: "工作区",
-  references: "引用候选",
-  annotations: "消息注记",
-  subagents: "子 Agent",
-  skills: "技能安装",
-  agentPresets: "Agent Preset",
-  goals: "Goal 管理",
-  settings: "设置",
-  credentials: "凭据",
-  llm: "模型目录",
-  plugins: "插件管理",
-  sessionExport: "会话 ZIP 导出",
-  commands: "命令目录",
+export const CAPABILITY_LABELS: Record<DshCapabilityKey, { zh: string; en: string }> = {
+  sessions: { zh: "会话运行时", en: "Session runtime" },
+  workspace: { zh: "工作区", en: "Workspace" },
+  references: { zh: "引用候选", en: "Reference candidates" },
+  annotations: { zh: "消息注记", en: "Message annotations" },
+  subagents: { zh: "子 Agent", en: "Subagents" },
+  skills: { zh: "技能安装", en: "Skill installation" },
+  agentPresets: { zh: "Agent Preset", en: "Agent Preset" },
+  goals: { zh: "Goal 管理", en: "Goal management" },
+  settings: { zh: "设置", en: "Settings" },
+  credentials: { zh: "凭据", en: "Credentials" },
+  llm: { zh: "模型目录", en: "Model catalog" },
+  plugins: { zh: "插件管理", en: "Plugin management" },
+  sessionExport: { zh: "会话 ZIP 导出", en: "Session ZIP export" },
+  commands: { zh: "命令目录", en: "Command directory" },
 };
 
 /** 把探测结果压缩为一条面向用户的降级提示；无缺失返回 null。 */
-export function capabilityNotice(capabilities: DshHostCapabilities | null): string | null {
+export function capabilityNotice(capabilities: DshHostCapabilities | null, locale: UiLocale = "zh"): string | null {
   const status = capabilityStatus(capabilities);
   if (!status.probed || status.missing.length === 0) return null;
-  const labels = status.missing.map((key) => CAPABILITY_LABELS[key]);
-  return `部分官方能力未安装或未启用：${labels.join("、")}已降级`;
+  const labels = status.missing.map((key) => {
+    const pair = CAPABILITY_LABELS[key];
+    return locale === "en" ? pair.en : pair.zh;
+  });
+  const joined = locale === "en" ? labels.join(", ") : labels.join("、");
+  return locale === "en"
+    ? `Some official capabilities are not installed or not enabled: ${joined}. Downgraded`
+    : `部分官方能力未安装或未启用：${joined}已降级`;
 }

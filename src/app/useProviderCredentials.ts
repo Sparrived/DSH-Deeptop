@@ -7,17 +7,19 @@ import {
 } from "../lib/desktop";
 import { desktopRequest } from "../lib/desktop-api";
 import { credentialRefForProvider, errorText, providerApiKeyEnvOp, providerProfile } from "./settings-model";
+import { t, type UiLocale } from "./i18n.ts";
 
 type UseProviderCredentialsOptions = {
   desktop: boolean;
   settings: DshSettingsDescription | null;
   providers: DshProvider[];
+  locale: UiLocale;
   onNotice: (message: string) => void;
   onError: (message: string) => void;
   loadRuntimeDetails: () => Promise<void>;
 };
 
-export function useProviderCredentials({ desktop, settings, providers, onNotice, onError, loadRuntimeDetails }: UseProviderCredentialsOptions) {
+export function useProviderCredentials({ desktop, settings, providers, locale, onNotice, onError, loadRuntimeDetails }: UseProviderCredentialsOptions) {
   const [credentials, setCredentials] = useState<Record<string, DshCredential>>({});
   const [credentialDrafts, setCredentialDrafts] = useState<Record<string, string>>({});
   const [credentialBusy, setCredentialBusy] = useState<string | null>(null);
@@ -67,11 +69,11 @@ export function useProviderCredentials({ desktop, settings, providers, onNotice,
     const ref = credentialRefForProvider(provider, namespace);
     const value = (valueOverride ?? credentialDrafts[provider.provider] ?? "").trim();
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(ref)) {
-      onNotice("当前 Provider 的凭据引用名无效");
+      onNotice(t("provider.notice.refInvalid", locale));
       return;
     }
     if (credentials[ref]?.writable === false) {
-      onNotice("当前凭据由只读来源提供，不能覆盖");
+      onNotice(t("provider.notice.readonlyCredential", locale));
       return;
     }
     setCredentialBusy(provider.provider);
@@ -80,11 +82,11 @@ export function useProviderCredentials({ desktop, settings, providers, onNotice,
         await desktopRequest("credentials.set", { ref, value });
         setCredentials((current) => ({ ...current, [ref]: { ...(current[ref] ?? { writable: true }), configured: true } }));
         await persistApiKeyEnv(provider, namespace, ref);
-        onNotice("Provider 密钥已更新");
+        onNotice(t("provider.notice.keyUpdated", locale));
       } else {
         await desktopRequest("credentials.unset", { ref });
         setCredentials((current) => ({ ...current, [ref]: { ...(current[ref] ?? { writable: true }), configured: false, source: undefined } }));
-        onNotice("Provider 密钥已清除");
+        onNotice(t("provider.notice.keyCleared", locale));
       }
       setCredentialDrafts((current) => ({ ...current, [provider.provider]: "" }));
     } catch (error) {

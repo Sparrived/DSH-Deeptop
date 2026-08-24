@@ -5,6 +5,7 @@ import type {
   TraySessionStatus,
 } from "../lib/desktop";
 import type { SessionIndicator } from "./session-runtime-state";
+import type { UiLocale } from "./i18n.ts";
 import { displayTitle, projectName } from "./ui-model.ts";
 
 export const TRAY_UNREAD_LIMIT = 3;
@@ -30,11 +31,12 @@ function traySessionItem(
   session: DshSessionSummary,
   status: TraySessionStatus,
   workspaceTitles: ReadonlyMap<string, string>,
+  locale: UiLocale,
 ): TraySessionMenuItem {
-  const context = workspaceTitles.get(session.sessionId)?.trim() || projectName(session.cwd);
+  const context = workspaceTitles.get(session.sessionId)?.trim() || projectName(session.cwd, locale);
   return {
     sessionId: session.sessionId,
-    title: displayTitle(session),
+    title: displayTitle(session, locale),
     context: context || undefined,
     status,
   };
@@ -44,6 +46,7 @@ function traySessionItem(
 export function buildTraySessionMenu(
   sessions: readonly DshSessionSummary[],
   options: TrayMenuOptions,
+  locale: UiLocale = "zh",
 ): TraySessionMenuSnapshot {
   const eligible = sessions
     .filter((session) => isEligibleSession(session, options.archivedSessionIds))
@@ -68,14 +71,14 @@ export function buildTraySessionMenu(
   const recentSessions = eligible.filter((session) => !unreadIds.has(session.sessionId));
   const unread = unreadSessions
     .slice(0, TRAY_UNREAD_LIMIT)
-    .map((session) => traySessionItem(session, statusFor(session), options.workspaceTitles));
+    .map((session) => traySessionItem(session, statusFor(session), options.workspaceTitles, locale));
   const recent = recentSessions
     .slice(0, TRAY_RECENT_LIMIT)
-    .map((session) => traySessionItem(session, statusFor(session), options.workspaceTitles));
+    .map((session) => traySessionItem(session, statusFor(session), options.workspaceTitles, locale));
   const visibleIds = new Set([...unread, ...recent].map((item) => item.sessionId));
   const more = eligible
     .filter((session) => !visibleIds.has(session.sessionId))
     .slice(0, TRAY_MORE_LIMIT)
-    .map((session) => traySessionItem(session, statusFor(session), options.workspaceTitles));
+    .map((session) => traySessionItem(session, statusFor(session), options.workspaceTitles, locale));
   return { unread, recent, more };
 }

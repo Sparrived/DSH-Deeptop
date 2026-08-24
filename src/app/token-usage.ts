@@ -1,6 +1,7 @@
 import type { DshHistoryEntry } from "../lib/desktop";
 import type { MessageStats, SessionStats, TokenUsageBreakdown, TokenUsageDashboardData, TokenUsagePoint } from "./model-types";
 import { assistantMessageStats, numberValue, recordValue } from "./message-model.ts";
+import type { UiLocale } from "./i18n.ts";
 
 const emptyBreakdown = (): TokenUsageBreakdown => ({
   inputTokens: 0,
@@ -78,7 +79,7 @@ export function tokenUsageTotals(points: TokenUsagePoint[]): TokenUsageBreakdown
   return pointsBreakdown(points);
 }
 
-export function tokenUsageDashboard(entries: DshHistoryEntry[], stats: SessionStats): TokenUsageDashboardData {
+export function tokenUsageDashboard(entries: DshHistoryEntry[], stats: SessionStats, locale: UiLocale = "zh"): TokenUsageDashboardData {
   const ordered = [...entries].sort((left, right) => left.event.seq - right.event.seq);
   const messageStats = assistantMessageStats(ordered);
   const points: TokenUsagePoint[] = [];
@@ -93,7 +94,7 @@ export function tokenUsageDashboard(entries: DshHistoryEntry[], stats: SessionSt
     points.push({
       ...breakdown,
       key: String(entry.event.seq),
-      label: turn !== undefined && step !== undefined ? "T" + turn + " · S" + step : "回应 " + responseIndex,
+      label: turn !== undefined && step !== undefined ? "T" + turn + " · S" + step : (locale === "en" ? "Response " + responseIndex : "回应 " + responseIndex),
       time: entry.event.time,
       turn,
       step,

@@ -1,3 +1,5 @@
+import type { UiLocale } from "../app/i18n";
+
 export type MessageEntityKind = "file" | "connection";
 
 export type MessageEntity = {
@@ -12,7 +14,6 @@ export type MessageEntitySegment =
   | { kind: MessageEntityKind; value: string };
 
 export const FILE_LINK_PREFIX = "deeptop-file:";
-
 const URL_PATTERN = /https?:\/\/[^\s<>{}|\\^`[\]"'，。；：！？、）》】]+/gi;
 const WINDOWS_PATH_PATTERN = /(?<![\w])(?:[A-Za-z]:[\\/](?:[^\s<>:"|?*，。；：！？、）》】]+[\\/]?)+|\\\\[^\s<>:"|?*，。；：！？、）》】]+(?:[\\/][^\s<>:"|?*，。；：！？、）》】]+)+)/g;
 const UNIX_PATH_PATTERN = /(?<![\w.\p{L}])\/(?:[^\s<>:"'`，。；：！？、）》】]+\/)*[^\s<>:"'`，。；：！？、）》】]+/gu;
@@ -98,9 +99,10 @@ export function decodeFileLink(href: string): string | null {
   }
 }
 
-export function pathLabel(path: string): { name: string; directory: string } {
+export function pathLabel(path: string, locale: UiLocale = "zh"): { name: string; directory: string } {
   const normalized = path.replace(/[\\/]+$/, "");
   const separator = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
-  if (separator < 0) return { name: normalized, directory: "路径" };
-  return { name: normalized.slice(separator + 1) || normalized, directory: normalized.slice(0, separator) || "路径" };
+  const directoryFallback = locale === "en" ? "Path" : "路径";
+  if (separator < 0) return { name: normalized, directory: directoryFallback };
+  return { name: normalized.slice(separator + 1) || normalized, directory: normalized.slice(0, separator) || directoryFallback };
 }

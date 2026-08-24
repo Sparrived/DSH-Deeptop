@@ -1,4 +1,5 @@
 import type { DshHistoryEntry, DshSessionEvent } from "../lib/desktop";
+import type { UiLocale } from "./i18n.ts";
 
 /**
  * Per-tool permission ledger derived from the official approval audit events.
@@ -83,11 +84,15 @@ export function toolApprovalKey(state: Pick<ToolApprovalState, "toolName" | "cal
   return state.callId ? `callId:${state.callId}` : `tool:${state.toolName}`;
 }
 
-export function toolApprovalLabel(outcome: ToolApprovalOutcome): string {
-  if (outcome === "allowed-once") return "已允许";
-  if (outcome === "rejected") return "已拒绝";
-  if (outcome === "cancelled") return "已取消";
-  return "不可用";
+export function toolApprovalLabel(outcome: ToolApprovalOutcome, locale: UiLocale = "zh"): string {
+  const labels: Record<ToolApprovalOutcome, { zh: string; en: string }> = {
+    "allowed-once": { zh: "已允许", en: "Allowed" },
+    rejected: { zh: "已拒绝", en: "Rejected" },
+    cancelled: { zh: "已取消", en: "Cancelled" },
+    unavailable: { zh: "不可用", en: "Unavailable" },
+  };
+  const pair = labels[outcome];
+  return locale === "en" ? pair.en : pair.zh;
 }
 
 /** Extract the approval audit intent from a raw session event (type guard). */

@@ -1,5 +1,6 @@
 import type { DshHistoryEntry } from "../lib/desktop";
 import type { TranscriptItem } from "./model-types";
+import type { UiLocale } from "./i18n.ts";
 
 /**
  * Session-level event timing projections. Pure module: no React, Tauri or
@@ -44,7 +45,7 @@ export function formatSessionElapsed(elapsedMs: number) {
  * Returns one system item per closed round, keyed so it sorts right after the
  * round's own content.
  */
-export function turnTimingItems(entries: DshHistoryEntry[]): TranscriptItem[] {
+export function turnTimingItems(entries: DshHistoryEntry[], locale: UiLocale = "zh"): TranscriptItem[] {
   const items: TranscriptItem[] = [];
   const turnStarts = new Map<number, number>();
   let currentTurn: number | undefined;
@@ -64,8 +65,10 @@ export function turnTimingItems(entries: DshHistoryEntry[]): TranscriptItem[] {
         items.push({
           key: `turn-time-${event.seq}`,
           kind: "system",
-          label: "回合耗时",
-          text: `第 ${turn} 轮 用时 ${formatSessionElapsed(event.time - startedAt)}`,
+          label: locale === "en" ? "Turn duration" : "回合耗时",
+          text: locale === "en"
+            ? `Turn ${turn} took ${formatSessionElapsed(event.time - startedAt)}`
+            : `第 ${turn} 轮 用时 ${formatSessionElapsed(event.time - startedAt)}`,
           seq: event.seq + 0.01,
           time: event.time,
         });

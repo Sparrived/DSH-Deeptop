@@ -9,6 +9,7 @@ import type {
   PetInteractionEvent,
   PetSettings,
 } from "../lib/desktop";
+import { t, type UiLocale } from "./i18n.ts";
 
 export const DEEPTOP_PET_CELL = { width: 192, height: 208 } as const;
 export const DEEPTOP_PET_ATLAS = { columns: 8, rows: 11, width: 1536, height: 2288 } as const;
@@ -75,10 +76,10 @@ export function petCareCooldownRemainingMs(
 }
 
 /** 将照顾动作冷却格式化为卡片中的紧凑倒计时。 */
-export function formatPetCareCooldown(remainingMs: number): string {
+export function formatPetCareCooldown(remainingMs: number, locale: UiLocale = "zh"): string {
   if (remainingMs <= 0) return "";
-  if (remainingMs < 60_000) return `${Math.ceil(remainingMs / 1_000)}秒`;
-  return `${Math.ceil(remainingMs / 60_000)}分`;
+  if (remainingMs < 60_000) return t("pet.cooldownSeconds", locale, { value: Math.ceil(remainingMs / 1_000) });
+  return t("pet.cooldownMinutes", locale, { value: Math.ceil(remainingMs / 60_000) });
 }
 
 /** 归一化来自原生设置文件的展示字段；缺失宠物切换到首个可用项。 */

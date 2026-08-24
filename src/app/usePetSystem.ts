@@ -23,10 +23,12 @@ import {
   petLibraryEntries,
   petSettingsAfterRemoval,
 } from "./pet-model";
+import { t, type UiLocale } from "./i18n.ts";
 
 interface UsePetSystemOptions {
   desktop: boolean;
   libraryRequested: boolean;
+  locale: UiLocale;
   onNotice: (message: string) => void;
   onError: (message: string) => void;
   onConfirm: (message: string) => Promise<boolean>;
@@ -38,7 +40,7 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function usePetSystem({ desktop, libraryRequested, onNotice, onError, onConfirm }: UsePetSystemOptions) {
+export function usePetSystem({ desktop, libraryRequested, locale, onNotice, onError, onConfirm }: UsePetSystemOptions) {
   const [settings, setSettingsState] = useState<PetSettings>({ ...defaultPetSettings });
   const [library, setLibrary] = useState<PetLibrarySnapshot>(emptyLibrary);
   const [loaded, setLoaded] = useState(!desktop);
@@ -102,7 +104,7 @@ export function usePetSystem({ desktop, libraryRequested, onNotice, onError, onC
       .catch((error) => {
         if (!active) return;
         setSettingsState({ ...defaultPetSettings });
-        onError(`读取宠物设置失败，已使用默认值：${errorText(error)}`);
+        onError(t("pet.error.loadSettings", locale, { error: errorText(error) }));
       })
       .finally(() => {
         if (active) setLoaded(true);
@@ -110,14 +112,14 @@ export function usePetSystem({ desktop, libraryRequested, onNotice, onError, onC
     return () => {
       active = false;
     };
-  }, [desktop, onError]);
+  }, [desktop, locale, onError]);
 
   useEffect(() => {
     if (!desktop || !loaded || !settings.enabled || !settings.selectedPetId) return;
     void showPetWindow().catch((error) => {
-      onError(`恢复宠物失败，主界面不受影响：${errorText(error)}`);
+      onError(t("pet.error.restoreWindow", locale, { error: errorText(error) }));
     });
-  }, [desktop, loaded, onError, settings.enabled]);
+  }, [desktop, loaded, locale, onError, settings.enabled]);
 
   useEffect(() => {
     if (!desktop || !loaded || libraryLoaded || (!settings.enabled && !libraryRequested)) return;
@@ -137,12 +139,12 @@ export function usePetSystem({ desktop, libraryRequested, onNotice, onError, onC
     void loadLibrary().catch((error) => {
       if (!active) return;
       setLibraryLoaded(true);
-      onError(`读取宠物库失败，主界面不受影响：${errorText(error)}`);
+      onError(t("pet.error.loadLibrary", locale, { error: errorText(error) }));
     });
     return () => {
       active = false;
     };
-  }, [desktop, libraryLoaded, libraryRequested, loaded, onError, settings]);
+  }, [desktop, libraryLoaded, libraryRequested, loaded, locale, onError, settings]);
 
   useEffect(() => {
     let active = true;
@@ -179,11 +181,11 @@ export function usePetSystem({ desktop, libraryRequested, onNotice, onError, onC
       const saved = await setPetSettings(next);
       setSettingsState(normalizePetSettings(saved, availableIds));
     } catch (error) {
-      onError(`保存宠物设置失败：${errorText(error)}`);
+      onError(t("pet.error.saveSettings", locale, { error: errorText(error) }));
     } finally {
       setBusy(false);
     }
-  }, [availableIds, onError, settings]);
+  }, [availableIds, locale, onError, settings]);
 
   const selectPet = useCallback(async (id: string) => {
     if (!availableIds.has(id) || id === settings.selectedPetId) return;
@@ -192,17 +194,17 @@ export function usePetSystem({ desktop, libraryRequested, onNotice, onError, onC
       const next = normalizePetSettings({ ...settings, selectedPetId: id }, availableIds);
       const saved = await setPetSettings(next);
       setSettingsState(normalizePetSettings(saved, availableIds));
-      onNotice(`已选择宠物：${entries.find((pet) => pet.id === id)?.name ?? id}`);
+      onNotice(t("pet.notice.selected", locale, { name: entries.find((pet) => pet.id === id)?.name ?? id }));
     } catch (error) {
-      onError(`切换宠物失败：${errorText(error)}`);
+      onError(t("pet.error.switchPet", locale, { error: errorText(error) }));
     } finally {
       setBusy(false);
     }
-  }, [availableIds, entries, onError, onNotice, settings]);
+  }, [availableIds, entries, locale, onError, onNotice, settings]);
 
   const importBundle = useCallback(async () => {
     if (!desktop) {
-      onError("宠物包导入只在 Deeptop 桌面端可用");
+      onError(t("pet.error.importDesktopOnly", locale));
       return;
     }
     setBusy(true);
@@ -212,8 +214,15 @@ export function usePetSystem({ desktop, libraryRequested, onNotice, onError, onC
       const existing = library.pets.find((pet) => pet.id === candidate.pet.id);
       if (candidate.replaceRequired) {
         const message = existing
-          ? `宠物“${existing.name}”已安装。要用 ${candidate.pet.version} 版本替换当前 ${existing.version} 版本吗？`
-          : `同 ID 的旧宠物包无法加载。要用“${candidate.pet.name}”${candidate.pet.version} 替换并修复它吗？`;
+          ? t("pet.confirm.replaceExisting", locale, {
+              name: existing.name,
+              version: candidate.pet.version,
+              existingVersion: existing.version,
+            })
+          : t("pet.confirm.replaceBroken", locale, {
+              name: candidate.pet.name,
+              version: candidate.pet.version,
+            });
         if (!await onConfirm(message)) return;
       }
       const installed = await installPetBundle(candidate.path, candidate.replaceRequired);
@@ -223,33 +232,33 @@ export function usePetSystem({ desktop, libraryRequested, onNotice, onError, onC
       const saved = await setPetSettings(nextSettings);
       setLibrary(nextLibrary);
       setSettingsState(normalizePetSettings(saved, ids));
-      onNotice(`已安装并启用宠物：${installed.name}`);
+      onNotice(t("pet.notice.installed", locale, { name: installed.name }));
     } catch (error) {
-      onError(`导入宠物失败：${errorText(error)}`);
+      onError(t("pet.error.import", locale, { error: errorText(error) }));
     } finally {
       setBusy(false);
     }
-  }, [desktop, library.pets, onConfirm, onError, onNotice, settings]);
+  }, [desktop, library.pets, locale, onConfirm, onError, onNotice, settings]);
 
   const exportSelected = useCallback(async () => {
     if (!settings.selectedPetId) {
-      onError("当前没有可分享的宠物");
+      onError(t("pet.error.noShareablePet", locale));
       return;
     }
     setBusy(true);
     try {
       const path = await exportPetBundle(settings.selectedPetId);
-      if (path) onNotice(`宠物包已导出：${path}`);
+      if (path) onNotice(t("pet.notice.exported", locale, { path }));
     } catch (error) {
-      onError(`导出宠物失败：${errorText(error)}`);
+      onError(t("pet.error.export", locale, { error: errorText(error) }));
     } finally {
       setBusy(false);
     }
-  }, [onError, onNotice, settings.selectedPetId]);
+  }, [locale, onError, onNotice, settings.selectedPetId]);
 
   const removeSelected = useCallback(async () => {
     const pet = entries.find((entry) => entry.id === settings.selectedPetId);
-    if (!pet || !await onConfirm(`移除宠物“${pet.name}”？只会删除 Deeptop 保存的宠物包副本。`)) return;
+    if (!pet || !await onConfirm(t("pet.confirm.remove", locale, { name: pet.name }))) return;
     setBusy(true);
     try {
       await removePetBundle(pet.id);
@@ -259,21 +268,21 @@ export function usePetSystem({ desktop, libraryRequested, onNotice, onError, onC
       const saved = await setPetSettings(nextSettings);
       setLibrary(nextLibrary);
       setSettingsState(normalizePetSettings(saved, ids));
-      onNotice(`已移除宠物：${pet.name}`);
+      onNotice(t("pet.notice.removed", locale, { name: pet.name }));
     } catch (error) {
-      onError(`移除宠物失败：${errorText(error)}`);
+      onError(t("pet.error.remove", locale, { error: errorText(error) }));
     } finally {
       setBusy(false);
     }
-  }, [entries, onConfirm, onError, onNotice, settings]);
+  }, [entries, locale, onConfirm, onError, onNotice, settings]);
 
   const openDirectory = useCallback(async () => {
     try {
       await openPetsDirectory();
     } catch (error) {
-      onError(`打开宠物目录失败：${errorText(error)}`);
+      onError(t("pet.error.openDirectory", locale, { error: errorText(error) }));
     }
-  }, [onError]);
+  }, [locale, onError]);
 
   return {
     settings,

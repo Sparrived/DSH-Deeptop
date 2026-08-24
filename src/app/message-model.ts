@@ -1,5 +1,12 @@
 import type { DshHistoryEntry, DshJob, DshSessionEvent } from "../lib/desktop";
 import type { DiffHunk, DiffSummary, MessageStats, SessionStats, TranscriptImage, TranscriptItem } from "./model-types";
+import type { UiLocale } from "./i18n.ts";
+
+/** 模块级 zh/en 文案小表。 */
+type TText = { zh: string; en: string };
+function tt(pair: TText, locale: UiLocale): string {
+  return locale === "en" ? pair.en : pair.zh;
+}
 
 export type ContentSegments = { text: string; reasoning: string; images: TranscriptImage[] };
 
@@ -43,12 +50,15 @@ export function contentSegments(content: unknown): ContentSegments {
   return { text: text.filter(Boolean).join("\n"), reasoning: reasoning.filter(Boolean).join("\n"), images };
 }
 
-export function jobStatusLabel(status: DshJob["status"]) {
-  if (status === "running") return "运行中";
-  if (status === "stopping") return "停止中";
-  if (status === "completed") return "已完成";
-  if (status === "killed") return "已终止";
-  return "失败";
+export function jobStatusLabel(status: DshJob["status"], locale: UiLocale = "zh") {
+  const labels: Record<DshJob["status"], TText> = {
+    running: { zh: "运行中", en: "Running" },
+    stopping: { zh: "停止中", en: "Stopping" },
+    completed: { zh: "已完成", en: "Completed" },
+    killed: { zh: "已终止", en: "Terminated" },
+    failed: { zh: "失败", en: "Failed" },
+  };
+  return tt(labels[status] ?? labels.failed, locale);
 }
 
 export function jobDuration(job: DshJob, now: number) {
@@ -58,9 +68,9 @@ export function jobDuration(job: DshJob, now: number) {
   return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
 }
 
-export function textFromContent(content: unknown): string {
+export function textFromContent(content: unknown, locale: UiLocale = "zh"): string {
   const segments = contentSegments(content);
-  return segments.text || (segments.images.length > 0 ? "[图片]" : "");
+  return segments.text || (segments.images.length > 0 ? (locale === "en" ? "[image]" : "[图片]") : "");
 }
 
 export function assistantContent(event: DshSessionEvent): unknown {
@@ -69,11 +79,11 @@ export function assistantContent(event: DshSessionEvent): unknown {
   return event.data?.content;
 }
 
-export function eventContent(event: DshSessionEvent) {
+export function eventContent(event: DshSessionEvent, locale: UiLocale = "zh") {
   const data = event.data ?? {};
-  if (event.type === "user/message") return textFromContent(data.content);
+  if (event.type === "user/message") return textFromContent(data.content, locale);
   if (event.type === "assistant/message" || event.type === "tool/result") {
-    return textFromContent(assistantContent(event));
+    return textFromContent(assistantContent(event), locale);
   }
   return "";
 }
@@ -431,7 +441,7 @@ export function sourceListLabel(value: unknown, key: string, field: string): str
   return labels.length > 0 ? [...new Set(labels)].join(", ") : undefined;
 }
 
-export function contextProvenance(source: unknown): { role: "inject" | "recall"; label?: string } {
+export function contextProvenance(source: unknown, locale: UiLocale = "zh"): { role: "inject" | "recall"; label?: string } {
   const record = recordValue(source);
   const kind = sourceLabel(record?.kind);
   if (!kind) return { role: "inject" };
@@ -441,7 +451,13 @@ export function contextProvenance(source: unknown): { role: "inject" | "recall";
   if (kind === "skill-invocation") return { role: "inject", label: sourceLabel(record?.name) ?? kind };
   if (kind === "skill-catalog") {
     const entries = record?.entries;
-    return { role: "inject", label: Array.isArray(entries) ? `技能目录（${entries.length} 项）` : "技能目录" };
+    const count = Array.isArray(entries) ? entries.length : null;
+    return {
+      role: "inject",
+      label: count !== null
+        ? (locale === "en" ? `Skill directory (${count} entries)` : `技能目录（${count} 项）`)
+        : (locale === "en" ? "Skill directory" : "技能目录"),
+    };
   }
   return { role: "inject", label: kind };
 }
@@ -466,14 +482,18 @@ export function isInjectedMessage(event: DshSessionEvent) {
   return source !== undefined && kind !== "user";
 }
 
-export function eventToolText(event: DshSessionEvent) {
+export function eventToolText(event: DshSessionEvent, locale: UiLocale = "zh") {
   const data = event.data ?? {};
   if (event.type === "tool/call") {
     const args = data.arguments;
     if (typeof args === "string") return args;
     if (args !== undefined) return JSON.stringify(args, null, 2);
   }
-  return eventContent(event) || (data.isError ? "工具返回错误" : "工具已完成");
+  const fallback = eventContent(event, locale)
+    || (data.isError
+      ? (locale === "en" ? "Tool returned an error" : "工具返回错误")
+      : (locale === "en" ? "Tool completed" : "工具已完成"));
+  return fallback;
 }
 
 export function eventToolResultError(event: DshSessionEvent) {

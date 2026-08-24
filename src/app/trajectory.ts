@@ -1,5 +1,6 @@
 import type { DshHistoryEntry, DshSessionEvent } from "../lib/desktop";
 import { toolApprovalLabel, type ToolApprovalOutcome } from "./permission-audit.ts";
+import { t, type UiLocale } from "./i18n.ts";
 
 export type TrajectoryKind = "system" | "user" | "context" | "assistant" | "tool" | "turn" | "approval";
 export type TrajectoryStatus = "complete" | "running" | "error" | "info";
@@ -104,16 +105,16 @@ function preview(value: string, max = 180): string {
   return compact.length > max ? `${compact.slice(0, max)}…` : compact;
 }
 
-function contentText(content: unknown): string {
+function contentText(content: unknown, locale: UiLocale = "zh"): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content.map((item) => {
     const block = recordValue(item);
     if (!block) return "";
     if ((block.type === "text" || block.type === "reasoning") && typeof block.text === "string") return block.text;
-    if (block.type === "image") return "[图片]";
-    if (block.type === "tool-call") return `调用 ${String(block.name ?? "工具")}`;
-    if (block.type === "tool-result") return contentText(block.content);
+    if (block.type === "image") return t("trajectory.content.image", locale);
+    if (block.type === "tool-call") return t("trajectory.content.toolCall", locale, { name: String(block.name ?? t("trajectory.title.defaultTool", locale)) });
+    if (block.type === "tool-result") return contentText(block.content, locale);
     if (typeof block.text === "string") return block.text;
     return "";
   }).filter(Boolean).join("\n");
@@ -125,11 +126,11 @@ function blockList(blocks: Record<string, unknown>): unknown[] {
     .map((index) => blocks[index]);
 }
 
-function blockSummary(blocks: unknown[]): string {
-  const text = contentText(blocks);
+function blockSummary(blocks: unknown[], locale: UiLocale = "zh"): string {
+  const text = contentText(blocks, locale);
   if (text.trim()) return preview(text);
   const calls = blocks.map(recordValue).filter(Boolean).map((block) => block?.name).filter((name): name is string => typeof name === "string");
-  return calls.length > 0 ? `工具调用：${[...new Set(calls)].join("、")}` : "（无可见输出）";
+  return calls.length > 0 ? t("trajectory.blockSummary.toolCalls", locale, { names: [...new Set(calls)].join("、") }) : t("trajectory.blockSummary.noOutput", locale);
 }
 
 function durationMs(startedAt?: number, completedAt?: number): number | null {
@@ -137,22 +138,22 @@ function durationMs(startedAt?: number, completedAt?: number): number | null {
   return completedAt - startedAt;
 }
 
-export function durationLabel(value?: number | null): string {
-  if (value === undefined || value === null) return "未提供";
+export function durationLabel(value?: number | null, locale: UiLocale = "zh"): string {
+  if (value === undefined || value === null) return t("trajectory.unavailable", locale);
   if (value < 1000) return `${Math.round(value)} ms`;
   return `${(value / 1000).toFixed(value >= 10000 ? 1 : 2)} s`;
 }
 
-function usageLabel(value: unknown): string {
+function usageLabel(value: unknown, locale: UiLocale = "zh"): string {
   const usage = recordValue(value);
   if (!usage) return "";
   const input = numberValue(usage.inputTokens ?? usage.input);
   const output = numberValue(usage.outputTokens ?? usage.output);
   const reasoning = numberValue(usage.reasoningTokens ?? usage.reasoning);
   return [
-    input === undefined ? "" : `输入 ${input}`,
-    output === undefined ? "" : `输出 ${output}`,
-    reasoning === undefined ? "" : `思考 ${reasoning}`,
+    input === undefined ? "" : t("trajectory.usage.input", locale, { n: input }),
+    output === undefined ? "" : t("trajectory.usage.output", locale, { n: output }),
+    reasoning === undefined ? "" : t("trajectory.usage.reasoning", locale, { n: reasoning }),
   ].filter(Boolean).join(" · ");
 }
 
@@ -169,14 +170,14 @@ function eventCallId(event: DshSessionEvent): string | undefined {
   return stringValue(source?.callId ?? content?.toolCallId ?? data.callId);
 }
 
-function eventResult(event: DshSessionEvent): { text: string; error: boolean; raw: unknown } {
+function eventResult(event: DshSessionEvent, locale: UiLocale = "zh"): { text: string; error: boolean; raw: unknown } {
   const data = event.data ?? {};
   const message = eventMessage(event);
   const content = message?.content ?? data.content;
   const first = Array.isArray(content) ? recordValue(content[0]) : undefined;
   const resultContent = first?.type === "tool-result" ? first.content : content;
   return {
-    text: contentText(resultContent) || (data.error ? String(data.error) : "（无返回内容）"),
+    text: contentText(resultContent, locale) || (data.error ? String(data.error) : t("trajectory.result.noContent", locale)),
     error: first?.isError === true || data.error !== undefined || data.isError === true,
     raw: resultContent,
   };
@@ -186,14 +187,14 @@ function eventSource(event: DshSessionEvent): Record<string, unknown> | undefine
   return recordValue(event.data?.source) ?? recordValue(eventMessage(event)?.source);
 }
 
-function sourceLabel(source: Record<string, unknown> | undefined): string {
-  if (!source) return "上下文";
+function sourceLabel(source: Record<string, unknown> | undefined, locale: UiLocale = "zh"): string {
+  if (!source) return t("trajectory.source.context", locale);
   const kind = String(source.kind ?? "context");
-  if (kind === "user") return "用户";
-  if (kind === "model") return "模型";
-  if (kind === "tool") return "工具";
-  if (kind === "plugin") return `上下文 · ${String(source.plugin ?? source.form ?? kind)}`;
-  return `上下文 · ${kind}`;
+  if (kind === "user") return t("trajectory.source.user", locale);
+  if (kind === "model") return t("trajectory.source.model", locale);
+  if (kind === "tool") return t("trajectory.source.tool", locale);
+  if (kind === "plugin") return t("trajectory.source.contextWith", locale, { name: String(source.plugin ?? source.form ?? kind) });
+  return t("trajectory.source.contextWith", locale, { name: kind });
 }
 
 function isHumanMessage(event: DshSessionEvent): boolean {
@@ -205,7 +206,7 @@ function stepKey(turn: number | undefined, step: number | undefined, seq: number
   return `${turn ?? "?"}:${step ?? "?"}:${turn === undefined && step === undefined ? seq : ""}`;
 }
 
-function applyAssistantChunk(state: AssistantState, chunk: Record<string, unknown>) {
+function applyAssistantChunk(state: AssistantState, chunk: Record<string, unknown>, locale: UiLocale = "zh") {
   const type = String(chunk.type ?? "");
   const index = numberValue(chunk.index);
   if (index === undefined) return;
@@ -227,7 +228,7 @@ function applyAssistantChunk(state: AssistantState, chunk: Record<string, unknow
     state.blocks[key] = {
       type: "tool-call",
       id: String(previous?.id ?? chunk.id ?? ""),
-      name: String(previous?.name ?? chunk.name ?? "工具"),
+      name: String(previous?.name ?? chunk.name ?? t("trajectory.title.defaultTool", locale)),
       arguments: `${typeof previous?.arguments === "string" ? previous.arguments : ""}${String(chunk.argumentsDelta ?? "")}`,
     };
   } else if (type === "block-end") {
@@ -236,28 +237,28 @@ function applyAssistantChunk(state: AssistantState, chunk: Record<string, unknow
   if (type === "usage") state.usage = chunk.usage;
 }
 
-function buildAssistantRecord(state: AssistantState, status: TrajectoryStatus): TrajectoryRecord {
+function buildAssistantRecord(state: AssistantState, status: TrajectoryStatus, locale: UiLocale = "zh"): TrajectoryRecord {
   // A running record only needs a cheap live summary; the full blocks text and
   // its pretty-printed detail are O(accumulated length) to derive, so they are
   // computed once the step actually finishes (assistant/message or step/end).
   const final = state.final || status !== "running";
   const blocks = final ? blockList(state.blocks) : [];
-  const usage = usageLabel(state.usage);
+  const usage = usageLabel(state.usage, locale);
   const statusText = state.error ? ` · ${state.error}` : usage ? ` · ${usage}` : "";
   const live = (state.liveText ?? "").trim();
-  const summary = final ? `${blockSummary(blocks)}${statusText}` : `${live ? preview(live) : "生成中"}${statusText}`;
+  const summary = final ? `${blockSummary(blocks, locale)}${statusText}` : `${live ? preview(live) : t("trajectory.streaming.generating", locale)}${statusText}`;
   const detail = final
     ? pretty({ blocks, usage: state.usage, error: state.error })
     : live
-      ? `流式生成中，等待最终消息。\n\n${preview(live, 2000)}`
-      : "流式生成中，等待最终消息。";
+      ? `${t("trajectory.streaming.waitingDetail", locale)}\n\n${preview(live, 2000)}`
+      : t("trajectory.streaming.waitingDetail", locale);
   return {
     key: `assistant-${state.key}`,
     seq: state.recordSeq,
     time: state.recordTime,
     kind: "assistant",
     status,
-    title: "助手",
+    title: t("trajectory.title.assistant", locale),
     summary,
     detail,
     turn: state.turn,
@@ -267,11 +268,11 @@ function buildAssistantRecord(state: AssistantState, status: TrajectoryStatus): 
   };
 }
 
-function buildCompactionRecord(state: CompactionState): TrajectoryRecord {
+function buildCompactionRecord(state: CompactionState, locale: UiLocale = "zh"): TrajectoryRecord {
   const startData = state.start?.data ?? {};
   const summaryData = state.summary?.data ?? {};
   const endData = state.end?.data ?? {};
-  const summary = stringValue(summaryData.summary) ?? (state.end ? "压缩已结束" : "正在压缩上下文");
+  const summary = stringValue(summaryData.summary) ?? (state.end ? t("trajectory.compaction.done", locale) : t("trajectory.compaction.running", locale));
   const error = endData.error !== undefined ? String(endData.error) : undefined;
   const completedAt = state.end?.time;
   return {
@@ -280,8 +281,8 @@ function buildCompactionRecord(state: CompactionState): TrajectoryRecord {
     time: state.time,
     kind: "system",
     status: error ? "error" : state.end ? "complete" : "running",
-    title: "上下文压缩",
-    summary: error ? `压缩失败：${error}` : preview(summary),
+    title: t("trajectory.compaction.title", locale),
+    summary: error ? t("trajectory.compaction.error", locale, { error }) : preview(summary),
     detail: pretty({ start: startData, summary: summaryData, end: endData }),
     turn: state.turn,
     startedAt: state.start?.time,
@@ -296,9 +297,9 @@ const APPROVAL_OUTCOMES: Record<ToolApprovalOutcome, TrajectoryStatus> = {
   unavailable: "error",
 };
 
-function buildApprovalRecord(state: ApprovalState): TrajectoryRecord {
+function buildApprovalRecord(state: ApprovalState, locale: UiLocale = "zh"): TrajectoryRecord {
   const outcome = state.outcome;
-  const label = outcome ? toolApprovalLabel(outcome) : "等待审批";
+  const label = outcome ? toolApprovalLabel(outcome, locale) : t("trajectory.approval.pending", locale);
   return {
     key: state.key,
     seq: state.seq,
@@ -313,7 +314,7 @@ function buildApprovalRecord(state: ApprovalState): TrajectoryRecord {
   };
 }
 
-export function buildTrajectoryRecords(entries: DshHistoryEntry[]): TrajectoryRecord[] {
+export function buildTrajectoryRecords(entries: DshHistoryEntry[], locale: UiLocale = "zh"): TrajectoryRecord[] {
   const records = new Map<string, TrajectoryRecord>();
   const order: string[] = [];
   const assistants = new Map<string, AssistantState>();
@@ -375,7 +376,7 @@ export function buildTrajectoryRecords(entries: DshHistoryEntry[]): TrajectoryRe
       const toolsCount = Array.isArray(header.tools) ? header.tools.length : 0;
       const provider = stringValue(config.provider);
       const model = stringValue(config.model);
-      const summary = [provider && model ? `${provider} / ${model}` : "模型请求", toolsCount ? `${toolsCount} 个工具` : "无工具"]
+      const summary = [provider && model ? `${provider} / ${model}` : t("trajectory.title.request", locale), toolsCount ? t("trajectory.tool.count", locale, { count: toolsCount }) : t("trajectory.tool.none", locale)]
         .join(" · ");
       put({
         key: `request-${event.seq}`,
@@ -383,7 +384,7 @@ export function buildTrajectoryRecords(entries: DshHistoryEntry[]): TrajectoryRe
         time: event.time,
         kind: "system",
         status: "info",
-        title: "请求配置",
+        title: t("trajectory.title.requestConfig", locale),
         summary,
         detail: pretty(header),
         turn,
@@ -399,8 +400,8 @@ export function buildTrajectoryRecords(entries: DshHistoryEntry[]): TrajectoryRe
         time: event.time,
         kind: "system",
         status: "info",
-        title: "路由上下文",
-        summary: [stringValue(data.provider), stringValue(data.model)].filter(Boolean).join(" / ") || "模型路由上下文",
+        title: t("trajectory.title.routeContext", locale),
+        summary: [stringValue(data.provider), stringValue(data.model)].filter(Boolean).join(" / ") || t("trajectory.title.modelRouteContext", locale),
         detail: pretty(data),
         turn,
         step,
@@ -409,7 +410,7 @@ export function buildTrajectoryRecords(entries: DshHistoryEntry[]): TrajectoryRe
     }
 
     if (event.type === "user/message") {
-      const content = contentText(data.content) || "（无文本内容）";
+      const content = contentText(data.content, locale) || t("trajectory.text.noContent", locale);
       const human = isHumanMessage(event);
       put({
         key: `event-${event.seq}`,
@@ -417,7 +418,7 @@ export function buildTrajectoryRecords(entries: DshHistoryEntry[]): TrajectoryRe
         time: event.time,
         kind: human ? "user" : "context",
         status: "complete",
-        title: human ? "用户" : sourceLabel(eventSource(event)),
+        title: human ? t("trajectory.source.user", locale) : sourceLabel(eventSource(event), locale),
         summary: preview(content),
         detail: pretty({ content: data.content, source: data.source }),
         turn,
@@ -439,9 +440,9 @@ export function buildTrajectoryRecords(entries: DshHistoryEntry[]): TrajectoryRe
         final: false,
       };
       if (state.startedAt === undefined) state.startedAt = stepStarts.get(key);
-      applyAssistantChunk(state, recordValue(data.chunk) ?? {});
+      applyAssistantChunk(state, recordValue(data.chunk) ?? {}, locale);
       assistants.set(key, state);
-      put(buildAssistantRecord(state, "running"));
+      put(buildAssistantRecord(state, "running", locale));
       continue;
     }
 
@@ -465,14 +466,14 @@ export function buildTrajectoryRecords(entries: DshHistoryEntry[]): TrajectoryRe
       state.completedAt = event.time;
       state.final = true;
       assistants.set(key, state);
-      put(buildAssistantRecord(state, "complete"));
+      put(buildAssistantRecord(state, "complete", locale));
       continue;
     }
 
     if (event.type === "tool/call") {
       const callId = eventCallId(event) ?? `seq-${event.seq}`;
       const key = `tool-${callId}`;
-      const name = stringValue(data.name) ?? "工具";
+      const name = stringValue(data.name) ?? t("trajectory.title.defaultTool", locale);
       const argumentsText = pretty(data.arguments ?? {});
       tools.set(callId, key);
       put({
@@ -482,7 +483,7 @@ export function buildTrajectoryRecords(entries: DshHistoryEntry[]): TrajectoryRe
         kind: "tool",
         status: "running",
         title: name,
-        summary: "等待工具结果",
+        summary: t("trajectory.tool.waitingResult", locale),
         detail: pretty({ name, callId, arguments: data.arguments, view: entry.view }),
         turn,
         step,
@@ -497,9 +498,9 @@ export function buildTrajectoryRecords(entries: DshHistoryEntry[]): TrajectoryRe
     if (event.type === "tool/result") {
       const callId = eventCallId(event) ?? `seq-${event.seq}`;
       const key = tools.get(callId) ?? `tool-result-${event.seq}`;
-      const result = eventResult(event);
+      const result = eventResult(event, locale);
       const current = records.get(key);
-      const name = current?.title ?? "工具";
+      const name = current?.title ?? t("trajectory.title.defaultTool", locale);
       const startedAt = current?.startedAt;
       const viewText = entry.view ? pretty(entry.view) : undefined;
       if (!current) {
@@ -510,7 +511,7 @@ export function buildTrajectoryRecords(entries: DshHistoryEntry[]): TrajectoryRe
           kind: "tool",
           status: result.error ? "error" : "complete",
           title: name,
-          summary: result.error ? "工具返回错误" : preview(result.text),
+          summary: result.error ? t("trajectory.tool.error", locale) : preview(result.text),
           detail: pretty({ callId, result: result.raw, view: entry.view }),
           turn,
           step,
@@ -524,14 +525,14 @@ export function buildTrajectoryRecords(entries: DshHistoryEntry[]): TrajectoryRe
           seq: current.seq,
           time: current.time,
           status: result.error ? "error" : "complete",
-          summary: result.error ? "工具返回错误" : preview(result.text),
+          summary: result.error ? t("trajectory.tool.error", locale) : preview(result.text),
           detail: pretty({ name, callId, arguments: current.argumentsText, result: result.raw, view: entry.view }),
           resultText: result.text,
           resultError: result.error,
           durationMs: durationMs(startedAt, event.time),
         });
       }
-      if (viewText) patch(key, { detail: `${records.get(key)?.detail ?? ""}\n\n呈现视图\n${viewText}` });
+      if (viewText) patch(key, { detail: `${records.get(key)?.detail ?? ""}\n\n${t("trajectory.view.presented", locale)}\n${viewText}` });
       continue;
     }
 
@@ -540,9 +541,9 @@ export function buildTrajectoryRecords(entries: DshHistoryEntry[]): TrajectoryRe
       const state = assistants.get(key);
       if (state && !state.final) {
         state.completedAt = event.time;
-        state.error = "步骤未产生最终助手消息";
+        state.error = t("trajectory.step.noFinalMessage", locale);
         assistants.set(key, state);
-        put(buildAssistantRecord(state, "error"));
+        put(buildAssistantRecord(state, "error", locale));
       }
       continue;
     }
@@ -557,8 +558,8 @@ export function buildTrajectoryRecords(entries: DshHistoryEntry[]): TrajectoryRe
         time: event.time,
         kind: "turn",
         status: isError ? "error" : "complete",
-        title: `第 ${turn ?? "?"} 轮结束`,
-        summary: isError ? `结束原因：${reasonKind}` : "已完成",
+        title: t("trajectory.turn.end", locale, { turn: turn ?? "?" }),
+        summary: isError ? t("trajectory.turn.reason", locale, { reason: reasonKind }) : t("trajectory.turn.complete", locale),
         detail: pretty({ reason: data.reason }),
         turn,
         startedAt: turn === undefined ? undefined : turnStarts.get(turn),
@@ -594,7 +595,7 @@ export function buildTrajectoryRecords(entries: DshHistoryEntry[]): TrajectoryRe
         }
       }
       approvals.set(key, current);
-      put(buildApprovalRecord(current));
+      put(buildApprovalRecord(current, locale));
       continue;
     }
 
@@ -610,7 +611,7 @@ export function buildTrajectoryRecords(entries: DshHistoryEntry[]): TrajectoryRe
       if (event.type === "compaction/summary") current.summary = event;
       if (event.type === "compaction/end") current.end = event;
       compactions.set(compactionId, current);
-      put(buildCompactionRecord(current));
+      put(buildCompactionRecord(current, locale));
       continue;
     }
 

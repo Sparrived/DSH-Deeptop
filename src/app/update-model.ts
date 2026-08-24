@@ -1,3 +1,5 @@
+import type { UiLocale } from "./i18n.ts";
+
 export type UpdateChannel = "stable" | "development";
 
 export type UpdateCheckState =
@@ -73,12 +75,12 @@ export function updateCheckStateFromResult(result: NativeUpdateResult, checkedAt
   return { status: "up-to-date", channel: result.channel, checkedAt };
 }
 
-export function updateCheckErrorMessage(error: unknown): string {
+export function updateCheckErrorMessage(error: unknown, locale: UiLocale = "zh"): string {
   if (error instanceof Error && error.message.trim()) return error.message;
-  return String(error || "更新检查失败");
+  return String(error || (locale === "en" ? "Update check failed" : "更新检查失败"));
 }
 
-export function updateDownloadStateFromEvent(event: NativeUpdateDownloadProgress): UpdateDownloadState {
+export function updateDownloadStateFromEvent(event: NativeUpdateDownloadProgress, locale: UiLocale = "zh"): UpdateDownloadState {
   if (event.phase === "downloading" && event.releaseTag && event.assetName && typeof event.downloadedBytes === "number") {
     return { status: "downloading", releaseTag: event.releaseTag, assetName: event.assetName, downloadedBytes: event.downloadedBytes, totalBytes: event.totalBytes ?? null, percent: event.percent ?? null };
   }
@@ -86,6 +88,6 @@ export function updateDownloadStateFromEvent(event: NativeUpdateDownloadProgress
   if (event.phase === "ready" && event.releaseTag && event.assetName && event.path && event.sha256) return { status: "ready", releaseTag: event.releaseTag, assetName: event.assetName, path: event.path, sha256: event.sha256 };
   if (event.phase === "cancelled") return { status: "cancelled" };
   if (event.phase === "launching") return { status: "launching" };
-  if (event.phase === "failed" || event.phase === "error") return { status: "error", message: event.message || "更新下载失败" };
-  return { status: "error", message: "更新进度事件格式无效" };
+  if (event.phase === "failed" || event.phase === "error") return { status: "error", message: event.message || (locale === "en" ? "Update download failed" : "更新下载失败") };
+  return { status: "error", message: locale === "en" ? "Invalid update progress event format" : "更新进度事件格式无效" };
 }

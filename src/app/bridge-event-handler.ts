@@ -18,13 +18,13 @@ import {
 import { applyTodoSnapshot, isInjectedMessage, numberValue, readSessionStats, recordValue } from "./model";
 import { imageLimitsFromProjection } from "./ui-model";
 import { usageTokenBuckets } from "./message-model";
-import {
-  markSessionError,
+import { markSessionError,
   removeSessionRecordEntry,
   updateSessionIndicator,
   updateSessionRunning,
   type SessionIndicator,
 } from "./session-runtime-state";
+import { t, type UiLocale } from "./i18n.ts";
 import { sessionProjectionCache } from "./projection-cache";
 import { historyPageCache } from "./history-page-cache";
 import type {
@@ -63,6 +63,7 @@ type BridgeEventHandlerContext = {
   setSubagentPanelOpen: Dispatch<SetStateAction<boolean>>;
   setGoal: Dispatch<SetStateAction<DshGoalProjection | null | undefined>>;
   setNotice: (message: string) => void;
+  locale: UiLocale;
   loadSubagents: () => void | Promise<void>;
   refreshSessionStats: (sessionId?: string) => void | Promise<void>;
   startNewSession: () => void;
@@ -176,6 +177,7 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
     setQuestionCustomAnswersBySession,
     setGoal,
     promoteSessionOnMessage,
+    locale,
   } = context;
   const payload = event.frame.payload;
   const type = payload.type;
@@ -341,7 +343,7 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
         reason: typeof payload.reason === "string" ? payload.reason : undefined,
       },
     }));
-    void sendSystemNotification("需要审批", `会话 ${sessionId.slice(-8)} 请求允许执行 ${toolName}`, sessionId);
+    void sendSystemNotification(t("notice.approvalRequired", locale), t("notice.approvalRequestedBody", locale, { session: sessionId.slice(-8), tool: toolName }), sessionId);
     return;
   }
   if (type === "approval/resolved") {
@@ -368,7 +370,7 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
     }));
     setQuestionAnswersBySession((current) => ({ ...current, [sessionId]: {} }));
     setQuestionCustomAnswersBySession((current) => ({ ...current, [sessionId]: {} }));
-    void sendSystemNotification("需要回答问题", `会话 ${sessionId.slice(-8)} 有 ${questions.length} 个问题待处理`, sessionId);
+    void sendSystemNotification(t("notice.questionRequired", locale), t("notice.questionRequestedBody", locale, { session: sessionId.slice(-8), count: questions.length }), sessionId);
     return;
   }
   if (type === "question/resolved") {
@@ -413,6 +415,7 @@ function routeHostEvent(event: DshBridgeEvent, context: BridgeEventHandlerContex
     setQuestionAnswersBySession,
     setQuestionCustomAnswersBySession,
     setNotice,
+    locale,
     loadSubagents,
     refreshSessionStats,
     startNewSession,
@@ -490,7 +493,7 @@ function routeHostEvent(event: DshBridgeEvent, context: BridgeEventHandlerContex
     } : current);
     if (sessionId === activeSessionRef.current) {
       setLoading(false);
-      setNotice(typeof payload.message === "string" && payload.message.trim() ? payload.message : "模型调用失败，已重置会话状态");
+      setNotice(typeof payload.message === "string" && payload.message.trim() ? payload.message : t("notice.modelCallFailedReset", locale));
       void refreshSessionStats(sessionId);
     }
     return;

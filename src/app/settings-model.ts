@@ -1,7 +1,37 @@
 import type { DshProvider, DshSettingsNamespace } from "../lib/desktop";
 import type { ProviderSettingsPatch } from "./model-types";
+import type { UiLocale } from "./i18n.ts";
 
-export function errorText(error: unknown) {
+/** 面向用户的错误文案，zh/en 双份。 */
+const ERROR_LABELS: Record<string, { zh: string; en: string }> = {
+  "model-unavailable": { zh: "当前模型不可用，请检查 Provider 配置或切换模型", en: "The current model is unavailable. Check the Provider config or switch models." },
+  "invalid-time-zone": { zh: "客户端时区无效，请重试", en: "Invalid client timezone. Please try again." },
+  "attachment-error": { zh: "图片未通过当前部署的限制", en: "The image does not meet this deployment's limits." },
+  IMAGE_DIMENSION_TOO_LARGE: { zh: "图片尺寸超过当前部署限制", en: "Image dimensions exceed this deployment's limits." },
+  IMAGE_TOO_MANY_PIXELS: { zh: "图片像素数超过当前部署限制", en: "Image pixel count exceeds this deployment's limits." },
+  IMAGE_PIXELS_TOO_LARGE: { zh: "图片像素数超过当前部署限制", en: "Image pixel count exceeds this deployment's limits." },
+  IMAGE_TOO_LARGE: { zh: "图片大小超过当前部署限制", en: "Image size exceeds this deployment's limits." },
+  TOO_MANY_IMAGES: { zh: "图片数量超过当前部署限制", en: "Image count exceeds this deployment's limits." },
+  IMAGES_TOO_LARGE: { zh: "本条消息的图片总大小超过当前部署限制", en: "Total image size for this message exceeds this deployment's limits." },
+  MESSAGE_IMAGE_BYTES_TOO_LARGE: { zh: "本条消息的图片总大小超过当前部署限制", en: "Total image size for this message exceeds this deployment's limits." },
+  "reference-unavailable": { zh: "引用服务当前不可用", en: "The reference service is currently unavailable." },
+  "session-not-found": { zh: "目标会话不存在或已关闭", en: "The target session does not exist or has been closed." },
+  "request-timeout": { zh: "DSH 请求超时，请重试", en: "DSH request timed out. Please try again." },
+  "bridge-timeout": { zh: "DSH 响应超时，请重试", en: "DSH response timed out. Please try again." },
+  "bridge-unavailable": { zh: "DSH 运行时未就绪或已退出，请等待恢复或重启 Deeptop", en: "The DSH runtime is not ready or has exited. Wait for it to recover or restart Deeptop." },
+  "bridge-disconnected": { zh: "DSH 响应通道已断开，请重启 Deeptop", en: "The DSH response channel disconnected. Restart Deeptop." },
+  "workspace-unavailable": { zh: "工作区目录当前不可用（磁盘未连接、目录被移动或删除），无法确认会话归属", en: "The workspace directory is currently unavailable (disk disconnected, or the directory was moved or deleted), so session ownership cannot be confirmed." },
+};
+
+function errorLabel(code: unknown, reason: string | undefined, locale: UiLocale): string | undefined {
+  const key = (reason ? (reason in ERROR_LABELS ? reason : undefined) : undefined)
+    ?? (typeof code === "string" ? (code in ERROR_LABELS ? code : undefined) : undefined);
+  if (key === undefined) return undefined;
+  const pair = ERROR_LABELS[key];
+  return locale === "en" ? pair.en : pair.zh;
+}
+
+export function errorText(error: unknown, locale: UiLocale = "zh") {
   if (error instanceof Error) {
     const apiError = error as Error & { code?: unknown; details?: unknown };
     const code = apiError.code;
@@ -10,27 +40,8 @@ export function errorText(error: unknown) {
       : undefined;
     const reason = typeof details?.reason === "string" ? details.reason : undefined;
     if (typeof code === "string" || reason !== undefined) {
-      const labels: Record<string, string> = {
-        "model-unavailable": "当前模型不可用，请检查 Provider 配置或切换模型",
-        "invalid-time-zone": "客户端时区无效，请重试",
-        "attachment-error": "图片未通过当前部署的限制",
-        IMAGE_DIMENSION_TOO_LARGE: "图片尺寸超过当前部署限制",
-        IMAGE_TOO_MANY_PIXELS: "图片像素数超过当前部署限制",
-        IMAGE_PIXELS_TOO_LARGE: "图片像素数超过当前部署限制",
-        IMAGE_TOO_LARGE: "图片大小超过当前部署限制",
-        TOO_MANY_IMAGES: "图片数量超过当前部署限制",
-        IMAGES_TOO_LARGE: "本条消息的图片总大小超过当前部署限制",
-        MESSAGE_IMAGE_BYTES_TOO_LARGE: "本条消息的图片总大小超过当前部署限制",
-        "reference-unavailable": "引用服务当前不可用",
-        "session-not-found": "目标会话不存在或已关闭",
-        "request-timeout": "DSH 请求超时，请重试",
-        "bridge-timeout": "DSH 响应超时，请重试",
-        "bridge-unavailable": "DSH 运行时未就绪或已退出，请等待恢复或重启 Deeptop",
-        "bridge-disconnected": "DSH 响应通道已断开，请重启 Deeptop",
-        "workspace-unavailable": "工作区目录当前不可用（磁盘未连接、目录被移动或删除），无法确认会话归属",
-      };
-      const label = (reason ? labels[reason] : undefined) ?? (typeof code === "string" ? labels[code] : undefined);
-      if (label) return `${label}（${error.message}）`;
+      const label = errorLabel(code, reason, locale);
+      if (label) return locale === "en" ? `${label} (${error.message})` : `${label}（${error.message}）`;
       return typeof code === "string" ? `${code}: ${error.message}` : error.message;
     }
     return error.message;
@@ -45,10 +56,10 @@ export function jsonText(value: unknown) {
   }
 }
 
-export function parseJsonObject(value: string): Record<string, unknown> {
+export function parseJsonObject(value: string, locale: UiLocale = "zh"): Record<string, unknown> {
   const parsed: unknown = JSON.parse(value);
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error("设置内容必须是 JSON 对象");
+    throw new Error(locale === "en" ? "Settings content must be a JSON object" : "设置内容必须是 JSON 对象");
   }
   return parsed as Record<string, unknown>;
 }

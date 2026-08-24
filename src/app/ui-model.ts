@@ -1,5 +1,6 @@
 import type { DshImageAttachmentLimits, DshFileReferenceCandidate, DshModel, DshModelGroup, DshPlanProjection, DshPluginInventoryEntry, DshPreset, DshPromptContentPart, DshQuestion, DshRuntimeLog, DshSessionModels, DshSessionReferenceCandidate, DshSessionSummary, DshStatus } from "../lib/desktop";
 import type { ChildSubagentEntry, ComposerAttachment, ComposerCandidate, ComposerTrigger } from "./model-types";
+import { t, type UiLocale } from "./i18n.ts";
 
 /**
  * Fold the official plan projection into the effective plan-mode target.
@@ -74,21 +75,21 @@ export function subagentTreeParentId(treeKey: string): string | undefined {
   return parent && parent.trim() ? parent : undefined;
 }
 
-export function projectName(path: string | undefined) {
-  if (!path) return "未选择工作目录";
+export function projectName(path: string | undefined, locale: UiLocale = "zh") {
+  if (!path) return t("model.noWorkdir", locale);
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
 
-export function subagentDisplayName(entry: ChildSubagentEntry, index: number) {
-  return entry.label?.trim() || `子 Agent ${String(index + 1).padStart(2, "0")}`;
+export function subagentDisplayName(entry: ChildSubagentEntry, index: number, locale: UiLocale = "zh") {
+  return entry.label?.trim() || t("subagent.fallbackName", locale, { index: index + 1 });
 }
 
-export function subagentActivityLabel(activity: ChildSubagentEntry["activity"]) {
-  return activity === "running" ? "运行中" : "已停止";
+export function subagentActivityLabel(activity: ChildSubagentEntry["activity"], locale: UiLocale = "zh") {
+  return activity === "running" ? t("subagent.running", locale) : t("subagent.stopped", locale);
 }
 
-export function subagentModeLabel(mode: ChildSubagentEntry["mode"]) {
-  return mode === "continuable" ? "可继续" : "一次性";
+export function subagentModeLabel(mode: ChildSubagentEntry["mode"], locale: UiLocale = "zh") {
+  return mode === "continuable" ? t("subagent.continuable", locale) : t("subagent.oneShot", locale);
 }
 
 export function shortSubagentId(id: string) {
@@ -189,6 +190,7 @@ export function referenceComposerCandidates(
   files: DshFileReferenceCandidate[],
   sessions: DshSessionReferenceCandidate[],
   quoted = false,
+  locale: UiLocale = "zh",
 ) {
   const fileCandidates = files.flatMap((item) => {
     if (!item || (item.kind !== "file" && item.kind !== "directory") || typeof item.path !== "string") return [];
@@ -205,7 +207,7 @@ export function referenceComposerCandidates(
       kind: "file" as const,
       id: rawPath,
       label: "@" + rawPath,
-      detail: item.kind === "directory" ? "目录 · 继续选择" : "文件引用",
+      detail: item.kind === "directory" ? `${t("composer.candidate.directory", locale)} · ${t("composer.candidate.keepTyping", locale)}` : t("composer.candidate.file", locale),
       insertText,
     }];
   });
@@ -217,7 +219,7 @@ export function referenceComposerCandidates(
       kind: "session" as const,
       id: item.sessionId,
       label: "@" + item.label,
-      detail: item.cwd && !/[\u0000-\u001f\u007f-\u009f]/u.test(item.cwd) ? "会话引用 · " + item.cwd : "会话引用",
+      detail: item.cwd && !/[\u0000-\u001f\u007f-\u009f]/u.test(item.cwd) ? `${t("composer.candidate.session", locale)} · ${item.cwd}` : t("composer.candidate.session", locale),
       insertText: item.mention,
     }];
   });
@@ -226,24 +228,25 @@ export function referenceComposerCandidates(
 
 /** Replace only the active trigger token and keep an open directory quote active. */
 export function insertComposerCandidate(value: string, trigger: ComposerTrigger, candidate: ComposerCandidate) {
-  const suffix = candidate.kind === "file" && candidate.detail?.startsWith("目录") ? "" : " ";
+  // 目录候选以目录词开头（"目录 · 继续选择"），保持引号开放让用户继续输入。
+  const suffix = candidate.kind === "file" && candidate.detail?.startsWith(t("composer.candidate.directory", "zh")) ? "" : " ";
   const end = trigger.end ?? value.length;
   return value.slice(0, trigger.start) + candidate.insertText + suffix + value.slice(end);
 }
 
 /** Return provider groups with the current model included when the advisory catalog omits it. */
-export function modelPickerGroups(models: Pick<DshSessionModels, "groups" | "current">): DshModelGroup[] {
+export function modelPickerGroups(models: Pick<DshSessionModels, "groups" | "current">, locale: UiLocale = "zh"): DshModelGroup[] {
   const current = models.current;
   const listed = models.groups.some((group) => group.id === current.provider && group.models.some((model) => model.id === current.model));
   if (listed) return models.groups;
   const currentModel: DshModel = {
     id: current.model,
-    name: current.model + "（当前未列出）",
-    description: "Provider 目录未返回此模型；由 Host 的 routable 状态决定是否可用。",
+    name: `${current.model}${t("model.notListedSuffix", locale)}`,
+    description: t("model.notListedDescription", locale),
   };
   const provider = models.groups.find((group) => group.id === current.provider);
   if (provider) return models.groups.map((group) => group.id === current.provider ? { ...group, models: [...group.models, currentModel] } : group);
-  return [...models.groups, { id: current.provider, name: current.provider + "（当前模型）", models: [currentModel] }];
+  return [...models.groups, { id: current.provider, name: `${current.provider}${t("model.currentGroupSuffix", locale)}`, models: [currentModel] }];
 }
 
 /** Read the official imageLimits projection when it is present in session history. */
@@ -264,22 +267,22 @@ export function imageLimitsFromProjection(value: unknown): DshImageAttachmentLim
 }
 
 /** Return a local image-limit message for decoded intrinsic dimensions. */
-export function imageDimensionLimitError(width: number, height: number, limits?: Pick<DshImageAttachmentLimits, "maxImageDimension" | "maxImagePixels">): string | undefined {
+export function imageDimensionLimitError(width: number, height: number, limits?: Pick<DshImageAttachmentLimits, "maxImageDimension" | "maxImagePixels">, locale: UiLocale = "zh"): string | undefined {
   const pixels = width * height;
-  if (limits?.maxImagePixels && pixels > limits.maxImagePixels) return "图片像素数不能超过 " + limits.maxImagePixels;
-  if (limits?.maxImageDimension && Math.max(width, height) > limits.maxImageDimension) return "图片边长不能超过 " + limits.maxImageDimension + "px";
+  if (limits?.maxImagePixels && pixels > limits.maxImagePixels) return t("image.pixelsLimit", locale, { limit: limits.maxImagePixels });
+  if (limits?.maxImageDimension && Math.max(width, height) > limits.maxImageDimension) return t("image.dimensionLimit", locale, { limit: limits.maxImageDimension });
   return undefined;
 }
 
 /** Return a local image-batch limit message before DSH admission. */
-export function imageBatchLimitError(current: ComposerAttachment[], next: ComposerAttachment[], limits?: Pick<DshImageAttachmentLimits, "maxImagesPerMessage" | "maxMessageImageBytes">): string | undefined {
-  if (limits?.maxImagesPerMessage !== undefined && current.length + next.length > limits.maxImagesPerMessage) return "图片数量不能超过 " + limits.maxImagesPerMessage + " 张";
+export function imageBatchLimitError(current: ComposerAttachment[], next: ComposerAttachment[], limits?: Pick<DshImageAttachmentLimits, "maxImagesPerMessage" | "maxMessageImageBytes">, locale: UiLocale = "zh"): string | undefined {
+  if (limits?.maxImagesPerMessage !== undefined && current.length + next.length > limits.maxImagesPerMessage) return t("image.countLimit", locale, { limit: limits.maxImagesPerMessage });
   if (limits?.maxMessageImageBytes !== undefined) {
     const bytes = [...current, ...next].reduce((total, item) => {
       const padding = item.data.endsWith("==") ? 2 : item.data.endsWith("=") ? 1 : 0;
       return total + Math.max(0, Math.floor(item.data.length * 3 / 4) - padding);
     }, 0);
-    if (bytes > limits.maxMessageImageBytes) return "本条消息图片总大小不能超过 " + limits.maxMessageImageBytes + " 字节";
+    if (bytes > limits.maxMessageImageBytes) return t("image.bytesLimit", locale, { limit: limits.maxMessageImageBytes });
   }
   return undefined;
 }
@@ -347,21 +350,21 @@ export function composerReferenceText(path: string, workspace = ""): string {
   return /\s/u.test(target) ? `@"${target}"` : "@" + target;
 }
 
-export function readImageFile(file: File, limits?: DshImageAttachmentLimits): Promise<ComposerAttachment> {
+export function readImageFile(file: File, limits?: DshImageAttachmentLimits, locale: UiLocale = "zh"): Promise<ComposerAttachment> {
   const mediaType = imageMediaType(file);
-  if (!mediaType) return Promise.reject(new Error("只支持 PNG、JPEG、WebP 或 GIF 图片"));
-  if (limits?.mediaTypes && !limits.mediaTypes.includes(mediaType)) return Promise.reject(new Error("当前部署不支持 " + mediaType + " 图片"));
+  if (!mediaType) return Promise.reject(new Error(t("image.unsupported", locale)));
+  if (limits?.mediaTypes && !limits.mediaTypes.includes(mediaType)) return Promise.reject(new Error(t("image.deploymentUnsupported", locale, { mediaType })));
   const maxBytes = limits?.maxImageBytes ?? 12 * 1024 * 1024;
-  if (file.size > maxBytes) return Promise.reject(new Error("图片不能超过 " + Math.round(maxBytes / 1024 / 1024) + " MB"));
+  if (file.size > maxBytes) return Promise.reject(new Error(t("image.tooLarge", locale, { limit: Math.round(maxBytes / 1024 / 1024) })));
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error(`无法读取图片：${file.name}`));
+    reader.onerror = () => reject(new Error(t("image.readFailed", locale, { name: file.name })));
     reader.onload = () => {
       const value = typeof reader.result === "string" ? reader.result : "";
       const accept = () => {
         const comma = value.indexOf(",");
         if (comma < 0) {
-          reject(new Error(`图片内容无效：${file.name}`));
+          reject(new Error(t("image.invalidContent", locale, { name: file.name })));
           return;
         }
         resolve({
@@ -379,14 +382,14 @@ export function readImageFile(file: File, limits?: DshImageAttachmentLimits): Pr
         }
         const image = new Image();
         image.onload = () => {
-          const limitError = imageDimensionLimitError(image.width, image.height, limits);
+          const limitError = imageDimensionLimitError(image.width, image.height, limits, locale);
           if (limitError) {
             reject(new Error(limitError));
             return;
           }
           accept();
         };
-        image.onerror = () => reject(new Error(`无法解析图片尺寸：${file.name}`));
+        image.onerror = () => reject(new Error(t("image.sizeParseFailed", locale, { name: file.name })));
         image.src = value;
         return;
       }
@@ -411,17 +414,17 @@ export function formatDate(time: number) {
   });
 }
 
-export function displayTitle(session: DshSessionSummary) {
+export function displayTitle(session: DshSessionSummary, locale: UiLocale = "zh") {
   const title = session.projections?.values?.title;
   if (typeof title === "string" && title.trim()) return title;
-  return session.blank ? "新会话" : projectName(session.cwd) || session.sessionId;
+  return session.blank ? t("session.blankTitle", locale) : projectName(session.cwd, locale) || session.sessionId;
 }
 
-export function runtimeLabel(status: DshStatus) {
-  if (status.installing) return "安装中";
-  if (status.runtimeStarting) return "启动中";
-  if (status.runtimeAvailable) return "已连接";
-  return "未连接";
+export function runtimeLabel(status: DshStatus, locale: UiLocale = "zh") {
+  if (status.installing) return t("runtime.installing", locale);
+  if (status.runtimeStarting) return t("runtime.starting", locale);
+  if (status.runtimeAvailable) return t("runtime.connected", locale);
+  return t("runtime.disconnected", locale);
 }
 
 export function sessionPath(cwd: string | undefined, path: string) {
@@ -445,37 +448,38 @@ export function pluginDisplayName(moduleName: string) {
     .replace(/^dsh-(?:host-|client-)?/, "");
 }
 
-export function pluginPhaseLabel(phase: DshPluginInventoryEntry["fiberPhase"]) {
-  if (phase === "pending") return "等待加载";
-  if (phase === "loading") return "加载中";
-  if (phase === "active") return "运行中";
-  if (phase === "failed") return "加载失败";
-  if (phase === "unloading") return "卸载中";
-  return "未观测";
+export function pluginPhaseLabel(phase: DshPluginInventoryEntry["fiberPhase"], locale: UiLocale = "zh") {
+  if (phase === "pending") return t("plugins.phase.pending", locale);
+  if (phase === "loading") return t("plugins.phase.loading", locale);
+  if (phase === "active") return t("plugins.phase.active", locale);
+  if (phase === "failed") return t("plugins.phase.failed", locale);
+  if (phase === "unloading") return t("plugins.phase.unloading", locale);
+  return t("plugins.phase.unobserved", locale);
 }
 
-const builtInPresetNames: Record<string, string> = {
-  standard: "标准模式",
-  code: "PTC 模式",
-  minimal: "极简模式",
-  cordis: "创造模式",
+const builtInPresetNames: Record<string, { zh: string; en: string }> = {
+  standard: { zh: "标准模式", en: "Standard" },
+  code: { zh: "PTC 模式", en: "PTC mode" },
+  minimal: { zh: "极简模式", en: "Minimal" },
+  cordis: { zh: "创造模式", en: "Creator mode" },
 };
 
-const builtInPresetDescriptions: Record<string, string> = {
-  standard: "功能完整的编码 Agent，支持文件编辑、Shell、文件与网页检索、Skills、计划、目标、子代理和工作流。",
-  code: "具备标准模式的全部能力，并通过 Code Mode SDK 呈现工具，让模型用一个 TypeScript 程序组合多步操作。",
-  minimal: "仅提供持久 bash 与 str_replace_editor 的双工具编码 Agent。",
-  cordis: "用于创建自定义 Agent preset：具备标准模式的全部能力，并提供运行时检查、插件实验和 preset 创作指导。",
+const builtInPresetDescriptions: Record<string, { zh: string; en: string }> = {
+  standard: { zh: "功能完整的编码 Agent，支持文件编辑、Shell、文件与网页检索、Skills、计划、目标、子代理和工作流。", en: "A fully featured coding agent with file editing, shell, file & web search, skills, planning, goals, subagents, and workflows." },
+  code: { zh: "具备标准模式的全部能力，并通过 Code Mode SDK 呈现工具，让模型用一个 TypeScript 程序组合多步操作。", en: "Everything in Standard, plus tools exposed through the Code Mode SDK so the model can compose multi-step operations in one TypeScript program." },
+  minimal: { zh: "仅提供持久 bash 与 str_replace_editor 的双工具编码 Agent。", en: "A two-tool coding agent providing only a persistent bash and str_replace_editor." },
+  cordis: { zh: "用于创建自定义 Agent preset：具备标准模式的全部能力，并提供运行时检查、插件实验和 preset 创作指导。", en: "For creating custom agent presets: everything in Standard, plus runtime inspection, plugin experiments, and preset authoring guidance." },
 };
 
-export function presetDisplayName(id: string | undefined, presets: DshPreset[]) {
-  if (!id) return "默认预设";
+export function presetDisplayName(id: string | undefined, presets: DshPreset[], locale: UiLocale = "zh") {
+  if (!id) return t("preset.defaultName", locale);
   const preset = presets.find((item) => item.id === id);
-  return preset?.name?.trim() || builtInPresetNames[id] || id;
+  const builtIn = builtInPresetNames[id];
+  return preset?.name?.trim() || (builtIn ? builtIn[locale] : undefined) || id;
 }
 
-export function presetDescription(preset: DshPreset) {
-  return preset.description?.trim() || builtInPresetDescriptions[preset.id] || "暂无描述。";
+export function presetDescription(preset: DshPreset, locale: UiLocale = "zh") {
+  return preset.description?.trim() || builtInPresetDescriptions[preset.id]?.[locale] || t("preset.noDescription", locale);
 }
 
 export function isWindowChromeControl(target: EventTarget | null) {
@@ -507,14 +511,14 @@ export function formatRuntimeLogs(logs: DshRuntimeLog[]) {
   return logs.map(formatRuntimeLog).join("\n");
 }
 
-export function runtimeLogStreamLabel(stream: DshRuntimeLog["stream"]) {
+export function runtimeLogStreamLabel(stream: DshRuntimeLog["stream"], locale: UiLocale = "zh") {
   switch (stream) {
-    case "command": return "命令";
-    case "stdout": return "输出";
-    case "stderr": return "错误";
-    case "diagnostic": return "诊断";
-    case "frontend": return "前端错误";
-    case "console": return "控制台";
+    case "command": return t("logs.stream.command", locale);
+    case "stdout": return t("logs.stream.stdout", locale);
+    case "stderr": return t("logs.stream.stderr", locale);
+    case "diagnostic": return t("logs.stream.diagnostic", locale);
+    case "frontend": return t("logs.stream.frontend", locale);
+    case "console": return t("logs.stream.console", locale);
   }
 }
 
