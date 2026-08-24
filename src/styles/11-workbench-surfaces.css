@@ -51,6 +51,11 @@
   display: none !important;
 }
 
+/* 拖拽中的展开框提升到同排其它 dock 卡片之上，避免被后序窄栏/卡片压盖。 */
+.dock-frame-card-dragging {
+  z-index: 30;
+}
+
 .dock-frame-right .dock-frame-card { right: calc(100% + var(--right-surface-gap, 12px)); left: auto; }
 .dock-frame-left .dock-frame-card { right: auto; left: calc(100% + var(--right-surface-gap, 12px)); }
 .dock-frame-card {

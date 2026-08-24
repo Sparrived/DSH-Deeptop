@@ -202,7 +202,9 @@
   position: absolute;
   top: 0;
   left: var(--surface-scrollbar-gap);
-  z-index: 21;
+  /* 改随 shelf 内部 DOM 顺序堆叠，不再单独压在其它 dock 之上（拖拽中的展开框由
+     .dock-frame-card-dragging 提升层级）。 */
+  z-index: auto;
   width: var(--workspace-files-collapsed-width, 44px);
   min-width: 0;
   min-height: 0;
