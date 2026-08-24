@@ -8,7 +8,7 @@ import {
   readStoredLocale,
   writeStoredLocale,
   type UiLocale,
-} from "./i18n";
+} from "./i18n.ts";
 
 /**
  * 语言选择与 Host `locale` 设置命名空间的双向同步。
