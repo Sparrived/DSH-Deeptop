@@ -669,7 +669,8 @@
 
   .conversation-transcript-stage > .utility-panel-shelf {
     position: absolute;
-    top: 0;
+    /* 与左 dock 排一致：顶部留 10px，让第一个 dock 与上方会话标题栏保持间距。 */
+    top: 10px;
     right: var(--surface-scrollbar-gap);
     bottom: 0;
     z-index: 22;
@@ -1291,7 +1292,8 @@
     position: relative;
     flex-direction: column;
     gap: var(--right-surface-gap, 12px);
-    padding: 10px 12px;
+    /* 顶部与最上方第一个 dock（浮动窄栏）齐平：标题栏高度 + 10px 间距。 */
+    padding: calc(var(--conversation-header-height, 64px) + 10px) 12px 10px;
     overflow: hidden;
   }
 

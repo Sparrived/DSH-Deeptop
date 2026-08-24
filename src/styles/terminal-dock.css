@@ -1,7 +1,8 @@
 /* 左侧工作区终端 dock；独立文件避免影响其他面板的层叠顺序。 */
 .left-dock-shelf {
   position: absolute;
-  top: 0;
+  /* 与上方会话标题栏保持一点间距，避免第一个 dock 贴死标题栏下沿（与窄屏布局一致）。 */
+  top: 10px;
   bottom: 0;
   left: var(--surface-scrollbar-gap, 16px);
   z-index: 23;
