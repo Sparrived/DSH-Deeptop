@@ -1,6 +1,7 @@
 import type { DiscoveredModel } from "../app/model";
 import type { DshCredential, DshModelGroup, DshProvider } from "../lib/desktop";
 import { PopupDialog } from "./PopupDialog";
+import { t, type UiLocale } from "../app/i18n";
 
 type ProviderDraft = {
   baseURL: string;
@@ -48,55 +49,58 @@ export interface SettingsProviderCardActions {
 interface SettingsProviderCardProps {
   view: SettingsProviderCardView;
   actions: SettingsProviderCardActions;
+  /** 界面语言；可选，默认 "zh"，保持向后兼容。 */
+  locale?: UiLocale;
 }
 
-export function SettingsProviderCard({ view, actions }: SettingsProviderCardProps) {
+export function SettingsProviderCard({ view, actions, locale = "zh" }: SettingsProviderCardProps) {
   const { provider, credential, draft } = view;
 
   return <article className={`settings-provider-card ${view.open ? "open" : ""}`}>
     <button type="button" className="settings-provider-header" onClick={actions.onToggle} aria-expanded={view.open} aria-haspopup="dialog">
       <span className="settings-provider-title"><strong>{provider.displayName}</strong><small>{provider.provider}</small></span>
-      <span className="settings-provider-trailing"><i className={provider.active ? "active" : ""} /><span>{provider.active ? "可用" : "未激活"}</span><b aria-hidden="true">⌄</b></span>
+      <span className="settings-provider-trailing"><i className={provider.active ? "active" : ""} /><span>{t(provider.active ? "provider.active" : "provider.inactive", locale)}</span><b aria-hidden="true">⌄</b></span>
     </button>
     {view.open && <PopupDialog
       title={provider.displayName}
       eyebrow="MODEL / PROVIDER"
-      description={`${provider.provider} · ${provider.active ? "可用" : "未激活"}`}
+      description={`${provider.provider} · ${t(provider.active ? "provider.active" : "provider.inactive", locale)}`}
       className="popup-provider-dialog"
+      locale={locale}
       onClose={actions.onToggle}
     >
-      <ProviderDetails view={view} actions={actions} />
+      <ProviderDetails view={view} actions={actions} locale={locale} />
     </PopupDialog>}
   </article>;
 }
 
-function ProviderDetails({ view, actions }: SettingsProviderCardProps) {
+function ProviderDetails({ view, actions, locale = "zh" }: SettingsProviderCardProps) {
   const { provider, credential, draft } = view;
   const selectedCandidates = new Set(view.selectedCandidateIds);
   const canEditSettings = view.settingsWritable && view.namespaceAvailable;
 
   return <div className="settings-provider-details">
-    <div className="settings-provider-meta"><div><span>设置命名空间</span><code>{provider.settingsNs}</code></div><div><span>API 密钥</span><strong className={view.hasCredential ? "configured" : "unconfigured"}>{view.secretTotal === 0 ? (view.hasCredential ? "已配置" : "未配置") : `${view.secretConfigured}/${view.secretTotal} 已配置`}</strong></div></div>
-    {view.modelGroups.length > 0 && <div className="settings-provider-models"><span className="settings-detail-label">Host 模型目录</span>{view.modelGroups.flatMap((group) => group.models).slice(0, 8).map((model) => <span className="settings-model-chip" key={`${provider.provider}-${model.id}`}>{model.name}</span>)}</div>}
+    <div className="settings-provider-meta"><div><span>{t("provider.settingsNamespace", locale)}</span><code>{provider.settingsNs}</code></div><div><span>{t("provider.apiKey", locale)}</span><strong className={view.hasCredential ? "configured" : "unconfigured"}>{view.secretTotal === 0 ? (view.hasCredential ? t("provider.secretConfigured", locale) : t("provider.secretNotConfigured", locale)) : t("settings.ns.secrets", locale, { count: view.secretConfigured, total: view.secretTotal })}</strong></div></div>
+    {view.modelGroups.length > 0 && <div className="settings-provider-models"><span className="settings-detail-label">{t("provider.hostModelCatalog", locale)}</span>{view.modelGroups.flatMap((group) => group.models).slice(0, 8).map((model) => <span className="settings-model-chip" key={`${provider.provider}-${model.id}`}>{model.name}</span>)}</div>}
     <div className="settings-provider-draft">
-      <label><span>Base URL</span><input type="url" value={draft.baseURL} placeholder="使用 Provider 默认地址" onChange={(event) => actions.onDraftChange({ baseURL: event.target.value })} /></label>
-      {provider.settingsNs === "llm-pi-ai" && <label><span>协议</span><input value={draft.api} placeholder="openai-completions / anthropic-messages" onChange={(event) => actions.onDraftChange({ api: event.target.value })} /></label>}
-      <div className="settings-provider-draft-actions"><button type="button" disabled={!canEditSettings} onClick={() => void actions.onSaveSettings()}>保存连接</button><button type="button" disabled={view.discoveryBusy || !view.namespaceAvailable} onClick={() => void actions.onDiscoverModels()}>{view.discoveryBusy ? "发现中" : "发现模型"}</button></div>
+      <label><span>Base URL</span><input type="url" value={draft.baseURL} placeholder={t("provider.baseUrlPlaceholder", locale)} onChange={(event) => actions.onDraftChange({ baseURL: event.target.value })} /></label>
+      {provider.settingsNs === "llm-pi-ai" && <label><span>{t("provider.protocol", locale)}</span><input value={draft.api} placeholder="openai-completions / anthropic-messages" onChange={(event) => actions.onDraftChange({ api: event.target.value })} /></label>}
+      <div className="settings-provider-draft-actions"><button type="button" disabled={!canEditSettings} onClick={() => void actions.onSaveSettings()}>{t("provider.saveConnection", locale)}</button><button type="button" disabled={view.discoveryBusy || !view.namespaceAvailable} onClick={() => void actions.onDiscoverModels()}>{view.discoveryBusy ? t("provider.discovering", locale) : t("provider.discoverModels", locale)}</button></div>
     </div>
-    {view.configuredModels.length > 0 && <div className="settings-provider-models configured"><span className="settings-detail-label">配置模型</span>{view.configuredModels.map((model) => {
+    {view.configuredModels.length > 0 && <div className="settings-provider-models configured"><span className="settings-detail-label">{t("provider.configuredModels", locale)}</span>{view.configuredModels.map((model) => {
       const modelId = String(model.id);
       const imageEnabled = Array.isArray(model.input) && model.input.includes("image");
       return <span className="settings-model-chip editable" key={`${provider.provider}-configured-${modelId}`}>
         <span>{String(model.name || modelId)}</span>
-        <button type="button" onClick={() => void actions.onToggleModelImages(modelId)} title={imageEnabled ? "关闭图片输入声明" : "声明支持图片输入"} aria-label={`${imageEnabled ? "关闭" : "开启"} ${String(model.name || modelId)} 的图片输入`}>{imageEnabled ? "图" : "文"}</button>
-        <button type="button" onClick={() => void actions.onRemoveModel(modelId)} title={`移除 ${String(model.name || modelId)}`} aria-label={`移除 ${String(model.name || modelId)}`}>×</button>
+        <button type="button" onClick={() => void actions.onToggleModelImages(modelId)} title={imageEnabled ? t("provider.imageInputOff", locale) : t("provider.imageInputOn", locale)} aria-label={imageEnabled ? t("provider.imageToggleOffAria", locale, { name: String(model.name || modelId) }) : t("provider.imageToggleOnAria", locale, { name: String(model.name || modelId) })}>{imageEnabled ? t("provider.imageGlyph", locale) : t("provider.textGlyph", locale)}</button>
+        <button type="button" onClick={() => void actions.onRemoveModel(modelId)} title={t("provider.removeModel", locale, { name: String(model.name || modelId) })} aria-label={t("provider.removeModel", locale, { name: String(model.name || modelId) })}>×</button>
       </span>;
     })}</div>}
-    {view.candidates.length > 0 && <div className="settings-provider-candidates"><div className="settings-provider-candidates-heading"><span>发现结果</span><button type="button" disabled={selectedCandidates.size === 0} onClick={() => void actions.onApplyCandidates()}>应用选中</button></div>{view.candidates.map((model) => <label key={`${provider.provider}-candidate-${model.id}`}><input type="checkbox" checked={selectedCandidates.has(model.id)} onChange={() => actions.onToggleCandidate(model.id)} /><span><strong>{model.name || model.id}</strong><small>{model.id}{model.contextWindow ? ` · ${model.contextWindow.toLocaleString()} context` : ""}</small></span></label>)}</div>}
+    {view.candidates.length > 0 && <div className="settings-provider-candidates"><div className="settings-provider-candidates-heading"><span>{t("provider.discoveryResults", locale)}</span><button type="button" disabled={selectedCandidates.size === 0} onClick={() => void actions.onApplyCandidates()}>{t("provider.applySelected", locale)}</button></div>{view.candidates.map((model) => <label key={`${provider.provider}-candidate-${model.id}`}><input type="checkbox" checked={selectedCandidates.has(model.id)} onChange={() => actions.onToggleCandidate(model.id)} /><span><strong>{model.name || model.id}</strong><small>{model.id}{model.contextWindow ? ` · ${model.contextWindow.toLocaleString()} context` : ""}</small></span></label>)}</div>}
     <div className="settings-provider-secret">
-      <label><span>API 密钥</span><input type="password" autoComplete="off" value={view.credentialDraft} onChange={(event) => actions.onCredentialDraftChange(event.target.value)} placeholder={credential?.configured ? "已配置，输入新密钥替换" : "输入密钥"} disabled={credential?.writable === false || view.credentialBusy} /></label>
-      <div><small>{credential?.source ? `来源：${credential.source}` : credential?.configured ? "已配置" : "未配置"}</small><button type="button" disabled={credential?.writable === false || view.credentialBusy} onClick={() => void actions.onSaveCredential()}>{view.credentialBusy ? "保存中" : "保存"}</button>{credential?.configured && credential.writable !== false && <button type="button" onClick={() => void actions.onClearCredential()}>清除</button>}</div>
+      <label><span>{t("provider.apiKey", locale)}</span><input type="password" autoComplete="off" value={view.credentialDraft} onChange={(event) => actions.onCredentialDraftChange(event.target.value)} placeholder={credential?.configured ? t("provider.secretReplace", locale) : t("provider.secretPlaceholder", locale)} disabled={credential?.writable === false || view.credentialBusy} /></label>
+      <div><small>{credential?.source ? t("provider.secretSource", locale, { source: credential.source }) : credential?.configured ? t("provider.secretConfigured", locale) : t("provider.secretNotConfigured", locale)}</small><button type="button" disabled={credential?.writable === false || view.credentialBusy} onClick={() => void actions.onSaveCredential()}>{view.credentialBusy ? t("common.saving", locale) : t("common.save", locale)}</button>{credential?.configured && credential.writable !== false && <button type="button" onClick={() => void actions.onClearCredential()}>{t("provider.clearSecret", locale)}</button>}</div>
     </div>
-    <div className="settings-provider-footer"><small>{provider.declared === false ? "运行中路由" : "可配置路由"}</small><span>{view.removable && <button type="button" disabled={!canEditSettings} onClick={() => void actions.onRemoveConfiguration()}>移除</button>}<button type="button" disabled={!canEditSettings} onClick={actions.onOpenNamespace}>编辑设置</button></span></div>
+    <div className="settings-provider-footer"><small>{provider.declared === false ? t("provider.runtimeRoute", locale) : t("provider.configurableRoute", locale)}</small><span>{view.removable && <button type="button" disabled={!canEditSettings} onClick={() => void actions.onRemoveConfiguration()}>{t("common.remove", locale)}</button>}<button type="button" disabled={!canEditSettings} onClick={actions.onOpenNamespace}>{t("settings.ns.edit", locale)}</button></span></div>
   </div>;
 }

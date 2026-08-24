@@ -3,10 +3,12 @@ import type { AppearanceSettings, AppearanceSection, WorkingIndicatorEffect } fr
 import type { AppTheme, ThemeMode } from "../app/model";
 import { SettingsBackgroundPanel } from "./SettingsBackgroundPanel";
 import { normalizeWorkingIndicator, workingIndicatorTextAt } from "../app/working-indicator";
+import { t, type UiLocale } from "../app/i18n";
 
-type FontPreset = { value: string; label: string };
+type FontPreset = { value: string; labelKey: string };
 
 type SettingsAppearancePanelProps = {
+  locale?: UiLocale;
   appearance: AppearanceSettings;
   section: AppearanceSection;
   themeMode: ThemeMode;
@@ -36,28 +38,30 @@ type SettingsAppearancePanelProps = {
 
 type SettingsBackgroundPanelProps = ComponentProps<typeof SettingsBackgroundPanel>;
 
-const subpages: Array<{ id: AppearanceSection; label: string; hint: string }> = [
-  { id: "theme", label: "主题", hint: "明暗模式与配色方案" },
-  { id: "background", label: "背景工作台", hint: "为界面区域设置背景" },
-  { id: "typography", label: "文字", hint: "字体、字号与阅读节奏" },
-  { id: "css", label: "CSS 主题", hint: "导入并编辑自定义样式" },
+const subpages: Array<{ id: AppearanceSection; labelKey: string; hintKey: string }> = [
+  { id: "theme", labelKey: "settings.theme", hintKey: "appearance.tabHint.theme" },
+  { id: "background", labelKey: "settings.background", hintKey: "appearance.tabHint.background" },
+  { id: "typography", labelKey: "settings.typography", hintKey: "appearance.tabHint.typography" },
+  { id: "css", labelKey: "settings.css", hintKey: "appearance.tabHint.css" },
 ];
 
-function SectionHeader({ section, onResetSection }: { section: AppearanceSection; onResetSection: () => void }) {
+function SectionHeader({ section, onResetSection, locale }: { section: AppearanceSection; onResetSection: () => void; locale: UiLocale }) {
   const current = subpages.find((item) => item.id === section) ?? subpages[0];
+  const label = t(current.labelKey, locale);
   return (
     <div className="settings-page-header">
       <div>
-        <span className="settings-overline">APPEARANCE / {current.label.toUpperCase()}</span>
-        <h2>{current.label}</h2>
-        <p>{current.hint}。每个子页面都可以单独导入或导出配置。</p>
+        <span className="settings-overline">APPEARANCE / {label.toUpperCase()}</span>
+        <h2>{label}</h2>
+        <p>{t("appearance.headerHint", locale, { hint: t(current.hintKey, locale) })}</p>
       </div>
-      <button type="button" className="settings-header-action" onClick={onResetSection}>恢复本页默认</button>
+      <button type="button" className="settings-header-action" onClick={onResetSection}>{t("appearance.resetSection", locale)}</button>
     </div>
   );
 }
 
 export function SettingsAppearancePanel({
+  locale = "zh",
   appearance,
   section,
   themeMode,
@@ -105,9 +109,9 @@ export function SettingsAppearancePanel({
 
   return (
     <div className="settings-page appearance-settings-page">
-      <SectionHeader section={section} onResetSection={onResetSection} />
+      <SectionHeader section={section} onResetSection={onResetSection} locale={locale} />
 
-      <div className="appearance-subpage-grid" role="tablist" aria-label="外观子页面">
+      <div className="appearance-subpage-grid" role="tablist" aria-label={t("appearance.tabsAria", locale)}>
         {subpages.map((item) => (
           <button
             key={item.id}
@@ -117,16 +121,16 @@ export function SettingsAppearancePanel({
             className={`appearance-subpage-card${section === item.id ? " selected" : ""}`}
             onClick={() => onSectionChange(item.id)}
           >
-            <strong>{item.label}</strong>
-            <small>{item.hint}</small>
-            {item.id === "background" && <em>{backgroundCount ? `${backgroundCount} 个区域已配置` : "尚未配置"}</em>}
-            {item.id === "css" && <em>{appearance.customCss ? (appearance.customCssName || "已导入") : "尚未导入"}</em>}
+            <strong>{t(item.labelKey, locale)}</strong>
+            <small>{t(item.hintKey, locale)}</small>
+            {item.id === "background" && <em>{backgroundCount ? t("appearance.zonesConfigured", locale, { count: backgroundCount }) : t("appearance.notYetConfigured", locale)}</em>}
+            {item.id === "css" && <em>{appearance.customCss ? (appearance.customCssName || t("appearance.imported", locale)) : t("appearance.notImported", locale)}</em>}
           </button>
         ))}
       </div>
 
       <div className="appearance-import-export">
-        <span>当前子页面：{subpages.find((item) => item.id === section)?.label}</span>
+        <span>{t("appearance.currentSection", locale, { label: t(subpages.find((item) => item.id === section)?.labelKey ?? "settings.theme", locale) })}</span>
         <input
           ref={importFileInputRef}
           className="appearance-file-input"
@@ -134,29 +138,29 @@ export function SettingsAppearancePanel({
           accept="application/json,.json"
           onChange={(event) => { onImport(event.target.files?.[0]); event.currentTarget.value = ""; }}
         />
-        <button type="button" className="settings-header-action" onClick={() => importFileInputRef.current?.click()}>导入配置</button>
-        <button type="button" className="settings-header-action export" onClick={onExport}>导出配置</button>
+        <button type="button" className="settings-header-action" onClick={() => importFileInputRef.current?.click()}>{t("appearance.importConfig", locale)}</button>
+        <button type="button" className="settings-header-action export" onClick={onExport}>{t("appearance.exportConfig", locale)}</button>
       </div>
 
       {section === "theme" && (
         <div className="settings-block">
-          <div className="settings-block-heading"><div><h3>界面主题</h3><p>选择应用的明暗主题与深色配色。</p></div></div>
+          <div className="settings-block-heading"><div><h3>{t("appearance.themeTitle", locale)}</h3><p>{t("appearance.themeHint", locale)}</p></div></div>
           <div className="settings-preference-list">
-            <label className="settings-preference-row"><span><strong>明暗</strong><small>默认跟随系统颜色</small></span><select value={themeMode} onChange={(event) => onThemeChange(event.target.value as ThemeMode)}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
-            <label className="settings-preference-row"><span><strong>主题</strong><small>外部 CSS 主题，同时作用于浅色与深色模式</small></span><select value={appTheme} onChange={(event) => onAppThemeChange(event.target.value as AppTheme)}><option value="monokai-pro">Monokai Pro</option><option value="one-dark">One Dark</option><option value="custom">自定义路径…</option></select></label>
+            <label className="settings-preference-row"><span><strong>{t("appearance.lightDark", locale)}</strong><small>{t("appearance.themeModeHint", locale)}</small></span><select value={themeMode} onChange={(event) => onThemeChange(event.target.value as ThemeMode)}><option value="system">{t("appearance.themeModeSystem", locale)}</option><option value="light">{t("appearance.themeModeLight", locale)}</option><option value="dark">{t("appearance.themeModeDark", locale)}</option></select></label>
+            <label className="settings-preference-row"><span><strong>{t("settings.theme", locale)}</strong><small>{t("appearance.themeSelectHint", locale)}</small></span><select value={appTheme} onChange={(event) => onAppThemeChange(event.target.value as AppTheme)}><option value="monokai-pro">Monokai Pro</option><option value="one-dark">One Dark</option><option value="custom">{t("appearance.themeCustomPath", locale)}</option></select></label>
             {appTheme === "custom" && (
-              <label className="settings-preference-row appearance-path-row"><span><strong>主题 CSS 路径</strong><small>指向本地 .css 文件的绝对路径</small></span><span className="appearance-theme-path-control"><input value={appearance.themeCssPath} onChange={(event) => onUpdate({ themeCssPath: event.target.value })} placeholder="C:\\path\\to\\my-theme.css" spellCheck={false} /><button type="button" className="settings-header-action" onClick={onPickThemeCss}>浏览</button></span></label>
+              <label className="settings-preference-row appearance-path-row"><span><strong>{t("appearance.themeCssPathLabel", locale)}</strong><small>{t("appearance.themeCssPathHint", locale)}</small></span><span className="appearance-theme-path-control"><input value={appearance.themeCssPath} onChange={(event) => onUpdate({ themeCssPath: event.target.value })} placeholder="C:\\path\\to\\my-theme.css" spellCheck={false} /><button type="button" className="settings-header-action" onClick={onPickThemeCss}>{t("appearance.browse", locale)}</button></span></label>
             )}
-            <label className="settings-preference-row"><span><strong>主题文件目录</strong><small>{themesDir || "仅桌面端可用"}</small></span><button type="button" className="settings-header-action" onClick={onOpenThemesDirectory}>打开目录</button></label>
-            <label className="settings-preference-row"><span><strong>外部 CSS 主题</strong><small>{themePathLoading ? "正在读取…" : appearance.themeCssPath ? "按当前路径加载" : "未配置"}{themePathError ? ` · ${themePathError}` : ""}</small></span><button type="button" className="settings-header-action" onClick={onReloadThemeCss} disabled={!appearance.themeCssPath || themePathLoading}>重新加载</button></label>
+            <label className="settings-preference-row"><span><strong>{t("appearance.themesDirLabel", locale)}</strong><small>{themesDir || t("common.desktopOnly", locale)}</small></span><button type="button" className="settings-header-action" onClick={onOpenThemesDirectory}>{t("common.openDirectory", locale)}</button></label>
+            <label className="settings-preference-row"><span><strong>{t("appearance.externalCssLabel", locale)}</strong><small>{themePathLoading ? t("appearance.reading", locale) : appearance.themeCssPath ? t("appearance.loadingFromPath", locale) : t("appearance.unconfigured", locale)}{themePathError ? ` · ${themePathError}` : ""}</small></span><button type="button" className="settings-header-action" onClick={onReloadThemeCss} disabled={!appearance.themeCssPath || themePathLoading}>{t("appearance.reload", locale)}</button></label>
           </div>
         </div>
       )}
 
       {section === "theme" && (
         <div className="appearance-preview" style={appearance.backgrounds.global.image ? { backgroundImage: `linear-gradient(rgba(20, 23, 20, .58), rgba(20, 23, 20, .58)), url(${JSON.stringify(appearance.backgrounds.global.image)})`, backgroundSize: appearance.backgrounds.global.size, backgroundPosition: appearance.backgrounds.global.position } : undefined}>
-          <div className="appearance-preview-bar"><span>DSH DEEPTOP</span><span>预览</span></div>
-          <div className="appearance-preview-body"><span className="appearance-preview-label">消息预览</span><p style={{ fontFamily: appearance.fontFamily, fontSize: `${appearance.messageFontSize}px`, lineHeight: appearance.messageLineHeight }}>把常用的阅读节奏和工作氛围留给自己。</p><code style={{ fontFamily: appearance.codeFontFamily }}>const workspace = "your-project";</code></div>
+          <div className="appearance-preview-bar"><span>DSH DEEPTOP</span><span>{t("appearance.preview", locale)}</span></div>
+          <div className="appearance-preview-body"><span className="appearance-preview-label">{t("appearance.messagePreview", locale)}</span><p style={{ fontFamily: appearance.fontFamily, fontSize: `${appearance.messageFontSize}px`, lineHeight: appearance.messageLineHeight }}>{t("appearance.previewCopy", locale)}</p><code style={{ fontFamily: appearance.codeFontFamily }}>const workspace = "your-project";</code></div>
         </div>
       )}
 
@@ -167,41 +171,42 @@ export function SettingsAppearancePanel({
           onBackgroundFile={onBackgroundFile}
           onClearBackground={onClearBackground}
           embedded
+          locale={locale}
         />
       )}
 
       {section === "typography" && (
         <div className="settings-block">
-          <div className="settings-block-heading"><div><h3>阅读文字</h3><p>界面文字和消息正文的显示方式。</p></div></div>
+          <div className="settings-block-heading"><div><h3>{t("appearance.typographyTitle", locale)}</h3><p>{t("appearance.typographyHint", locale)}</p></div></div>
           <div className="settings-preference-list">
-            <label className="settings-preference-row"><span><strong>界面字体</strong><small>标题、按钮和消息文字</small></span><select value={fontPreset} onChange={(event) => { if (event.target.value !== "custom") onUpdate({ fontFamily: event.target.value }); }}><option value="custom">自定义字体栈</option>{fontPresets.map((item) => <option value={item.value} key={item.value}>{item.label}</option>)}</select></label>
-            {fontPreset === "custom" && <label className="appearance-custom-field"><span>自定义界面字体栈</span><input value={appearance.fontFamily} onChange={(event) => onUpdate({ fontFamily: event.target.value })} placeholder='例如 "霞鹜文楷", sans-serif' /></label>}
-            <label className="settings-preference-row"><span><strong>代码字体</strong><small>代码块和技术信息</small></span><select value={codeFontPreset} onChange={(event) => { if (event.target.value !== "custom") onUpdate({ codeFontFamily: event.target.value }); }}><option value="custom">自定义字体栈</option>{codeFontPresets.map((item) => <option value={item.value} key={item.value}>{item.label}</option>)}</select></label>
-            {codeFontPreset === "custom" && <label className="appearance-custom-field"><span>自定义代码字体栈</span><input value={appearance.codeFontFamily} onChange={(event) => onUpdate({ codeFontFamily: event.target.value })} placeholder='例如 "Fira Code", monospace' /></label>}
-            <label className="settings-preference-row"><span><strong>消息字号</strong><small>{appearance.messageFontSize}px</small></span><span className="appearance-range-control"><input type="range" min="14" max="18" step="1" value={appearance.messageFontSize} onChange={(event) => onUpdate({ messageFontSize: Number(event.target.value) })} /><output>{appearance.messageFontSize}px</output></span></label>
-            <label className="settings-preference-row"><span><strong>消息行距</strong><small>{appearance.messageLineHeight.toFixed(2)}</small></span><span className="appearance-range-control"><input type="range" min="1.35" max="2.2" step="0.05" value={appearance.messageLineHeight} onChange={(event) => onUpdate({ messageLineHeight: Number(event.target.value) })} /><output>{appearance.messageLineHeight.toFixed(2)}</output></span></label>
+            <label className="settings-preference-row"><span><strong>{t("appearance.uiFont", locale)}</strong><small>{t("appearance.uiFontHint", locale)}</small></span><select value={fontPreset} onChange={(event) => { if (event.target.value !== "custom") onUpdate({ fontFamily: event.target.value }); }}><option value="custom">{t("appearance.customFontStack", locale)}</option>{fontPresets.map((item) => <option value={item.value} key={item.value}>{t(item.labelKey, locale)}</option>)}</select></label>
+            {fontPreset === "custom" && <label className="appearance-custom-field"><span>{t("appearance.customUiFontStack", locale)}</span><input value={appearance.fontFamily} onChange={(event) => onUpdate({ fontFamily: event.target.value })} placeholder={t("appearance.uiFontPlaceholder", locale)} /></label>}
+            <label className="settings-preference-row"><span><strong>{t("appearance.codeFont", locale)}</strong><small>{t("appearance.codeFontHint", locale)}</small></span><select value={codeFontPreset} onChange={(event) => { if (event.target.value !== "custom") onUpdate({ codeFontFamily: event.target.value }); }}><option value="custom">{t("appearance.customFontStack", locale)}</option>{codeFontPresets.map((item) => <option value={item.value} key={item.value}>{t(item.labelKey, locale)}</option>)}</select></label>
+            {codeFontPreset === "custom" && <label className="appearance-custom-field"><span>{t("appearance.customCodeFontStack", locale)}</span><input value={appearance.codeFontFamily} onChange={(event) => onUpdate({ codeFontFamily: event.target.value })} placeholder={t("appearance.codeFontPlaceholder", locale)} /></label>}
+            <label className="settings-preference-row"><span><strong>{t("appearance.messageFontSize", locale)}</strong><small>{appearance.messageFontSize}px</small></span><span className="appearance-range-control"><input type="range" min="14" max="18" step="1" value={appearance.messageFontSize} onChange={(event) => onUpdate({ messageFontSize: Number(event.target.value) })} /><output>{appearance.messageFontSize}px</output></span></label>
+            <label className="settings-preference-row"><span><strong>{t("appearance.messageLineHeight", locale)}</strong><small>{appearance.messageLineHeight.toFixed(2)}</small></span><span className="appearance-range-control"><input type="range" min="1.35" max="2.2" step="0.05" value={appearance.messageLineHeight} onChange={(event) => onUpdate({ messageLineHeight: Number(event.target.value) })} /><output>{appearance.messageLineHeight.toFixed(2)}</output></span></label>
           </div>
         </div>
       )}
 
       {section === "typography" && (
         <div className="settings-block working-indicator-settings">
-          <div className="settings-block-heading"><div><h3>运行中提示</h3><p>模型工作时显示的提示语。每行一条，运行期间会按顺序轮换。</p></div></div>
+          <div className="settings-block-heading"><div><h3>{t("appearance.workingTitle", locale)}</h3><p>{t("appearance.workingHint", locale)}</p></div></div>
           <div className="settings-preference-list">
-            <label className="appearance-custom-field"><span>提示文本（支持多文本轮换）</span><textarea value={appearance.workingIndicator.texts.join("\n")} onChange={(event) => onUpdate({ workingIndicator: { ...appearance.workingIndicator, texts: event.target.value.split(/\r?\n/) } })} placeholder="Deep diving...\n整理上下文…\n正在执行工具" rows={4} maxLength={1500} /></label>
-            <label className="settings-preference-row"><span><strong>文本颜色</strong><small>{appearance.workingIndicator.color}</small></span><span className="appearance-color-control"><input type="color" value={appearance.workingIndicator.color} onChange={(event) => onUpdate({ workingIndicator: { ...appearance.workingIndicator, color: event.target.value } })} /><code>{appearance.workingIndicator.color}</code></span></label>
-            <label className="settings-preference-row"><span><strong>文字特效</strong><small>仅作用于运行中提示，不改变消息正文</small></span><select value={appearance.workingIndicator.effect} onChange={(event) => onUpdate({ workingIndicator: { ...appearance.workingIndicator, effect: event.target.value as WorkingIndicatorEffect } })}><option value="shimmer">流光</option><option value="pulse">呼吸</option><option value="glow">发光</option><option value="none">静态</option></select></label>
-            {workingTextCount > 1 && <label className="settings-preference-row"><span><strong>轮换速度</strong><small>{(appearance.workingIndicator.rotationInterval / 1000).toFixed(1)} 秒切换一次</small></span><span className="appearance-range-control"><input type="range" min="1200" max="10000" step="100" value={appearance.workingIndicator.rotationInterval} onChange={(event) => onUpdate({ workingIndicator: { ...appearance.workingIndicator, rotationInterval: Number(event.target.value) } })} /><output>{(appearance.workingIndicator.rotationInterval / 1000).toFixed(1)}s</output></span></label>}
+            <label className="appearance-custom-field"><span>{t("appearance.workingTextLabel", locale)}</span><textarea value={appearance.workingIndicator.texts.join("\n")} onChange={(event) => onUpdate({ workingIndicator: { ...appearance.workingIndicator, texts: event.target.value.split(/\r?\n/) } })} placeholder={t("appearance.workingPlaceholder", locale)} rows={4} maxLength={1500} /></label>
+            <label className="settings-preference-row"><span><strong>{t("appearance.workingColor", locale)}</strong><small>{appearance.workingIndicator.color}</small></span><span className="appearance-color-control"><input type="color" value={appearance.workingIndicator.color} onChange={(event) => onUpdate({ workingIndicator: { ...appearance.workingIndicator, color: event.target.value } })} /><code>{appearance.workingIndicator.color}</code></span></label>
+            <label className="settings-preference-row"><span><strong>{t("appearance.workingEffect", locale)}</strong><small>{t("appearance.workingEffectHint", locale)}</small></span><select value={appearance.workingIndicator.effect} onChange={(event) => onUpdate({ workingIndicator: { ...appearance.workingIndicator, effect: event.target.value as WorkingIndicatorEffect } })}><option value="shimmer">{t("appearance.effectShimmer", locale)}</option><option value="pulse">{t("appearance.effectPulse", locale)}</option><option value="glow">{t("appearance.effectGlow", locale)}</option><option value="none">{t("appearance.effectNone", locale)}</option></select></label>
+            {workingTextCount > 1 && <label className="settings-preference-row"><span><strong>{t("appearance.rotationSpeed", locale)}</strong><small>{t("appearance.rotationSpeedHint", locale, { seconds: (appearance.workingIndicator.rotationInterval / 1000).toFixed(1) })}</small></span><span className="appearance-range-control"><input type="range" min="1200" max="10000" step="100" value={appearance.workingIndicator.rotationInterval} onChange={(event) => onUpdate({ workingIndicator: { ...appearance.workingIndicator, rotationInterval: Number(event.target.value) } })} /><output>{(appearance.workingIndicator.rotationInterval / 1000).toFixed(1)}s</output></span></label>}
           </div>
-          <div className="working-indicator-preview" style={{ "--working-indicator-color": workingIndicator.color } as CSSProperties}><span className={`effect-${workingIndicator.effect}`}>{workingIndicatorTextAt(workingIndicator, previewIndex)}</span><small>预览 · 运行时轮换 {workingTextCount} 条</small></div>
+          <div className="working-indicator-preview" style={{ "--working-indicator-color": workingIndicator.color } as CSSProperties}><span className={`effect-${workingIndicator.effect}`}>{workingIndicatorTextAt(workingIndicator, previewIndex)}</span><small>{t("appearance.previewRotation", locale, { count: workingTextCount })}</small></div>
         </div>
       )}
 
       {section === "css" && (
         <div className="settings-block appearance-theme-block">
-          <div className="settings-block-heading"><div><h3>CSS 主题</h3><p>{appearance.customCss ? `${appearance.customCssName || "自定义主题"} · ${appearance.customCss.length.toLocaleString()} 字符` : "导入一份 CSS 文件，快速应用界面样式。"}</p></div><div className="appearance-theme-actions"><input ref={themeFileInputRef} className="appearance-file-input" type="file" accept=".css,text/css" onChange={(event) => { onThemeFile(event.target.files?.[0]); event.currentTarget.value = ""; }} /><button type="button" className="settings-header-action" onClick={() => themeFileInputRef.current?.click()}>导入 CSS</button>{appearance.customCss && <button type="button" className="settings-header-action" onClick={() => onUpdate({ customCss: "", customCssName: "", customCssEnabled: false })}>清空</button>}</div></div>
-          <label className="appearance-theme-toggle"><input type="checkbox" checked={appearance.customCssEnabled && Boolean(appearance.customCss)} disabled={!appearance.customCss} onChange={(event) => onUpdate({ customCssEnabled: event.target.checked })} /><span>启用 CSS 主题</span><small>{appearance.customCssEnabled && appearance.customCss ? "已启用" : "已停用"}</small></label>
-          {appearance.customCss && <textarea className="appearance-css-editor" value={appearance.customCss} onChange={(event) => onUpdate({ customCss: event.target.value })} aria-label="CSS 主题内容" spellCheck={false} />}
+          <div className="settings-block-heading"><div><h3>{t("settings.css", locale)}</h3><p>{appearance.customCss ? `${appearance.customCssName || t("appearance.importedThemeName", locale)} · ${t("appearance.cssCharCount", locale, { count: appearance.customCss.length.toLocaleString() })}` : t("appearance.cssEmptyHint", locale)}</p></div><div className="appearance-theme-actions"><input ref={themeFileInputRef} className="appearance-file-input" type="file" accept=".css,text/css" onChange={(event) => { onThemeFile(event.target.files?.[0]); event.currentTarget.value = ""; }} /><button type="button" className="settings-header-action" onClick={() => themeFileInputRef.current?.click()}>{t("appearance.importCss", locale)}</button>{appearance.customCss && <button type="button" className="settings-header-action" onClick={() => onUpdate({ customCss: "", customCssName: "", customCssEnabled: false })}>{t("appearance.clear", locale)}</button>}</div></div>
+          <label className="appearance-theme-toggle"><input type="checkbox" checked={appearance.customCssEnabled && Boolean(appearance.customCss)} disabled={!appearance.customCss} onChange={(event) => onUpdate({ customCssEnabled: event.target.checked })} /><span>{t("appearance.cssEnabled", locale)}</span><small>{appearance.customCssEnabled && appearance.customCss ? t("appearance.enabled", locale) : t("appearance.disabled", locale)}</small></label>
+          {appearance.customCss && <textarea className="appearance-css-editor" value={appearance.customCss} onChange={(event) => onUpdate({ customCss: event.target.value })} aria-label={t("appearance.cssContentAria", locale)} spellCheck={false} />}
         </div>
       )}
     </div>

@@ -27,6 +27,7 @@ import {
   petSpritesheetAssetSource,
 } from "../app/pet-model";
 import { readTrayThemePreferences, resolveTrayTheme } from "../app/tray-popup-model";
+import { readStoredLocale, t } from "../app/i18n";
 import { PetHost } from "./PetHost";
 import { PetCareCard } from "./PetCareCard";
 import { PetNoticeCard } from "./PetNoticeCard";
@@ -70,9 +71,10 @@ function usePetWindowTheme() {
 /** 独立于主界面的全局 Deeptop Pet 桌宠渲染器。 */
 export default function PetWindow() {
   usePetWindowTheme();
+  const locale = readStoredLocale();
   const [settings, setSettings] = useState<PetSettings>({ ...defaultPetSettings });
   const [bundle, setBundle] = useState<PetBundle | null>(null);
-  const [petName, setPetName] = useState("宠物");
+  const [petName, setPetName] = useState(t("pet.defaultName", locale));
   const [activity, setActivity] = useState<PetActivity>(idleActivity);
   const [careState, setCareState] = useState<PetCareState | null>(null);
   const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null);
@@ -95,7 +97,7 @@ export default function PetWindow() {
     const generation = ++loadGenerationRef.current;
     const nextSettings = normalizePetSettings(rawSettings);
     let nextBundle: PetBundle | null = null;
-    let nextName = "宠物";
+    let nextName = t("pet.defaultName", locale);
     if (nextSettings.selectedPetId) {
       try {
         nextBundle = await readPetBundle(nextSettings.selectedPetId);
@@ -356,6 +358,7 @@ export default function PetWindow() {
             draft={draft}
             busy={actionBusy}
             error={actionError}
+            locale={locale}
             onDraftChange={setDraft}
             onClose={() => setPanelMode(null)}
             onSelect={(nextActivityId) => {
@@ -387,6 +390,7 @@ export default function PetWindow() {
             busy={careBusy}
             feedback={careFeedback}
             error={careError}
+            locale={locale}
             onAction={(action) => void runCareAction(action)}
             onClose={() => setPanelMode(null)}
             onTasks={target ? () => setPanelMode("task") : undefined}
@@ -404,6 +408,7 @@ export default function PetWindow() {
             motionEnabled={settings.motionEnabled}
             interactionsEnabled={settings.interactionsEnabled}
             careReaction={careReaction}
+            locale={locale}
             onStartDrag={handleStartDrag}
             onActivate={handleActivate}
             onCareGesture={settings.careEnabled ? (action) => void runCareAction(action) : undefined}

@@ -5,6 +5,7 @@ import type { ProviderSettingsController } from "../app/useProviderSettings";
 import { SettingsCustomProviderPanel } from "./SettingsCustomProviderPanel";
 import { SettingsModelCatalog } from "./SettingsModelCatalog";
 import { SettingsProviderCard, type SettingsProviderCardActions, type SettingsProviderCardView } from "./SettingsProviderCard";
+import { t, type UiLocale } from "../app/i18n";
 
 type SettingsModelsPanelProps = {
   providers: DshProvider[];
@@ -12,9 +13,11 @@ type SettingsModelsPanelProps = {
   hostModels: DshHostModelCatalog | null;
   providerSettings: ProviderSettingsController;
   onOpenNamespace: (namespace: DshSettingsNamespace | undefined) => void;
+  /** 界面语言；可选，默认 "zh"，保持向后兼容。 */
+  locale?: UiLocale;
 };
 
-export function SettingsModelsPanel({ providers, settings, hostModels, providerSettings, onOpenNamespace }: SettingsModelsPanelProps) {
+export function SettingsModelsPanel({ providers, settings, hostModels, providerSettings, onOpenNamespace, locale = "zh" }: SettingsModelsPanelProps) {
   const {
     credentials,
     credentialDrafts,
@@ -49,14 +52,15 @@ export function SettingsModelsPanel({ providers, settings, hostModels, providerS
 
   return (
     <div className="settings-page">
-      <div className="settings-page-header"><div><span className="settings-overline">MODELS</span><h2>模型</h2><p>Provider 的连接配置由 DSH 管理，密钥只显示状态，不会回显。</p></div><span className="settings-count">{providers.length} 个 Provider</span></div>
+      <div className="settings-page-header"><div><span className="settings-overline">MODELS</span><h2>{t("settings.models", locale)}</h2><p>{t("models.subtitle", locale)}</p></div><span className="settings-count">{t("models.count", locale, { count: providers.length })}</span></div>
       <div className="settings-block">
-        <div className="settings-block-heading"><div><h3>Provider</h3><p>点击一行查看配置命名空间和可用模型。</p></div></div>
+        <div className="settings-block-heading"><div><h3>Provider</h3><p>{t("models.providersHint", locale)}</p></div></div>
         <SettingsCustomProviderPanel
           available={Boolean(settings?.namespaces.some((namespace) => namespace.ns === "llm-pi-ai"))}
           draft={customProviderDraft}
           open={customProviderOpen}
           busy={customProviderBusy}
+          locale={locale}
           onToggle={toggleCustomProvider}
           onDraftChange={updateCustomProviderDraft}
           onToggleModel={toggleCustomProviderModel}
@@ -64,7 +68,7 @@ export function SettingsModelsPanel({ providers, settings, hostModels, providerS
           onCancel={closeCustomProvider}
           onCreate={createCustomProvider}
         />
-        {providers.length === 0 ? <p className="settings-empty">当前没有可配置的 Provider。</p> : <div className="settings-provider-grid">{providers.map((provider) => {
+        {providers.length === 0 ? <p className="settings-empty">{t("models.empty", locale)}</p> : <div className="settings-provider-grid">{providers.map((provider) => {
           const namespace = settings?.namespaces.find((item) => item.ns === provider.settingsNs);
           const secretTotal = namespace?.secrets.length ?? 0;
           const secretConfigured = namespace?.secrets.filter((secret) => secret.set).length ?? 0;
@@ -109,11 +113,11 @@ export function SettingsModelsPanel({ providers, settings, hostModels, providerS
             onRemoveConfiguration: () => removeProviderConfiguration(provider),
             onOpenNamespace: () => onOpenNamespace(namespace),
           };
-          return <SettingsProviderCard key={provider.provider} view={view} actions={actions} />;
+          return <SettingsProviderCard key={provider.provider} view={view} actions={actions} locale={locale} />;
         })}</div>}
       </div>
 
-      <SettingsModelCatalog catalog={hostModels} />
+      <SettingsModelCatalog catalog={hostModels} locale={locale} />
     </div>
   );
 }

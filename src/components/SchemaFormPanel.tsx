@@ -7,6 +7,7 @@ import {
   type SchemaNode,
 } from "../app/schema-model";
 import { schemaDraftOps, type SchemaPathOp, type SchemaFieldValue } from "../app/schema-form-model";
+import { t, type UiLocale } from "../app/i18n";
 
 /**
  * A schemastery-schema-driven settings form.
@@ -30,6 +31,7 @@ type SchemaFormProps = {
   onSave: (ops: SchemaPathOp[], revision: number) => void | Promise<void>;
   onCancel: () => void;
   saving: boolean;
+  locale?: UiLocale;
 };
 
 function labelOf(node: SchemaNode | undefined): string | undefined {
@@ -68,12 +70,13 @@ type FieldProps = {
   envelope: Envelope;
   value: unknown;
   draft: Record<string, FieldValue>;
+  locale: UiLocale;
   onChange: (path: string[], value: FieldValue) => void;
 };
 
-function PrimitiveField({ path, node, envelope, value, draft, onChange }: FieldProps) {
+function PrimitiveField({ path, node, envelope, value, draft, locale, onChange }: FieldProps) {
   const meta = node.meta ?? {};
-  const label = labelOf(node) ?? path.at(-1) ?? "值";
+  const label = labelOf(node) ?? path.at(-1) ?? t("schema.defaultValueLabel", locale);
   const description = descriptionOf(node);
   const choices = node.type === "const" || node.type === "union"
     ? schemaEnumChoices(node, envelope)
@@ -86,7 +89,7 @@ function PrimitiveField({ path, node, envelope, value, draft, onChange }: FieldP
     return <div className="schema-field" data-path={draftKey}>
       <span className="schema-field-label">{label}{description && <small>{description}</small>}</span>
       <select value={selected} onChange={(event) => onChange(path, event.target.value)}>
-        {selected === "" && <option value="" disabled>选择值</option>}
+        {selected === "" && <option value="" disabled>{t("schema.selectValue", locale)}</option>}
         {choices.map((choice) => <option value={String(choice.value)} key={String(choice.value)}>{choice.label ?? String(choice.value)}</option>)}
       </select>
     </div>;
@@ -102,7 +105,7 @@ function PrimitiveField({ path, node, envelope, value, draft, onChange }: FieldP
 
   return <div className="schema-field" data-path={draftKey}>
     <span className="schema-field-label">{label}
-      {isSecret(node) && <em className="schema-secret-badge">Host 保管</em>}
+      {isSecret(node) && <em className="schema-secret-badge">{t("schema.secretBadge", locale)}</em>}
       {description && <small>{description}</small>}
     </span>
     {node.type === "number" ? (
@@ -125,7 +128,7 @@ function PrimitiveField({ path, node, envelope, value, draft, onChange }: FieldP
         // Secret fields are write-only: the value never leaves the host, so
         // the input always starts empty and only a typed value becomes a write.
         value={isSecret(node) ? "" : String(primitiveValue(node, draft[draftKey] ?? value) ?? "")}
-        placeholder={isSecret(node) ? "输入新值以更新（留空不修改）" : typeof meta.default === "string" ? meta.default : undefined}
+        placeholder={isSecret(node) ? t("schema.secretPlaceholder", locale) : typeof meta.default === "string" ? meta.default : undefined}
         onChange={(event) => onChange(path, isSecret(node) ? (event.target.value === "" ? null : event.target.value) : event.target.value)}
         autoComplete="off"
       />
@@ -133,9 +136,9 @@ function PrimitiveField({ path, node, envelope, value, draft, onChange }: FieldP
   </div>;
 }
 
-function ContainerField({ path, node, envelope, value, draft, onChange }: FieldProps) {
+function ContainerField({ path, node, envelope, value, draft, locale, onChange }: FieldProps) {
   const [open, setOpen] = useState(path.length === 0);
-  const label = labelOf(node) ?? path.at(-1) ?? "设置";
+  const label = labelOf(node) ?? path.at(-1) ?? t("schema.defaultContainerLabel", locale);
   const description = descriptionOf(node);
   const record = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
   const inner = node.inner !== undefined ? schemaNodeAtRef(envelope, typeof node.inner === "number" ? node.inner : undefined) : undefined;
@@ -166,9 +169,9 @@ function ContainerField({ path, node, envelope, value, draft, onChange }: FieldP
     </button>
     {open && <div className="schema-container-body">
       {rows.length === 0
-        ? <p className="schema-empty">没有可编辑字段。</p>
+        ? <p className="schema-empty">{t("schema.noEditableFields", locale)}</p>
         : rows.map(({ key, node: childNode }) => key === "__add__"
-          ? <button type="button" className="schema-add-row" key="__add__" onClick={() => onChange([...path, "__draft__"], "")} disabled>数组项由 JSON 编辑管理</button>
+          ? <button type="button" className="schema-add-row" key="__add__" onClick={() => onChange([...path, "__draft__"], "")} disabled>{t("schema.addRowManagedByJson", locale)}</button>
           : childNode
             ? <SchemaField
               key={key}
@@ -177,9 +180,10 @@ function ContainerField({ path, node, envelope, value, draft, onChange }: FieldP
               envelope={envelope}
               value={childValue(key)}
               draft={draft}
+              locale={locale}
               onChange={onChange}
             />
-            : <p className="schema-empty" key={key}>字段 {key} 无法解析。</p>)}
+            : <p className="schema-empty" key={key}>{t("schema.fieldUnresolvable", locale, { key })}</p>)}
     </div>}
   </div>;
 }
@@ -192,7 +196,7 @@ function SchemaField(props: FieldProps) {
   return <PrimitiveField {...props} />;
 }
 
-export function SchemaFormPanel({ namespace, onSave, onCancel, saving }: SchemaFormProps) {
+export function SchemaFormPanel({ namespace, onSave, onCancel, saving, locale = "zh" }: SchemaFormProps) {
   const envelope = useMemo<Envelope | null>(() => {
     if (!isSchemaEnvelope(namespace.schema)) return null;
     return namespace.schema;
@@ -213,25 +217,25 @@ export function SchemaFormPanel({ namespace, onSave, onCancel, saving }: SchemaF
 
   if (!envelope) {
     return <div className="schema-form-empty">
-      <strong>该命名空间没有可驱动的 Schema</strong>
-      <p>请使用 JSON 编辑查看或修改公开设置。</p>
-      <div className="schema-form-actions"><button type="button" onClick={onCancel}>关闭</button></div>
+      <strong>{t("schema.noDrivableSchema", locale)}</strong>
+      <p>{t("schema.useJsonEditHint", locale)}</p>
+      <div className="schema-form-actions"><button type="button" onClick={onCancel}>{t("schema.close", locale)}</button></div>
     </div>;
   }
 
   const root = schemaNodeAtRef(envelope, typeof envelope.uid === "number" ? envelope.uid : undefined);
   if (!root || root.type !== "object") {
     return <div className="schema-form-empty">
-      <strong>Schema 根节点不是对象</strong>
-      <p>该命名空间的结构无法用表单呈现，请使用 JSON 编辑。</p>
-      <div className="schema-form-actions"><button type="button" onClick={onCancel}>关闭</button></div>
+      <strong>{t("schema.rootNotObject", locale)}</strong>
+      <p>{t("schema.rootNotObjectHint", locale)}</p>
+      <div className="schema-form-actions"><button type="button" onClick={onCancel}>{t("schema.close", locale)}</button></div>
     </div>;
   }
 
   return <div className="schema-form">
     <div className="schema-form-head">
       <span className="schema-form-ns">{namespace.ns}</span>
-      <em>{namespace.applies === "restart" ? "重启生效" : "实时生效"} · revision {namespace.revision}</em>
+      <em>{namespace.applies === "restart" ? t("schema.appliesRestart", locale) : t("schema.appliesLive", locale)} · revision {namespace.revision}</em>
     </div>
     <SchemaField
       path={[]}
@@ -239,12 +243,13 @@ export function SchemaFormPanel({ namespace, onSave, onCancel, saving }: SchemaF
       envelope={envelope}
       value={namespace.user ?? {}}
       draft={draft}
+      locale={locale}
       onChange={onChange}
     />
     <div className="schema-form-actions">
-      <button type="button" onClick={onCancel} disabled={saving}>取消</button>
+      <button type="button" onClick={onCancel} disabled={saving}>{t("schema.cancel", locale)}</button>
       <button type="button" className="confirm" disabled={saving || ops.length === 0} onClick={() => void onSave(ops, namespace.revision)}>
-        {saving ? "保存中…" : ops.length > 0 ? `保存 ${ops.length} 项` : "保存"}
+        {saving ? t("schema.saving", locale) : ops.length > 0 ? t("schema.saveCount", locale, { count: ops.length }) : t("schema.save", locale)}
       </button>
     </div>
   </div>;

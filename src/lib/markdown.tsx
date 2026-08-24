@@ -7,6 +7,7 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import { decodeFileLink, entityHost, FILE_LINK_PREFIX, pathLabel, splitMessageEntities } from "./message-entities";
+import { t, type UiLocale } from "../app/i18n";
 
 function remarkMessageEntities() {
   return (tree: { children?: unknown[] }) => {
@@ -31,7 +32,7 @@ function textFromNode(node: ReactNode): string {
   return "";
 }
 
-function MarkdownCodeBlock({ children, ...props }: HTMLAttributes<HTMLPreElement>) {
+function MarkdownCodeBlock({ children, locale, ...props }: HTMLAttributes<HTMLPreElement> & { locale: UiLocale }) {
   const [copied, setCopied] = useState(false);
   const code = textFromNode(children).replace(/\n$/, "");
 
@@ -48,8 +49,8 @@ function MarkdownCodeBlock({ children, ...props }: HTMLAttributes<HTMLPreElement
   return (
     <div className="markdown-code-block">
       <pre {...props}>{children}</pre>
-      <button className="markdown-code-copy" type="button" onClick={() => void copyCode()} title="复制代码" aria-label="复制代码">
-        {copied ? "已复制" : "复制"}
+      <button className="markdown-code-copy" type="button" onClick={() => void copyCode()} title={t("markdown.copyCode", locale)} aria-label={t("markdown.copyCode", locale)}>
+        {copied ? t("markdown.copied", locale) : t("markdown.copy", locale)}
       </button>
     </div>
   );
@@ -61,14 +62,14 @@ type MarkdownEntityActions = {
   onOpenUrl?: (url: string) => void | Promise<void>;
 };
 
-function MessageEntityLink({ href, children, onOpenPath, onCheckPath, onOpenUrl }: { href?: string; children?: ReactNode } & MarkdownEntityActions) {
+function MessageEntityLink({ href, children, locale, onOpenPath, onCheckPath, onOpenUrl }: { href?: string; children?: ReactNode; locale: UiLocale } & MarkdownEntityActions) {
   const path = href ? decodeFileLink(href) : null;
   const url = href && /^(?:https?):/i.test(href) ? href : null;
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [isFile, setIsFile] = useState(false);
   const [checkedPath, setCheckedPath] = useState<string | null>(null);
-  const label = path ? pathLabel(path) : url ? { name: entityHost(url), directory: "连接" } : null;
+  const label = path ? pathLabel(path, locale) : url ? { name: entityHost(url), directory: t("markdown.linkDirectory", locale) } : null;
 
   useEffect(() => {
     if (!path || !onCheckPath) return;
@@ -111,18 +112,18 @@ function MessageEntityLink({ href, children, onOpenPath, onCheckPath, onOpenUrl 
       <span className="message-entity-icon" aria-hidden="true">{path ? "▧" : "↗"}</span>
       <span className="message-entity-copy"><strong>{label.name}</strong><small>{error || label.directory}</small></span>
       <button type="button" className="message-entity-open" disabled={busy || !(path ? onOpenPath : onOpenUrl)} onClick={() => void open()}>
-        {busy ? "打开中" : error ? "重试" : "打开"}
+        {busy ? t("markdown.opening", locale) : error ? t("markdown.retry", locale) : t("markdown.open", locale)}
       </button>
     </span>
   );
 }
 
-function createMarkdownComponents(actions: MarkdownEntityActions): Components {
+function createMarkdownComponents(actions: MarkdownEntityActions, locale: UiLocale): Components {
   return {
   a: ({ children, href, node, ...props }) => {
     if (!href) return <span className="markdown-link-disabled">{children}</span>;
     if (decodeFileLink(href) || /^(?:https?):/i.test(href)) {
-      return <MessageEntityLink href={href} onOpenPath={actions.onOpenPath} onCheckPath={actions.onCheckPath} onOpenUrl={actions.onOpenUrl}>{children}</MessageEntityLink>;
+      return <MessageEntityLink href={href} locale={locale} onOpenPath={actions.onOpenPath} onCheckPath={actions.onCheckPath} onOpenUrl={actions.onOpenUrl}>{children}</MessageEntityLink>;
     }
     return <span className="markdown-link-disabled">{children}</span>;
   },
@@ -134,7 +135,7 @@ function createMarkdownComponents(actions: MarkdownEntityActions): Components {
       </code>
     );
   },
-  pre: ({ children, node, ...props }) => <MarkdownCodeBlock {...props}>{children}</MarkdownCodeBlock>,
+  pre: ({ children, node, ...props }) => <MarkdownCodeBlock {...props} locale={locale}>{children}</MarkdownCodeBlock>,
   table: ({ children, node, ...props }) => (
     <div className="markdown-table-wrap">
       <table {...props}>{children}</table>
@@ -146,9 +147,9 @@ function createMarkdownComponents(actions: MarkdownEntityActions): Components {
 // Memoized: while a stream advances, the transcript re-renders on every frame
 // but only the actively streaming message's `text` changes. Skipping the
 // others avoids re-parsing every previous message's markdown on each token.
-export const MarkdownContent = memo(function MarkdownContent({ text, className = "message-text", reveal = false, onOpenPath, onCheckPath, onOpenUrl }: { text: string; className?: string; reveal?: boolean } & MarkdownEntityActions) {
+export const MarkdownContent = memo(function MarkdownContent({ text, className = "message-text", reveal = false, locale = "zh", onOpenPath, onCheckPath, onOpenUrl }: { text: string; className?: string; reveal?: boolean; locale?: UiLocale } & MarkdownEntityActions) {
   const contentClassName = reveal ? `${className} model-text-reveal` : className;
-  const components = createMarkdownComponents({ onOpenPath, onCheckPath, onOpenUrl });
+  const components = createMarkdownComponents({ onOpenPath, onCheckPath, onOpenUrl }, locale);
   return (
     <div className={contentClassName}>
       <ReactMarkdown

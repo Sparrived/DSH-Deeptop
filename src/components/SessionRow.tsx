@@ -2,17 +2,19 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, ty
 import { createPortal } from "react-dom";
 import { displayTitle, formatDate, projectName } from "../app/model";
 import type { DshSessionSummary } from "../lib/desktop";
+import { t, type UiLocale } from "../app/i18n";
 
 export type SessionIndicator = "idle" | "running" | "completed" | "error";
 export type SessionStatus = SessionIndicator | "pending" | "archived";
 
+/** 状态展示文案的翻译 key；展示时用 t(sessionStatusLabels[status], locale)。 */
 export const sessionStatusLabels: Record<SessionStatus, string> = {
-  idle: "就绪",
-  running: "运行中",
-  completed: "已完成",
-  error: "出错",
-  pending: "待处理",
-  archived: "已归档",
+  idle: "session.status.idle",
+  running: "session.status.running",
+  completed: "session.status.completed",
+  error: "session.status.error",
+  pending: "session.status.pending",
+  archived: "session.status.archived",
 };
 
 export function sessionStatusFor(
@@ -52,6 +54,8 @@ type DragGhost = {
 };
 
 interface SessionRowProps {
+  /** 界面语言：会话状态与操作提示按语言渲染。 */
+  locale?: UiLocale;
   session: DshSessionSummary;
   active: boolean;
   indicator: SessionIndicator | "";
@@ -72,6 +76,7 @@ interface SessionRowProps {
 }
 
 export function SessionRow({
+  locale = "zh",
   session,
   active,
   indicator,
@@ -94,7 +99,7 @@ export function SessionRow({
   const removePointerListenersRef = useRef<(() => void) | null>(null);
   const dragGhostRef = useRef<HTMLDivElement | null>(null);
   const status = sessionStatusFor(session, indicator, pending);
-  const detail = snippet || (formatDate(session.updatedAt) + (session.cwd ? " · " + projectName(session.cwd) : ""));
+  const detail = snippet || (formatDate(session.updatedAt) + (session.cwd ? " · " + projectName(session.cwd, locale) : ""));
   const [pressed, setPressed] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [dragGhost, setDragGhost] = useState<DragGhost | null>(null);
@@ -243,7 +248,7 @@ export function SessionRow({
       data-session-id={session.sessionId}
       data-session-pinned={pinned ? "true" : "false"}
       data-session-status={status}
-      aria-label={`会话状态：${sessionStatusLabels[status]}`}
+      aria-label={t("session.statusAria", locale, { status: t(sessionStatusLabels[status], locale) })}
       onContextMenu={(event) => {
         event.preventDefault();
         if (pointerDragRef.current) return;
@@ -253,8 +258,8 @@ export function SessionRow({
       {canDrag && <button
         type="button"
         className="session-row-grip"
-        title={dragDisabled ? "当前状态下不能调整顺序" : "拖拽调整会话顺序"}
-        aria-label="拖拽调整会话顺序"
+        title={dragDisabled ? t("session.dragReorderDisabled", locale) : t("session.dragReorderTitle", locale)}
+        aria-label={t("session.dragReorderTitle", locale)}
         disabled={dragDisabled}
         onPointerDown={startPointerDrag}
       >⋮⋮</button>}
@@ -265,13 +270,13 @@ export function SessionRow({
           void onOpen(session);
         }}
       >
-        <span className="session-row-copy"><strong>{displayTitle(session)}</strong><small className={snippet ? "session-search-snippet" : undefined}>{detail}</small></span>
+        <span className="session-row-copy"><strong>{displayTitle(session, locale)}</strong><small className={snippet ? "session-search-snippet" : undefined}>{detail}</small></span>
       </button>
       {canPin && <button
         type="button"
         className={`session-row-pin${pinned ? " is-pinned" : ""}`}
-        title={pinned ? "取消置顶" : "在此工作区置顶"}
-        aria-label={pinned ? "取消置顶" : "在此工作区置顶"}
+        title={pinned ? t("session.unpin", locale) : t("session.pinInWorkspace", locale)}
+        aria-label={pinned ? t("session.unpin", locale) : t("session.pinInWorkspace", locale)}
         aria-pressed={pinned}
         onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => {
@@ -294,7 +299,7 @@ export function SessionRow({
       >
         <span className="session-row-grip">⋮⋮</span>
         <span className="session-row-main">
-          <span className="session-row-copy"><strong>{displayTitle(session)}</strong><small className={snippet ? "session-search-snippet" : undefined}>{detail}</small></span>
+          <span className="session-row-copy"><strong>{displayTitle(session, locale)}</strong><small className={snippet ? "session-search-snippet" : undefined}>{detail}</small></span>
         </span>
       </div>,
       document.body,

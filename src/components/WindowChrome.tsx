@@ -2,10 +2,12 @@ import { useEffect, useState, type MouseEvent } from "react";
 import { isWindowChromeControl } from "../app/ui-model";
 import type { WindowMenu } from "../app/model-types";
 import { WindowControls } from "./WindowControls";
+import { t, type UiLocale } from "../app/i18n";
 
 type EditCommand = "undo" | "redo" | "cut" | "copy" | "paste" | "selectAll";
 
 type WindowChromeProps = {
+  locale?: UiLocale;
   windowMaximized: boolean;
   settingsOpen: boolean;
   onDrag: (event: MouseEvent<HTMLElement>) => void;
@@ -20,6 +22,7 @@ type WindowChromeProps = {
 };
 
 export function WindowChrome({
+  locale = "zh",
   windowMaximized,
   settingsOpen,
   onDrag,
@@ -73,35 +76,36 @@ export function WindowChrome({
       onDoubleClick={(event) => { if (!isWindowChromeControl(event.target)) onToggleMaximize(); }}
     >
       <div className="brand-mark">DSH <span>DEEPTOP</span></div>
-      <nav className="window-menu" aria-label="应用菜单">
+      <nav className="window-menu" aria-label={t("windowChrome.menuAria", locale)}>
         <div className="window-menu-group">
-          <button className={`window-menu-button ${windowMenu === "project" ? "selected" : ""}`} onClick={() => toggleMenu("project")}>项目</button>
+          <button className={`window-menu-button ${windowMenu === "project" ? "selected" : ""}`} onClick={() => toggleMenu("project")}>{t("windowChrome.project", locale)}</button>
           {windowMenu === "project" && <div className="window-menu-dropdown" role="menu">
-            <button role="menuitem" onClick={() => { closeMenu(); void onAddWorkspace(); }}>选择工作目录...</button>
-            <button role="menuitem" onClick={() => { closeMenu(); onChooseRuntimeWorkspace(); }}>使用 DSH 运行目录</button>
+            <button role="menuitem" onClick={() => { closeMenu(); void onAddWorkspace(); }}>{t("windowChrome.chooseWorkdir", locale)}</button>
+            <button role="menuitem" onClick={() => { closeMenu(); onChooseRuntimeWorkspace(); }}>{t("settings.workdir.fallback", locale)}</button>
             <div className="window-menu-separator" />
-            <button role="menuitem" onClick={() => { closeMenu(); void onRestartRuntime(); }}>重新启动 DSH</button>
+            <button role="menuitem" onClick={() => { closeMenu(); void onRestartRuntime(); }}>{t("windowChrome.restartDsh", locale)}</button>
             <div className="window-menu-separator" />
-            <button role="menuitem" onClick={() => { closeMenu(); onClose(); }}>关闭窗口</button>
+            <button role="menuitem" onClick={() => { closeMenu(); onClose(); }}>{t("windowChrome.closeWindow", locale)}</button>
           </div>}
         </div>
         <div className="window-menu-group">
-          <button className={`window-menu-button ${windowMenu === "edit" ? "selected" : ""}`} onClick={() => toggleMenu("edit")}>编辑</button>
+          <button className={`window-menu-button ${windowMenu === "edit" ? "selected" : ""}`} onClick={() => toggleMenu("edit")}>{t("windowChrome.edit", locale)}</button>
           {windowMenu === "edit" && <div className="window-menu-dropdown" role="menu">
-            <button role="menuitem" onClick={() => runEditCommand("undo")}>撤销</button>
-            <button role="menuitem" onClick={() => runEditCommand("redo")}>重做</button>
+            <button role="menuitem" onClick={() => runEditCommand("undo")}>{t("windowChrome.undo", locale)}</button>
+            <button role="menuitem" onClick={() => runEditCommand("redo")}>{t("windowChrome.redo", locale)}</button>
             <div className="window-menu-separator" />
-            <button role="menuitem" onClick={() => runEditCommand("cut")}>剪切</button>
-            <button role="menuitem" onClick={() => runEditCommand("copy")}>复制</button>
-            <button role="menuitem" onClick={() => runEditCommand("paste")}>粘贴</button>
-            <button role="menuitem" onClick={() => runEditCommand("selectAll")}>全选</button>
+            <button role="menuitem" onClick={() => runEditCommand("cut")}>{t("windowChrome.cut", locale)}</button>
+            <button role="menuitem" onClick={() => runEditCommand("copy")}>{t("common.copy", locale)}</button>
+            <button role="menuitem" onClick={() => runEditCommand("paste")}>{t("windowChrome.paste", locale)}</button>
+            <button role="menuitem" onClick={() => runEditCommand("selectAll")}>{t("windowChrome.selectAll", locale)}</button>
           </div>}
         </div>
       </nav>
       <div className="window-drag-space" />
       <div className="window-actions">
-        <button className={`settings-button window-settings-button ${settingsOpen ? "selected" : ""}`} onClick={onOpenSettings} title="打开设置" aria-label="打开设置"><span className="settings-button-glyph" aria-hidden="true">⚙</span><span className="settings-button-label">设置</span></button>
+        <button className={`settings-button window-settings-button ${settingsOpen ? "selected" : ""}`} onClick={onOpenSettings} title={t("windowChrome.openSettings", locale)} aria-label={t("windowChrome.openSettings", locale)}><span className="settings-button-glyph" aria-hidden="true">⚙</span><span className="settings-button-label">{t("settings.title", locale)}</span></button>
         <WindowControls
+          locale={locale}
           windowMaximized={windowMaximized}
           onMinimize={onMinimize}
           onToggleMaximize={onToggleMaximize}

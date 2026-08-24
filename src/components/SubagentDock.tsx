@@ -1,6 +1,7 @@
 import { DockFrame } from "./DockFrame";
 import { SubagentTree } from "./SubagentTree";
 import { subagentActivityLabel, subagentDisplayName, subagentModeLabel, type ChildSubagentEntry } from "../app/model";
+import { t, type UiLocale } from "../app/i18n";
 import { subagentTreeKey } from "../app/ui-model";
 import type { DshSubagentCatalog } from "../lib/desktop";
 
@@ -12,13 +13,14 @@ type SubagentDockProps = {
   catalogs: Record<string, DshSubagentCatalog | null>;
   expandedBranches: Record<string, boolean>;
   loadingErrors?: Record<string, string>;
+  locale?: UiLocale;
   onToggleDock: () => void;
   /** Open any depth entry; carries the direct parent session id. */
   onOpen: (entry: ChildSubagentEntry, parentSessionId: string, treeKey: string) => void;
   onToggleBranch: (treeKey: string) => void;
 };
 
-export function SubagentDock({ entries, dockOpen, selectedId, catalogs, expandedBranches, loadingErrors, onToggleDock, onOpen, onToggleBranch }: SubagentDockProps) {
+export function SubagentDock({ entries, dockOpen, selectedId, catalogs, expandedBranches, loadingErrors, locale = "zh", onToggleDock, onOpen, onToggleBranch }: SubagentDockProps) {
   if (entries.length === 0) return null;
   const runningCount = entries.filter((entry) => entry.activity === "running").length;
 
@@ -27,9 +29,9 @@ export function SubagentDock({ entries, dockOpen, selectedId, catalogs, expanded
       id="subagent-dock"
       className="subagent-dock"
       collapsed={!dockOpen}
-      label="子 Agent 书签"
-      title="子 Agent"
-      kicker="当前会话"
+      label={t("subagent.label", locale)}
+      title={t("subagent.title", locale)}
+      kicker={t("common.currentSession", locale)}
       icon="◈"
       railExtra={<span className="subagent-dock-count">{entries.length}</span>}
       total={`${runningCount}/${entries.length}`}
@@ -53,6 +55,7 @@ export function SubagentDock({ entries, dockOpen, selectedId, catalogs, expanded
         catalogs={catalogs}
         expanded={expandedBranches}
         loadingError={loadingErrors}
+        locale={locale}
         onToggleBranch={onToggleBranch}
         onOpen={(entry, parentSessionId) => onOpen(entry, parentSessionId, subagentTreeKey(parentSessionId, entry.id))}
       />

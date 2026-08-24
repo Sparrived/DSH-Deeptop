@@ -23,14 +23,16 @@ import {
   resolveTrayTheme,
   trayPopupSnapshotsEqual,
 } from "../app/tray-popup-model";
+import { t, type UiLocale } from "../app/i18n";
 
 const emptySnapshot: TraySessionMenuSnapshot = { unread: [], recent: [], more: [] };
-const statusLabels: Record<TraySessionStatus, string> = {
-  idle: "空闲",
-  running: "运行中",
-  unread: "未读",
-  error: "出错",
-};
+
+function statusLabel(status: TraySessionStatus, locale: UiLocale): string {
+  if (status === "idle") return t("tray.status.idle", locale);
+  if (status === "running") return t("tray.status.running", locale);
+  if (status === "unread") return t("tray.status.unread", locale);
+  return t("tray.status.error", locale);
+}
 
 function replaceStyle(id: string, css: string) {
   const existing = document.getElementById(id);
@@ -115,9 +117,10 @@ function useTrayPopupTheme() {
   }, []);
 }
 
-function SessionButton({ item, onOpen }: {
+function SessionButton({ item, onOpen, locale }: {
   item: TraySessionMenuItem;
   onOpen: (sessionId: string) => void;
+  locale: UiLocale;
 }) {
   return (
     <button
@@ -128,34 +131,35 @@ function SessionButton({ item, onOpen }: {
     >
       <span
         className={`tray-popup-status ${item.status}`}
-        aria-label={statusLabels[item.status]}
+        aria-label={statusLabel(item.status, locale)}
       />
       <span className="tray-popup-session-copy">
-        <strong>{item.title || "未命名会话"}</strong>
+        <strong>{item.title || t("tray.unnamedSession", locale)}</strong>
         {item.context && <small>{item.context}</small>}
       </span>
     </button>
   );
 }
 
-function SessionSection({ title, items, onOpen }: {
+function SessionSection({ title, items, onOpen, locale }: {
   title: string;
   items: TraySessionMenuItem[];
   onOpen: (sessionId: string) => void;
+  locale: UiLocale;
 }) {
   if (items.length === 0) return null;
   return (
     <section className="tray-popup-section" aria-label={title}>
       <div className="tray-popup-heading">{title}</div>
       {items.map((item) => (
-        <SessionButton key={item.sessionId} item={item} onOpen={onOpen} />
+        <SessionButton key={item.sessionId} item={item} onOpen={onOpen} locale={locale} />
       ))}
     </section>
   );
 }
 
 /** Fixed-width, theme-aware Windows tray surface. */
-export default function TrayPopup() {
+export default function TrayPopup({ locale = "zh" }: { locale?: UiLocale }) {
   useTrayPopupTheme();
   const menuRef = useRef<HTMLDivElement>(null);
   const [snapshot, setSnapshot] = useState<TraySessionMenuSnapshot>(emptySnapshot);
@@ -236,13 +240,13 @@ export default function TrayPopup() {
       ref={menuRef}
       className="tray-popup"
       role="menu"
-      aria-label="Deeptop 会话托盘"
+      aria-label={t("tray.popupAria", locale)}
       onKeyDown={handleKeyDown}
     >
       {view === "root" ? (
         <>
-          <SessionSection title="未读" items={snapshot.unread} onOpen={openSession} />
-          <SessionSection title="最近" items={snapshot.recent} onOpen={openSession} />
+          <SessionSection title={t("tray.status.unread", locale)} items={snapshot.unread} onOpen={openSession} locale={locale} />
+          <SessionSection title={t("tray.recent", locale)} items={snapshot.recent} onOpen={openSession} locale={locale} />
           {snapshot.more.length > 0 && (
             <button
               className="tray-popup-more"
@@ -252,19 +256,19 @@ export default function TrayPopup() {
                 focusFirstItem();
               }}
             >
-              <span>更多</span>
+              <span>{t("tray.more", locale)}</span>
               <span aria-hidden="true">›</span>
             </button>
           )}
           <div className="tray-popup-actions">
             <button role="menuitem" onClick={() => invokeAction("newChat")}>
-              <span aria-hidden="true">＋</span><span>新会话</span>
+              <span aria-hidden="true">＋</span><span>{t("tray.newChat", locale)}</span>
             </button>
             <button role="menuitem" onClick={() => invokeAction("showMain")}>
-              <span aria-hidden="true">▣</span><span>打开 Deeptop</span>
+              <span aria-hidden="true">▣</span><span>{t("tray.openDeeptop", locale)}</span>
             </button>
             <button className="danger" role="menuitem" onClick={() => invokeAction("quit")}>
-              <span aria-hidden="true">⏻</span><span>退出 Deeptop</span>
+              <span aria-hidden="true">⏻</span><span>{t("tray.quit", locale)}</span>
             </button>
           </div>
         </>
@@ -278,11 +282,11 @@ export default function TrayPopup() {
               focusFirstItem();
             }}
           >
-            <span aria-hidden="true">‹</span><span>更多会话</span>
+            <span aria-hidden="true">‹</span><span>{t("tray.moreSessions", locale)}</span>
           </button>
           <div className="tray-popup-more-list">
             {snapshot.more.map((item) => (
-              <SessionButton key={item.sessionId} item={item} onOpen={openSession} />
+              <SessionButton key={item.sessionId} item={item} onOpen={openSession} locale={locale} />
             ))}
           </div>
         </div>

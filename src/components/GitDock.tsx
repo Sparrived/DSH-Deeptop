@@ -43,10 +43,12 @@ import {
 import { DockFrame } from "./DockFrame";
 import { PopupDialog } from "./PopupDialog";
 import { GitTreeGraph } from "./GitTreeGraph";
+import { t, type UiLocale } from "../app/i18n";
 
 type GitDockTab = "changes" | "history" | "branches";
 
 type GitDockProps = {
+  locale?: UiLocale;
   workspace: string;
   collapsed: boolean;
   onToggle: () => void;
@@ -63,6 +65,7 @@ function ChangeRow({
   onStage,
   onUnstage,
   onDiscard,
+  locale,
 }: {
   file: WorkspaceGitFile;
   selected: boolean;
@@ -71,6 +74,7 @@ function ChangeRow({
   onStage: () => void;
   onUnstage: () => void;
   onDiscard: () => void;
+  locale: UiLocale;
 }) {
   return (
     <div className={`git-change-row ${selected ? "selected" : ""}`}>
@@ -80,18 +84,18 @@ function ChangeRow({
       </button>
       <div className="git-change-actions">
         {canStageFile(file) && (
-          <button type="button" className="git-change-action" title="暂存" aria-label={`暂存 ${file.path}`} disabled={busy} onClick={onStage}>＋</button>
+          <button type="button" className="git-change-action" title={t("git.stage", locale)} aria-label={t("git.stageFile", locale, { path: file.path })} disabled={busy} onClick={onStage}>＋</button>
         )}
         {canUnstageFile(file) && (
-          <button type="button" className="git-change-action" title="取消暂存" aria-label={`取消暂存 ${file.path}`} disabled={busy} onClick={onUnstage}>−</button>
+          <button type="button" className="git-change-action" title={t("git.unstage", locale)} aria-label={t("git.unstageFile", locale, { path: file.path })} disabled={busy} onClick={onUnstage}>−</button>
         )}
-        <button type="button" className="git-change-action danger" title="放弃改动" aria-label={`放弃改动 ${file.path}`} disabled={busy} onClick={onDiscard}>✕</button>
+        <button type="button" className="git-change-action danger" title={t("git.discard", locale)} aria-label={t("git.discardFile", locale, { path: file.path })} disabled={busy} onClick={onDiscard}>✕</button>
       </div>
     </div>
   );
 }
 
-export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProps) {
+export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh" }: GitDockProps) {
   const [tab, setTab] = useState<GitDockTab>("changes");
   const [status, setStatus] = useState<WorkspaceGitStatus | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
@@ -148,7 +152,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
       setStatus(await getWorkspaceGitStatus(workspace));
     } catch (error) {
       setStatus(null);
-      onError(`读取 Git 状态失败：${errorText(error)}`);
+      onError(t("git.error.readStatus", locale, { error: errorText(error, locale) }));
     } finally {
       setLoadingStatus(false);
     }
@@ -164,7 +168,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
       setCommits(await listGitLog(workspace));
     } catch (error) {
       setCommits(null);
-      onError(`读取提交历史失败：${errorText(error)}`);
+      onError(t("git.error.readHistory", locale, { error: errorText(error, locale) }));
     } finally {
       setCommitsLoading(false);
     }
@@ -180,7 +184,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
       setBranches(await listGitBranches(workspace));
     } catch (error) {
       setBranches(null);
-      onError(`读取分支失败：${errorText(error)}`);
+      onError(t("git.error.readBranches", locale, { error: errorText(error, locale) }));
     } finally {
       setBranchesLoading(false);
     }
@@ -196,7 +200,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
       setGraph(await listGitGraph(workspace, 100, graphRevRef.current, graphSimplifyRef.current));
     } catch (error) {
       setGraph(null);
-      onError(`读取提交图谱失败：${errorText(error)}`);
+      onError(t("git.error.readGraph", locale, { error: errorText(error, locale) }));
     } finally {
       setGraphLoading(false);
     }
@@ -360,7 +364,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
     try {
       await action();
     } catch (error) {
-      onError(`${reason}失败：${errorText(error)}`);
+      onError(t("git.error.runFailed", locale, { reason, error: errorText(error, locale) }));
     } finally {
       setBusy(false);
       await refreshAll();
@@ -368,26 +372,26 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
   }
 
   async function handleStage(file: WorkspaceGitFile) {
-    await runMutation(() => stageGitPaths(workspace, [file.path]), "暂存");
+    await runMutation(() => stageGitPaths(workspace, [file.path]), t("git.stage", locale));
   }
 
   async function handleUnstage(file: WorkspaceGitFile) {
-    await runMutation(() => unstageGitPaths(workspace, [file.path]), "取消暂存");
+    await runMutation(() => unstageGitPaths(workspace, [file.path]), t("git.unstage", locale));
   }
 
   async function handleStageAll() {
-    await runMutation(() => stageAllGit(workspace), "全部暂存");
+    await runMutation(() => stageAllGit(workspace), t("git.stageAll", locale));
   }
 
   async function handleUnstageAll() {
-    await runMutation(() => unstageAllGit(workspace), "取消全部暂存");
+    await runMutation(() => unstageAllGit(workspace), t("git.unstageAll", locale));
   }
 
   async function confirmDiscard() {
     const target = discardTarget;
     setDiscardTarget(null);
     if (!target) return;
-    await runMutation(() => discardGitPaths(workspace, [target.path]), "放弃改动");
+    await runMutation(() => discardGitPaths(workspace, [target.path]), t("git.discard", locale));
     setSelectedPath((current) => (current === target.path ? null : current));
   }
 
@@ -400,7 +404,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
       if (commitStageAll) await stageAllGit(workspace);
       setResult(await commitGit(workspace, message));
     } catch (error) {
-      onError(`提交失败：${errorText(error)}`);
+      onError(t("git.error.commitFailed", locale, { error: errorText(error, locale) }));
     } finally {
       setCommitMessage("");
       setCommitStageAll(false);
@@ -414,7 +418,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
     try {
       setResult(await pullGit(workspace));
     } catch (error) {
-      onError(`拉取失败：${errorText(error)}`);
+      onError(t("git.error.pullFailed", locale, { error: errorText(error, locale) }));
     } finally {
       setBusy(false);
       await refreshAll();
@@ -426,7 +430,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
     try {
       setResult(await pushGit(workspace));
     } catch (error) {
-      onError(`推送失败：${errorText(error)}`);
+      onError(t("git.error.pushFailed", locale, { error: errorText(error, locale) }));
     } finally {
       setBusy(false);
       await refreshAll();
@@ -442,7 +446,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
     try {
       setResult(await createGitBranch(workspace, name));
     } catch (error) {
-      onError(`新建分支失败：${errorText(error)}`);
+      onError(t("git.error.branchCreateFailed", locale, { error: errorText(error, locale) }));
     } finally {
       setBusy(false);
       await refreshAll();
@@ -457,7 +461,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
     try {
       setResult(await deleteGitBranch(workspace, branch.name));
     } catch (error) {
-      onError(`删除分支失败：${errorText(error)}`);
+      onError(t("git.error.branchDeleteFailed", locale, { error: errorText(error, locale) }));
     } finally {
       setBusy(false);
       await refreshAll();
@@ -469,7 +473,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
     try {
       setResult(await checkoutGitBranch(workspace, branch.name));
     } catch (error) {
-      onError(`切换分支失败：${errorText(error)}`);
+      onError(t("git.error.checkoutFailed", locale, { error: errorText(error, locale) }));
     } finally {
       setBusy(false);
       await refreshAll();
@@ -481,7 +485,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
     try {
       await writeClipboard(hash);
     } catch (error) {
-      onError(`复制提交哈希失败：${errorText(error)}`);
+      onError(t("git.error.copyHashFailed", locale, { error: errorText(error, locale) }));
     } finally {
       window.setTimeout(() => setCopyingHash(null), 1200);
     }
@@ -499,7 +503,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
       .then((detail) => {
         if (request === detailRequestRef.current) setCommitDetail(detail);
       })
-      .catch((error) => onError(`读取提交详情失败：${errorText(error)}`))
+      .catch((error) => onError(t("git.error.readDetailFailed", locale, { error: errorText(error, locale) })))
       .finally(() => {
         if (request === detailRequestRef.current) setCommitDetailLoading(false);
       });
@@ -519,11 +523,11 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
           value={branchDialog.value}
           onChange={(event) => setBranchDialog({ mode: "create", value: event.target.value })}
           onKeyDown={(event) => { if (event.key === "Enter") void submitBranchCreate(); }}
-          placeholder="基于当前分支新建"
+          placeholder={t("git.branchPlaceholder", locale)}
           autoFocus
-          aria-label="新分支名称"
+          aria-label={t("git.branchNameAria", locale)}
         />
-        <p className="git-dialog-hint">将基于当前分支创建并自动切换到新分支。</p>
+        <p className="git-dialog-hint">{t("git.branchCreateHint", locale)}</p>
       </div>
     )
     : null;
@@ -535,10 +539,11 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
       className="git-dock-panel"
       collapsed={collapsed}
       label={GIT_RAIL_LABEL}
+      locale={locale}
       title="Git"
-      kicker="源码管理"
+      kicker={t("git.kicker", locale)}
       icon="⑂"
-      total={`${totalChanges} 项变更`}
+      total={t("git.totalChanges", locale, { count: totalChanges })}
       toggleGlyph="‹"
       onToggle={onToggle}
       railClassName="git-dock-rail"
@@ -555,7 +560,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
     >
       <div className="git-summary">
         {loadingStatus ? (
-          <span className="git-summary-loading">同步中…</span>
+          <span className="git-summary-loading">{t("git.syncing", locale)}</span>
         ) : isRepo && status?.branch ? (
           <>
             <span className="git-summary-branch" title={status.branch}>⌘ {status.branch}</span>
@@ -568,28 +573,28 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
             )}
           </>
         ) : (
-          <span className="git-summary-no-repo">未选择工作区或未检测到 Git 仓库</span>
+          <span className="git-summary-no-repo">{t("git.noRepo", locale)}</span>
         )}
       </div>
       <div className="git-toolbar">
-        <button type="button" disabled={!isRepo || busy} onClick={() => void handlePull()} title="拉取当前分支上游" aria-label="拉取">↓ 拉取</button>
-        <button type="button" disabled={!isRepo || busy} onClick={() => void handlePush()} title="推送当前分支" aria-label="推送">↑ 推送</button>
-        <button type="button" disabled={!workspace || busy} onClick={() => void refreshAll()} title="刷新" aria-label="刷新">⟳</button>
+        <button type="button" disabled={!isRepo || busy} onClick={() => void handlePull()} title={t("git.pullTitle", locale)} aria-label={t("git.pull", locale)}>↓ {t("git.pull", locale)}</button>
+        <button type="button" disabled={!isRepo || busy} onClick={() => void handlePush()} title={t("git.pushTitle", locale)} aria-label={t("git.push", locale)}>↑ {t("git.push", locale)}</button>
+        <button type="button" disabled={!workspace || busy} onClick={() => void refreshAll()} title={t("git.refresh", locale)} aria-label={t("git.refresh", locale)}>⟳</button>
         {isRepo && (
           <span className="git-toolbar-counts">
-            <span className="git-count git-count-staged">{status?.staged ?? 0} 暂存</span>
-            <span className="git-count git-count-changed">{status?.changed ?? 0} 修改</span>
-            <span className="git-count git-count-untracked">{status?.untracked ?? 0} 未跟踪</span>
-            {(status?.conflicted ?? 0) > 0 && <span className="git-count git-count-conflicted">{status?.conflicted} 冲突</span>}
+            <span className="git-count git-count-staged">{t("git.countStaged", locale, { count: status?.staged ?? 0 })}</span>
+            <span className="git-count git-count-changed">{t("git.countChanged", locale, { count: status?.changed ?? 0 })}</span>
+            <span className="git-count git-count-untracked">{t("git.countUntracked", locale, { count: status?.untracked ?? 0 })}</span>
+            {(status?.conflicted ?? 0) > 0 && <span className="git-count git-count-conflicted">{t("git.countConflicted", locale, { count: status?.conflicted ?? 0 })}</span>}
           </span>
         )}
       </div>
 
       {!workspace ? (
-        <div className="git-empty">选择工作区后显示 Git 状态</div>
+        <div className="git-empty">{t("git.emptyWorkspace", locale)}</div>
       ) : (
         <>
-          <div className="git-tabs" role="tablist" aria-label="Git 视图">
+          <div className="git-tabs" role="tablist" aria-label={t("git.tabsAria", locale)}>
             {(["changes", "history", "branches"] as const).map((item) => (
               <button
                 key={item}
@@ -599,37 +604,37 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
                 className={tab === item ? "selected" : ""}
                 onClick={() => setTab(item)}
               >
-                {item === "changes" ? "更改" : item === "history" ? "历史" : "分支"}
+                {item === "changes" ? t("git.tabChanges", locale) : item === "history" ? t("git.tabHistory", locale) : t("git.tabBranches", locale)}
               </button>
             ))}
           </div>
 
           {result && (
             <div className={`git-result ${result.ok ? "ok" : "fail"}`} role="status">
-              <pre>{result.text || (result.ok ? "操作完成" : "操作未完成")}</pre>
-              <button type="button" className="git-result-dismiss" aria-label="关闭结果" onClick={() => setResult(null)}>×</button>
+              <pre>{result.text || (result.ok ? t("git.resultOk", locale) : t("git.resultFailed", locale))}</pre>
+              <button type="button" className="git-result-dismiss" aria-label={t("common.close", locale)} onClick={() => setResult(null)}>×</button>
             </div>
           )}
 
           {tab === "changes" && (
             <div className="git-changes">
               <div className="git-changes-toolbar">
-                <button type="button" disabled={!isRepo || busy} onClick={() => void handleStageAll()}>全部暂存</button>
-                <button type="button" disabled={!isRepo || busy} onClick={() => void handleUnstageAll()}>取消全部暂存</button>
-                <button type="button" className="confirm" disabled={!isRepo || busy} onClick={() => { setCommitOpen(true); setCommitMessage(""); }}>提交…</button>
+                <button type="button" disabled={!isRepo || busy} onClick={() => void handleStageAll()}>{t("git.stageAll", locale)}</button>
+                <button type="button" disabled={!isRepo || busy} onClick={() => void handleUnstageAll()}>{t("git.unstageAll", locale)}</button>
+                <button type="button" className="confirm" disabled={!isRepo || busy} onClick={() => { setCommitOpen(true); setCommitMessage(""); }}>{t("git.commitEllipsis", locale)}</button>
               </div>
 
               {!isRepo ? (
-                <div className="git-empty">未检测到 Git 仓库</div>
+                <div className="git-empty">{t("git.emptyNoRepo", locale)}</div>
               ) : (
                 <div className="git-changes-scroll">
                   {totalChanges === 0 && !loadingStatus ? (
-                    <div className="git-empty">工作区干净，没有待处理更改</div>
+                    <div className="git-empty">{t("git.emptyClean", locale)}</div>
                   ) : (
                     <>
                       {groups.conflicted.length > 0 && (
                         <section className="git-group git-group-conflicted">
-                          <h4>冲突 · {groups.conflicted.length}</h4>
+                          <h4>{t("git.groupConflicted", locale, { count: groups.conflicted.length })}</h4>
                           {groups.conflicted.map((file) => (
                             <ChangeRow
                               key={`c${file.path}`}
@@ -640,13 +645,14 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
                               onStage={() => void handleStage(file)}
                               onUnstage={() => void handleUnstage(file)}
                               onDiscard={() => setDiscardTarget(file)}
+                              locale={locale}
                             />
                           ))}
                         </section>
                       )}
                       {groups.staged.length > 0 && (
                         <section className="git-group git-group-staged">
-                          <h4>暂存区 · {groups.staged.length}</h4>
+                          <h4>{t("git.groupStaged", locale, { count: groups.staged.length })}</h4>
                           {groups.staged.map((file) => (
                             <ChangeRow
                               key={`s${file.path}`}
@@ -657,13 +663,14 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
                               onStage={() => void handleStage(file)}
                               onUnstage={() => void handleUnstage(file)}
                               onDiscard={() => setDiscardTarget(file)}
+                              locale={locale}
                             />
                           ))}
                         </section>
                       )}
                       {groups.unstaged.length > 0 && (
                         <section className="git-group git-group-unstaged">
-                          <h4>工作区 · {groups.unstaged.length}</h4>
+                          <h4>{t("git.groupUnstaged", locale, { count: groups.unstaged.length })}</h4>
                           {groups.unstaged.map((file) => (
                             <ChangeRow
                               key={`u${file.path}`}
@@ -674,13 +681,14 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
                               onStage={() => void handleStage(file)}
                               onUnstage={() => void handleUnstage(file)}
                               onDiscard={() => setDiscardTarget(file)}
+                              locale={locale}
                             />
                           ))}
                         </section>
                       )}
                       {groups.untracked.length > 0 && (
                         <section className="git-group git-group-untracked">
-                          <h4>未跟踪 · {groups.untracked.length}</h4>
+                          <h4>{t("git.groupUntracked", locale, { count: groups.untracked.length })}</h4>
                           {groups.untracked.map((file) => (
                             <ChangeRow
                               key={`n${file.path}`}
@@ -691,6 +699,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
                               onStage={() => void handleStage(file)}
                               onUnstage={() => void handleUnstage(file)}
                               onDiscard={() => setDiscardTarget(file)}
+                              locale={locale}
                             />
                           ))}
                         </section>
@@ -704,14 +713,14 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
                 <div className="git-diff-panel">
                   <div className="git-diff-header">
                     <span className="git-diff-path" title={selectedPath}>{selectedPath}</span>
-                    <div className="git-diff-mode" role="group" aria-label="差异来源">
-                      <button type="button" className={!diffStaged ? "selected" : ""} onClick={() => setDiffStaged(false)}>工作区</button>
-                      <button type="button" className={diffStaged ? "selected" : ""} onClick={() => setDiffStaged(true)}>暂存区</button>
+                    <div className="git-diff-mode" role="group" aria-label={t("git.diffSourceAria", locale)}>
+                      <button type="button" className={!diffStaged ? "selected" : ""} onClick={() => setDiffStaged(false)}>{t("git.diffWorktree", locale)}</button>
+                      <button type="button" className={diffStaged ? "selected" : ""} onClick={() => setDiffStaged(true)}>{t("git.diffStaged", locale)}</button>
                     </div>
-                    <button type="button" className="git-diff-close" aria-label="关闭差异" onClick={() => setSelectedPath(null)}>×</button>
+                    <button type="button" className="git-diff-close" aria-label={t("git.closeDiff", locale)} onClick={() => setSelectedPath(null)}>×</button>
                   </div>
                   {diffLoading ? (
-                    <div className="git-diff-empty">加载差异…</div>
+                    <div className="git-diff-empty">{t("git.loadingDiff", locale)}</div>
                   ) : diffError ? (
                     <div className="git-diff-empty">{diffError}</div>
                   ) : diffText && diffText.trim() ? (
@@ -721,7 +730,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
                       ))}
                     </div>
                   ) : (
-                    <div className="git-diff-empty">该文件没有可显示的差异</div>
+                    <div className="git-diff-empty">{t("git.emptyDiff", locale)}</div>
                   )}
                 </div>
               )}
@@ -730,40 +739,41 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
 
           {tab === "history" && (
             <div className="git-history">
-              <div className="git-history-view-toggle" role="group" aria-label="历史视图">
-                <button type="button" className={historyView === "list" ? "selected" : ""} onClick={() => setHistoryView("list")}>列表</button>
-                <button type="button" className={historyView === "graph" ? "selected" : ""} onClick={() => setHistoryView("graph")}>图谱</button>
+              <div className="git-history-view-toggle" role="group" aria-label={t("git.historyAria", locale)}>
+                <button type="button" className={historyView === "list" ? "selected" : ""} onClick={() => setHistoryView("list")}>{t("git.viewList", locale)}</button>
+                <button type="button" className={historyView === "graph" ? "selected" : ""} onClick={() => setHistoryView("graph")}>{t("git.viewGraph", locale)}</button>
               </div>
               {historyView === "graph" ? (
                 <>
                   <div className="git-graph-options">
-                    <select value={graphRev ?? ""} onChange={(event) => changeGraphRev(event.target.value)} disabled={busy} aria-label="过滤分支">
-                      <option value="">全部分支</option>
+                    <select value={graphRev ?? ""} onChange={(event) => changeGraphRev(event.target.value)} disabled={busy} aria-label={t("git.filterBranchAria", locale)}>
+                      <option value="">{t("git.allBranches", locale)}</option>
                       {(branches ?? []).map((branch) => (
                         <option key={branch.name} value={branch.name}>{branch.name}</option>
                       ))}
                     </select>
-                    <label className="git-graph-simplify" title="只显示有分支/标签指向的提交">
+                    <label className="git-graph-simplify" title={t("git.simplifyTitle", locale)}>
                       <input type="checkbox" checked={graphSimplify} onChange={(event) => toggleGraphSimplify(event.target.checked)} disabled={busy} />
-                      <span>仅带头部提交</span>
+                      <span>{t("git.simplifyLabel", locale)}</span>
                     </label>
                   </div>
                   {graphLoading && graph === null ? (
-                  <div className="git-empty">加载提交图谱…</div>
+                  <div className="git-empty">{t("git.loadingGraph", locale)}</div>
                 ) : !graph || graph.length === 0 ? (
-                  <div className="git-empty">暂无提交记录</div>
+                  <div className="git-empty">{t("git.emptyCommits", locale)}</div>
                 ) : (
                   <GitTreeGraph
                     lines={graph}
                     selectedHash={commitDetail?.hash ?? null}
                     onSelect={selectCommitByHash}
+                    locale={locale}
                   />
                   )}
                 </>
               ) : commitsLoading && commits === null ? (
-                <div className="git-empty">加载提交历史…</div>
+                <div className="git-empty">{t("git.loadingHistory", locale)}</div>
               ) : !commits || commits.length === 0 ? (
-                <div className="git-empty">暂无提交记录</div>
+                <div className="git-empty">{t("git.emptyCommits", locale)}</div>
               ) : (
                 <div className="git-history-list">
                   {commits.map((commit) => (
@@ -777,24 +787,24 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
                       <span className="git-commit-short">{commit.shortHash}</span>
                       <span className="git-commit-main">
                         <span className="git-commit-subject">{commit.subject}</span>
-                        <span className="git-commit-meta">{commit.author} · {formatRelativeTime(commit.timestamp)}</span>
+                        <span className="git-commit-meta">{commit.author} · {formatRelativeTime(commit.timestamp, undefined, locale)}</span>
                       </span>
                     </button>
                   ))}
                 </div>
               )}
-              {commitDetailLoading && <div className="git-empty">加载提交详情…</div>}
+              {commitDetailLoading && <div className="git-empty">{t("git.loadingDetail", locale)}</div>}
               {commitDetail && !commitDetailLoading && (
                 <div className="git-commit-detail">
                   <div className="git-commit-detail-header">
                     <span className="git-commit-short">{commitDetail.hash.slice(0, 7)}</span>
                     <span className="git-commit-subject">{commitDetail.subject}</span>
-                    <button type="button" className="git-diff-close" aria-label="关闭提交详情" onClick={() => { setCommitDetail(null); setCommitDiffPath(null); }}>×</button>
+                    <button type="button" className="git-diff-close" aria-label={t("git.closeDetail", locale)} onClick={() => { setCommitDetail(null); setCommitDiffPath(null); }}>×</button>
                   </div>
                   <div className="git-commit-detail-meta">
                     <span>{commitDetail.author}</span>
-                    <span>{formatRelativeTime(commitDetail.timestamp)}</span>
-                    <span>{commitDetail.files.length} 个文件</span>
+                    <span>{formatRelativeTime(commitDetail.timestamp, undefined, locale)}</span>
+                    <span>{t("git.fileCount", locale, { count: commitDetail.files.length })}</span>
                   </div>
                   {commitDetail.body && <pre className="git-commit-detail-body">{commitDetail.body}</pre>}
                   <div className="git-commit-detail-files">
@@ -804,7 +814,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
                         type="button"
                         className={`git-commit-file-row ${commitDiffPath === file.path ? "active" : ""}`}
                         onClick={() => setCommitDiffPath((current) => (current === file.path ? null : file.path))}
-                        title={`查看 ${file.path} 的差异`}
+                        title={t("git.viewFileDiff", locale, { path: file.path })}
                       >
                         <span className="git-commit-file-path" title={file.path}>{file.path}</span>
                         <span className="git-commit-file-stats">
@@ -818,10 +828,10 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
                     <div className="git-commit-diff">
                       <div className="git-diff-header">
                         <span className="git-diff-path" title={commitDiffPath}>{commitDiffPath}</span>
-                        <button type="button" className="git-diff-close" aria-label="关闭文件差异" onClick={() => setCommitDiffPath(null)}>×</button>
+                        <button type="button" className="git-diff-close" aria-label={t("git.closeFileDiff", locale)} onClick={() => setCommitDiffPath(null)}>×</button>
                       </div>
                       {commitDiffLoading ? (
-                        <div className="git-diff-empty">加载差异…</div>
+                        <div className="git-diff-empty">{t("git.loadingDiff", locale)}</div>
                       ) : commitDiffError ? (
                         <div className="git-diff-empty">{commitDiffError}</div>
                       ) : commitDiffText && commitDiffText.trim() ? (
@@ -831,13 +841,13 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
                           ))}
                         </div>
                       ) : (
-                        <div className="git-diff-empty">该文件没有可显示的差异</div>
+                        <div className="git-diff-empty">{t("git.emptyDiff", locale)}</div>
                       )}
                     </div>
                   )}
                   <div className="git-commit-detail-actions">
                     <button type="button" disabled={copyingHash === commitDetail.hash} onClick={() => void handleCopyHash(commitDetail.hash)}>
-                      {copyingHash === commitDetail.hash ? "已复制" : "复制哈希"}
+                      {copyingHash === commitDetail.hash ? t("git.copied", locale) : t("git.copyHash", locale)}
                     </button>
                   </div>
                 </div>
@@ -848,16 +858,16 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
           {tab === "branches" && (
             <div className="git-branches">
               <div className="git-branches-toolbar">
-                <button type="button" disabled={!isRepo || busy} onClick={() => setBranchDialog({ mode: "create", value: "" })}>＋ 新建分支</button>
+                <button type="button" disabled={!isRepo || busy} onClick={() => setBranchDialog({ mode: "create", value: "" })}>＋ {t("git.newBranch", locale)}</button>
               </div>
               {branchesLoading && branches === null ? (
-                <div className="git-empty">加载分支…</div>
+                <div className="git-empty">{t("git.loadingBranches", locale)}</div>
               ) : !branches || branches.length === 0 ? (
-                <div className="git-empty">暂无分支</div>
+                <div className="git-empty">{t("git.emptyBranches", locale)}</div>
               ) : (
                 <div className="git-branches-scroll">
                   <section className="git-group git-group-local">
-                    <h4>本地分支</h4>
+                    <h4>{t("git.localBranches", locale)}</h4>
                     {branchGroups.local.map((branch) => (
                       <div key={branch.name} className={`git-branch-row ${branch.isCurrent ? "current" : ""}`}>
                         <span className="git-branch-name" title={branch.name}>
@@ -867,10 +877,10 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
                         </span>
                         <div className="git-branch-actions">
                           {!branch.isCurrent && (
-                            <button type="button" disabled={busy} title="切换到该分支" aria-label={`切换到 ${branch.name}`} onClick={() => void handleCheckout(branch)}>切换</button>
+                            <button type="button" disabled={busy} title={t("git.checkoutTitle", locale)} aria-label={t("git.checkoutBranch", locale, { name: branch.name })} onClick={() => void handleCheckout(branch)}>{t("git.checkout", locale)}</button>
                           )}
                           {!branch.isCurrent && (
-                            <button type="button" className="danger" disabled={busy} title="删除分支" aria-label={`删除 ${branch.name}`} onClick={() => setBranchDialog({ mode: "delete", branch })}>删除</button>
+                            <button type="button" className="danger" disabled={busy} title={t("git.deleteBranchTitle", locale)} aria-label={t("git.deleteBranch", locale, { name: branch.name })} onClick={() => setBranchDialog({ mode: "delete", branch })}>{t("common.delete", locale)}</button>
                           )}
                         </div>
                       </div>
@@ -878,7 +888,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
                   </section>
                   {branchGroups.remote.length > 0 && (
                     <section className="git-group git-group-remote">
-                      <h4>远程分支</h4>
+                      <h4>{t("git.remoteBranches", locale)}</h4>
                       {branchGroups.remote.map((branch) => (
                         <div key={branch.name} className={`git-branch-row ${branch.isCurrent ? "current" : ""}`}>
                           <span className="git-branch-name" title={branch.name}>
@@ -898,14 +908,15 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
 
       {commitOpen && (
         <PopupDialog
-          title="提交更改"
+          title={t("git.commitTitle", locale)}
           eyebrow="GIT / 提交"
-          description={`提交 ${status?.staged ?? 0} 个已暂存更改到 ${status?.branch ?? "当前分支"}。`}
+          locale={locale}
+          description={t("git.commitDescription", locale, { count: status?.staged ?? 0, branch: status?.branch ?? t("git.currentBranch", locale) })}
           className="popup-git-commit"
           onClose={() => setCommitOpen(false)}
           footer={<>
-            <button type="button" onClick={() => setCommitOpen(false)}>取消</button>
-            <button type="button" className="confirm" disabled={!commitMessage.trim() || busy} onClick={() => void submitCommit()}>提交</button>
+            <button type="button" onClick={() => setCommitOpen(false)}>{t("common.cancel", locale)}</button>
+            <button type="button" className="confirm" disabled={!commitMessage.trim() || busy} onClick={() => void submitCommit()}>{t("git.commitAction", locale)}</button>
           </>}
         >
           <textarea
@@ -918,47 +929,49 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
                 if (commitMessage.trim() && !busy) void submitCommit();
               }
             }}
-            placeholder="提交信息"
+            placeholder={t("git.commitPlaceholder", locale)}
             rows={4}
             autoFocus
-            aria-label="提交信息"
+            aria-label={t("git.commitPlaceholder", locale)}
           />
           <label className="git-commit-stage-all">
             <input type="checkbox" checked={commitStageAll} onChange={(event) => setCommitStageAll(event.target.checked)} />
-            <span>提交前暂存所有更改</span>
+            <span>{t("git.commitStageAll", locale)}</span>
           </label>
         </PopupDialog>
       )}
 
       {discardTarget && (
         <PopupDialog
-          title="放弃改动"
+          title={t("git.discardTitle", locale)}
           eyebrow="GIT / 放弃"
+          locale={locale}
           description={discardTarget.status === "untracked"
-            ? `未跟踪文件“${discardTarget.path}”将被删除，无法恢复。`
-            : `“${discardTarget.path}”的暂存与工作区改动将被还原，无法恢复。`}
+            ? t("git.discardUntracked", locale, { path: discardTarget.path })
+            : t("git.discardTracked", locale, { path: discardTarget.path })}
           className="popup-git-discard"
           role="alertdialog"
           onClose={() => setDiscardTarget(null)}
           footer={<>
-            <button type="button" onClick={() => setDiscardTarget(null)}>取消</button>
-            <button type="button" className="confirm danger-button" disabled={busy} onClick={() => void confirmDiscard()}>放弃</button>
+            <button type="button" onClick={() => setDiscardTarget(null)}>{t("common.cancel", locale)}</button>
+            <button type="button" className="confirm danger-button" disabled={busy} onClick={() => void confirmDiscard()}>{t("git.discardAction", locale)}</button>
           </>}
         >
-          <p className="popup-warning-copy">此操作不可撤销，请确认。</p>
+          <p className="popup-warning-copy">{t("git.discardWarning", locale)}</p>
         </PopupDialog>
       )}
 
       {branchDialog?.mode === "create" && (
         <PopupDialog
-          title="新建分支"
+          title={t("git.branchCreateTitle", locale)}
           eyebrow="GIT / 分支"
-          description="基于当前分支创建并切换到新分支。"
+          locale={locale}
+          description={t("git.branchCreateDescription", locale)}
           className="popup-git-branch-create"
           onClose={() => setBranchDialog(null)}
           footer={<>
-            <button type="button" onClick={() => setBranchDialog(null)}>取消</button>
-            <button type="button" className="confirm" disabled={!branchDialog.value.trim() || busy} onClick={() => void submitBranchCreate()}>创建并切换</button>
+            <button type="button" onClick={() => setBranchDialog(null)}>{t("common.cancel", locale)}</button>
+            <button type="button" className="confirm" disabled={!branchDialog.value.trim() || busy} onClick={() => void submitBranchCreate()}>{t("git.createAndSwitch", locale)}</button>
           </>}
         >
           {dialogChildren}
@@ -967,18 +980,19 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
 
       {branchDialog?.mode === "delete" && (
         <PopupDialog
-          title="删除分支"
+          title={t("git.branchDeleteTitle", locale)}
           eyebrow="GIT / 分支"
-          description={`本地分支“${branchDialog.branch.name}”将被强制删除，无法恢复。`}
+          locale={locale}
+          description={t("git.branchDeleteDescription", locale, { name: branchDialog.branch.name })}
           className="popup-git-branch-delete"
           role="alertdialog"
           onClose={() => setBranchDialog(null)}
           footer={<>
-            <button type="button" onClick={() => setBranchDialog(null)}>取消</button>
-            <button type="button" className="confirm danger-button" disabled={busy} onClick={() => void submitBranchDelete()}>删除</button>
+            <button type="button" onClick={() => setBranchDialog(null)}>{t("common.cancel", locale)}</button>
+            <button type="button" className="confirm danger-button" disabled={busy} onClick={() => void submitBranchDelete()}>{t("common.delete", locale)}</button>
           </>}
         >
-          <p className="popup-warning-copy">该分支未合并的提交也会一并删除，请确认。</p>
+          <p className="popup-warning-copy">{t("git.branchDeleteWarning", locale)}</p>
         </PopupDialog>
       )}
     </DockFrame>

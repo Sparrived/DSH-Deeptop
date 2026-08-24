@@ -1,27 +1,29 @@
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { DshPermissionSelect } from "../lib/desktop";
+import { t, type UiLocale } from "../app/i18n";
 
 interface PermissionPickerProps {
   permissions: DshPermissionSelect;
   onSetPermission: (value: string) => void | Promise<unknown>;
   showLabel?: boolean;
+  locale?: UiLocale;
 }
 
 type PermissionOption = DshPermissionSelect["options"][number];
 type PermissionKey = "read-only" | "workspace-write" | "danger-full-access";
 type MenuPosition = { top: number; left: number };
 
-const PERMISSION_LABELS: Record<PermissionKey, string> = {
-  "read-only": "只读",
-  "workspace-write": "工作区可写",
-  "danger-full-access": "完全访问",
+const PERMISSION_LABEL_KEYS: Record<PermissionKey, string> = {
+  "read-only": "permission.label.readOnly",
+  "workspace-write": "permission.label.workspaceWrite",
+  "danger-full-access": "permission.label.dangerFullAccess",
 };
 
-const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
-  "read-only": "可读取和分析内容，不写入文件。",
-  "workspace-write": "可读取并修改当前工作区文件，限制工作区外操作。",
-  "danger-full-access": "可执行不受限制的文件与外部操作。",
+const PERMISSION_DESCRIPTION_KEYS: Record<PermissionKey, string> = {
+  "read-only": "permission.description.readOnly",
+  "workspace-write": "permission.description.workspaceWrite",
+  "danger-full-access": "permission.description.dangerFullAccess",
 };
 
 const PERMISSION_ORDER: PermissionKey[] = ["read-only", "workspace-write", "danger-full-access"];
@@ -44,17 +46,17 @@ function visiblePermissionOptions(options: PermissionOption[]) {
     .filter((option): option is PermissionOption => Boolean(option));
 }
 
-export function permissionLabel(option: PermissionOption | undefined) {
+export function permissionLabel(option: PermissionOption | undefined, locale: UiLocale = "zh") {
   const key = permissionKey(option);
-  return key ? PERMISSION_LABELS[key] : "选择权限";
+  return key ? t(PERMISSION_LABEL_KEYS[key], locale) : t("permission.label.select", locale);
 }
 
-export function permissionDescription(option: PermissionOption | undefined) {
+export function permissionDescription(option: PermissionOption | undefined, locale: UiLocale = "zh") {
   const key = permissionKey(option);
-  return key ? PERMISSION_DESCRIPTIONS[key] : option?.description ?? "";
+  return key ? t(PERMISSION_DESCRIPTION_KEYS[key], locale) : option?.description ?? "";
 }
 
-export function PermissionPicker({ permissions, onSetPermission, showLabel = false }: PermissionPickerProps) {
+export function PermissionPicker({ permissions, onSetPermission, showLabel = false, locale = "zh" }: PermissionPickerProps) {
   const pickerRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -177,7 +179,7 @@ export function PermissionPicker({ permissions, onSetPermission, showLabel = fal
     id={menuId}
     className="permission-menu"
     role="listbox"
-    aria-label="权限选项"
+    aria-label={t("permission.menuAria", locale)}
     tabIndex={-1}
     onKeyDown={handleMenuKeyDown}
     style={{ top: menuPosition.top, left: menuPosition.left, visibility: menuReady ? "visible" : "hidden" }}
@@ -191,15 +193,15 @@ export function PermissionPicker({ permissions, onSetPermission, showLabel = fal
         type="button"
         role="option"
         aria-selected={selected}
-        aria-label={`${permissionLabel(option)}：${permissionDescription(option)}`}
+        aria-label={t("permission.optionAria", locale, { label: permissionLabel(option, locale), description: permissionDescription(option, locale) })}
         tabIndex={index === focusedIndex ? 0 : -1}
         key={option.value}
         onMouseEnter={() => setFocusedIndex(index)}
         onClick={() => choosePermission(option.value)}
       >
         <span className="permission-menu-option-copy">
-          <strong>{permissionLabel(option)}</strong>
-          <small>{permissionDescription(option)}</small>
+          <strong>{permissionLabel(option, locale)}</strong>
+          <small>{permissionDescription(option, locale)}</small>
         </span>
         <span className="permission-menu-check" aria-hidden="true">{selected ? "✓" : ""}</span>
       </button>;
@@ -207,21 +209,21 @@ export function PermissionPicker({ permissions, onSetPermission, showLabel = fal
   </div>;
 
   return <div className={`permission-picker${showLabel ? " with-label" : " surface-permission-picker"}`} ref={pickerRef}>
-    {showLabel && <span className="permission-picker-caption">权限</span>}
+    {showLabel && <span className="permission-picker-caption">{t("permission.caption", locale)}</span>}
     <button
       ref={triggerRef}
       className={`permission-picker-trigger${permissionKey(currentOption) === "danger-full-access" ? " danger" : ""}`}
       type="button"
-      aria-label={`当前权限：${permissionLabel(currentOption)}`}
+      aria-label={t("permission.currentAria", locale, { label: permissionLabel(currentOption, locale) })}
       aria-haspopup="listbox"
       aria-controls={open ? menuId : undefined}
       aria-expanded={open}
-      title={permissionDescription(currentOption) || "选择 DSH 权限"}
+      title={permissionDescription(currentOption, locale) || t("permission.selectDsh", locale)}
       onClick={() => open ? closePicker() : openPicker()}
       onKeyDown={handleTriggerKeyDown}
     >
       <span className="permission-picker-status" aria-hidden="true" />
-      <span className="permission-picker-label">{permissionLabel(currentOption)}</span>
+      <span className="permission-picker-label">{permissionLabel(currentOption, locale)}</span>
       <span className="permission-picker-chevron" aria-hidden="true">⌄</span>
     </button>
     {menu && typeof document !== "undefined" ? createPortal(menu, document.body) : null}

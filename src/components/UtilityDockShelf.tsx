@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode } from "react";
+import { t, type UiLocale } from "../app/i18n";
 
 type UtilityDockId = "tasks" | "todo" | "deliverables" | "subagent";
 
@@ -8,12 +9,13 @@ type UtilityDockShelfProps = {
   deliverables?: ReactNode;
   subagent?: ReactNode;
   order?: readonly UtilityDockId[];
+  locale?: UiLocale;
 };
 
 const defaultOrder: readonly UtilityDockId[] = ["tasks", "todo", "deliverables", "subagent"];
 
 /** Owns the canonical order and shared right-side layout boundary for utility docks. */
-export function UtilityDockShelf({ tasks, todo, deliverables, subagent, order = defaultOrder }: UtilityDockShelfProps) {
+export function UtilityDockShelf({ tasks, todo, deliverables, subagent, order = defaultOrder, locale = "zh" }: UtilityDockShelfProps) {
   const contents: Record<UtilityDockId, ReactNode | undefined> = { tasks, todo, deliverables, subagent };
   const visible = order
     .map((id) => ({ id, content: contents[id] }))
@@ -21,7 +23,7 @@ export function UtilityDockShelf({ tasks, todo, deliverables, subagent, order = 
   if (visible.length === 0) return null;
 
   return (
-    <div className="utility-panel-shelf" aria-label="当前会话面板">
+    <div className="utility-panel-shelf" aria-label={t("dock.shelfAria", locale)}>
       {visible.map(({ id, content }) => <Fragment key={id}>{content}</Fragment>)}
     </div>
   );

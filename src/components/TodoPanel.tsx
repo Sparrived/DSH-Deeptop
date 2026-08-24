@@ -1,10 +1,25 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useFloatingMenuPosition } from "../app/useFloatingMenuPosition";
-import { errorText, formatDurationMs, jobDuration, jobStatusLabel, todoDuration, todoStatusLabel, type TodoItem } from "../app/model";
+import { errorText, formatDurationMs, jobDuration, todoDuration, type TodoItem } from "../app/model";
+import { t, type UiLocale } from "../app/i18n";
 import { writeClipboard, type DshJob } from "../lib/desktop";
 import { TASK_CONTEXT_MENU_SELECTOR } from "../app/context-menu";
 import { DockFrame } from "./DockFrame";
+
+function taskStatusLabel(status: DshJob["status"], locale: UiLocale) {
+  if (status === "running") return t("todo.running", locale);
+  if (status === "stopping") return t("todo.stopping", locale);
+  if (status === "completed") return t("todo.completed", locale);
+  if (status === "killed") return t("todo.killed", locale);
+  return t("todo.failed", locale);
+}
+
+function todoStatusLabel(status: TodoItem["status"], locale: UiLocale) {
+  if (status === "completed") return t("todo.completed", locale);
+  if (status === "in_progress") return t("todo.inProgress", locale);
+  return t("todo.pending", locale);
+}
 
 type TodoCounts = {
   completed: number;
@@ -19,6 +34,7 @@ type TodoPanelProps = {
   now: number;
   turnStartedAt?: number;
   turnFinishedAt?: number;
+  locale?: UiLocale;
   onToggle: () => void;
 };
 
@@ -26,6 +42,7 @@ type TaskPanelProps = {
   jobs: DshJob[];
   collapsed: boolean;
   now: number;
+  locale?: UiLocale;
   onToggle: () => void;
 };
 
@@ -35,7 +52,7 @@ type TaskContextMenu = {
   job: DshJob;
 };
 
-export function TaskPanel({ jobs, collapsed, now, onToggle }: TaskPanelProps) {
+export function TaskPanel({ jobs, collapsed, now, locale = "zh", onToggle }: TaskPanelProps) {
   const liveCount = jobs.filter((job) => job.status === "running" || job.status === "stopping").length;
   const [contextMenu, setContextMenu] = useState<TaskContextMenu | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
@@ -85,9 +102,9 @@ export function TaskPanel({ jobs, collapsed, now, onToggle }: TaskPanelProps) {
       id="tasks-dock"
       className="task-panel"
       collapsed={collapsed}
-      label="当前会话任务"
-      title="任务"
-      kicker="当前会话"
+      label={t("todo.label", locale)}
+      title={t("todo.title", locale)}
+      kicker={t("common.currentSession", locale)}
       icon="▦"
       onToggle={onToggle}
       railClassName="task-panel-rail"
@@ -101,7 +118,7 @@ export function TaskPanel({ jobs, collapsed, now, onToggle }: TaskPanelProps) {
       toggleClassName="task-panel-toggle"
       bodyClassName="task-panel-body"
     >
-      <div className="task-panel-summary"><span className="live">{liveCount} 进行中</span><span>{jobs.length} 项任务</span>{copyState === "copied" && <span className="task-copy-status">指令已复制</span>}{copyState === "failed" && <span className="task-copy-status failed">复制失败</span>}</div>
+      <div className="task-panel-summary"><span className="live">{t("todo.inProgressCount", locale, { count: liveCount })}</span><span>{t("todo.tasksCount", locale, { count: jobs.length })}</span>{copyState === "copied" && <span className="task-copy-status">{t("todo.copied", locale)}</span>}{copyState === "failed" && <span className="task-copy-status failed">{t("todo.copyFailed", locale)}</span>}</div>
       <ol className="task-list">{orderedJobs.map((job) => <li
         className={`task-item ${job.status}`}
         key={job.id}
@@ -110,7 +127,7 @@ export function TaskPanel({ jobs, collapsed, now, onToggle }: TaskPanelProps) {
           event.stopPropagation();
           setContextMenu({ x: event.clientX, y: event.clientY, job });
         }}
-      ><span className="task-item-status" aria-label={jobStatusLabel(job.status)} /><div className="task-item-copy"><strong>{job.label || job.kind}</strong><small>{jobStatusLabel(job.status)} · {jobDuration(job, now)}</small>{job.detail && <p>{job.detail}</p>}</div></li>)}</ol>
+      ><span className="task-item-status" aria-label={taskStatusLabel(job.status, locale)} /><div className="task-item-copy"><strong>{job.label || job.kind}</strong><small>{taskStatusLabel(job.status, locale)} · {jobDuration(job, now)}</small>{job.detail && <p>{job.detail}</p>}</div></li>)}</ol>
       {menu && createPortal(
         <div
           className={TASK_CONTEXT_MENU_SELECTOR.slice(1)}
@@ -120,7 +137,7 @@ export function TaskPanel({ jobs, collapsed, now, onToggle }: TaskPanelProps) {
           onPointerDown={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.preventDefault()}
         >
-          <button type="button" role="menuitem" onClick={handleCopyCommand}>复制指令</button>
+          <button type="button" role="menuitem" onClick={handleCopyCommand}>{t("todo.copyCommand", locale)}</button>
         </div>,
         document.body,
       )}
@@ -128,7 +145,7 @@ export function TaskPanel({ jobs, collapsed, now, onToggle }: TaskPanelProps) {
   );
 }
 
-export function TodoPanel({ todos, collapsed, counts, now, turnStartedAt, turnFinishedAt, onToggle }: TodoPanelProps) {
+export function TodoPanel({ todos, collapsed, counts, now, turnStartedAt, turnFinishedAt, locale = "zh", onToggle }: TodoPanelProps) {
   const turnDuration = turnStartedAt === undefined
     ? undefined
     : formatDurationMs(Math.max(0, (turnFinishedAt ?? now) - turnStartedAt));
@@ -137,9 +154,9 @@ export function TodoPanel({ todos, collapsed, counts, now, turnStartedAt, turnFi
       id="todo-dock"
       className="todo-panel"
       collapsed={collapsed}
-      label="当前会话任务清单"
-      title="任务清单"
-      kicker="当前会话"
+      label={t("todo.listLabel", locale)}
+      title={t("todo.listTitle", locale)}
+      kicker={t("common.currentSession", locale)}
       icon="✓"
       total={`${counts.completed}/${todos.length}`}
       onToggle={onToggle}
@@ -155,14 +172,14 @@ export function TodoPanel({ todos, collapsed, counts, now, turnStartedAt, turnFi
       bodyClassName="todo-panel-body"
     >
       <div className="todo-panel-summary">
-        <div className="todo-progress-track" aria-label={`已完成 ${counts.completed} 项，共 ${todos.length} 项`}>
+        <div className="todo-progress-track" aria-label={t("todo.progressAria", locale, { completed: counts.completed, total: todos.length })}>
           <i style={{ width: `${todos.length ? (counts.completed / todos.length) * 100 : 0}%` }} />
         </div>
         <div className="todo-panel-counts">
-          <span className="completed">{counts.completed} 已完成</span>
-          <span className="in-progress">{counts.inProgress} 进行中</span>
-          <span className="pending">{counts.pending} 待处理</span>
-          {turnDuration !== undefined && <span className="turn-duration" title="本轮任务耗时">本轮 {turnDuration}</span>}
+          <span className="completed">{t("todo.completedCount", locale, { count: counts.completed })}</span>
+          <span className="in-progress">{t("todo.inProgressCount", locale, { count: counts.inProgress })}</span>
+          <span className="pending">{t("todo.pendingCount", locale, { count: counts.pending })}</span>
+          {turnDuration !== undefined && <span className="turn-duration" title={t("todo.turnDurationTitle", locale)}>{t("todo.turnDuration", locale, { duration: turnDuration })}</span>}
         </div>
       </div>
       <ol className="todo-list">
@@ -171,11 +188,11 @@ export function TodoPanel({ todos, collapsed, counts, now, turnStartedAt, turnFi
           return (
             <li className={`todo-item ${item.status}`} key={item.id ?? `${index}-${item.content}`}>
               <span className="todo-item-index">{String(index + 1).padStart(2, "0")}</span>
-              <span className={`todo-item-status ${item.status}`} aria-label={todoStatusLabel(item.status)}>{item.status === "completed" ? "✓" : item.status === "in_progress" ? "·" : ""}</span>
+              <span className={`todo-item-status ${item.status}`} aria-label={todoStatusLabel(item.status, locale)}>{item.status === "completed" ? "✓" : item.status === "in_progress" ? "·" : ""}</span>
               <span className="todo-item-content">{item.content}</span>
               <span className={`todo-item-meta ${item.status}`}>
-                <span className="todo-item-label">{todoStatusLabel(item.status)}</span>
-                {duration !== undefined && <span className="todo-item-duration" title={`${item.status === "completed" ? "任务耗时" : "已用时"} ${duration}`}>{duration}</span>}
+                <span className="todo-item-label">{todoStatusLabel(item.status, locale)}</span>
+                {duration !== undefined && <span className="todo-item-duration" title={`${t(item.status === "completed" ? "todo.taskDuration" : "todo.elapsed", locale)} ${duration}`}>{duration}</span>}
               </span>
             </li>
           );

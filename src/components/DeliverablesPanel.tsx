@@ -1,4 +1,5 @@
 import { pathBasename, type TranscriptItem } from "../app/model";
+import { t, type UiLocale } from "../app/i18n";
 import type { DshSessionSummary } from "../lib/desktop";
 import { DockFrame } from "./DockFrame";
 
@@ -6,6 +7,7 @@ type DeliverablesPanelProps = {
   item: TranscriptItem;
   activeSession: DshSessionSummary | null;
   collapsed: boolean;
+  locale?: UiLocale;
   onToggle: () => void;
   onOpenSessionPath: (path: string) => void | Promise<void>;
 };
@@ -17,15 +19,15 @@ function fileTypeLabel(path: string) {
   return name.slice(dot + 1).toUpperCase().slice(0, 6);
 }
 
-function fileDirectory(path: string) {
+function fileDirectory(path: string, locale: UiLocale) {
   const normalized = path.replace(/[\\/]+$/, "");
   const separator = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
-  if (separator < 0) return "工作目录";
+  if (separator < 0) return t("deliverables.workspaceDir", locale);
   const directory = normalized.slice(0, separator);
-  return directory || "工作目录";
+  return directory || t("deliverables.workspaceDir", locale);
 }
 
-export function DeliverablesPanel({ item, activeSession, collapsed, onToggle, onOpenSessionPath }: DeliverablesPanelProps) {
+export function DeliverablesPanel({ item, activeSession, collapsed, locale = "zh", onToggle, onOpenSessionPath }: DeliverablesPanelProps) {
   const files = item.files ?? [];
   const fileDiffs = item.fileDiffs ?? {};
   const diffTotals = Object.values(fileDiffs).reduce(
@@ -38,12 +40,12 @@ export function DeliverablesPanel({ item, activeSession, collapsed, onToggle, on
       id="deliverables-dock"
       className="deliverables-panel"
       collapsed={collapsed}
-      label="生成文件"
-      title="生成文件"
-      kicker="本回合写入"
+      label={t("deliverables.title", locale)}
+      title={t("deliverables.title", locale)}
+      kicker={t("deliverables.kicker", locale)}
       icon={null}
       markClassName="deliverables-mark"
-      total={`${files.length} 个文件`}
+      total={t("deliverables.fileCount", locale, { count: files.length })}
       onToggle={onToggle}
       railClassName="deliverables-panel-rail"
       cardClassName="deliverables-panel-card"
@@ -56,23 +58,23 @@ export function DeliverablesPanel({ item, activeSession, collapsed, onToggle, on
       bodyClassName="deliverables-panel-body"
     >
       <div className="deliverables-panel-summary">
-        <span className="live">{files.length} 个文件</span>
-        <span className="deliverables-diff-total" aria-label={`总 diff ${totalDiffLines} 行，新增 ${diffTotals.added} 行，删除 ${diffTotals.removed} 行`}>
-          总 diff {totalDiffLines} 行
+        <span className="live">{t("deliverables.fileCount", locale, { count: files.length })}</span>
+        <span className="deliverables-diff-total" aria-label={t("deliverables.diffAria", locale, { lines: totalDiffLines, added: diffTotals.added, removed: diffTotals.removed })}>
+          {t("deliverables.diffTotal", locale, { lines: totalDiffLines })}
           <b className="diff-added">+{diffTotals.added}</b>
           <b className="diff-removed">−{diffTotals.removed}</b>
         </span>
-        <span>本回合写入工作区</span>
+        <span>{t("deliverables.writtenToWorkspace", locale)}</span>
       </div>
       <div className="deliverables-panel-files">
         <div className="deliverables-files">
           {files.map((path) => {
             const diff = fileDiffs[path];
             return (
-              <button className="deliverable-file" type="button" key={`${item.key}-${path}`} onClick={() => void onOpenSessionPath(path)} title={path} aria-label={`打开 ${path}${diff ? `，新增 ${diff.added} 行，删除 ${diff.removed} 行` : ""}`}>
+              <button className="deliverable-file" type="button" key={`${item.key}-${path}`} onClick={() => void onOpenSessionPath(path)} title={path} aria-label={diff ? t("deliverables.openFileAriaDetailed", locale, { path, added: diff.added, removed: diff.removed }) : t("deliverables.openFileAria", locale, { path })}>
                 <span className="deliverable-file-type" aria-hidden="true">{fileTypeLabel(path)}</span>
-                <span className="deliverable-file-copy"><strong>{pathBasename(path)}</strong><small>{fileDirectory(path)}</small></span>
-                {diff && <span className="deliverable-file-diff" aria-label={`新增 ${diff.added} 行，删除 ${diff.removed} 行`}><b>+{diff.added}</b><b>−{diff.removed}</b></span>}
+                <span className="deliverable-file-copy"><strong>{pathBasename(path)}</strong><small>{fileDirectory(path, locale)}</small></span>
+                {diff && <span className="deliverable-file-diff" aria-label={t("deliverables.addedRemoved", locale, { added: diff.added, removed: diff.removed })}><b>+{diff.added}</b><b>−{diff.removed}</b></span>}
                 <span className="deliverable-file-open" aria-hidden="true">↗</span>
               </button>
             );
@@ -82,7 +84,7 @@ export function DeliverablesPanel({ item, activeSession, collapsed, onToggle, on
       {activeSession?.cwd && (
         <div className="deliverables-actions">
           <button type="button" className="deliverables-folder" onClick={() => void onOpenSessionPath(".")}>
-            <span className="folder-icon" aria-hidden="true" />在文件夹中显示
+            <span className="folder-icon" aria-hidden="true" />{t("deliverables.showInFolder", locale)}
           </button>
         </div>
       )}

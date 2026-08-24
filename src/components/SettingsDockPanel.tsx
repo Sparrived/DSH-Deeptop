@@ -1,34 +1,37 @@
 import type { DockSettings } from "../lib/desktop";
+import { t, type UiLocale } from "../app/i18n";
 
 type SettingsDockPanelProps = {
   settings: DockSettings;
   loaded: boolean;
   updating: boolean;
   onUpdate: (patch: Partial<DockSettings>) => void | Promise<void>;
+  /** 界面语言；可选，默认 "zh"，保持向后兼容。 */
+  locale?: UiLocale;
 };
 
-export function SettingsDockPanel({ settings, loaded, updating, onUpdate }: SettingsDockPanelProps) {
+export function SettingsDockPanel({ settings, loaded, updating, onUpdate, locale = "zh" }: SettingsDockPanelProps) {
   return (
     <div className="settings-page">
       <div className="settings-page-header">
         <div>
           <span className="settings-overline">DOCK</span>
-          <h2>Dock</h2>
-          <p>管理展开面板的交互行为和位置。</p>
+          <h2>{t("settings.dock", locale)}</h2>
+          <p>{t("dock.subtitle", locale)}</p>
         </div>
       </div>
 
       <div className="settings-block">
         <div className="settings-block-heading">
           <div>
-            <h3>展开框行为</h3>
-            <p>控制 Dock 展开后点击其他区域时是否自动收起。默认关闭，关闭后可继续通过收起按钮或窄栏收起。</p>
+            <h3>{t("dock.behaviorTitle", locale)}</h3>
+            <p>{t("dock.behaviorHint", locale)}</p>
           </div>
         </div>
         <div className="settings-preference-list">
           <div className="settings-preference-row">
-            <span><strong>点击外部区域自动收起</strong><small>点击展开框以外的应用区域后收起当前 Dock</small></span>
-            <label className="settings-plugin-toggle" aria-label="点击外部区域自动收起">
+            <span><strong>{t("dock.autoCollapse", locale)}</strong><small>{t("dock.autoCollapseHint", locale)}</small></span>
+            <label className="settings-plugin-toggle" aria-label={t("dock.autoCollapse", locale)}>
               <input
                 type="checkbox"
                 checked={settings.autoCollapseOnOutsideClick}
@@ -44,8 +47,8 @@ export function SettingsDockPanel({ settings, loaded, updating, onUpdate }: Sett
       <div className="settings-block">
         <div className="settings-block-heading">
           <div>
-            <h3>位置</h3>
-            <p>展开框支持拖拽标题栏移动，位置会自动记忆。还原位置按钮位于每个展开框标题栏。</p>
+            <h3>{t("dock.positionTitle", locale)}</h3>
+            <p>{t("dock.positionHint", locale)}</p>
           </div>
         </div>
       </div>
@@ -53,8 +56,8 @@ export function SettingsDockPanel({ settings, loaded, updating, onUpdate }: Sett
       <div className="settings-block">
         <div className="settings-block-heading">
           <div>
-            <h3>钉住</h3>
-            <p>标题栏的图钉按钮把展开框固定到窗口边缘的常驻分栏：对话内容自动让位，不再遮挡消息，面板高度随窗口拉伸。钉住期间禁用拖拽与还原位置，点击外部也不会自动收起；再次点击图钉恢复浮动卡片。</p>
+            <h3>{t("dock.pinTitle", locale)}</h3>
+            <p>{t("dock.pinHint", locale)}</p>
           </div>
         </div>
       </div>

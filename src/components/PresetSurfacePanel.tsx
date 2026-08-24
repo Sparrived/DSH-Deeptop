@@ -1,4 +1,5 @@
 import { presetDescription, presetDisplayName } from "../app/model";
+import { t, type UiLocale } from "../app/i18n";
 import type { DshPreset } from "../lib/desktop";
 
 type AsyncAction = () => void | Promise<unknown>;
@@ -20,6 +21,7 @@ interface PresetSurfacePanelProps {
   authorable: boolean;
   copy: InspectorPresetCopy | null;
   view: InspectorPresetView | null;
+  locale?: UiLocale;
   onSetDefault: (id: string) => void | Promise<unknown>;
   onRead: (id: string) => void | Promise<unknown>;
   onOpenDocument: (id: string) => void | Promise<unknown>;
@@ -37,6 +39,7 @@ export function PresetSurfacePanel({
   authorable,
   copy,
   view,
+  locale = "zh",
   onSetDefault,
   onRead,
   onOpenDocument,
@@ -48,21 +51,21 @@ export function PresetSurfacePanel({
   onRemove,
 }: PresetSurfacePanelProps) {
   return <div className="surface-content">
-    <div className="surface-intro"><strong>Agent Preset</strong><p>Preset 决定会话 Agent 所运行的工具、提示词和能力。新会话 chip 与设置页共享同一份名单。</p></div>
-    <label className="surface-field">新会话默认
+    <div className="surface-intro"><strong>Agent Preset</strong><p>{t("presets.intro", locale)}</p></div>
+    <label className="surface-field">{t("presets.defaultLabel", locale)}
       <select disabled={writable === false} value={presets.find((preset) => preset.isDefault)?.id || ""} onChange={(event) => void onSetDefault(event.target.value)}>
-        {presets.filter((preset) => !preset.broken).map((preset) => <option value={preset.id} key={preset.id}>{presetDisplayName(preset.id, presets)}</option>)}
+        {presets.filter((preset) => !preset.broken).map((preset) => <option value={preset.id} key={preset.id}>{presetDisplayName(preset.id, presets, locale)}</option>)}
       </select>
     </label>
     <div className="surface-list">{presets.map((preset) => (
       <div className="surface-row" key={preset.id}>
-        <div><strong>{presetDisplayName(preset.id, presets)}</strong><small>{preset.id} · {preset.trust}{preset.isDefault ? " · 默认" : ""}</small><p>{presetDescription(preset)}</p>{preset.broken && <p className="surface-error">{preset.broken}</p>}</div>
-        <div className="surface-row-actions">{!preset.broken && <button onClick={() => void onRead(preset.id)} title="查看组合内容">查看</button>}{preset.trust === "user" && <button onClick={() => void onOpenDocument(preset.id)} title="打开 Preset 文件夹">打开</button>}<button disabled={!authorable || Boolean(preset.broken)} onClick={() => onBeginCopy(preset.id)} title="复制 Preset">复制</button>{preset.trust === "user" && <button onClick={() => void onRemove(preset.id)} title="删除 Preset">删除</button>}</div>
+        <div><strong>{presetDisplayName(preset.id, presets, locale)}</strong><small>{preset.id} · {preset.trust}{preset.isDefault ? t("presets.defaultTag", locale) : ""}</small><p>{presetDescription(preset, locale)}</p>{preset.broken && <p className="surface-error">{preset.broken}</p>}</div>
+        <div className="surface-row-actions">{!preset.broken && <button onClick={() => void onRead(preset.id)} title={t("presets.viewTitle", locale)}>{t("presets.view", locale)}</button>}{preset.trust === "user" && <button onClick={() => void onOpenDocument(preset.id)} title={t("presets.openTitle", locale)}>{t("common.open", locale)}</button>}<button disabled={!authorable || Boolean(preset.broken)} onClick={() => onBeginCopy(preset.id)} title={t("presets.copyTitle", locale)}>{t("common.copy", locale)}</button>{preset.trust === "user" && <button onClick={() => void onRemove(preset.id)} title={t("presets.deleteTitle", locale)}>{t("common.delete", locale)}</button>}</div>
       </div>
     ))}</div>
-    {!authorable && <p className="surface-muted">当前 Profile 未开放用户 Preset 创建。</p>}
-    {authorable && <p className="surface-muted">可复制现有 Preset 创建用户组合；编辑仍由 DSH Host 负责打开本地文件。</p>}
-    {copy && <div className="surface-dialog"><strong>复制 {copy.from}</strong><input placeholder="新 Preset id" value={copy.id} onChange={(event) => onCopyChange({ id: event.target.value })} /><input placeholder="显示名称（可选）" value={copy.name} onChange={(event) => onCopyChange({ name: event.target.value })} /><div className="surface-dialog-actions"><button onClick={onCancelCopy}>取消</button><button className="confirm" disabled={!copy.id.trim()} onClick={() => void onCopy()}>创建</button></div></div>}
-    {view && <div className="surface-dialog"><strong>{view.id} / agent.cordis.yml</strong><pre className="surface-code">{view.content}</pre><button onClick={onCloseView}>关闭</button></div>}
+    {!authorable && <p className="surface-muted">{t("presets.notAuthorable", locale)}</p>}
+    {authorable && <p className="surface-muted">{t("presets.authorableHint", locale)}</p>}
+    {copy && <div className="surface-dialog"><strong>{t("presets.copyDialog", locale, { from: copy.from })}</strong><input placeholder={t("presets.idPlaceholder", locale)} value={copy.id} onChange={(event) => onCopyChange({ id: event.target.value })} /><input placeholder={t("presets.namePlaceholder", locale)} value={copy.name} onChange={(event) => onCopyChange({ name: event.target.value })} /><div className="surface-dialog-actions"><button onClick={onCancelCopy}>{t("common.cancel", locale)}</button><button className="confirm" disabled={!copy.id.trim()} onClick={() => void onCopy()}>{t("presets.create", locale)}</button></div></div>}
+    {view && <div className="surface-dialog"><strong>{view.id} / agent.cordis.yml</strong><pre className="surface-code">{view.content}</pre><button onClick={onCloseView}>{t("common.close", locale)}</button></div>}
   </div>;
 }

@@ -1,5 +1,6 @@
 import type { FormEvent } from "react";
 import type { PetAttention, PetSessionTarget } from "../lib/desktop";
+import { t, type UiLocale } from "../app/i18n";
 
 interface PetNoticeCardProps {
   activities: readonly PetAttention[];
@@ -8,6 +9,7 @@ interface PetNoticeCardProps {
   draft: string;
   busy: boolean;
   error: string | null;
+  locale?: UiLocale;
   onDraftChange: (value: string) => void;
   onClose: () => void;
   onSelect: (activityId: string) => void;
@@ -18,20 +20,20 @@ interface PetNoticeCardProps {
   onCare?: () => void;
 }
 
-function attentionLabel(attention?: PetAttention): string {
-  if (!attention) return "快捷回复";
-  if (attention.kind === "approval") return "等你确认";
-  if (attention.kind === "question") return "等待回答";
-  if (attention.kind === "failed") return "任务失败";
-  if (attention.kind === "running") return "正在运行";
-  return "任务完成";
+function attentionLabel(attention: PetAttention | undefined, locale: UiLocale): string {
+  if (!attention) return t("pet.notice.quickReply", locale);
+  if (attention.kind === "approval") return t("pet.notice.awaitingConfirm", locale);
+  if (attention.kind === "question") return t("pet.notice.waitingAnswer", locale);
+  if (attention.kind === "failed") return t("pet.notice.taskFailed", locale);
+  if (attention.kind === "running") return t("pet.notice.running", locale);
+  return t("pet.notice.taskCompleted", locale);
 }
 
-function activityListLabel(attention: PetAttention): string {
-  if (attention.kind === "approval" || attention.kind === "question") return "需要输入";
-  if (attention.kind === "failed") return "已阻塞";
-  if (attention.kind === "completed") return "已完成";
-  return "运行中";
+function activityListLabel(attention: PetAttention, locale: UiLocale): string {
+  if (attention.kind === "approval" || attention.kind === "question") return t("pet.notice.needsInput", locale);
+  if (attention.kind === "failed") return t("pet.notice.blocked", locale);
+  if (attention.kind === "completed") return t("pet.notice.completed", locale);
+  return t("pet.notice.inProgress", locale);
 }
 
 /** 独立桌宠的紧凑操作卡；仅发出语义动作，不直接调用 DSH。 */
@@ -42,6 +44,7 @@ export function PetNoticeCard({
   draft,
   busy,
   error,
+  locale = "zh",
   onDraftChange,
   onClose,
   onSelect,
@@ -60,8 +63,8 @@ export function PetNoticeCard({
     || (isQuestion && attention.canReply);
   const waitingCount = activities.filter((item) => item.kind !== "running").length;
   const headerLabel = activities.length > 1
-    ? waitingCount > 0 ? `${waitingCount} 个会话待处理` : `${activities.length} 个会话运行中`
-    : attentionLabel(attention);
+    ? waitingCount > 0 ? t("pet.notice.waitingCount", locale, { count: waitingCount }) : t("pet.notice.runningCount", locale, { count: activities.length })
+    : attentionLabel(attention, locale);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const value = draft.trim();
@@ -75,12 +78,12 @@ export function PetNoticeCard({
       <header className="pet-notice-header">
         <span className="pet-notice-status"><i aria-hidden="true" />{headerLabel}</span>
         <span className="pet-notice-header-actions">
-          {onCare && <button type="button" className="pet-notice-care-switch" onClick={onCare}>照顾</button>}
-          <button type="button" className="pet-notice-close" onClick={onClose} aria-label="收起快捷卡片">×</button>
+          {onCare && <button type="button" className="pet-notice-care-switch" onClick={onCare}>{t("pet.notice.care", locale)}</button>}
+          <button type="button" className="pet-notice-close" onClick={onClose} aria-label={t("pet.notice.aria.collapseQuick", locale)}>×</button>
         </span>
       </header>
       {activities.length > 1 && (
-        <nav className="pet-activity-list" aria-label="会话活动">
+        <nav className="pet-activity-list" aria-label={t("pet.notice.aria.activities", locale)}>
           {activities.map((item) => (
             <button
               type="button"
@@ -90,23 +93,23 @@ export function PetNoticeCard({
               onClick={() => onSelect(item.id)}
               disabled={busy}
             >
-              <span><i aria-hidden="true" /><strong>{item.title}</strong><small>{activityListLabel(item)}</small></span>
+              <span><i aria-hidden="true" /><strong>{item.title}</strong><small>{activityListLabel(item, locale)}</small></span>
               <em>{item.message}</em>
             </button>
           ))}
         </nav>
       )}
       <button type="button" className="pet-notice-session" onClick={onOpen} disabled={busy}>
-        <strong>{target.title}</strong><span>打开会话</span>
+        <strong>{target.title}</strong><span>{t("pet.notice.openSession", locale)}</span>
       </button>
       <p className="pet-notice-message">
-        {attention?.message ?? "不用切回主窗口，也可以直接向这个会话追加一条消息。"}
+        {attention?.message ?? t("pet.notice.appendMessageHint", locale)}
       </p>
       {attention?.toolName && <code className="pet-notice-tool">{attention.toolName}</code>}
       {isApproval && (
         <div className="pet-notice-actions pet-notice-approval-actions">
-          <button type="button" onClick={() => onApproval(false)} disabled={busy}>先不用</button>
-          <button type="button" className="confirm" onClick={() => onApproval(true)} disabled={busy}>继续</button>
+          <button type="button" onClick={() => onApproval(false)} disabled={busy}>{t("pet.notice.skip", locale)}</button>
+          <button type="button" className="confirm" onClick={() => onApproval(true)} disabled={busy}>{t("pet.notice.continue", locale)}</button>
         </div>
       )}
       {isQuestion && attention.options.length > 0 && (
@@ -121,21 +124,21 @@ export function PetNoticeCard({
           <textarea
             value={draft}
             onChange={(event) => onDraftChange(event.target.value)}
-            placeholder={isQuestion ? "输入回答…" : "继续追问…"}
+            placeholder={isQuestion ? t("pet.notice.replyPlaceholder", locale) : t("pet.notice.followupPlaceholder", locale)}
             maxLength={4000}
             rows={2}
             disabled={busy}
-            aria-label={isQuestion ? "快捷回答" : "快捷回复"}
+            aria-label={isQuestion ? t("pet.notice.aria.quickAnswer", locale) : t("pet.notice.quickReply", locale)}
           />
           <button type="submit" className="confirm" disabled={busy || !draft.trim()}>
-            {busy ? "处理中" : isQuestion ? "回答" : "发送"}
+            {busy ? t("pet.notice.processing", locale) : isQuestion ? t("pet.notice.answer", locale) : t("pet.notice.send", locale)}
           </button>
         </form>
       )}
       {isQuestion && !attention.canReply && (
-        <p className="pet-notice-hint">包含多个问题，请打开会话逐项回答。</p>
+        <p className="pet-notice-hint">{t("pet.notice.multiQuestionHint", locale)}</p>
       )}
-      {isRunning && <p className="pet-notice-hint">处理结束后会在这里显示最后一段回复。</p>}
+      {isRunning && <p className="pet-notice-hint">{t("pet.notice.lastReplyHint", locale)}</p>}
       {error && <p className="pet-notice-error">{error}</p>}
     </section>
   );

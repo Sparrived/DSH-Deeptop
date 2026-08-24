@@ -13,6 +13,7 @@ import {
   type WorkspaceGitStatus,
 } from "../lib/desktop";
 import { errorText } from "../app/model";
+import { t, type UiLocale } from "../app/i18n";
 import { WORKSPACE_FILES_CONTEXT_MENU_SELECTOR } from "../app/context-menu";
 import { useFloatingMenuPosition } from "../app/useFloatingMenuPosition";
 import { DockFrame } from "./DockFrame";
@@ -26,6 +27,7 @@ type FilesContextMenu = {
 type WorkspaceFilesPanelProps = {
   workspace: string;
   collapsed: boolean;
+  locale?: UiLocale;
   onToggle: () => void;
   onError: (message: string) => void;
   onAddPathToComposer: (path: string) => void;
@@ -94,15 +96,15 @@ function workspaceRelativePath(root: string, path: string): string {
   return normalizedPath;
 }
 
-function gitFileLabel(file: WorkspaceGitFile): string {
-  if (file.status === "untracked") return "未跟踪";
-  if (file.status === "conflicted") return "冲突";
-  if (file.isRenamed) return "已重命名";
-  if (file.code.includes("D")) return "已删除";
-  if (file.code.includes("A")) return "已添加";
-  if (file.status === "staged") return "已暂存";
-  if (file.status === "staged-changed") return "暂存 + 修改";
-  return "已修改";
+function gitFileLabel(file: WorkspaceGitFile, locale: UiLocale): string {
+  if (file.status === "untracked") return t("files.gitUntracked", locale);
+  if (file.status === "conflicted") return t("files.gitConflicted", locale);
+  if (file.isRenamed) return t("files.gitRenamed", locale);
+  if (file.code.includes("D")) return t("files.gitDeleted", locale);
+  if (file.code.includes("A")) return t("files.gitAdded", locale);
+  if (file.status === "staged") return t("files.gitStaged", locale);
+  if (file.status === "staged-changed") return t("files.gitStagedChanged", locale);
+  return t("files.gitModified", locale);
 }
 
 function gitFileMark(file: WorkspaceGitFile): string {
@@ -124,9 +126,10 @@ function matchesGitFilter(file: WorkspaceGitFile, filter: "all" | WorkspaceGitFi
 type NewFolderRowProps = {
   onCommit: (name: string) => void;
   onCancel: () => void;
+  locale: UiLocale;
 };
 
-function NewFolderRow({ onCommit, onCancel }: NewFolderRowProps) {
+function NewFolderRow({ onCommit, onCancel, locale }: NewFolderRowProps) {
   const [value, setValue] = useState("");
   const doneRef = useRef(false);
   const commit = (name: string) => {
@@ -154,15 +157,15 @@ function NewFolderRow({ onCommit, onCancel }: NewFolderRowProps) {
           if (value.trim()) commit(value);
           else cancel();
         }}
-        placeholder="新文件夹名称"
+        placeholder={t("files.newFolderPlaceholder", locale)}
         autoFocus
-        aria-label="新文件夹名称"
+        aria-label={t("files.newFolderPlaceholder", locale)}
       />
     </div>
   );
 }
 
-export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError, onAddPathToComposer }: WorkspaceFilesPanelProps) {
+export function WorkspaceFilesPanel({ workspace, collapsed, locale = "zh", onToggle, onError, onAddPathToComposer }: WorkspaceFilesPanelProps) {
   const [rootEntries, setRootEntries] = useState<WorkspaceFileEntry[] | null>(null);
   const [loadingRoot, setLoadingRoot] = useState(false);
   const [gitStatus, setGitStatus] = useState<WorkspaceGitStatus | null>(null);
@@ -197,7 +200,7 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError, o
       setGitStatus(await getWorkspaceGitStatus(workspace));
     } catch (error) {
       setGitStatus(null);
-      onError(`读取 Git 状态失败：${errorText(error)}`);
+      onError(t("files.errGitStatus", locale, { detail: errorText(error) }));
     } finally {
       setLoadingGit(false);
     }
@@ -219,12 +222,12 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError, o
       setExpanded(new Set());
     } catch (error) {
       setRootEntries(null);
-      onError(`读取工作区文件失败：${errorText(error)}`);
+      onError(t("files.errListFiles", locale, { detail: errorText(error) }));
     } finally {
       setLoadingRoot(false);
     }
     void reloadGit();
-  }, [workspace, loadDirectory, onError, reloadGit]);
+  }, [locale, workspace, loadDirectory, onError, reloadGit]);
 
   useEffect(() => {
     setGitFilter("all");
@@ -294,7 +297,7 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError, o
         const children = await loadDirectory(path);
         setChildrenByPath((current) => ({ ...current, [path]: children }));
       } catch (error) {
-        onError(`读取文件夹失败：${errorText(error)}`);
+        onError(t("files.errListFolder", locale, { detail: errorText(error) }));
       } finally {
         setLoadingPaths((current) => {
           const nextSet = new Set(current);
@@ -311,7 +314,7 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError, o
       if (dir === workspace) setRootEntries(entries);
       else setChildrenByPath((current) => ({ ...current, [dir]: entries }));
     } catch (error) {
-      onError(`刷新目录失败：${errorText(error)}`);
+      onError(t("files.errRefresh", locale, { detail: errorText(error) }));
     }
   }
 
@@ -320,7 +323,7 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError, o
     try {
       await openInVscode(path);
     } catch (error) {
-      onError(`用 VSCode 打开失败：${errorText(error)}`);
+      onError(t("files.errOpenVscode", locale, { detail: errorText(error) }));
     } finally {
       setBusy(false);
       setContextMenu(null);
@@ -332,7 +335,7 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError, o
     try {
       await revealInExplorer(path);
     } catch (error) {
-      onError(`在资源管理器中显示失败：${errorText(error)}`);
+      onError(t("files.errReveal", locale, { detail: errorText(error) }));
     } finally {
       setBusy(false);
       setContextMenu(null);
@@ -344,7 +347,7 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError, o
     try {
       await writeClipboard(path);
     } catch (error) {
-      onError(`复制路径失败：${errorText(error)}`);
+      onError(t("files.errCopyPath", locale, { detail: errorText(error) }));
     }
   }
 
@@ -362,7 +365,7 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError, o
       if (parent !== workspace) setExpanded((current) => new Set(current).add(parent));
       await refreshDirectory(parent);
     } catch (error) {
-      onError(`新建文件夹失败：${errorText(error)}`);
+      onError(t("files.errNewFolder", locale, { detail: errorText(error) }));
     }
   }
 
@@ -385,7 +388,7 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError, o
         });
       }
     } catch (error) {
-      onError(`删除失败：${errorText(error)}`);
+      onError(t("files.errDelete", locale, { detail: errorText(error) }));
     } finally {
       setBusy(false);
     }
@@ -435,13 +438,13 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError, o
             </span>
             <span className="workspace-file-icon" aria-hidden="true">{entry.isDir ? "📁" : fileIcon(entry.name)}</span>
             <span className="workspace-file-name">{entry.name}</span>
-            {visibleStatus && <span className={`workspace-file-git-mark git-mark-${visibleStatus.status}`} title={gitFileLabel(visibleStatus)} aria-label={gitFileLabel(visibleStatus)}>{gitFileMark(visibleStatus)}</span>}
+            {visibleStatus && <span className={`workspace-file-git-mark git-mark-${visibleStatus.status}`} title={gitFileLabel(visibleStatus, locale)} aria-label={gitFileLabel(visibleStatus, locale)}>{gitFileMark(visibleStatus)}</span>}
             {!entry.isDir && <span className="workspace-file-size">{formatFileSize(entry.size)}</span>}
           </button>
           {entry.isDir && isOpen && (
             <div className="workspace-file-children">
-              {creatingFolderIn === entry.path && <NewFolderRow onCommit={(name) => void handleCreateFolder(entry.path, name)} onCancel={() => setCreatingFolderIn(null)} />}
-              {loading && !children ? <div className="workspace-file-loading">加载中…</div> : renderEntries(children, depth + 1)}
+              {creatingFolderIn === entry.path && <NewFolderRow locale={locale} onCommit={(name) => void handleCreateFolder(entry.path, name)} onCancel={() => setCreatingFolderIn(null)} />}
+              {loading && !children ? <div className="workspace-file-loading">{t("files.loading", locale)}</div> : renderEntries(children, depth + 1)}
             </div>
           )}
         </div>
@@ -460,9 +463,9 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError, o
       side="left"
       className="workspace-files-panel"
       collapsed={collapsed}
-      label="工作区文件"
-      title="文件"
-      kicker="工作区"
+      label={t("files.label", locale)}
+      title={t("files.title", locale)}
+      kicker={t("files.kicker", locale)}
       icon="▤"
       toggleGlyph="‹"
       onToggle={onToggle}
@@ -479,26 +482,26 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError, o
       bodyClassName="workspace-files-body"
     >
             <div className="workspace-files-summary">
-              <span className={`workspace-files-live ${loadingRoot || loadingGit ? "loading" : ""}`}>{loadingRoot || loadingGit ? "同步中…" : `${rootEntries?.length ?? 0} 个条目`}</span>
-              <span className="workspace-files-path" title={workspace}>{workspace || "未选择工作目录"}</span>
+              <span className={`workspace-files-live ${loadingRoot || loadingGit ? "loading" : ""}`}>{loadingRoot || loadingGit ? t("files.syncing", locale) : t("files.entryCount", locale, { count: rootEntries?.length ?? 0 })}</span>
+              <span className="workspace-files-path" title={workspace}>{workspace || t("files.noWorkspace", locale)}</span>
             </div>
-            {workspace && <div className="workspace-git-summary" aria-label="Git 工作区摘要">{gitStatus?.isRepository && <span className="workspace-git-branch">⌘ {gitStatus.branch ?? "HEAD"}</span>}{!gitStatus?.isRepository && <span className="workspace-git-no-repo">未检测到 Git 仓库</span>}{gitStatus?.isRepository && <><span className="workspace-git-count git-count-changed">{(gitStatus.changed + gitStatus.staged) || 0} 修改</span><span className="workspace-git-count git-count-untracked">{gitStatus.untracked} 未跟踪</span>{gitStatus.conflicted > 0 && <span className="workspace-git-count git-count-conflicted">{gitStatus.conflicted} 冲突</span>}</>}</div>}
+            {workspace && <div className="workspace-git-summary" aria-label={t("files.gitSummaryAria", locale)}>{gitStatus?.isRepository && <span className="workspace-git-branch">⌘ {gitStatus.branch ?? "HEAD"}</span>}{!gitStatus?.isRepository && <span className="workspace-git-no-repo">{t("files.noGitRepo", locale)}</span>}{gitStatus?.isRepository && <><span className="workspace-git-count git-count-changed">{t("files.changedCount", locale, { count: (gitStatus.changed + gitStatus.staged) || 0 })}</span><span className="workspace-git-count git-count-untracked">{t("files.untrackedCount", locale, { count: gitStatus.untracked })}</span>{gitStatus.conflicted > 0 && <span className="workspace-git-count git-count-conflicted">{t("files.conflictCount", locale, { count: gitStatus.conflicted })}</span>}</>}</div>}
              <div className="workspace-files-toolbar">
-              <div className="workspace-files-filter" role="group" aria-label="筛选 Git 状态">{(["all", "changed", "staged", "untracked", "conflicted"] as const).map((filter) => { const count = filter === "all" ? (gitStatus?.files.length ?? 0) : (gitStatus?.files.filter((file) => matchesGitFilter(file, filter)).length ?? 0); const label = filter === "all" ? "全部" : filter === "changed" ? "修改" : filter === "staged" ? "暂存" : filter === "untracked" ? "未跟踪" : "冲突"; return <button key={filter} type="button" className={gitFilter === filter ? "selected" : ""} disabled={filter !== "all" && !gitStatus?.isRepository} onClick={() => setGitFilter(filter)}>{label}{filter !== "all" && count > 0 ? ` ${count}` : ""}</button>; })}</div><button type="button" disabled={!workspace} onClick={() => workspace && beginNewFolder(workspace)} title="新建文件夹">＋ 新建文件夹</button>
-              <button type="button" disabled={!workspace} onClick={() => void reloadRoot()} title="刷新">⟳</button>
+              <div className="workspace-files-filter" role="group" aria-label={t("files.filterAria", locale)}>{(["all", "changed", "staged", "untracked", "conflicted"] as const).map((filter) => { const count = filter === "all" ? (gitStatus?.files.length ?? 0) : (gitStatus?.files.filter((file) => matchesGitFilter(file, filter)).length ?? 0); const label = filter === "all" ? t("files.filterAll", locale) : filter === "changed" ? t("files.filterChanged", locale) : filter === "staged" ? t("files.filterStaged", locale) : filter === "untracked" ? t("files.filterUntracked", locale) : t("files.filterConflicted", locale); return <button key={filter} type="button" className={gitFilter === filter ? "selected" : ""} disabled={filter !== "all" && !gitStatus?.isRepository} onClick={() => setGitFilter(filter)}>{label}{filter !== "all" && count > 0 ? ` ${count}` : ""}</button>; })}</div><button type="button" disabled={!workspace} onClick={() => workspace && beginNewFolder(workspace)} title={t("files.newFolder", locale)}>＋ {t("files.newFolder", locale)}</button>
+              <button type="button" disabled={!workspace} onClick={() => void reloadRoot()} title={t("files.refresh", locale)}>⟳</button>
             </div>
             <div className="workspace-files-tree">
               {!workspace ? (
-                <div className="workspace-files-empty">尚未选择工作目录</div>
+                <div className="workspace-files-empty">{t("files.noWorkspaceYet", locale)}</div>
               ) : loadingRoot ? (
-                <div className="workspace-files-empty">正在读取…</div>
+                <div className="workspace-files-empty">{t("files.reading", locale)}</div>
               ) : rootEntries === null ? (
-                <div className="workspace-files-empty">读取失败，请重试</div>
+                <div className="workspace-files-empty">{t("files.readFailed", locale)}</div>
               ) : (
                 <>
-                  {showingNewFolderAtRoot && <NewFolderRow onCommit={(name) => void handleCreateFolder(workspace, name)} onCancel={() => setCreatingFolderIn(null)} />}
+                  {showingNewFolderAtRoot && <NewFolderRow locale={locale} onCommit={(name) => void handleCreateFolder(workspace, name)} onCancel={() => setCreatingFolderIn(null)} />}
                   {renderEntries(rootEntries, 0)}
-                  {rootEmpty && <div className="workspace-files-empty">空目录</div>}
+                  {rootEmpty && <div className="workspace-files-empty">{t("files.emptyDir", locale)}</div>}
                 </>
               )}
 
@@ -513,12 +516,12 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError, o
           onPointerDown={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.preventDefault()}
         >
-          <button role="menuitem" disabled={busy} onClick={() => void handleOpenInVscode(menu.entry.path)}>用 VSCode 打开</button>
-          <button role="menuitem" disabled={busy} onClick={() => void handleReveal(menu.entry.path)}>在资源管理器中显示</button>
-          <button role="menuitem" onClick={() => void handleCopyPath(menu.entry.path)}>复制路径</button>
-          <button role="menuitem" onClick={() => handleAddPathToComposer(menu.entry.path)}>添加到聊天框</button>
-          {menu.entry.isDir && <button role="menuitem" onClick={() => beginNewFolder(menu.entry.path)}>新建文件夹</button>}
-          <button role="menuitem" className="danger" onClick={() => setDeleteTarget(menu.entry)}>删除</button>
+          <button role="menuitem" disabled={busy} onClick={() => void handleOpenInVscode(menu.entry.path)}>{t("files.openWithVscode", locale)}</button>
+          <button role="menuitem" disabled={busy} onClick={() => void handleReveal(menu.entry.path)}>{t("files.revealInExplorer", locale)}</button>
+          <button role="menuitem" onClick={() => void handleCopyPath(menu.entry.path)}>{t("files.copyPath", locale)}</button>
+          <button role="menuitem" onClick={() => handleAddPathToComposer(menu.entry.path)}>{t("files.addToComposer", locale)}</button>
+          {menu.entry.isDir && <button role="menuitem" onClick={() => beginNewFolder(menu.entry.path)}>{t("files.newFolder", locale)}</button>}
+          <button role="menuitem" className="danger" onClick={() => setDeleteTarget(menu.entry)}>{t("common.delete", locale)}</button>
         </div>,
         document.body,
       )}
@@ -526,11 +529,11 @@ export function WorkspaceFilesPanel({ workspace, collapsed, onToggle, onError, o
       {deleteTarget && (
         <div className="confirm-backdrop" onMouseDown={() => setDeleteTarget(null)}>
           <div className="confirm-dialog" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
-            <strong>{deleteTarget.isDir ? "删除文件夹？" : "删除文件？"}</strong>
-            <p>“{deleteTarget.name}”将被永久删除，无法恢复。</p>
+            <strong>{deleteTarget.isDir ? t("files.deleteFolder", locale) : t("files.deleteFile", locale)}</strong>
+            <p>{t("files.deleteWarning", locale, { name: deleteTarget.name })}</p>
             <div className="surface-dialog-actions">
-              <button onClick={() => setDeleteTarget(null)}>取消</button>
-              <button className="confirm danger-button" disabled={busy} onClick={() => void confirmDelete()}>删除</button>
+              <button onClick={() => setDeleteTarget(null)}>{t("common.cancel", locale)}</button>
+              <button className="confirm danger-button" disabled={busy} onClick={() => void confirmDelete()}>{t("common.delete", locale)}</button>
             </div>
           </div>
         </div>

@@ -1,8 +1,11 @@
 import { useState } from "react";
 import type { DshPreset, DshSessionSummary } from "../lib/desktop";
 import { displayTitle, presetDisplayName } from "../app/model";
+import { t, type UiLocale } from "../app/i18n";
 
 type ConversationHeaderProps = {
+  /** 界面语言：标题与操作按钮文案按语言渲染。 */
+  locale?: UiLocale;
   activeSession: DshSessionSummary | null | undefined;
   presets: DshPreset[];
   runtimeDirectory: string;
@@ -16,6 +19,7 @@ type ConversationHeaderProps = {
 };
 
 export function ConversationHeader({
+  locale = "zh",
   activeSession,
   presets,
   runtimeDirectory,
@@ -43,10 +47,10 @@ export function ConversationHeader({
   return (
     <header className="conversation-header">
       <div className="conversation-heading">
-        <span className="conversation-title" title={activeSession ? displayTitle(activeSession) : "输入消息后创建会话"}>
-          {activeSession ? displayTitle(activeSession) : "新会话"}
+        <span className="conversation-title" title={activeSession ? displayTitle(activeSession, locale) : t("header.sessionAfterMessage", locale)}>
+          {activeSession ? displayTitle(activeSession, locale) : t("header.newSession", locale)}
         </span>
-        <span className="conversation-subtitle">{presetDisplayName(activeSession?.agentPreset, presets)} · {activeSession?.cwd || runtimeDirectory || "等待运行目录"}</span>
+        <span className="conversation-subtitle">{presetDisplayName(activeSession?.agentPreset, presets, locale)} · {activeSession?.cwd || runtimeDirectory || t("header.waitingForRuntime", locale)}</span>
       </div>
       <div className="conversation-actions">
         {noticeIsError && notice && (
@@ -54,16 +58,16 @@ export function ConversationHeader({
             type="button"
             className={`header-notice${noticeCopied ? " copied" : ""}`}
             onClick={() => void copyNotice()}
-            title={noticeCopied ? "已复制到剪贴板" : "点击复制错误信息"}
-            aria-label="点击复制错误信息"
+            title={noticeCopied ? t("header.noticeCopied", locale) : t("header.noticeCopy", locale)}
+            aria-label={t("header.noticeCopy", locale)}
           >
-            {noticeCopied ? "已复制" : notice}
+            {noticeCopied ? t("header.noticeCopiedShort", locale) : notice}
           </button>
         )}
-        {queueCount > 0 && <span className="queue-count">排队 {queueCount}</span>}
+        {queueCount > 0 && <span className="queue-count">{t("header.queueCount", locale, { count: queueCount })}</span>}
         {activeSession && <>
-          <button className={"header-action trajectory-toggle" + (trajectoryOpen ? " selected" : "")} onClick={onToggleTrajectory} title="查看当前会话轨迹" aria-pressed={trajectoryOpen}>轨迹</button>
-          <button className={"header-action token-usage-toggle" + (tokenUsageOpen ? " selected" : "")} onClick={onToggleTokenUsage} title="查看当前会话 Token 用量" aria-pressed={tokenUsageOpen}>Token</button>
+          <button className={"header-action trajectory-toggle" + (trajectoryOpen ? " selected" : "")} onClick={onToggleTrajectory} title={t("header.trajectoryTitle", locale)} aria-pressed={trajectoryOpen}>{t("header.trajectory", locale)}</button>
+          <button className={"header-action token-usage-toggle" + (tokenUsageOpen ? " selected" : "")} onClick={onToggleTokenUsage} title={t("header.tokensTitle", locale)} aria-pressed={tokenUsageOpen}>Token</button>
         </>}
       </div>
     </header>

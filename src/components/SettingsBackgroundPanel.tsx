@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import type { BackgroundConfig, BackgroundSettings, BackgroundZone } from "../app/model";
-import { backgroundZoneLabels, backgroundZones } from "../app/useAppearanceSettings";
+import { backgroundZones } from "../app/useAppearanceSettings";
+import { t, type UiLocale } from "../app/i18n";
 
 export type SettingsBackgroundPanelProps = {
   backgrounds: BackgroundSettings;
@@ -8,16 +9,21 @@ export type SettingsBackgroundPanelProps = {
   onBackgroundFile: (zone: BackgroundZone, file: File | undefined) => void;
   onClearBackground: (zone: BackgroundZone) => void;
   embedded?: boolean;
+  locale?: UiLocale;
 };
 
 const backgroundPositions: BackgroundConfig["position"][] = ["center", "top", "bottom", "left", "right"];
-const positionLabels: Record<BackgroundConfig["position"], string> = {
-  center: "居中",
-  top: "顶部",
-  bottom: "底部",
-  left: "左侧",
-  right: "右侧",
+
+const positionLabelKeys: Record<BackgroundConfig["position"], string> = {
+  center: "background.position.center",
+  top: "background.position.top",
+  bottom: "background.position.bottom",
+  left: "background.position.left",
+  right: "background.position.right",
 };
+
+const zoneLabelKey = (zone: BackgroundZone) => `background.zone.${zone}.label`;
+const zoneHintKey = (zone: BackgroundZone) => `background.zone.${zone}.hint`;
 
 export function SettingsBackgroundPanel({
   backgrounds,
@@ -25,6 +31,7 @@ export function SettingsBackgroundPanel({
   onBackgroundFile,
   onClearBackground,
   embedded = false,
+  locale = "zh",
 }: SettingsBackgroundPanelProps) {
   const [zone, setZone] = useState<BackgroundZone>("global");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -37,11 +44,11 @@ export function SettingsBackgroundPanel({
   return (
     <div className={embedded ? "background-settings-page embedded-background-settings-page" : "settings-page background-settings-page"}>
       {!embedded && <div className="settings-page-header">
-        <div><span className="settings-overline">BACKGROUND WORKBENCH</span><h2>背景工作台</h2><p>为不同的界面区域单独设置背景图，互不干扰。</p></div>
+        <div><span className="settings-overline">BACKGROUND WORKBENCH</span><h2>{t("settings.background", locale)}</h2><p>{t("background.workbenchHint", locale)}</p></div>
       </div>}
 
       <div className="settings-block">
-        <div className="settings-block-heading"><div><h3>区域</h3><p>点击下方分区或示意图中的区域进行编辑。</p></div></div>
+        <div className="settings-block-heading"><div><h3>{t("background.zonesTitle", locale)}</h3><p>{t("background.zonesHint", locale)}</p></div></div>
         <div className="background-zone-tabs">
           {backgroundZones.map((item) => (
             <button
@@ -50,42 +57,42 @@ export function SettingsBackgroundPanel({
               className={`background-zone-tab${zone === item ? " selected" : ""}${backgrounds[item].image ? " has-image" : ""}`}
               onClick={() => setZone(item)}
             >
-              <strong>{backgroundZoneLabels[item].label}</strong>
-              <small>{backgroundZoneLabels[item].hint}</small>
+              <strong>{t(zoneLabelKey(item), locale)}</strong>
+              <small>{t(zoneHintKey(item), locale)}</small>
             </button>
           ))}
         </div>
 
-        <div className="background-schematic" role="group" aria-label="界面区域示意图">
+        <div className="background-schematic" role="group" aria-label={t("background.schematicAria", locale)}>
           <button type="button" className={schematicClass("windowbar", "bg-schematic-windowbar")} onClick={() => setZone("windowbar")}>
-            <span>标题栏</span>
+            <span>{t(zoneLabelKey("windowbar"), locale)}</span>
           </button>
           <button type="button" className={schematicClass("sidebar", "bg-schematic-sidebar")} onClick={() => setZone("sidebar")}>
-            <span>侧栏</span>
+            <span>{t(zoneLabelKey("sidebar"), locale)}</span>
           </button>
           <div className="bg-schematic-main">
             <button type="button" className={schematicClass("conversation", "bg-schematic-header")} onClick={() => setZone("conversation")}>
-              <span>对话标题</span>
+              <span>{t("background.schematic.conversationTitle", locale)}</span>
             </button>
             <button type="button" className={schematicClass("conversation", "bg-schematic-transcript")} onClick={() => setZone("conversation")}>
-              <span>消息对话</span>
+              <span>{t("background.schematic.transcript", locale)}</span>
             </button>
             <button type="button" className={schematicClass("composer", "bg-schematic-composer")} onClick={() => setZone("composer")}>
-              <span>输入框</span>
+              <span>{t("background.schematic.composer", locale)}</span>
             </button>
           </div>
           <button type="button" className={schematicClass("dock", "bg-schematic-dock")} onClick={() => setZone("dock")}>
-            <span>工具面板</span>
+            <span>{t(zoneLabelKey("dock"), locale)}</span>
           </button>
           <button type="button" className={schematicClass("global", "bg-schematic-global")} onClick={() => setZone("global")}>
-            <span>全局背景</span>
+            <span>{t("background.schematic.global", locale)}</span>
           </button>
         </div>
       </div>
 
       <div className="settings-block">
         <div className="settings-block-heading">
-          <div><h3>{backgroundZoneLabels[zone].label}</h3><p>{backgroundZoneLabels[zone].hint}{config.name ? ` · ${config.name}` : ""}</p></div>
+          <div><h3>{t(zoneLabelKey(zone), locale)}</h3><p>{t(zoneHintKey(zone), locale)}{config.name ? ` · ${config.name}` : ""}</p></div>
           <div className="appearance-theme-actions">
             <input
               ref={fileInputRef}
@@ -94,41 +101,41 @@ export function SettingsBackgroundPanel({
               accept="image/*"
               onChange={(event) => { onBackgroundFile(zone, event.target.files?.[0]); event.currentTarget.value = ""; }}
             />
-            <button type="button" className="settings-header-action" onClick={() => fileInputRef.current?.click()}>导入图片</button>
-            {hasImage && <button type="button" className="settings-header-action" onClick={() => onClearBackground(zone)}>清除</button>}
+            <button type="button" className="settings-header-action" onClick={() => fileInputRef.current?.click()}>{t("background.importImage", locale)}</button>
+            {hasImage && <button type="button" className="settings-header-action" onClick={() => onClearBackground(zone)}>{t("background.clear", locale)}</button>}
           </div>
         </div>
 
         <div className="appearance-background-source">
-          <label><span>图片地址</span><input type="url" value={config.image.startsWith("data:") ? "" : config.image} placeholder="https://example.com/background.jpg" onChange={(event) => onUpdateBackground(zone, { image: event.target.value.trim(), name: "" })} /></label>
+          <label><span>{t("background.imageUrl", locale)}</span><input type="url" value={config.image.startsWith("data:") ? "" : config.image} placeholder="https://example.com/background.jpg" onChange={(event) => onUpdateBackground(zone, { image: event.target.value.trim(), name: "" })} /></label>
           {hasImage && (
             <span
               className="background-source-preview"
               style={config.image ? { backgroundImage: `url(${JSON.stringify(config.image)})` } : undefined}
-              aria-label="背景图预览"
+              aria-label={t("background.previewAria", locale)}
             />
           )}
         </div>
 
         {zone !== "global" && (
           <label className="background-panel-opacity-row">
-            <span><strong>面板不透明度</strong><small>底层背景透过本区域面板的程度；即使本区域没有背景图也生效</small></span>
+            <span><strong>{t("background.panelOpacity", locale)}</strong><small>{t("background.panelOpacityHint", locale)}</small></span>
             <span className="appearance-range-control"><input type="range" min="0" max="100" step="1" value={config.panelOpacity} onChange={(event) => onUpdateBackground(zone, { panelOpacity: Number(event.target.value) })} /><output>{Math.round(config.panelOpacity)}%</output></span>
           </label>
         )}
 
         <div className="appearance-background-grid">
-          <label><span>图片透明度</span><input type="range" min="0.05" max="0.45" step="0.01" value={config.opacity} onChange={(event) => onUpdateBackground(zone, { opacity: Number(event.target.value) })} /><output>{Math.round(config.opacity * 100)}%</output></label>
-          <label><span>背景模糊</span><input type="range" min="0" max="16" step="1" value={config.blur} onChange={(event) => onUpdateBackground(zone, { blur: Number(event.target.value) })} /><output>{config.blur}px</output></label>
-          <label><span>填充方式</span><select value={config.size} onChange={(event) => onUpdateBackground(zone, { size: event.target.value as BackgroundConfig["size"] })}><option value="cover">填满区域</option><option value="contain">完整显示</option></select></label>
-          <label><span>对齐位置</span><select value={config.position} onChange={(event) => onUpdateBackground(zone, { position: event.target.value as BackgroundConfig["position"] })}>{backgroundPositions.map((item) => <option value={item} key={item}>{positionLabels[item]}</option>)}</select></label>
+          <label><span>{t("background.imageOpacity", locale)}</span><input type="range" min="0.05" max="0.45" step="0.01" value={config.opacity} onChange={(event) => onUpdateBackground(zone, { opacity: Number(event.target.value) })} /><output>{Math.round(config.opacity * 100)}%</output></label>
+          <label><span>{t("background.blur", locale)}</span><input type="range" min="0" max="16" step="1" value={config.blur} onChange={(event) => onUpdateBackground(zone, { blur: Number(event.target.value) })} /><output>{config.blur}px</output></label>
+          <label><span>{t("background.size", locale)}</span><select value={config.size} onChange={(event) => onUpdateBackground(zone, { size: event.target.value as BackgroundConfig["size"] })}><option value="cover">{t("background.sizeCover", locale)}</option><option value="contain">{t("background.sizeContain", locale)}</option></select></label>
+          <label><span>{t("background.positionLabel", locale)}</span><select value={config.position} onChange={(event) => onUpdateBackground(zone, { position: event.target.value as BackgroundConfig["position"] })}>{backgroundPositions.map((item) => <option value={item} key={item}>{t(positionLabelKeys[item], locale)}</option>)}</select></label>
         </div>
 
         <p className="background-zone-note">
           {backgroundZones.filter((item) => backgrounds[item].image).length > 0
-            ? `已配置 ${backgroundZones.filter((item) => backgrounds[item].image).length} 个区域。`
-            : "尚未配置任何背景图。"}
-          导入的图片以 data URL 保存，建议使用 3 MB 以内的图片。
+            ? t("background.configuredCount", locale, { count: backgroundZones.filter((item) => backgrounds[item].image).length })
+            : t("background.noneConfigured", locale)}
+          {t("background.dataUrlNote", locale)}
         </p>
       </div>
     </div>

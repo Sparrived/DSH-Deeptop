@@ -1,6 +1,19 @@
-import { subagentActivityLabel, subagentDisplayName, subagentModeLabel, type ChildSubagentEntry } from "../app/model";
+import { subagentDisplayName, type ChildSubagentEntry } from "../app/model";
+import { t, type UiLocale } from "../app/i18n";
 import { subagentTreeKey } from "../app/ui-model";
 import type { DshSubagentAddress, DshSubagentCatalog } from "../lib/desktop";
+
+function subagentActivityText(activity: ChildSubagentEntry["activity"], locale: UiLocale) {
+  return t(activity === "running" ? "subagent.running" : "subagent.stopped", locale);
+}
+
+function subagentModeText(mode: ChildSubagentEntry["mode"], locale: UiLocale) {
+  return t(mode === "continuable" ? "subagent.continuable" : "subagent.oneShot", locale);
+}
+
+function subagentTitle(entry: ChildSubagentEntry, index: number, locale: UiLocale) {
+  return entry.label?.trim() || t("subagent.fallbackName", locale, { index: String(index + 1).padStart(2, "0") });
+}
 
 /**
  * Recursive subagent lineage. The official `subagent.list` is already the
@@ -20,18 +33,20 @@ type SubagentTreeProps = {
   /** Expand state keeps the branch open across refresh cycles. */
   expanded: Record<string, boolean>;
   loadingError?: Record<string, string>;
+  locale?: UiLocale;
   onToggleBranch: (treeKey: string) => void;
   /** Open a child; parentSessionId is the direct parent this row hangs under. */
   onOpen: (entry: ChildSubagentEntry, parentSessionId: string) => void;
 };
 
-function TreeRows({ entries, rootSessionId, selectedId, catalogs, expanded, loadingError, onToggleBranch, onOpen, depth }: SubagentTreeProps & { depth: number }) {
+function TreeRows({ entries, rootSessionId, selectedId, catalogs, expanded, loadingError, locale = "zh", onToggleBranch, onOpen, depth }: SubagentTreeProps & { depth: number }) {
   return <>
     {entries.map((entry, index) => {
       const treeKey = subagentTreeKey(rootSessionId, entry.id);
       const branchOpen = Boolean(expanded[treeKey]);
       const catalog = catalogs[treeKey];
       const error = loadingError?.[treeKey];
+      const name = subagentTitle(entry, index, locale);
       return <div className="subagent-tree-row" data-depth={depth} key={entry.id}>
         <div className={`subagent-tree-line${branchOpen ? " expanded" : ""}`}>
           {entry.hasChildren
@@ -40,8 +55,8 @@ function TreeRows({ entries, rootSessionId, selectedId, catalogs, expanded, load
               type="button"
               onClick={() => onToggleBranch(treeKey)}
               aria-expanded={branchOpen}
-              aria-label={branchOpen ? `收起 ${entry.label || entry.id} 的子 Agent` : `展开 ${entry.label || entry.id} 的子 Agent`}
-              title={branchOpen ? "收起" : "展开子 Agent"}
+              aria-label={branchOpen ? t("subagent.collapseBranchAria", locale, { name }) : t("subagent.expandBranchAria", locale, { name })}
+              title={branchOpen ? t("subagent.collapse", locale) : t("subagent.expandBranch", locale)}
             >{branchOpen ? "▾" : "▸"}</button>
             : <span className="subagent-tree-spacer" aria-hidden="true" />}
           <button
@@ -49,14 +64,14 @@ function TreeRows({ entries, rootSessionId, selectedId, catalogs, expanded, load
             type="button"
             onClick={() => onOpen(entry, rootSessionId)}
             aria-pressed={selectedId === entry.id}
-            title={`打开 ${subagentDisplayName(entry, index)} 的执行情况`}
+            title={t("subagent.openRecord", locale, { name })}
           >
             <span className={`subagent-tree-status ${entry.activity}`} aria-hidden="true"><i /></span>
-            <span className="subagent-tree-copy"><strong>{subagentDisplayName(entry, index)}</strong><small>{subagentActivityLabel(entry.activity)} · {subagentModeLabel(entry.mode)}</small></span>
+            <span className="subagent-tree-copy"><strong>{name}</strong><small>{subagentActivityText(entry.activity, locale)} · {subagentModeText(entry.mode, locale)}</small></span>
           </button>
         </div>
         {branchOpen && (catalog === null && error === undefined ? (
-          <div className="subagent-tree-loading" role="status">正在读取子 Agent…</div>
+          <div className="subagent-tree-loading" role="status">{t("subagent.loadingBranch", locale)}</div>
         ) : error ? (
           <div className="subagent-tree-loading error" role="status">{error}</div>
         ) : catalog && catalog.entries.length > 0 ? (
@@ -68,13 +83,14 @@ function TreeRows({ entries, rootSessionId, selectedId, catalogs, expanded, load
               catalogs={catalogs}
               expanded={expanded}
               loadingError={loadingError}
+              locale={locale}
               onToggleBranch={onToggleBranch}
               onOpen={onOpen}
               depth={depth + 1}
             />
           </div>
         ) : (
-          <div className="subagent-tree-loading">没有更深的子 Agent。</div>
+          <div className="subagent-tree-loading">{t("subagent.noDeeperBranch", locale)}</div>
         ))}
       </div>;
     })}
@@ -83,7 +99,7 @@ function TreeRows({ entries, rootSessionId, selectedId, catalogs, expanded, load
 
 export function SubagentTree(props: SubagentTreeProps) {
   if (props.entries.length === 0) return null;
-  return <nav className="subagent-tree" aria-label="子 Agent 递归树">
+  return <nav className="subagent-tree" aria-label={t("subagent.treeAria", props.locale ?? "zh")}>
     <TreeRows {...props} depth={0} />
   </nav>;
 }

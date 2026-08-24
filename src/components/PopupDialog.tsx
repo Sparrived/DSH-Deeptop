@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { t, type UiLocale } from "../app/i18n";
 
 interface PopupDialogProps {
   title: string;
@@ -9,6 +10,7 @@ interface PopupDialogProps {
   footer?: ReactNode;
   className?: string;
   role?: "dialog" | "alertdialog";
+  locale?: UiLocale;
   onClose: () => void;
 }
 
@@ -20,6 +22,7 @@ export function PopupDialog({
   footer,
   className,
   role = "dialog",
+  locale = "zh",
   onClose,
 }: PopupDialogProps) {
   useEffect(() => {
@@ -32,7 +35,7 @@ export function PopupDialog({
 
   return createPortal(
     <div className={`popup-modal${className ? ` ${className}` : ""}`} role={role} aria-modal="true" aria-label={title}>
-      <button className="popup-backdrop" type="button" onClick={onClose} aria-label={`关闭${title}`} />
+      <button className="popup-backdrop" type="button" onClick={onClose} aria-label={t("popup.closeTitle", locale, { title })} />
       <section className="popup-window" onMouseDown={(event) => event.stopPropagation()}>
         <header className="popup-header">
           <div className="popup-heading">
@@ -40,7 +43,7 @@ export function PopupDialog({
             <h2>{title}</h2>
             {description && <p>{description}</p>}
           </div>
-          <button className="popup-close" type="button" onClick={onClose} aria-label={`关闭${title}`} title={`关闭${title}`}>×</button>
+          <button className="popup-close" type="button" onClick={onClose} aria-label={t("popup.closeTitle", locale, { title })} title={t("popup.closeTitle", locale, { title })}>×</button>
         </header>
         <div className="popup-body">{children}</div>
         {footer && <footer className="popup-footer">{footer}</footer>}

@@ -1,5 +1,6 @@
 import type { DshPreset } from "../lib/desktop";
 import { presetDescription, presetDisplayName } from "../app/model";
+import { t, type UiLocale } from "../app/i18n";
 
 type SettingsPresetPanelProps = {
   presets: DshPreset[];
@@ -10,6 +11,8 @@ type SettingsPresetPanelProps = {
   onOpenDocument: (id: string) => void | Promise<void>;
   onBeginCopy: (id: string) => void;
   onRemove: (id: string) => void | Promise<void>;
+  /** 界面语言；可选，默认 "zh"，保持向后兼容。 */
+  locale?: UiLocale;
 };
 
 export function SettingsPresetPanel({
@@ -21,35 +24,36 @@ export function SettingsPresetPanel({
   onOpenDocument,
   onBeginCopy,
   onRemove,
+  locale = "zh",
 }: SettingsPresetPanelProps) {
   return (
     <div className="settings-page">
       <div className="settings-page-header">
-        <div><span className="settings-overline">AGENT PRESETS</span><h2>Agent Preset</h2><p>Preset 决定会话 Agent 所运行的工具、提示词和能力。默认值只影响之后创建的新会话。</p></div>
-        <span className="settings-count">{presets.length} 个</span>
+        <div><span className="settings-overline">AGENT PRESETS</span><h2>{t("settings.presets", locale)}</h2><p>{t("preset.subtitle", locale)}</p></div>
+        <span className="settings-count">{t("preset.count", locale, { count: presets.length })}</span>
       </div>
-      {presets.length === 0 ? <p className="settings-empty">当前 Profile 未提供 Agent Preset。</p> : (
+      {presets.length === 0 ? <p className="settings-empty">{t("preset.empty", locale)}</p> : (
         <div className="settings-preset-groups">
           {(["system", "user"] as const).map((trust) => {
             const group = presets.filter((preset) => preset.trust === trust);
             if (group.length === 0) return null;
             return <section className="settings-preset-group" key={trust}>
-              <h3>{trust === "system" ? "内置" : "自定义"}</h3>
+              <h3>{trust === "system" ? t("preset.builtin", locale) : t("preset.custom", locale)}</h3>
               <div className="settings-preset-list">
                 {group.map((preset) => <article className={`settings-preset-card${preset.isDefault ? " active" : ""}${preset.broken ? " broken" : ""}`} key={preset.id}>
                   <div className="settings-preset-copy">
-                    <div className="settings-preset-heading"><strong>{presetDisplayName(preset.id, presets)}</strong>{preset.isDefault && <span>当前默认</span>}{preset.broken && <span className="error">加载失败</span>}</div>
-                    <small>{preset.id} · {trust === "system" ? "内置" : "自定义"}</small>
+                    <div className="settings-preset-heading"><strong>{presetDisplayName(preset.id, presets, locale)}</strong>{preset.isDefault && <span>{t("preset.currentDefault", locale)}</span>}{preset.broken && <span className="error">{t("preset.loadFailed", locale)}</span>}</div>
+                    <small>{preset.id} · {trust === "system" ? t("preset.builtin", locale) : t("preset.custom", locale)}</small>
                   </div>
                   <div className="settings-preset-actions">
-                    <button disabled={writable === false || Boolean(preset.broken) || preset.isDefault} onClick={() => void onSetDefault(preset.id)}>设为默认</button>
-                    {trust === "system" && !preset.broken && <button onClick={() => void onRead(preset.id)}>查看</button>}
-                    {trust === "user" && <button onClick={() => void onOpenDocument(preset.id)}>打开目录</button>}
-                    <button disabled={!authorable || Boolean(preset.broken)} onClick={() => onBeginCopy(preset.id)}>复制</button>
-                    {trust === "user" && <button className="danger" onClick={() => void onRemove(preset.id)}>删除</button>}
+                    <button disabled={writable === false || Boolean(preset.broken) || preset.isDefault} onClick={() => void onSetDefault(preset.id)}>{t("preset.setDefault", locale)}</button>
+                    {trust === "system" && !preset.broken && <button onClick={() => void onRead(preset.id)}>{t("preset.view", locale)}</button>}
+                    {trust === "user" && <button onClick={() => void onOpenDocument(preset.id)}>{t("preset.openDirectory", locale)}</button>}
+                    <button disabled={!authorable || Boolean(preset.broken)} onClick={() => onBeginCopy(preset.id)}>{t("common.copy", locale)}</button>
+                    {trust === "user" && <button className="danger" onClick={() => void onRemove(preset.id)}>{t("common.delete", locale)}</button>}
                   </div>
                   <div className="settings-preset-description">
-                    <p>{presetDescription(preset)}</p>
+                    <p>{presetDescription(preset, locale)}</p>
                     {preset.broken && <p className="settings-preset-error">{preset.broken}</p>}
                   </div>
                 </article>)}
@@ -58,7 +62,7 @@ export function SettingsPresetPanel({
           })}
         </div>
       )}
-      {!authorable && presets.length > 0 && <p className="surface-muted">当前 Profile 未开放用户 Preset 创建。</p>}
+      {!authorable && presets.length > 0 && <p className="surface-muted">{t("preset.notAuthorable", locale)}</p>}
     </div>
   );
 }

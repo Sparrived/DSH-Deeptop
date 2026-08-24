@@ -1,7 +1,10 @@
 import { textFromContent } from "../app/model";
 import type { DshQueueItem } from "../lib/desktop";
+import { t, type UiLocale } from "../app/i18n";
 
 type QueueDockProps = {
+  /** 界面语言：排队列表文案按语言渲染。 */
+  locale?: UiLocale;
   items: DshQueueItem[];
   editingId: string | null;
   editingText: string;
@@ -13,6 +16,7 @@ type QueueDockProps = {
 };
 
 export function QueueDock({
+  locale = "zh",
   items,
   editingId,
   editingText,
@@ -26,24 +30,24 @@ export function QueueDock({
 
   return (
     <div className="queue-dock">
-      <span className="queue-dock-label">待处理消息</span>
+      <span className="queue-dock-label">{t("queue.label", locale)}</span>
       <div className="queue-dock-items">
         {items.filter((item) => item.placement !== "context").map((item) => (
           <div className={`queue-dock-item${editingId === item.id ? " editing" : ""}`} key={item.id}>
             {editingId === item.id ? (
               <>
-                <input value={editingText} onChange={(event) => onEditingTextChange(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void onSave(item.id); if (event.key === "Escape") onCancelEdit(); }} aria-label="编辑排队消息" autoFocus />
+                <input value={editingText} onChange={(event) => onEditingTextChange(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void onSave(item.id); if (event.key === "Escape") onCancelEdit(); }} aria-label={t("queue.edit", locale)} autoFocus />
                 <div className="queue-dock-item-actions">
-                  <button onClick={() => void onSave(item.id)} title="保存排队消息">✓</button>
-                  <button onClick={onCancelEdit} title="取消编辑">×</button>
+                  <button onClick={() => void onSave(item.id)} title={t("queue.save", locale)}>✓</button>
+                  <button onClick={onCancelEdit} title={t("queue.cancelEdit", locale)}>×</button>
                 </div>
               </>
             ) : (
               <>
-                <span>{textFromContent(item.message.content) || "未命名消息"}</span>
+                <span>{textFromContent(item.message.content, locale) || t("queue.unnamed", locale)}</span>
                 <div className="queue-dock-item-actions">
-                  <button onClick={() => onBeginEdit(item)} title="编辑排队消息">✎</button>
-                  <button onClick={() => void onRemove(item.id)} title="移除排队消息">×</button>
+                  <button onClick={() => onBeginEdit(item)} title={t("queue.edit", locale)}>✎</button>
+                  <button onClick={() => void onRemove(item.id)} title={t("queue.remove", locale)}>×</button>
                 </div>
               </>
             )}

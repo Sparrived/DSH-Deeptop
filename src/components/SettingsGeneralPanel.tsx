@@ -4,14 +4,22 @@ import { presetDisplayName } from "../app/model";
 import type { DshHostModelCatalog, ModelSelection } from "../app/model";
 import type { DshPermissionSelect } from "../lib/desktop";
 import { isSchemaEnvelope } from "../app/schema-model";
-import { t, type UiLocale } from "../app/i18n";
+import { hasTranslation, t, type UiLocale } from "../app/i18n";
 
 function modelKey(selection: ModelSelection | null) {
   return selection ? `${selection.provider}\u0000${selection.model}` : "";
 }
 
-function permissionLabel(option: DshPermissionSelect["options"][number]) {
+function permissionLabel(option: DshPermissionSelect["options"][number], locale: UiLocale) {
+  const nameKey = (option as { nameKey?: string }).nameKey;
+  if (nameKey && hasTranslation(nameKey)) return t(nameKey, locale);
   return typeof option.name === "string" && option.name.trim() ? option.name : option.value;
+}
+
+function permissionDescription(option: DshPermissionSelect["options"][number], locale: UiLocale): string | null {
+  const descriptionKey = (option as { descriptionKey?: string }).descriptionKey;
+  if (descriptionKey && hasTranslation(descriptionKey)) return t(descriptionKey, locale);
+  return option.description ?? null;
 }
 
 type SettingsGeneralPanelProps = {
@@ -92,7 +100,7 @@ export function SettingsGeneralPanel({
   const permission = permissionOptions.find((option) => option.value === defaultPermission);
   const permissionNamespace = settings?.namespaces.find((namespace) => namespace.ns === "permission");
   const modelNamespace = settings?.namespaces.find((namespace) => namespace.ns === "agent-default-model");
-  const permissionStorageHint = permissionNamespace ? "由 DSH Host 应用到新会话" : "保存在此桌面端，并应用到新会话";
+  const permissionStorageHint = permissionNamespace ? t("settings.perm.hostApply", locale) : t("settings.perm.localApply", locale);
   const modelReasoning = selectedModel?.reasoning;
   const reasoningValue = defaultModel?.reasoningEffort ?? modelReasoning?.defaultEffort ?? "";
   const [proxyUrl, setProxyUrl] = useState(networkProxy.url);
@@ -105,8 +113,8 @@ export function SettingsGeneralPanel({
   return (
     <div className="settings-page">
       <div className="settings-page-header">
-        <div><span className="settings-overline">GENERAL</span><h2>通用</h2><p>管理当前桌面端连接的 DSH Host 与新会话默认值。</p></div>
-        {settings?.hasDocument && <button className="settings-header-action" onClick={() => void onOpenDocument()}>打开配置文件</button>}
+        <div><span className="settings-overline">GENERAL</span><h2>{t("settings.general.title", locale)}</h2><p>{t("settings.general.subtitle", locale)}</p></div>
+        {settings?.hasDocument && <button className="settings-header-action" onClick={() => void onOpenDocument()}>{t("settings.general.openConfig", locale)}</button>}
       </div>
 
       <div className="settings-block">
@@ -117,44 +125,44 @@ export function SettingsGeneralPanel({
       </div>
 
       <div className="settings-block">
-        <div className="settings-block-heading"><div><h3>会话</h3><p>这些选项只影响之后创建的新会话；已打开的会话保持自己的运行状态。</p></div></div>
+        <div className="settings-block-heading"><div><h3>{t("settings.session", locale)}</h3><p>{t("settings.session.hint", locale)}</p></div></div>
         <div className="settings-preference-list">
-          <label className="settings-preference-row"><span><strong>默认 Agent Preset</strong><small>决定新会话使用的工具和能力</small></span><select disabled={settings?.writable === false} value={presets.find((preset) => preset.isDefault)?.id || ""} onChange={(event) => void onSetDefaultPreset(event.target.value)}>{presets.filter((preset) => !preset.broken).map((preset) => <option value={preset.id} key={preset.id}>{presetDisplayName(preset.id, presets)}</option>)}</select></label>
-          <label className="settings-preference-row"><span><strong>默认权限模式</strong><small>{permission?.description ?? "选择新会话启动时的权限"} · {permissionStorageHint}</small></span><select disabled={!settings || settings.writable === false} value={defaultPermission ?? ""} onChange={(event) => void onSetDefaultPermission(event.target.value)}><option value="" disabled>Host 未提供</option>{permissionOptions.map((option) => <option value={option.value} key={option.value}>{permissionLabel(option)}</option>)}</select></label>
-          <label className="settings-preference-row"><span><strong>默认模型</strong><small>{modelNamespace ? "通过 DSH 设置保存，并应用到新会话" : "保存在此桌面端，并应用到新会话"}</small></span><select disabled={modelOptions.length === 0} value={modelKey(defaultModel)} onChange={(event) => { const option = modelOptions.find((item) => item.value === event.target.value); if (option) void onSetDefaultModel({ provider: option.provider, model: option.model, ...(option.reasoning?.defaultEffort ? { reasoningEffort: option.reasoning.defaultEffort } : {}) }); }}><option value="" disabled>选择模型</option>{modelOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
-          {modelReasoning && <label className="settings-preference-row"><span><strong>默认思考程度</strong><small>仅对支持思考程度的模型生效</small></span><select disabled={!defaultModel} value={reasoningValue} onChange={(event) => { if (defaultModel) void onSetDefaultModel({ ...defaultModel, reasoningEffort: event.target.value || undefined }); }}><option value="">跟随模型默认</option>{modelReasoning.efforts.map((effort) => <option value={effort.id} key={effort.id}>{effort.name}</option>)}</select></label>}
-          <div className="settings-preference-row"><span><strong>工作目录</strong><small>{workspace || runtimeDirectory || "使用 DSH 运行目录"}</small></span><button onClick={() => void onAddWorkspace()}>选择目录</button></div>
-          <div className="settings-preference-row"><span><strong>会话侧栏</strong><small>{sidebarWidth}px · 拖动主界面分隔线调整</small></span><button onClick={onResetSidebar} disabled={sidebarWidth === 320}>恢复默认</button></div>
+          <label className="settings-preference-row"><span><strong>{t("settings.defaultPreset", locale)}</strong><small>{t("settings.defaultPreset.hint", locale)}</small></span><select disabled={settings?.writable === false} value={presets.find((preset) => preset.isDefault)?.id || ""} onChange={(event) => void onSetDefaultPreset(event.target.value)}>{presets.filter((preset) => !preset.broken).map((preset) => <option value={preset.id} key={preset.id}>{presetDisplayName(preset.id, presets, locale)}</option>)}</select></label>
+          <label className="settings-preference-row"><span><strong>{t("settings.defaultPermission", locale)}</strong><small>{(permission ? permissionDescription(permission, locale) : null) ?? t("settings.defaultPermission.hint", locale)} · {permissionStorageHint}</small></span><select disabled={!settings || settings.writable === false} value={defaultPermission ?? ""} onChange={(event) => void onSetDefaultPermission(event.target.value)}><option value="" disabled>{t("settings.perm.none", locale)}</option>{permissionOptions.map((option) => <option value={option.value} key={option.value}>{permissionLabel(option, locale)}</option>)}</select></label>
+          <label className="settings-preference-row"><span><strong>{t("settings.defaultModel", locale)}</strong><small>{modelNamespace ? t("settings.defaultModel.savedHost", locale) : t("settings.defaultModel.savedLocal", locale)}</small></span><select disabled={modelOptions.length === 0} value={modelKey(defaultModel)} onChange={(event) => { const option = modelOptions.find((item) => item.value === event.target.value); if (option) void onSetDefaultModel({ provider: option.provider, model: option.model, ...(option.reasoning?.defaultEffort ? { reasoningEffort: option.reasoning.defaultEffort } : {}) }); }}><option value="" disabled>{t("settings.defaultModel.choose", locale)}</option>{modelOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
+          {modelReasoning && <label className="settings-preference-row"><span><strong>{t("settings.defaultReasoning", locale)}</strong><small>{t("settings.defaultReasoning.hint", locale)}</small></span><select disabled={!defaultModel} value={reasoningValue} onChange={(event) => { if (defaultModel) void onSetDefaultModel({ ...defaultModel, reasoningEffort: event.target.value || undefined }); }}><option value="">{t("settings.followModel", locale)}</option>{modelReasoning.efforts.map((effort) => <option value={effort.id} key={effort.id}>{effort.name}</option>)}</select></label>}
+          <div className="settings-preference-row"><span><strong>{t("settings.workdir", locale)}</strong><small>{workspace || runtimeDirectory || t("settings.workdir.fallback", locale)}</small></span><button onClick={() => void onAddWorkspace()}>{t("settings.workdir.choose", locale)}</button></div>
+          <div className="settings-preference-row"><span><strong>{t("settings.sidebarWidth", locale)}</strong><small>{t("settings.sidebarWidth.hint", locale, { width: sidebarWidth })}</small></span><button onClick={onResetSidebar} disabled={sidebarWidth === 320}>{t("settings.sidebarReset", locale)}</button></div>
         </div>
       </div>
 
       <div className="settings-block">
-        <div className="settings-block-heading"><div><h3>右键启动</h3><p>在 Windows 资源管理器中添加“使用 Deeptop 启动”，从选中的文件或文件夹打开对应工作目录。</p></div></div>
-        {contextMenuStatus?.supported ? <div className="settings-preference-row"><span><strong>资源管理器右键菜单</strong><small>{contextMenuStatus.message} · 修改后可能需要重新打开资源管理器窗口</small></span><label className="settings-plugin-toggle" aria-label="启用资源管理器右键菜单"><input type="checkbox" checked={contextMenuStatus.enabled} disabled={contextMenuUpdating} onChange={(event) => void onSetContextMenuEnabled(event.target.checked)} /><span aria-hidden="true" /></label></div> : <p className="settings-empty">{contextMenuStatus?.message ?? "正在检查 Windows 右键菜单状态…"}</p>}
+        <div className="settings-block-heading"><div><h3>{t("settings.contextMenu", locale)}</h3><p>{t("settings.contextMenu.hint", locale)}</p></div></div>
+        {contextMenuStatus?.supported ? <div className="settings-preference-row"><span><strong>{t("settings.contextMenu.enable", locale)}</strong><small>{contextMenuStatus.message} · {t("settings.contextMenu.reopen", locale)}</small></span><label className="settings-plugin-toggle" aria-label={t("settings.contextMenu.enableAria", locale)}><input type="checkbox" checked={contextMenuStatus.enabled} disabled={contextMenuUpdating} onChange={(event) => void onSetContextMenuEnabled(event.target.checked)} /><span aria-hidden="true" /></label></div> : <p className="settings-empty">{contextMenuStatus?.message ?? t("settings.contextMenu.checking", locale)}</p>}
       </div>
 
       <div className="settings-block">
-        <div className="settings-block-heading"><div><h3>窗口与托盘</h3><p>关闭或最小化窗口后，Deeptop 可以继续在系统托盘后台运行。</p></div></div>
+        <div className="settings-block-heading"><div><h3>{t("settings.window", locale)}</h3><p>{t("settings.window.hint", locale)}</p></div></div>
         {windowBehaviorSupported ? <div className="settings-preference-list">
-          <div className="settings-preference-row"><span><strong>最小化到托盘</strong><small>点击最小化按钮时隐藏窗口，并保留后台任务与托盘入口。</small></span><label className="settings-plugin-toggle" aria-label="启用最小化到托盘"><input type="checkbox" checked={windowBehavior.minimizeToTray} disabled={windowBehaviorUpdating} onChange={(event) => void onUpdateWindowBehavior({ minimizeToTray: event.target.checked })} /><span aria-hidden="true" /></label></div>
-          <div className="settings-preference-row"><span><strong>关闭窗口时</strong><small>首次关闭会询问；选择后会记录为后续默认行为。</small></span><select disabled={windowBehaviorUpdating} value={windowBehavior.closeBehavior} onChange={(event) => void onUpdateWindowBehavior({ closeBehavior: event.target.value as CloseBehavior })}><option value="ask">首次关闭时询问</option><option value="hide-to-tray">隐藏到托盘并继续运行</option><option value="exit">退出 Deeptop</option></select></div>
-        </div> : <p className="settings-empty">窗口托盘行为仅在 Deeptop 桌面端可用。</p>}
+          <div className="settings-preference-row"><span><strong>{t("settings.window.minimize", locale)}</strong><small>{t("settings.window.minimize.hint", locale)}</small></span><label className="settings-plugin-toggle" aria-label={t("settings.window.minimizeAria", locale)}><input type="checkbox" checked={windowBehavior.minimizeToTray} disabled={windowBehaviorUpdating} onChange={(event) => void onUpdateWindowBehavior({ minimizeToTray: event.target.checked })} /><span aria-hidden="true" /></label></div>
+          <div className="settings-preference-row"><span><strong>{t("settings.window.close", locale)}</strong><small>{t("settings.window.close.hint", locale)}</small></span><select disabled={windowBehaviorUpdating} value={windowBehavior.closeBehavior} onChange={(event) => void onUpdateWindowBehavior({ closeBehavior: event.target.value as CloseBehavior })}><option value="ask">{t("settings.window.closeAsk", locale)}</option><option value="hide-to-tray">{t("settings.window.closeHide", locale)}</option><option value="exit">{t("settings.window.closeExit", locale)}</option></select></div>
+        </div> : <p className="settings-empty">{t("settings.window.unavailable", locale)}</p>}
       </div>
 
       <div className="settings-block">
-        <div className="settings-block-heading"><div><h3>网络代理</h3><p>默认跟随 Windows 系统代理（例如 Clash 的「系统代理」开关）；填写地址后改为使用显式代理。保存后即时生效，无需重启。</p></div></div>
+        <div className="settings-block-heading"><div><h3>{t("settings.proxy", locale)}</h3><p>{t("settings.proxy.hint", locale)}</p></div></div>
         <div className="settings-preference-list">
-          <label className="settings-preference-row"><span><strong>启用代理</strong><small>开启后所有模型请求经下方代理地址转发；不勾选则跟随系统代理或直连</small></span><label className="settings-plugin-toggle" aria-label="启用网络代理"><input type="checkbox" checked={proxyEnabled} disabled={networkProxyUpdating} onChange={(event) => setProxyEnabled(event.target.checked)} /><span aria-hidden="true" /></label></label>
-          <div className="settings-preference-row"><span><strong>代理地址</strong><small>例如 http://127.0.0.1:7890；留空则不使用显式代理，改为跟随系统代理。若使用 SOCKS，请填写客户端提供的 HTTP 监听端口</small></span><input className="settings-text-input" type="text" value={proxyUrl} placeholder="http://127.0.0.1:7890" disabled={networkProxyUpdating} onChange={(event) => setProxyUrl(event.target.value)} /></div>
-          <div className="settings-preference-row"><span><strong>当前代理</strong><small>{networkEffective.source === "system" ? `跟随系统代理：${networkEffective.url || "系统代理未提供地址"}` : networkEffective.source === "explicit" ? `显式代理：${networkEffective.url}` : "直连（未使用代理）"}</small></span><span className="settings-state-tag" data-source={networkEffective.source}>{networkEffective.source === "system" ? "系统代理" : networkEffective.source === "explicit" ? "显式" : "直连"}</span></div>
-          <div className="settings-preference-row"><span><strong>应用</strong><small>{networkProxyUpdating ? "正在应用代理…" : "保存并立即切换代理；下次启动自动恢复；留空则跟随系统代理"}</small></span><button disabled={networkProxyUpdating} onClick={() => void onUpdateNetworkProxy({ enabled: proxyEnabled, url: proxyUrl })}>{networkProxyUpdating ? "应用中…" : proxyEnabled ? "应用代理" : "应用（跟随系统/直连）"}</button></div>
+          <label className="settings-preference-row"><span><strong>{t("settings.proxy.enable", locale)}</strong><small>{t("settings.proxy.enable.hint", locale)}</small></span><label className="settings-plugin-toggle" aria-label={t("settings.proxy.enableAria", locale)}><input type="checkbox" checked={proxyEnabled} disabled={networkProxyUpdating} onChange={(event) => setProxyEnabled(event.target.checked)} /><span aria-hidden="true" /></label></label>
+          <div className="settings-preference-row"><span><strong>{t("settings.proxy.url", locale)}</strong><small>{t("settings.proxy.url.hint", locale)}</small></span><input className="settings-text-input" type="text" value={proxyUrl} placeholder="http://127.0.0.1:7890" disabled={networkProxyUpdating} onChange={(event) => setProxyUrl(event.target.value)} /></div>
+          <div className="settings-preference-row"><span><strong>{t("settings.proxy.current", locale)}</strong><small>{networkEffective.source === "system" ? t("settings.proxy.following", locale, { url: networkEffective.url || t("settings.proxy.none", locale) }) : networkEffective.source === "explicit" ? t("settings.proxy.explicit", locale, { url: networkEffective.url }) : t("settings.proxy.direct", locale)}</small></span><span className="settings-state-tag" data-source={networkEffective.source}>{networkEffective.source === "system" ? t("settings.proxy.tagSystem", locale) : networkEffective.source === "explicit" ? t("settings.proxy.tagExplicit", locale) : t("settings.proxy.tagDirect", locale)}</span></div>
+          <div className="settings-preference-row"><span><strong>{t("settings.proxy.apply", locale)}</strong><small>{networkProxyUpdating ? t("settings.proxy.applying", locale) : t("settings.proxy.apply.hint", locale)}</small></span><button disabled={networkProxyUpdating} onClick={() => void onUpdateNetworkProxy({ enabled: proxyEnabled, url: proxyUrl })}>{networkProxyUpdating ? t("settings.proxy.applyingShort", locale) : proxyEnabled ? t("settings.proxy.applyNow", locale) : t("settings.proxy.applyFollow", locale)}</button></div>
         </div>
       </div>
 
       <div className="settings-block">
-        <div className="settings-block-heading"><div><h3>Host 设置</h3><p>公开字段可由桌面端保存；密钥始终由 DSH Host 保管。</p></div><span className="settings-count">{settings?.namespaces.length ?? "未提供"}</span></div>
+        <div className="settings-block-heading"><div><h3>{t("settings.host", locale)}</h3><p>{t("settings.host.hint", locale)}</p></div><span className="settings-count">{settings?.namespaces.length ?? t("settings.host.unavailable", locale)}</span></div>
         <div className="settings-namespace-list">
-          {pluginSettings.length === 0 ? <p className="settings-empty">当前 Host 没有额外的可配置插件设置。</p> : pluginSettings.map((namespace) => <div className="settings-namespace-row" key={namespace.ns}><div><strong>{namespace.ns}</strong><small>{namespace.applies === "restart" ? "重启生效" : "实时生效"} · revision {namespace.revision}{namespace.secrets.length ? ` · ${namespace.secrets.filter((secret) => secret.set).length}/${namespace.secrets.length} 个密钥已配置` : ""}</small></div><button disabled={!settings?.writable} onClick={() => onOpenNamespace(namespace)}>{isSchemaEnvelope(namespace.schema) ? "编辑设置" : "编辑 JSON"}</button></div>)}
+          {pluginSettings.length === 0 ? <p className="settings-empty">{t("settings.host.empty", locale)}</p> : pluginSettings.map((namespace) => <div className="settings-namespace-row" key={namespace.ns}><div><strong>{namespace.ns}</strong><small>{namespace.applies === "restart" ? t("settings.ns.restart", locale) : t("settings.ns.live", locale)} · revision {namespace.revision}{namespace.secrets.length ? t("settings.ns.secrets", locale, { count: namespace.secrets.filter((secret) => secret.set).length, total: namespace.secrets.length }) : ""}</small></div><button disabled={!settings?.writable} onClick={() => onOpenNamespace(namespace)}>{isSchemaEnvelope(namespace.schema) ? t("settings.ns.edit", locale) : t("settings.ns.editJson", locale)}</button></div>)}
         </div>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import { MarkdownContent } from "../lib/markdown";
 import { planReviewOf, type PlanReviewQuestion } from "../app/ui-model";
 import type { PendingApproval, PendingQuestion } from "../app/model";
+import { t, type UiLocale } from "../app/i18n";
 
 type ApprovalOutcome = "allowed-once" | "rejected";
 
@@ -12,6 +13,8 @@ function parseRecommendedLabel(label: string) {
 }
 
 type InteractionPanelProps = {
+  /** 界面语言：确认/提问面板文案按语言渲染。 */
+  locale?: UiLocale;
   approval: PendingApproval | null;
   question: PendingQuestion | null;
   answers: Record<string, string[]>;
@@ -27,29 +30,32 @@ type InteractionPanelProps = {
 
 function PlanReviewPanel({
   review,
+  locale,
   onReview,
   onDiscuss,
 }: {
   review: PlanReviewQuestion;
+  locale: UiLocale;
   onReview: (label: string) => void | Promise<void>;
   onDiscuss: () => void | Promise<void>;
 }) {
   return <div className="plan-review-request" data-plan-review-key={review.item.id}>
     <div className="plan-review-head">
       <strong>{review.item.header || "Plan Review"}</strong>
-      <span>计划待审</span>
+      <span>{t("interaction.plan.pending", locale)}</span>
     </div>
     <p>{review.item.question}</p>
-    {review.hasPlan && <div className="plan-review-detail"><MarkdownContent text={review.item.detail ?? ""} /></div>}
+    {review.hasPlan && <div className="plan-review-detail"><MarkdownContent text={review.item.detail ?? ""} locale={locale} /></div>}
     <div className="interaction-actions">
-      <button onClick={() => void onDiscuss()}>去聊天里说</button>
-      {review.decline && <button onClick={() => void onReview(review.decline!)}>拒绝</button>}
-      <button className="confirm" onClick={() => void onReview(review.approve)}>确认执行</button>
+      <button onClick={() => void onDiscuss()}>{t("interaction.plan.discuss", locale)}</button>
+      {review.decline && <button onClick={() => void onReview(review.decline!)}>{t("interaction.reject", locale)}</button>}
+      <button className="confirm" onClick={() => void onReview(review.approve)}>{t("interaction.confirmExecute", locale)}</button>
     </div>
   </div>;
 }
 
 export function InteractionPanel({
+  locale = "zh",
   approval,
   question,
   answers,
@@ -68,18 +74,18 @@ export function InteractionPanel({
     <section className="interaction-panel">
       {approval && (
         <div className="approval-request">
-          <div><strong>需要确认</strong><span>{approval.toolName}</span><p>{approval.reason || "Agent 请求执行此工具。"}</p></div>
-          <div className="interaction-actions"><button onClick={() => void onApproval("rejected")}>拒绝</button><button className="confirm" onClick={() => void onApproval("allowed-once")}>允许一次</button></div>
+          <div><strong>{t("interaction.requiresApproval", locale)}</strong><span>{approval.toolName}</span><p>{approval.reason || t("interaction.defaultReason", locale)}</p></div>
+          <div className="interaction-actions"><button onClick={() => void onApproval("rejected")}>{t("interaction.reject", locale)}</button><button className="confirm" onClick={() => void onApproval("allowed-once")}>{t("interaction.allowOnce", locale)}</button></div>
         </div>
       )}
       {planReview ? (
-        <PlanReviewPanel review={planReview} onReview={(label) => void onPlanReview(planReview, label)} onDiscuss={onCancelQuestion} />
+        <PlanReviewPanel review={planReview} locale={locale} onReview={(label) => void onPlanReview(planReview, label)} onDiscuss={onCancelQuestion} />
       ) : question && (
         <div className="question-request">
           {question.questions.map((item) => (
             <div className="question-item" key={item.id}>
-              <strong>{item.header || "Agent 的问题"}</strong><p>{item.question}</p>
-              {item.detail && <div className="question-detail"><MarkdownContent text={item.detail} /></div>}
+              <strong>{item.header || t("interaction.defaultQuestionTitle", locale)}</strong><p>{item.question}</p>
+              {item.detail && <div className="question-detail"><MarkdownContent text={item.detail} locale={locale} /></div>}
               {(item.options ?? []).length > 0 && (
                 <div className="question-options">
                   {(item.options ?? []).map((option) => {
@@ -87,7 +93,7 @@ export function InteractionPanel({
                     const display = parseRecommendedLabel(option.label);
                     return <button className={checked ? "checked" : ""} key={option.label} onClick={() => onToggleAnswer(item.id, option.label, item.multiSelect)}>
                       <span>{checked ? "✓" : "○"}</span>
-                      <span className="question-option-copy"><strong>{display.label}</strong>{option.description && <small>{option.description}</small>}{display.recommended && <small className="recommended">推荐</small>}</span>
+                      <span className="question-option-copy"><strong>{display.label}</strong>{option.description && <small>{option.description}</small>}{display.recommended && <small className="recommended">{t("interaction.recommended", locale)}</small>}</span>
                     </button>;
                   })}
                 </div>
@@ -97,21 +103,21 @@ export function InteractionPanel({
                   className="question-custom-answer question-custom-input"
                   value={customAnswers[item.id] ?? ""}
                   onChange={(event) => onCustomAnswerChange(item.id, event.target.value)}
-                  placeholder="输入自定义回答"
-                  aria-label={`${item.header || item.question} 自定义回答`}
+                  placeholder={t("interaction.customAnswerPlaceholder", locale)}
+                  aria-label={t("interaction.customAnswerAria", locale, { title: item.header || item.question })}
                 />
               ) : (
                 <textarea
                   className="question-custom-answer"
                   value={customAnswers[item.id] ?? ""}
                   onChange={(event) => onCustomAnswerChange(item.id, event.target.value)}
-                  placeholder="输入自定义回答"
-                  aria-label={`${item.header || item.question} 自定义回答`}
+                  placeholder={t("interaction.customAnswerPlaceholder", locale)}
+                  aria-label={t("interaction.customAnswerAria", locale, { title: item.header || item.question })}
                 />
               )}
             </div>
           ))}
-          <div className="interaction-actions"><button onClick={() => void onCancelQuestion()}>取消</button><button className="confirm" onClick={() => void onSubmitQuestion()}>提交回答</button></div>
+          <div className="interaction-actions"><button onClick={() => void onCancelQuestion()}>{t("common.cancel", locale)}</button><button className="confirm" onClick={() => void onSubmitQuestion()}>{t("interaction.submitAnswer", locale)}</button></div>
         </div>
       )}
     </section>

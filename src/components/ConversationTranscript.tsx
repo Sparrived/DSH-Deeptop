@@ -15,14 +15,16 @@ import {
   imageSource,
   presetDescription,
   presetDisplayName,
-  workflowStatusLabel,
   type DiffSummary,
   type TranscriptItem,
 } from "../app/model";
 import type { MessageStats, TranscriptImage, WorkingIndicatorSettings } from "../app/model";
 import { normalizeWorkingIndicator, workingIndicatorTextAt } from "../app/working-indicator";
+import { t, type UiLocale } from "../app/i18n";
 
 type ConversationTranscriptProps = {
+  /** 界面语言：消息操作与标题按语言渲染。 */
+  locale?: UiLocale;
   scrollRef: RefObject<HTMLDivElement | null>;
   endRef: RefObject<HTMLDivElement | null>;
   history: DshHistoryEntry[];
@@ -67,7 +69,7 @@ function diffTextLines(text: string) {
   return body ? body.split("\n") : [];
 }
 
-function WorkingIndicator({ settings }: { settings: WorkingIndicatorSettings }) {
+function WorkingIndicator({ settings, locale }: { settings: WorkingIndicatorSettings; locale: UiLocale }) {
   const [index, setIndex] = useState(0);
   const safeSettings = useMemo(() => normalizeWorkingIndicator(settings), [settings]);
   const textKey = safeSettings.texts.join("\u0000");
@@ -83,7 +85,7 @@ function WorkingIndicator({ settings }: { settings: WorkingIndicatorSettings }) 
   }, [safeSettings.rotationInterval, safeSettings.texts.length, textKey]);
 
   return (
-    <div className={`agent-working effect-${safeSettings.effect}`} role="status" aria-label="模型正在工作" style={{ "--working-indicator-color": safeSettings.color } as CSSProperties}>
+    <div className={`agent-working effect-${safeSettings.effect}`} role="status" aria-label={t("conversation.working", locale)} style={{ "--working-indicator-color": safeSettings.color } as CSSProperties}>
       <span aria-hidden="true">{workingIndicatorTextAt(safeSettings, index)}</span>
     </div>
   );
@@ -99,7 +101,7 @@ function formatToolCall(text: string) {
   }
 }
 
-function SearchSourcesCard({ card, onOpenUrl }: { card: Extract<ToolDomainCard, { domain: "search" }>; onOpenUrl: (url: string) => void | Promise<void> }) {
+function SearchSourcesCard({ card, locale, onOpenUrl }: { card: Extract<ToolDomainCard, { domain: "search" }>; locale: UiLocale; onOpenUrl: (url: string) => void | Promise<void> }) {
   const [error, setError] = useState("");
   const [opening, setOpening] = useState<string | null>(null);
   async function open(url: string) {
@@ -113,13 +115,13 @@ function SearchSourcesCard({ card, onOpenUrl }: { card: Extract<ToolDomainCard, 
       setOpening(null);
     }
   }
-  return <div className="tool-domain-card search-domain-card" aria-label="Web 搜索结果">
-    <div className="tool-domain-head"><strong>Web 搜索</strong><span>{card.query || "搜索结果"}</span></div>
+  return <div className="tool-domain-card search-domain-card" aria-label={t("conversation.search.aria", locale)}>
+    <div className="tool-domain-head"><strong>{t("conversation.search.title", locale)}</strong><span>{card.query || t("conversation.search.results", locale)}</span></div>
     {card.answer && <p className="search-answer">{card.answer}</p>}
     {card.sources.length > 0 && <ul className="search-source-list">
       {card.sources.map((source) => (
         <li className="search-source" key={source.url}>
-          <button type="button" className="search-source-open" disabled={opening === source.url} onClick={() => void open(source.url)} title={`打开 ${source.url}`}>
+          <button type="button" className="search-source-open" disabled={opening === source.url} onClick={() => void open(source.url)} title={t("conversation.search.openUrl", locale, { url: source.url })}>
             <span className="search-source-title">{source.title || entityHost(source.url)}</span>
             <small>{source.url}</small>
             {source.publishedAt && <em>{source.publishedAt}</em>}
@@ -128,34 +130,34 @@ function SearchSourcesCard({ card, onOpenUrl }: { card: Extract<ToolDomainCard, 
         </li>
       ))}
     </ul>}
-    {card.truncated && <p className="search-domain-note">结果已截断，可细化查询获取更多来源。</p>}
+    {card.truncated && <p className="search-domain-note">{t("conversation.search.truncated", locale)}</p>}
     {error && <p className="search-domain-note error">{error}</p>}
   </div>;
 }
 
-function WebFetchCard({ card, onOpenUrl }: { card: Extract<ToolDomainCard, { domain: "fetch" }>; onOpenUrl: (url: string) => void | Promise<void> }) {
+function WebFetchCard({ card, locale, onOpenUrl }: { card: Extract<ToolDomainCard, { domain: "fetch" }>; locale: UiLocale; onOpenUrl: (url: string) => void | Promise<void> }) {
   const url = card.url ?? card.title;
-  return <div className="tool-domain-card fetch-domain-card" aria-label="Web 抓取">
-    <div className="tool-domain-head"><strong>Web 抓取</strong>{typeof card.statusCode === "number" && <span>HTTP {card.statusCode}</span>}</div>
+  return <div className="tool-domain-card fetch-domain-card" aria-label={t("conversation.fetch.label", locale)}>
+    <div className="tool-domain-head"><strong>{t("conversation.fetch.label", locale)}</strong>{typeof card.statusCode === "number" && <span>HTTP {card.statusCode}</span>}</div>
     <div className="fetch-domain-target"><strong>{entityHost(url)}</strong><small>{url}</small></div>
-    {card.truncated && <p className="search-domain-note">内容已截断。</p>}
-    {card.url && <div className="fetch-domain-actions"><button type="button" onClick={() => void onOpenUrl(card.url!)}>打开</button></div>}
+    {card.truncated && <p className="search-domain-note">{t("conversation.fetch.truncated", locale)}</p>}
+    {card.url && <div className="fetch-domain-actions"><button type="button" onClick={() => void onOpenUrl(card.url!)}>{t("common.open", locale)}</button></div>}
   </div>;
 }
 
-function SkillLoadCard({ card }: { card: Extract<ToolDomainCard, { domain: "skill" }> }) {
-  return <div className="tool-domain-card skill-domain-card" aria-label="Skill 加载">
-    <div className="tool-domain-head"><strong>Skill</strong><span>加载到上下文</span></div>
+function SkillLoadCard({ card, locale }: { card: Extract<ToolDomainCard, { domain: "skill" }>; locale: UiLocale }) {
+  return <div className="tool-domain-card skill-domain-card" aria-label={t("conversation.skill.aria", locale)}>
+    <div className="tool-domain-head"><strong>Skill</strong><span>{t("conversation.skill.intoContext", locale)}</span></div>
     <code className="skill-domain-name">{card.name}</code>
-    <p className="skill-domain-note">指令已注入模型上下文，本条为加载记录。</p>
+    <p className="skill-domain-note">{t("conversation.skill.note", locale)}</p>
   </div>;
 }
 
 /** Render one official tool-domain card from the presentation view. */
-function ToolDomainCardView({ card, onOpenUrl }: { card: ToolDomainCard; onOpenUrl: (url: string) => void | Promise<void> }) {
-  if (card.domain === "search") return <SearchSourcesCard card={card} onOpenUrl={onOpenUrl} />;
-  if (card.domain === "fetch") return <WebFetchCard card={card} onOpenUrl={onOpenUrl} />;
-  return <SkillLoadCard card={card} />;
+function ToolDomainCardView({ card, locale, onOpenUrl }: { card: ToolDomainCard; locale: UiLocale; onOpenUrl: (url: string) => void | Promise<void> }) {
+  if (card.domain === "search") return <SearchSourcesCard card={card} locale={locale} onOpenUrl={onOpenUrl} />;
+  if (card.domain === "fetch") return <WebFetchCard card={card} locale={locale} onOpenUrl={onOpenUrl} />;
+  return <SkillLoadCard card={card} locale={locale} />;
 }
 
 // Value equality for the fields that affect how a transcript article renders.
@@ -219,13 +221,13 @@ function sameItemFields(left: TranscriptItem, right: TranscriptItem) {
     && sameDomainCard(left.domainCard, right.domainCard);
 }
 
-function DiffResult({ diff }: { diff: DiffSummary }) {
+function DiffResult({ diff, locale }: { diff: DiffSummary; locale: UiLocale }) {
   let lineIndex = 0;
   return (
-    <div className="diff-result" aria-label="文件修改 Diff">
+    <div className="diff-result" aria-label={t("conversation.diff.aria", locale)}>
       <div className="diff-result-header">
         <strong>Diff</strong>
-        <span className="diff-result-stats"><b className="diff-added">+{diff.added}</b><b className="diff-removed">-{diff.removed}</b><span>{diff.files} 个文件</span></span>
+        <span className="diff-result-stats"><b className="diff-added">+{diff.added}</b><b className="diff-removed">-{diff.removed}</b><span>{t("conversation.diff.files", locale, { count: diff.files })}</span></span>
       </div>
       <div className="diff-result-body">
         {diff.diffs.map((hunk, hunkIndex) => {
@@ -266,17 +268,17 @@ function formatTokensPerSecond(value: number) {
   return speed >= 10 ? String(Math.round(speed)) : (Math.round(speed * 10) / 10).toFixed(1);
 }
 
-function MessageStatsLine({ stats }: { stats?: MessageStats }) {
+function MessageStatsLine({ stats, locale }: { stats?: MessageStats; locale: UiLocale }) {
   if (!stats) return null;
   const values = [
-    stats.inputTokens === undefined ? null : <span key="input">输入 {formatTokens(stats.inputTokens)} tok</span>,
-    stats.outputTokens === undefined ? null : <span key="output">输出 {formatTokens(stats.outputTokens)} tok</span>,
-    stats.cacheHitRate === undefined ? null : <span key="cache">缓存 {Math.round(stats.cacheHitRate)}%</span>,
-    stats.runMs === undefined ? null : <span key="run">输出耗时 {formatDuration(stats.runMs)}</span>,
-    stats.ttftMs === undefined ? null : <span key="ttft">首 T {formatDuration(stats.ttftMs)}</span>,
+    stats.inputTokens === undefined ? null : <span key="input">{t("conversation.stats.input", locale, { value: formatTokens(stats.inputTokens) })}</span>,
+    stats.outputTokens === undefined ? null : <span key="output">{t("conversation.stats.output", locale, { value: formatTokens(stats.outputTokens) })}</span>,
+    stats.cacheHitRate === undefined ? null : <span key="cache">{t("conversation.stats.cache", locale, { percent: Math.round(stats.cacheHitRate) })}</span>,
+    stats.runMs === undefined ? null : <span key="run">{t("conversation.stats.run", locale, { duration: formatDuration(stats.runMs) })}</span>,
+    stats.ttftMs === undefined ? null : <span key="ttft">{t("conversation.stats.ttft", locale, { duration: formatDuration(stats.ttftMs) })}</span>,
     stats.tokensPerSecond === undefined ? null : <span key="speed">{formatTokensPerSecond(stats.tokensPerSecond)} tok/s</span>,
   ].filter((value) => value !== null);
-  return values.length > 0 ? <div className="message-stats" aria-label="消息统计">{values}</div> : null;
+  return values.length > 0 ? <div className="message-stats" aria-label={t("conversation.stats.aria", locale)}>{values}</div> : null;
 }
 
 // The reasoning body can grow to thousands of tokens while the model "thinks".
@@ -285,15 +287,15 @@ function MessageStatsLine({ stats }: { stats?: MessageStats }) {
 // rewriting the whole accumulated text), so a long reasoning block streams
 // without janking the window. The entry is memoized so an unrelated transcript
 // rebuild (e.g. a tool event) does not re-scan the whole text.
-const ReasoningEntry = memo(function ReasoningEntry({ text, streaming }: { text: string; streaming: boolean }) {
+const ReasoningEntry = memo(function ReasoningEntry({ text, streaming, locale }: { text: string; streaming: boolean; locale: UiLocale }) {
   const [open, setOpen] = useState(false);
   const bodyRef = useRef<HTMLPreElement | null>(null);
   const renderedLengthRef = useRef(0);
   const summary = useMemo(() => {
     const lines = text.split("\n").filter(Boolean);
     const line = streaming ? lines.at(-1) : lines[0];
-    return line || "思考过程";
-  }, [text, streaming]);
+    return line || t("conversation.reasoning.fallback", locale);
+  }, [text, streaming, locale]);
 
   useEffect(() => {
     if (!open) return;
@@ -322,7 +324,7 @@ const ReasoningEntry = memo(function ReasoningEntry({ text, streaming }: { text:
       {open && <div className="reasoning-body"><pre ref={bodyRef} /></div>}
     </details>
   );
-}, (prev, next) => prev.text === next.text && prev.streaming === next.streaming);
+}, (prev, next) => prev.text === next.text && prev.streaming === next.streaming && prev.locale === next.locale);
 
 type PreviewImage = { src: string; alt: string };
 
@@ -331,18 +333,20 @@ type PreviewGallery = { images: TranscriptImage[]; index: number };
 function MessageImage({
   image,
   index,
+  locale,
   onLoadAttachment,
   onOpen,
 }: {
   image: TranscriptImage;
   index: number;
+  locale: UiLocale;
   onLoadAttachment?: (attachmentId: string) => Promise<string>;
   onOpen: (image: PreviewImage) => void;
 }) {
   const [src, setSrc] = useState(() => imageSource(image));
   const [state, setState] = useState<"loading" | "ready" | "error">(() => src ? "ready" : "loading");
   const [attempt, setAttempt] = useState(0);
-  const alt = image.name || `消息图片 ${index + 1}`;
+  const alt = image.name || t("conversation.image.messageAlt", locale, { index: index + 1 });
 
   useEffect(() => {
     let active = true;
@@ -369,16 +373,16 @@ function MessageImage({
     return () => { active = false; };
   }, [attempt, image, onLoadAttachment]);
 
-  if (state === "loading") return <span className="message-image-placeholder" role="status">正在读取图片</span>;
+  if (state === "loading") return <span className="message-image-placeholder" role="status">{t("conversation.image.loading", locale)}</span>;
   if (state === "error" || !src) {
-    return <button className="message-image-placeholder error" type="button" onClick={() => setAttempt((value) => value + 1)} title="重新读取图片">图片读取失败，点击重试</button>;
+    return <button className="message-image-placeholder error" type="button" onClick={() => setAttempt((value) => value + 1)} title={t("conversation.image.reload", locale)}>{t("conversation.image.loadError", locale)}</button>;
   }
   return <button
     className="message-image-link"
     type="button"
     onClick={() => onOpen({ src, alt })}
-    title="点击放大图片"
-    aria-label={`放大 ${alt}`}
+    title={t("conversation.image.zoomIn", locale)}
+    aria-label={t("conversation.image.enlarge", locale, { name: alt })}
   >
     <img src={src} alt={alt} loading="lazy" onError={() => setState("error")} />
   </button>;
@@ -389,10 +393,12 @@ function MessageImage({
 // the attachment-loading effect inside MessageImage.
 const MessageImages = memo(function MessageImages({
   images,
+  locale,
   onLoadAttachment,
   onOpen,
 }: {
   images: TranscriptImage[];
+  locale: UiLocale;
   onLoadAttachment?: (attachmentId: string) => Promise<string>;
   onOpen: (image: PreviewImage, images: TranscriptImage[], index: number) => void;
 }) {
@@ -400,21 +406,24 @@ const MessageImages = memo(function MessageImages({
     {images.map((image, index) => <MessageImage
       image={image}
       index={index}
+      locale={locale}
       onLoadAttachment={onLoadAttachment}
       onOpen={(preview) => onOpen(preview, images, index)}
       key={`${image.attachmentId ?? image.name ?? "inline"}-${index}`}
     />)}
   </div>;
-}, (prev, next) => sameImages(prev.images, next.images));
+}, (prev, next) => sameImages(prev.images, next.images) && prev.locale === next.locale);
 
 /** Attachment gallery: current image with lazy load, prev/next, keyboard. */
 function MessageLightbox({
   gallery,
+  locale,
   onLoadAttachment,
   onClose,
   onNavigate,
 }: {
   gallery: PreviewGallery;
+  locale: UiLocale;
   onLoadAttachment?: (attachmentId: string) => Promise<string>;
   onClose: () => void;
   onNavigate: (index: number) => void;
@@ -424,7 +433,7 @@ function MessageLightbox({
   const [src, setSrc] = useState<string | null>(() => current ? imageSource(current) || null : null);
   const [state, setState] = useState<"loading" | "ready" | "error">(() => src ? "ready" : "loading");
   const [attempt, setAttempt] = useState(0);
-  const alt = current?.name || `图片 ${index + 1}`;
+  const alt = current?.name || t("conversation.image.alt", locale, { index: index + 1 });
 
   useEffect(() => {
     let active = true;
@@ -466,18 +475,18 @@ function MessageLightbox({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [images.length, index, onClose, onNavigate]);
 
-  return <div className="message-lightbox" role="dialog" aria-modal="true" aria-label="图片画廊" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+  return <div className="message-lightbox" role="dialog" aria-modal="true" aria-label={t("conversation.image.gallery", locale)} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <div className="message-lightbox-toolbar">
       <span>{index + 1} / {images.length} · {alt}</span>
-      <button type="button" onClick={onClose} aria-label="关闭画廊" title="关闭（Esc）">×</button>
+      <button type="button" onClick={onClose} aria-label={t("conversation.image.closeGallery", locale)} title={t("conversation.image.closeEsc", locale)}>×</button>
     </div>
     <div className="message-lightbox-stage">
-      {state === "loading" && <span className="message-image-placeholder" role="status">正在读取图片…</span>}
-      {state === "error" && <button className="message-image-placeholder error" type="button" onClick={() => setAttempt((value) => value + 1)} title="重新读取图片">图片读取失败，点击重试</button>}
+      {state === "loading" && <span className="message-image-placeholder" role="status">{t("conversation.image.loading", locale)}…</span>}
+      {state === "error" && <button className="message-image-placeholder error" type="button" onClick={() => setAttempt((value) => value + 1)} title={t("conversation.image.reload", locale)}>{t("conversation.image.loadError", locale)}</button>}
       {state === "ready" && src !== null && <img className="message-lightbox-image" src={src} alt={alt} onClick={onClose} />}
     </div>
     {images.length > 1 && <div className="message-lightbox-nav">
-      <button type="button" disabled={index === 0} onClick={() => onNavigate(index - 1)} aria-label="上一张">‹</button>
+      <button type="button" disabled={index === 0} onClick={() => onNavigate(index - 1)} aria-label={t("conversation.image.previous", locale)}>‹</button>
       <div className="message-lightbox-thumbs">
         {images.map((image, thumbIndex) => (
           <button
@@ -485,14 +494,14 @@ function MessageLightbox({
             className={thumbIndex === index ? "active" : ""}
             key={`${image.attachmentId ?? image.name ?? "inline"}-${thumbIndex}`}
             onClick={() => onNavigate(thumbIndex)}
-            aria-label={`查看第 ${thumbIndex + 1} 张`}
-            title={image.name || `图片 ${thumbIndex + 1}`}
+            aria-label={t("conversation.image.viewNth", locale, { index: thumbIndex + 1 })}
+            title={image.name || t("conversation.image.alt", locale, { index: thumbIndex + 1 })}
           >
             <LightboxThumb image={image} />
           </button>
         ))}
       </div>
-      <button type="button" disabled={index >= images.length - 1} onClick={() => onNavigate(index + 1)} aria-label="下一张">›</button>
+      <button type="button" disabled={index >= images.length - 1} onClick={() => onNavigate(index + 1)} aria-label={t("conversation.image.next", locale)}>›</button>
     </div>}
   </div>;
 }
@@ -514,6 +523,7 @@ type TranscriptArticleProps = {
   activeRunning: boolean;
   loading: boolean;
   activeSessionId: string | null;
+  locale: UiLocale;
   onPreviewImage: (image: PreviewImage, images: TranscriptImage[], index: number) => void;
   onLoadImageAttachment?: (attachmentId: string) => Promise<string>;
   onCopyMessage: (text: string) => void | Promise<void>;
@@ -527,6 +537,15 @@ type TranscriptArticleProps = {
   onOpenWorkflowMember?: (childId: string, label: string) => void | Promise<void>;
 };
 
+/** Workflow state labels shown in the transcript heading (keys in conversation.workflow.status.*). */
+function workflowStatusKey(status: string): string {
+  if (status === "running") return "conversation.workflow.status.running";
+  if (status === "completed") return "conversation.workflow.status.completed";
+  if (status === "cancelled") return "conversation.workflow.status.cancelled";
+  if (status === "interrupted") return "conversation.workflow.status.interrupted";
+  return "conversation.workflow.status.failed";
+}
+
 function TranscriptArticleView({
   item,
   note,
@@ -534,6 +553,7 @@ function TranscriptArticleView({
   activeRunning,
   loading,
   activeSessionId,
+  locale,
   onPreviewImage,
   onLoadImageAttachment,
   onCopyMessage,
@@ -560,29 +580,29 @@ function TranscriptArticleView({
         onRequestCopyMenu(item, event.clientX, event.clientY, event.target);
       }}
     >
-      {item.kind !== "tool" && item.kind !== "reasoning" && <div className="message-gutter"><span>{item.label}</span><time>{formatClock(item.time)}</time>{annotation && <aside className="message-annotation" title="消息注记"><i aria-hidden="true" />{annotation}</aside>}</div>}
+      {item.kind !== "tool" && item.kind !== "reasoning" && <div className="message-gutter"><span>{item.label}</span><time>{formatClock(item.time)}</time>{annotation && <aside className="message-annotation" title={t("conversation.annotation.label", locale)}><i aria-hidden="true" />{annotation}</aside>}</div>}
       <div className="message-content">
-        {item.images && item.images.length > 0 && <MessageImages images={item.images} onLoadAttachment={onLoadImageAttachment} onOpen={onPreviewImage} />}
+        {item.images && item.images.length > 0 && <MessageImages images={item.images} locale={locale} onLoadAttachment={onLoadImageAttachment} onOpen={onPreviewImage} />}
         {item.kind === "tool" ? (
           <details className={`tool-entry ${hasToolResult ? "tool-paired" : ""} ${item.toolResultError ? "tool-error" : ""}`} open={item.toolResultError || undefined}>
             <summary>
               <span className="tool-summary-main"><span className="tool-state" aria-hidden="true" /><span className="tool-name">{item.toolName}</span></span>
-              <span className={`tool-status ${toolStatus}`}><span className="tool-status-dot" aria-hidden="true" />{item.toolResultError ? "异常" : hasToolResult ? "已返回" : "执行中"}</span>
-              {diff && <span className="tool-diff-badge" key={`${item.key}-diff-${diff.added}-${diff.removed}`} aria-label={`新增 ${diff.added} 行，删除 ${diff.removed} 行`}><b>+{diff.added}</b><b>-{diff.removed}</b></span>}
+              <span className={`tool-status ${toolStatus}`}><span className="tool-status-dot" aria-hidden="true" />{item.toolResultError ? t("conversation.tool.error", locale) : hasToolResult ? t("conversation.tool.returned", locale) : t("conversation.tool.running", locale)}</span>
+              {diff && <span className="tool-diff-badge" key={`${item.key}-diff-${diff.added}-${diff.removed}`} aria-label={t("conversation.tool.diffAria", locale, { added: diff.added, removed: diff.removed })}><b>+{diff.added}</b><b>-{diff.removed}</b></span>}
               <span className="tool-toggle" aria-hidden="true" />
             </summary>
             <div className="tool-parts">
-              {item.domainCard && <section className="tool-part tool-domain-part"><div className="tool-part-label"><span>领域视图</span></div><ToolDomainCardView card={item.domainCard} onOpenUrl={onOpenUrl} /></section>}
-              <section className="tool-part tool-call-part"><div className="tool-part-label"><span>调用参数</span><time>{formatClock(item.time)}</time></div><pre className="tool-call-arguments">{formatToolCall(item.text)}</pre>{item.toolDiff && <DiffResult diff={item.toolDiff} />}</section>
-              {hasToolResult && <section className={`tool-part tool-result-part ${item.toolResultError ? "tool-result-error" : ""}`}><div className="tool-part-label"><span>执行结果</span><time>{formatClock(item.toolResultTime)}</time></div>{item.toolResultDiff && <DiffResult key={`${item.key}-diff-${item.toolResultTime ?? "result"}`} diff={item.toolResultDiff} />}{item.toolResultText !== undefined && <pre>{item.toolResultText}</pre>}</section>}
+              {item.domainCard && <section className="tool-part tool-domain-part"><div className="tool-part-label"><span>{t("conversation.tool.domainView", locale)}</span></div><ToolDomainCardView card={item.domainCard} locale={locale} onOpenUrl={onOpenUrl} /></section>}
+              <section className="tool-part tool-call-part"><div className="tool-part-label"><span>{t("conversation.tool.callArgs", locale)}</span><time>{formatClock(item.time)}</time></div><pre className="tool-call-arguments">{formatToolCall(item.text)}</pre>{item.toolDiff && <DiffResult diff={item.toolDiff} locale={locale} />}</section>
+              {hasToolResult && <section className={`tool-part tool-result-part ${item.toolResultError ? "tool-result-error" : ""}`}><div className="tool-part-label"><span>{t("conversation.tool.result", locale)}</span><time>{formatClock(item.toolResultTime)}</time></div>{item.toolResultDiff && <DiffResult key={`${item.key}-diff-${item.toolResultTime ?? "result"}`} diff={item.toolResultDiff} locale={locale} />}{item.toolResultText !== undefined && <pre>{item.toolResultText}</pre>}</section>}
             </div>
           </details>
         ) : item.kind === "reasoning" ? (
-          <ReasoningEntry text={item.text} streaming={Boolean(item.streaming)} />
+          <ReasoningEntry text={item.text} streaming={Boolean(item.streaming)} locale={locale} />
         ) : item.kind === "workflow" ? (
           <details className="workflow-entry" open={item.workflow?.status === "running"}>
-            <summary><span className={`workflow-status ${item.workflow?.status ?? "running"}`} />{item.workflow?.name || item.text}<em>{item.workflow ? workflowStatusLabel(item.workflow.status) : "Workflow"}</em></summary>
-            <div className="workflow-body">{item.workflow?.phases.length ? item.workflow.phases.map((phase, phaseIndex) => <div className="workflow-phase" key={`${item.key}-phase-${phaseIndex}`}><strong>{phase.phase || "未命名阶段"}</strong><div>{phase.members.map((member) => {
+            <summary><span className={`workflow-status ${item.workflow?.status ?? "running"}`} />{item.workflow?.name || item.text}<em>{item.workflow ? t(workflowStatusKey(item.workflow.status), locale) : "Workflow"}</em></summary>
+            <div className="workflow-body">{item.workflow?.phases.length ? item.workflow.phases.map((phase, phaseIndex) => <div className="workflow-phase" key={`${item.key}-phase-${phaseIndex}`}><strong>{phase.phase || t("conversation.workflow.unnamedPhase", locale)}</strong><div>{phase.members.map((member) => {
               const childId = member.childId;
               const navigable = Boolean(childId && onOpenWorkflowMember);
               return <button
@@ -590,10 +610,10 @@ function TranscriptArticleView({
                 type="button"
                 key={`${member.childId}-${member.label}`}
                 onClick={() => { if (childId && onOpenWorkflowMember) onOpenWorkflowMember(childId, member.label); }}
-                title={navigable ? `打开子会话 ${childId.slice(0, 8)}…` : undefined}
+                title={navigable ? t("conversation.workflow.openChild", locale, { id: childId.slice(0, 8) }) : undefined}
                 disabled={!navigable}
               ><i />{member.label}</button>;
-            })}</div></div>) : <span className="workflow-empty">暂无成员状态</span>}</div>
+            })}</div></div>) : <span className="workflow-empty">{t("conversation.workflow.emptyMembers", locale)}</span>}</div>
           </details>
         ) : item.injected ? (
           <details className="injected-entry">
@@ -607,8 +627,8 @@ function TranscriptArticleView({
               <pre className="message-text">{item.text}</pre>
             </div>
           </details>
-        ) : <MarkdownContent text={item.text} reveal={streamingAssistant} onOpenPath={onOpenPath} onCheckPath={onCheckPath} onOpenUrl={onOpenUrl} />}
-        {item.kind === "assistant" && <MessageStatsLine stats={item.stats} />}
+        ) : <MarkdownContent text={item.text} reveal={streamingAssistant} locale={locale} onOpenPath={onOpenPath} onCheckPath={onCheckPath} onOpenUrl={onOpenUrl} />}
+        {item.kind === "assistant" && <MessageStatsLine stats={item.stats} locale={locale} />}
         {(item.kind === "user" || item.kind === "assistant") && (
           <div className="message-actions">
              {item.kind === "user" && item.seq !== undefined && onRetryMessage && (
@@ -617,15 +637,15 @@ function TranscriptArticleView({
                  className="retry-message-button"
                  disabled={activeRunning || loading || retryingMessageSeq !== null}
                  onClick={() => void onRetryMessage(item.seq!)}
-                 title="清除此消息之后的内容，并从这里重新请求"
+                 title={t("conversation.retry.title", locale)}
                >
-                 {retryingMessageSeq === item.seq ? "重试中" : "重试"}
+                 {retryingMessageSeq === item.seq ? t("conversation.retry.retrying", locale) : t("common.retry", locale)}
                </button>
              )}
-            <button type="button" onClick={() => void onCopyMessage(item.text)} title="复制消息">复制</button>
-            {item.messageId && <button type="button" onClick={() => void onEditAnnotation(item.messageId!)} title={annotation ? "编辑消息注记" : "添加消息注记"}>{annotation ? "改注记" : "加注记"}</button>}
+            <button type="button" onClick={() => void onCopyMessage(item.text)} title={t("conversation.copy.message", locale)}>{t("common.copy", locale)}</button>
+            {item.messageId && <button type="button" onClick={() => void onEditAnnotation(item.messageId!)} title={annotation ? t("conversation.annotation.edit", locale) : t("conversation.annotation.add", locale)}>{annotation ? t("conversation.annotation.editShort", locale) : t("conversation.annotation.addShort", locale)}</button>}
              {item.kind === "assistant" && item.seq !== undefined && activeSessionId && (
-              <button type="button" onClick={() => void onForkSession(activeSessionId, item.seq)} title="从此消息分叉">分叉</button>
+              <button type="button" onClick={() => void onForkSession(activeSessionId, item.seq)} title={t("conversation.forkFromMessage", locale)}>{t("conversation.fork", locale)}</button>
             )}
           </div>
         )}
@@ -645,10 +665,12 @@ const TranscriptArticle = memo(TranscriptArticleView, (prev, next) => {
     && prev.retryingMessageSeq === next.retryingMessageSeq
     && prev.activeRunning === next.activeRunning
     && prev.loading === next.loading
-    && prev.activeSessionId === next.activeSessionId;
+    && prev.activeSessionId === next.activeSessionId
+    && prev.locale === next.locale;
 });
 
 export function ConversationTranscript({
+  locale = "zh",
   scrollRef,
   endRef,
   history,
@@ -744,32 +766,32 @@ export function ConversationTranscript({
     <div className="transcript" ref={scrollRef} aria-live={trajectoryOpen ? undefined : "polite"} onScroll={handleScroll}>
       {!trajectoryOpen && historyHasMore && (
         <button className="history-load-more" type="button" disabled={historyLoadingOlder} onClick={() => void onLoadOlder()}>
-          {historyLoadingOlder ? "正在读取更早消息" : "读取更早消息"}
+          {historyLoadingOlder ? t("conversation.history.loadingOlder", locale) : t("conversation.history.loadOlder", locale)}
         </button>
       )}
       {!trajectoryOpen && !transcriptFollowing && history.length > 0 && (
-        <button className="transcript-jump" type="button" onClick={onJumpToLatest} title="回到最新消息">回到最新消息</button>
+        <button className="transcript-jump" type="button" onClick={onJumpToLatest} title={t("conversation.history.jumpToLatest", locale)}>{t("conversation.history.jumpToLatest", locale)}</button>
       )}
       {trajectoryOpen ? (
-        <TrajectoryView entries={history} active={activeRunning || loading} />
+        <TrajectoryView entries={history} active={activeRunning || loading} locale={locale} />
       ) : transcript.length === 0 && !loading ? (
         <div className="empty-conversation">
           <div className="empty-mark" role="img" aria-label="Deeptop">
             <span className="empty-mark-text" aria-hidden="true">Deeptop</span>
           </div>
-          <h1>{activeSession ? "继续这个会话" : "开始一个会话"}</h1>
-          <p>{activeSession ? "历史消息会在这里继续，输入下一条指令即可。" : "消息会在发送时创建 DSH 会话。"}</p>
-          <div className="empty-meta"><span>{workspace || runtimeDirectory || "运行目录"}</span><span>{modelName}</span></div>
+          <h1>{activeSession ? t("conversation.empty.continue", locale) : t("conversation.empty.start", locale)}</h1>
+          <p>{activeSession ? t("conversation.empty.continueHint", locale) : t("conversation.empty.startHint", locale)}</p>
+          <div className="empty-meta"><span>{workspace || runtimeDirectory || t("conversation.empty.runtimeDir", locale)}</span><span>{modelName}</span></div>
           {!activeSession && selectablePresets.length > 0 && (
             <div className="preset-seat">
               <button className="preset-seat-trigger" type="button" aria-haspopup="menu" aria-expanded={presetMenuOpen} onClick={onTogglePresetMenu}>
                 <span className="preset-seat-kicker">Agent Preset</span>
-                <strong>{presetDisplayName(selectedPresetId, presets)}</strong>
+                <strong>{presetDisplayName(selectedPresetId, presets, locale)}</strong>
                 <span className="preset-seat-chevron" aria-hidden="true">⌄</span>
               </button>
-              {presetMenuOpen && <div className="preset-seat-menu" role="menu" aria-label="选择 Agent Preset">
+              {presetMenuOpen && <div className="preset-seat-menu" role="menu" aria-label={t("conversation.preset.chooseAria", locale)}>
                 {selectablePresets.map((preset) => <button className={preset.id === selectedPresetId ? "selected" : ""} type="button" role="menuitem" key={preset.id} onClick={() => onStagePreset(preset.id)}>
-                  <span><strong>{presetDisplayName(preset.id, presets)}</strong><small>{presetDescription(preset)}</small></span>
+                  <span><strong>{presetDisplayName(preset.id, presets, locale)}</strong><small>{presetDescription(preset, locale)}</small></span>
                   {preset.id === selectedPresetId && <b aria-hidden="true">✓</b>}
                 </button>)}
               </div>}
@@ -787,6 +809,7 @@ export function ConversationTranscript({
               activeRunning={activeRunning}
               loading={loading}
               activeSessionId={activeSessionId}
+              locale={locale}
               onPreviewImage={(image, images, index) => setPreviewGallery({ images, index })}
               onLoadImageAttachment={onLoadImageAttachment}
               onCopyMessage={onCopyMessage}
@@ -800,13 +823,14 @@ export function ConversationTranscript({
               onOpenWorkflowMember={onOpenWorkflowMember}
             />
           ))}
-          {(loading || activeRunning) && <WorkingIndicator settings={workingIndicator} />}
+          {(loading || activeRunning) && <WorkingIndicator settings={workingIndicator} locale={locale} />}
            <div ref={endRef} />
         </div>
       )}
     </div>
     {previewGallery && <MessageLightbox
       gallery={previewGallery}
+      locale={locale}
       onLoadAttachment={onLoadImageAttachment}
       onClose={() => setPreviewGallery(null)}
       onNavigate={(index) => setPreviewGallery((current) => current ? { ...current, index } : current)}
@@ -816,7 +840,7 @@ export function ConversationTranscript({
         ref={menuRef}
         className="transcript-text-context-menu"
         role="menu"
-        aria-label="文本复制选项"
+        aria-label={t("conversation.copyMenu.aria", locale)}
         style={menuAt ? { left: menuAt.left, top: menuAt.top } : { left: copyMenu.x, top: copyMenu.y }}
         onMouseDown={(event) => event.stopPropagation()}
       >
@@ -824,12 +848,12 @@ export function ConversationTranscript({
           const text = copyMenu.selection;
           setCopyMenu(null);
           if (text) void onCopySelection(text);
-        }}>复制选中文本</button>
+        }}>{t("conversation.copyMenu.selection", locale)}</button>
         {copyMenu.hasMessageCopy && <button type="button" role="menuitem" onClick={() => {
           const text = copyMenu.message;
           setCopyMenu(null);
           void onCopyMessage(text);
-        }}>复制消息</button>}
+        }}>{t("conversation.copy.message", locale)}</button>}
       </div>,
       document.body,
     )}

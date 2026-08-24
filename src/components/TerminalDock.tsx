@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { errorText } from "../app/model";
+import { t, type UiLocale } from "../app/i18n";
 import {
   closeTerminal,
   isTauri,
@@ -17,11 +18,12 @@ import { DockFrame } from "./DockFrame";
 type TerminalDockProps = {
   workspace: string;
   collapsed: boolean;
+  locale?: UiLocale;
   onToggle: () => void;
   onError: (message: string) => void;
 };
 
-export function TerminalDock({ workspace, collapsed, onToggle, onError }: TerminalDockProps) {
+export function TerminalDock({ workspace, collapsed, locale = "zh", onToggle, onError }: TerminalDockProps) {
   const [terminals, setTerminals] = useState<TerminalOption[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [loading, setLoading] = useState(false);
@@ -40,6 +42,8 @@ export function TerminalDock({ workspace, collapsed, onToggle, onError }: Termin
   const aliveRef = useRef(true);
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
+  const localeRef = useRef(locale);
+  localeRef.current = locale;
 
   const refreshTerminals = useCallback(async () => {
     setLoading(true);
@@ -50,11 +54,11 @@ export function TerminalDock({ workspace, collapsed, onToggle, onError }: Termin
     } catch (error) {
       setTerminals([]);
       setSelectedId("");
-      onError(`读取终端列表失败：${errorText(error)}`);
+      onError(t("terminal.errList", locale, { detail: errorText(error) }));
     } finally {
       setLoading(false);
     }
-  }, [onError]);
+  }, [locale, onError]);
 
   useEffect(() => {
     void refreshTerminals();
@@ -125,7 +129,7 @@ export function TerminalDock({ workspace, collapsed, onToggle, onError }: Termin
     });
     const dataDisposable = terminal.onData((data) => {
       const current = sessionRef.current;
-      if (current) void writeTerminal(current, data).catch((error) => onErrorRef.current(`发送终端输入失败：${errorText(error)}`));
+      if (current) void writeTerminal(current, data).catch((error) => onErrorRef.current(t("terminal.errInput", localeRef.current, { detail: errorText(error) })));
     });
     const resizeObserver = new ResizeObserver(() => {
       try {
@@ -164,7 +168,7 @@ export function TerminalDock({ workspace, collapsed, onToggle, onError }: Termin
     const renderEvent = (event: { text: string; exited: boolean }) => {
       const terminal = terminalRef.current;
       if (event.exited) {
-        terminal?.write("\r\n\x1b[90m[终端会话已结束]\x1b[0m\r\n");
+        terminal?.write(`\r\n\x1b[90m[${t("terminal.sessionExited", localeRef.current)}]\x1b[0m\r\n`);
         setExited(true);
         setSessionId(null);
         sessionRef.current = null;
@@ -192,13 +196,13 @@ export function TerminalDock({ workspace, collapsed, onToggle, onError }: Termin
         unlisten = stop;
         setListenerReady(true);
       }
-    }).catch((error) => onError(`连接终端输出失败：${errorText(error)}`));
+    }).catch((error) => onError(t("terminal.errConnect", locale, { detail: errorText(error) })));
     return () => {
       cancelled = true;
       unlisten?.();
       setListenerReady(false);
     };
-  }, [onError]);
+  }, [locale, onError]);
 
   const selectedTerminal = useMemo(
     () => terminals.find((terminal) => terminal.id === selectedId) ?? terminals[0],
@@ -216,11 +220,11 @@ export function TerminalDock({ workspace, collapsed, onToggle, onError }: Termin
 
   const startSession = useCallback(async () => {
     if (!workspace) {
-      onError("请先选择一个工作区，再启动终端");
+      onError(t("terminal.errNoWorkspace", locale));
       return;
     }
     if (!selectedTerminal) {
-      onError("当前系统没有检测到可用终端");
+      onError(t("terminal.errNoTerminal", locale));
       return;
     }
     if (!terminalReady || !listenerReady || startingRef.current) return;
@@ -243,7 +247,7 @@ export function TerminalDock({ workspace, collapsed, onToggle, onError }: Termin
         pendingEventsRef.current.delete(started.sessionId);
         terminalRef.current?.write(pending.text);
         if (pending.exited) {
-          terminalRef.current?.write("\r\n\x1b[90m[终端会话已结束]\x1b[0m\r\n");
+          terminalRef.current?.write(`\r\n\x1b[90m[${t("terminal.sessionExited", locale)}]\x1b[0m\r\n`);
           setExited(true);
           setSessionId(null);
           sessionRef.current = null;
@@ -257,12 +261,12 @@ export function TerminalDock({ workspace, collapsed, onToggle, onError }: Termin
         }
       });
     } catch (error) {
-      onError(`启动内嵌终端失败：${errorText(error)}`);
+      onError(t("terminal.errStart", locale, { detail: errorText(error) }));
     } finally {
       startingRef.current = false;
       setLaunching(false);
     }
-  }, [listenerReady, onError, selectedTerminal, stopSession, terminalReady, workspace]);
+  }, [listenerReady, locale, onError, selectedTerminal, stopSession, terminalReady, workspace]);
 
   useEffect(() => {
     if (collapsed || !workspace || !selectedTerminal || sessionRef.current || exited) return;
@@ -282,11 +286,11 @@ export function TerminalDock({ workspace, collapsed, onToggle, onError }: Termin
       className="terminal-panel"
       collapsed={collapsed}
       keepBodyMounted
-      label="工作区终端"
-      title="终端"
-      kicker="当前工作区"
+      label={t("terminal.label", locale)}
+      title={t("terminal.title", locale)}
+      kicker={t("terminal.kicker", locale)}
       icon="›_"
-      total={sessionId ? "运行中" : terminals.length > 0 ? `${terminals.length} 个终端` : undefined}
+      total={sessionId ? t("terminal.running", locale) : terminals.length > 0 ? t("terminal.count", locale, { count: terminals.length }) : undefined}
       toggleGlyph="‹"
       onToggle={onToggle}
       railClassName="terminal-panel-rail"
@@ -305,23 +309,23 @@ export function TerminalDock({ workspace, collapsed, onToggle, onError }: Termin
         <div className="terminal-panel-select-row">
           <select
             id="terminal-choice"
-            aria-label="选择内嵌终端"
+            aria-label={t("terminal.chooseShell", locale)}
             value={selectedTerminal?.id ?? ""}
             disabled={loading || launching || terminals.length === 0}
             onChange={(event) => setSelectedId(event.target.value)}
           >
-            {terminals.length === 0 && <option value="">未检测到 shell</option>}
+            {terminals.length === 0 && <option value="">{t("terminal.noShell", locale)}</option>}
             {terminals.map((terminal) => <option key={terminal.id} value={terminal.id}>{terminal.name}</option>)}
           </select>
-          <button type="button" className="terminal-panel-refresh" onClick={() => void refreshTerminals()} disabled={loading || launching} title="重新检测 shell">⟳</button>
-          <button type="button" className="terminal-panel-restart" onClick={() => void startSession()} disabled={!workspace || !selectedTerminal || loading || launching} title="重启终端会话">↻</button>
+          <button type="button" className="terminal-panel-refresh" onClick={() => void refreshTerminals()} disabled={loading || launching} title={t("terminal.redetect", locale)}>⟳</button>
+          <button type="button" className="terminal-panel-restart" onClick={() => void startSession()} disabled={!workspace || !selectedTerminal || loading || launching} title={t("terminal.restart", locale)}>↻</button>
         </div>
-        <span className="terminal-panel-path" title={workspace}>{workspace || "未选择工作目录"}</span>
+        <span className="terminal-panel-path" title={workspace}>{workspace || t("terminal.noWorkspace", locale)}</span>
       </div>
-      <div ref={setTerminalHostElement} className="terminal-panel-terminal" aria-label="原生终端窗口" />
-      {!workspace && <p className="terminal-panel-empty">选择工作区后，终端会直接显示在 Dock 内。</p>}
-      {workspace && terminals.length === 0 && !loading && <p className="terminal-panel-empty">未检测到可内嵌 shell，请安装 bash、zsh 或 PowerShell。</p>}
-      {workspace && exited && <p className="terminal-panel-empty">终端会话已结束，点击右上角 ↻ 重新启动。</p>}
+      <div ref={setTerminalHostElement} className="terminal-panel-terminal" aria-label={t("terminal.nativeWindow", locale)} />
+      {!workspace && <p className="terminal-panel-empty">{t("terminal.emptyHint", locale)}</p>}
+      {workspace && terminals.length === 0 && !loading && <p className="terminal-panel-empty">{t("terminal.noEmbeddableShell", locale)}</p>}
+      {workspace && exited && <p className="terminal-panel-empty">{t("terminal.sessionEnded", locale)}</p>}
     </DockFrame>
   );
 }

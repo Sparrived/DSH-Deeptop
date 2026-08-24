@@ -2,11 +2,13 @@ import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useFloatingMenuPosition } from "../app/useFloatingMenuPosition";
 import { projectName } from "../app/model";
+import { t, type UiLocale } from "../app/i18n";
 import type { DshSessionSummary, DshWorkspace } from "../lib/desktop";
 
 type WorkspaceGroupProps = {
   workspace: DshWorkspace | null;
   sessions: DshSessionSummary[];
+  locale?: UiLocale;
   onRenameWorkspace: (workspace: DshWorkspace) => void | Promise<void>;
   onDeleteWorkspace: (workspace: DshWorkspace) => void | Promise<void>;
   renderSession: (session: DshSessionSummary) => ReactNode;
@@ -15,14 +17,15 @@ type WorkspaceGroupProps = {
 export function WorkspaceGroup({
   workspace,
   sessions,
+  locale = "zh",
   onRenameWorkspace,
   onDeleteWorkspace,
   renderSession,
 }: WorkspaceGroupProps) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const { menuRef, menuAt } = useFloatingMenuPosition(contextMenu);
-  const title = workspace ? workspace.title || projectName(workspace.path) : "未分组";
-  const path = workspace?.path ?? "未注册工作区的会话";
+  const title = workspace ? workspace.title || projectName(workspace.path, locale) : t("workspace.unfiled", locale);
+  const path = workspace?.path ?? t("workspace.unregistered", locale);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -66,8 +69,8 @@ export function WorkspaceGroup({
           role="menu"
           onMouseDown={(event) => event.stopPropagation()}
         >
-          <button role="menuitem" onClick={() => { setContextMenu(null); void onRenameWorkspace(workspace); }}>重命名工作区</button>
-          <button className="danger" role="menuitem" onClick={() => { setContextMenu(null); void onDeleteWorkspace(workspace); }}>删除工作区</button>
+          <button role="menuitem" onClick={() => { setContextMenu(null); void onRenameWorkspace(workspace); }}>{t("workspace.rename", locale)}</button>
+          <button className="danger" role="menuitem" onClick={() => { setContextMenu(null); void onDeleteWorkspace(workspace); }}>{t("workspace.delete", locale)}</button>
         </div>,
         document.body,
       )}

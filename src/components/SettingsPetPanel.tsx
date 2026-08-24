@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { PetAnimationState, PetBundle, PetBundleDescriptor, PetCareState, PetSettings } from "../lib/desktop";
 import { petAnimationDurationMs, petSpritesheetAssetSource } from "../app/pet-model";
 import { PetCanvas } from "./PetCanvas";
+import { t, type UiLocale } from "../app/i18n";
 
 interface SettingsPetPanelProps {
+  locale?: UiLocale;
   desktop: boolean;
   settings: PetSettings;
   entries: PetBundleDescriptor[];
@@ -31,9 +33,10 @@ interface PetSettingsPreviewProps {
   loading: boolean;
   error: string | null;
   motionEnabled: boolean;
+  locale: UiLocale;
 }
 
-function PetSettingsPreview({ selectedPet, bundle, loading, error, motionEnabled }: PetSettingsPreviewProps) {
+function PetSettingsPreview({ selectedPet, bundle, loading, error, motionEnabled, locale }: PetSettingsPreviewProps) {
   const [animation, setAnimation] = useState<PetAnimationState>("idle");
   const [ready, setReady] = useState(false);
   const source = useMemo(() => bundle ? petSpritesheetAssetSource(bundle) : null, [bundle]);
@@ -57,7 +60,7 @@ function PetSettingsPreview({ selectedPet, bundle, loading, error, motionEnabled
         className="pet-settings-preview-stage"
         disabled={!source || loading}
         onClick={() => setAnimation((current) => current === "jumping" ? "waving" : "jumping")}
-        aria-label={selectedPet ? `预览并互动：${selectedPet.name}` : "尚未安装宠物"}
+        aria-label={selectedPet ? t("pets.previewInteractAria", locale, { name: selectedPet.name }) : t("pets.notInstalled", locale)}
       >
         {source ? (
           <span className={`pet-settings-preview-visual${ready ? " asset-ready" : ""}`}>
@@ -69,18 +72,19 @@ function PetSettingsPreview({ selectedPet, bundle, loading, error, motionEnabled
               onReadyChange={handleReadyChange}
             />
           </span>
-        ) : <span className="pet-settings-preview-status">{loading ? "正在载入…" : selectedPet ? "暂时无法预览" : "尚未安装宠物"}</span>}
+        ) : <span className="pet-settings-preview-status">{loading ? t("pets.loading", locale) : selectedPet ? t("pets.previewUnavailable", locale) : t("pets.notInstalled", locale)}</span>}
       </button>
       <div className="pet-settings-preview-actions">
-        <button type="button" disabled={!source || loading} onClick={() => setAnimation("waving")}>挥手</button>
-        <button type="button" disabled={!source || loading} onClick={() => setAnimation("jumping")}>跳跃</button>
+        <button type="button" disabled={!source || loading} onClick={() => setAnimation("waving")}>{t("pets.wave", locale)}</button>
+        <button type="button" disabled={!source || loading} onClick={() => setAnimation("jumping")}>{t("pets.jump", locale)}</button>
       </div>
-      {error && <small className="pet-settings-preview-error">预览读取失败：{error}</small>}
+      {error && <small className="pet-settings-preview-error">{t("pets.previewError", locale, { error })}</small>}
     </div>
   );
 }
 
 export function SettingsPetPanel({
+  locale = "zh",
   desktop,
   settings,
   entries,
@@ -107,19 +111,19 @@ export function SettingsPetPanel({
       <div className="settings-page-header">
         <div>
           <span className="settings-overline">DESKTOP PETS</span>
-          <h2>宠物</h2>
-          <p>可互动的全局桌宠。可以随时关闭，关闭后宠物窗口会立即退出。</p>
+          <h2>{t("settings.pets", locale)}</h2>
+          <p>{t("pets.subtitle", locale)}</p>
         </div>
         <label className="pet-master-switch">
-          <span>{settings.enabled ? "已启用" : "已关闭"}</span>
-          <span className="settings-plugin-toggle" aria-label="启用桌面宠物">
+          <span>{settings.enabled ? t("pets.enabled", locale) : t("pets.disabled", locale)}</span>
+          <span className="settings-plugin-toggle" aria-label={t("pets.enableAria", locale)}>
             <input type="checkbox" checked={settings.enabled} disabled={!loaded || busy || !selectedPet} onChange={(event) => void onUpdate({ enabled: event.target.checked })} />
             <span aria-hidden="true" />
           </span>
         </label>
       </div>
 
-      {!loaded ? <p className="settings-empty">正在读取宠物设置…</p> : (
+      {!loaded ? <p className="settings-empty">{t("pets.readingSettings", locale)}</p> : (
         <>
           <section className="settings-block pet-current-card">
             <div className="pet-current-showcase">
@@ -129,54 +133,55 @@ export function SettingsPetPanel({
                 loading={previewLoading}
                 error={previewError}
                 motionEnabled={settings.motionEnabled}
+                locale={locale}
               />
               <div className="pet-current-details">
                 <div className="settings-block-heading">
-                  <div><h3>{selectedPet?.name ?? "尚未安装宠物"}</h3><p>{selectedPet?.description || "安装一个 Deeptop Pet 后即可预览和启用。"}</p></div>
-                  {selectedPet && <span className="pet-source-badge">已安装</span>}
+                  <div><h3>{selectedPet?.name ?? t("pets.notInstalled", locale)}</h3><p>{selectedPet?.description || t("pets.installPrompt", locale)}</p></div>
+                  {selectedPet && <span className="pet-source-badge">{t("pets.installed", locale)}</span>}
                 </div>
-                <p className="pet-current-hint">{selectedPet ? "点击左侧宠物可以预览动作。" : "可以从宠物库安装别人分享的宠物包。"}</p>
+                <p className="pet-current-hint">{selectedPet ? t("pets.previewHint", locale) : t("pets.libraryHint", locale)}</p>
                 {selectedPet && settings.careEnabled && careState && (
-                  <div className="pet-care-summary" aria-label="宠物养成状态">
-                    <span><small>饱食</small><strong>{Math.round(careState.satiety)}</strong></span>
-                    <span><small>心情</small><strong>{Math.round(careState.mood)}</strong></span>
-                    <span><small>亲密</small><strong>{Math.round(careState.affection)}</strong></span>
+                  <div className="pet-care-summary" aria-label={t("pets.careAria", locale)}>
+                    <span><small>{t("pets.satiety", locale)}</small><strong>{Math.round(careState.satiety)}</strong></span>
+                    <span><small>{t("pets.mood", locale)}</small><strong>{Math.round(careState.mood)}</strong></span>
+                    <span><small>{t("pets.affection", locale)}</small><strong>{Math.round(careState.affection)}</strong></span>
                   </div>
                 )}
-                {careError && <small className="pet-settings-preview-error">养成状态读取失败：{careError}</small>}
+                {careError && <small className="pet-settings-preview-error">{t("pets.careError", locale, { error: careError })}</small>}
               </div>
             </div>
           </section>
 
           <section className="settings-block">
-            <div className="settings-block-heading"><div><h3>显示</h3><p>只控制宠物自己的位置与动作，不改变对话布局。</p></div></div>
+            <div className="settings-block-heading"><div><h3>{t("pets.display", locale)}</h3><p>{t("pets.displayHint", locale)}</p></div></div>
             <div className="settings-preference-list">
-              <label className="settings-preference-row"><span><strong>当前宠物</strong><small>{entries.length} 个可用宠物</small></span><select value={selectedPet?.id ?? ""} disabled={busy || entries.length === 0} onChange={(event) => void onSelect(event.target.value)}>{entries.length === 0 && <option value="">尚未安装宠物</option>}{entries.map((pet) => <option value={pet.id} key={pet.id}>{pet.name}</option>)}</select></label>
-              <label className="settings-preference-row"><span><strong>初始位置</strong><small>启用时停靠在主显示器工作区的一侧，之后可拖到任意显示器</small></span><select value={settings.anchor} disabled={controlsDisabled} onChange={(event) => void onUpdate({ anchor: event.target.value === "bottom-left" ? "bottom-left" : "bottom-right" })}><option value="bottom-right">桌面右下角</option><option value="bottom-left">桌面左下角</option></select></label>
-              <label className="settings-preference-row"><span><strong>显示大小</strong><small>选择宠物在桌面上的大小</small></span><select value={settings.size} disabled={controlsDisabled} onChange={(event) => void onUpdate({ size: Number(event.target.value) })}><option value="64">小 · 64 px</option><option value="88">中 · 88 px</option><option value="112">大 · 112 px</option><option value="144">特大 · 144 px</option></select></label>
-              <div className="settings-preference-row"><span><strong>置顶显示</strong><small>宠物窗口始终悬浮在其他窗口之上，适合边工作边看</small></span><label className="settings-plugin-toggle" aria-label="宠物窗口置顶显示"><input type="checkbox" checked={settings.alwaysOnTop} disabled={controlsDisabled} onChange={(event) => void onUpdate({ alwaysOnTop: event.target.checked })} /><span aria-hidden="true" /></label></div>
-              <div className="settings-preference-row"><span><strong>宠物动作</strong><small>播放待机、互动和任务状态动画</small></span><label className="settings-plugin-toggle" aria-label="启用宠物动作"><input type="checkbox" checked={settings.motionEnabled} disabled={controlsDisabled} onChange={(event) => void onUpdate({ motionEnabled: event.target.checked })} /><span aria-hidden="true" /></label></div>
-              <div className="settings-preference-row"><span><strong>允许互动</strong><small>可以点击、拖动宠物并操作任务提醒；关闭后鼠标会穿过宠物窗口</small></span><label className="settings-plugin-toggle" aria-label="允许宠物互动"><input type="checkbox" checked={settings.interactionsEnabled} disabled={controlsDisabled} onChange={(event) => void onUpdate({ interactionsEnabled: event.target.checked })} /><span aria-hidden="true" /></label></div>
-              <div className="settings-preference-row"><span><strong>养成互动</strong><small>保存饱食、心情和亲密度；关闭后状态暂停，任务提醒不受影响</small></span><label className="settings-plugin-toggle" aria-label="启用宠物养成互动"><input type="checkbox" checked={settings.careEnabled} disabled={controlsDisabled} onChange={(event) => void onUpdate({ careEnabled: event.target.checked })} /><span aria-hidden="true" /></label></div>
+              <label className="settings-preference-row"><span><strong>{t("pets.currentPet", locale)}</strong><small>{t("pets.availableCount", locale, { count: entries.length })}</small></span><select value={selectedPet?.id ?? ""} disabled={busy || entries.length === 0} onChange={(event) => void onSelect(event.target.value)}>{entries.length === 0 && <option value="">{t("pets.notInstalled", locale)}</option>}{entries.map((pet) => <option value={pet.id} key={pet.id}>{pet.name}</option>)}</select></label>
+              <label className="settings-preference-row"><span><strong>{t("pets.anchor", locale)}</strong><small>{t("pets.anchorHint", locale)}</small></span><select value={settings.anchor} disabled={controlsDisabled} onChange={(event) => void onUpdate({ anchor: event.target.value === "bottom-left" ? "bottom-left" : "bottom-right" })}><option value="bottom-right">{t("pets.bottomRight", locale)}</option><option value="bottom-left">{t("pets.bottomLeft", locale)}</option></select></label>
+              <label className="settings-preference-row"><span><strong>{t("pets.size", locale)}</strong><small>{t("pets.sizeHint", locale)}</small></span><select value={settings.size} disabled={controlsDisabled} onChange={(event) => void onUpdate({ size: Number(event.target.value) })}><option value="64">{t("pets.sizeSmall", locale)}</option><option value="88">{t("pets.sizeMedium", locale)}</option><option value="112">{t("pets.sizeLarge", locale)}</option><option value="144">{t("pets.sizeXLarge", locale)}</option></select></label>
+              <div className="settings-preference-row"><span><strong>{t("pets.alwaysOnTop", locale)}</strong><small>{t("pets.alwaysOnTopHint", locale)}</small></span><label className="settings-plugin-toggle" aria-label={t("pets.alwaysOnTopAria", locale)}><input type="checkbox" checked={settings.alwaysOnTop} disabled={controlsDisabled} onChange={(event) => void onUpdate({ alwaysOnTop: event.target.checked })} /><span aria-hidden="true" /></label></div>
+              <div className="settings-preference-row"><span><strong>{t("pets.motion", locale)}</strong><small>{t("pets.motionHint", locale)}</small></span><label className="settings-plugin-toggle" aria-label={t("pets.motionAria", locale)}><input type="checkbox" checked={settings.motionEnabled} disabled={controlsDisabled} onChange={(event) => void onUpdate({ motionEnabled: event.target.checked })} /><span aria-hidden="true" /></label></div>
+              <div className="settings-preference-row"><span><strong>{t("pets.interactions", locale)}</strong><small>{t("pets.interactionsHint", locale)}</small></span><label className="settings-plugin-toggle" aria-label={t("pets.interactionsAria", locale)}><input type="checkbox" checked={settings.interactionsEnabled} disabled={controlsDisabled} onChange={(event) => void onUpdate({ interactionsEnabled: event.target.checked })} /><span aria-hidden="true" /></label></div>
+              <div className="settings-preference-row"><span><strong>{t("pets.care", locale)}</strong><small>{t("pets.careHint", locale)}</small></span><label className="settings-plugin-toggle" aria-label={t("pets.careToggleAria", locale)}><input type="checkbox" checked={settings.careEnabled} disabled={controlsDisabled} onChange={(event) => void onUpdate({ careEnabled: event.target.checked })} /><span aria-hidden="true" /></label></div>
             </div>
           </section>
 
           <section className="settings-block">
-            <div className="settings-block-heading"><div><h3>宠物库</h3><p>安装别人分享的 `.deeptop-pet` 文件，或把当前宠物分享给朋友。</p></div><div className="pet-library-actions"><button type="button" className="settings-header-action" disabled={!desktop || busy} onClick={() => void onImport()}>安装宠物包</button>{selectedPet && <button type="button" className="settings-header-action" disabled={!desktop || busy} onClick={() => void onExport()}>分享当前宠物</button>}{selectedPet && <button type="button" className="settings-header-action danger-button" disabled={!desktop || busy} onClick={() => void onRemove()}>删除</button>}</div></div>
+            <div className="settings-block-heading"><div><h3>{t("pets.library", locale)}</h3><p>{t("pets.libraryHint2", locale)}</p></div><div className="pet-library-actions"><button type="button" className="settings-header-action" disabled={!desktop || busy} onClick={() => void onImport()}>{t("pets.install", locale)}</button>{selectedPet && <button type="button" className="settings-header-action" disabled={!desktop || busy} onClick={() => void onExport()}>{t("pets.share", locale)}</button>}{selectedPet && <button type="button" className="settings-header-action danger-button" disabled={!desktop || busy} onClick={() => void onRemove()}>{t("common.delete", locale)}</button>}</div></div>
             <details className="pet-library-more">
-              <summary>管理与制作</summary>
+              <summary>{t("pets.manage", locale)}</summary>
               <div className="pet-library-more-content">
-                <div className="pet-library-directory"><span>本地目录</span><code>{directory || "仅桌面端可用"}</code><button type="button" className="settings-header-action" disabled={!desktop} onClick={() => void onOpenDirectory()}>打开目录</button></div>
+                <div className="pet-library-directory"><span>{t("pets.localDirectory", locale)}</span><code>{directory || t("common.desktopOnly", locale)}</code><button type="button" className="settings-header-action" disabled={!desktop} onClick={() => void onOpenDirectory()}>{t("common.openDirectory", locale)}</button></div>
                 <div className="pet-creator-guide">
-                  <strong>制作自己的宠物</strong>
-                  <p>准备 Deeptop Pet 动画图集和宠物信息，然后在项目目录运行：</p>
-                  <code>npm run pet:pack -- &lt;宠物目录&gt;</code>
-                  <small>生成的单文件可以直接分享；宠物市场也会使用同一种文件。</small>
+                  <strong>{t("pets.creatorTitle", locale)}</strong>
+                  <p>{t("pets.creatorHint", locale)}</p>
+                  <code>npm run pet:pack -- &lt;{t("pets.creatorDirPlaceholder", locale)}&gt;</code>
+                  <small>{t("pets.creatorNote", locale)}</small>
                 </div>
               </div>
             </details>
-            {warnings.length > 0 && <div className="pet-library-warnings" role="status"><strong>有 {warnings.length} 个宠物包未加载</strong>{warnings.map((warning) => <p key={warning}>{warning}</p>)}</div>}
-            <p className="pet-library-footnote">宠物包只包含图片和动作配置，不会运行第三方代码。关闭页面顶部的开关即可完整停用。</p>
+            {warnings.length > 0 && <div className="pet-library-warnings" role="status"><strong>{t("pets.warningsTitle", locale, { count: warnings.length })}</strong>{warnings.map((warning) => <p key={warning}>{warning}</p>)}</div>}
+            <p className="pet-library-footnote">{t("pets.footnote", locale)}</p>
           </section>
         </>
       )}

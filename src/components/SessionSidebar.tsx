@@ -12,6 +12,7 @@ import {
   type SessionContextMenu,
 } from "../app/model";
 import type { DshSessionSummary, DshWorkspace } from "../lib/desktop";
+import { t, type UiLocale } from "../app/i18n";
 
 export type WorkspaceGroup = {
   workspace: DshWorkspace | null;
@@ -28,6 +29,8 @@ function sameOrder(left: string[], right: string[]) {
 }
 
 type SessionSidebarProps = {
+  /** 界面语言：会话列表与菜单文案按语言渲染。 */
+  locale?: UiLocale;
   search: string;
   onSearchChange: (value: string) => void;
   onSearch: () => void;
@@ -71,6 +74,7 @@ type SessionSidebarProps = {
 };
 
 export function SessionSidebar({
+  locale = "zh",
   search,
   onSearchChange,
   onSearch,
@@ -166,6 +170,7 @@ export function SessionSidebar({
 
   const renderSessionRow = (session: DshSessionSummary) => <SessionRow
     key={session.sessionId}
+    locale={locale}
     session={session}
     active={session.sessionId === activeSessionId}
     indicator={sessionIndicators[session.sessionId] ?? "idle"}
@@ -188,14 +193,14 @@ export function SessionSidebar({
     <div
       className={`archived-session-row session-status-${session.running ? "running" : "archived"}`}
       key={session.sessionId}
-      aria-label={`会话状态：${sessionStatusLabels[session.running ? "running" : "archived"]}`}
+      aria-label={t("session.statusAria", locale, { status: t(sessionStatusLabels[session.running ? "running" : "archived"], locale) })}
     >
       <button className="archived-session-main" type="button" onClick={() => void onOpenSession(session)}>
-        <span className="archived-session-copy"><strong>{displayTitle(session)}</strong><small>{formatDate(session.updatedAt)}{session.cwd ? " · " + projectName(session.cwd) : ""}</small></span>
+        <span className="archived-session-copy"><strong>{displayTitle(session, locale)}</strong><small>{formatDate(session.updatedAt)}{session.cwd ? " · " + projectName(session.cwd, locale) : ""}</small></span>
       </button>
       <div className="archived-session-actions">
-        <button type="button" onClick={() => void onRestoreSession(session)}>恢复</button>
-        <button className="danger" type="button" onClick={() => onDeleteArchivedSession(session)}>删除</button>
+        <button type="button" onClick={() => void onRestoreSession(session)}>{t("session.restore", locale)}</button>
+        <button className="danger" type="button" onClick={() => onDeleteArchivedSession(session)}>{t("common.delete", locale)}</button>
       </div>
     </div>
   );
@@ -203,10 +208,10 @@ export function SessionSidebar({
     <aside className="session-sidebar">
       <div className="sidebar-actions">
         <button className="new-session-button" onClick={onNewSession}>
-          <span aria-hidden="true">+</span> 新会话
+          <span aria-hidden="true">+</span> {t("sidebar.newSession", locale)}
         </button>
-        <button className={`settings-button sidebar-settings-button ${settingsOpen ? "selected" : ""}`} onClick={onOpenSettings} title="打开设置" aria-label="打开设置"><span className="settings-button-glyph" aria-hidden="true">⚙</span><span className="settings-button-label">设置</span></button>
-        <button className="small-icon-button" onClick={() => void onAddWorkspace()} title="添加工作目录" aria-label="添加工作目录">⌂</button>
+        <button className={`settings-button sidebar-settings-button ${settingsOpen ? "selected" : ""}`} onClick={onOpenSettings} title={t("sidebar.openSettings", locale)} aria-label={t("sidebar.openSettings", locale)}><span className="settings-button-glyph" aria-hidden="true">⚙</span><span className="settings-button-label">{t("settings.title", locale)}</span></button>
+        <button className="small-icon-button" onClick={() => void onAddWorkspace()} title={t("sidebar.addWorkspace", locale)} aria-label={t("sidebar.addWorkspace", locale)}>⌂</button>
       </div>
       {!archiveOpen && <div className="search-box">
         <span aria-hidden="true">/</span>
@@ -214,28 +219,28 @@ export function SessionSidebar({
           value={search}
           onChange={(event) => onSearchChange(event.target.value)}
           onKeyDown={(event) => { if (event.key === "Enter") void onSearch(); }}
-          placeholder="搜索会话"
-          aria-label="搜索会话"
+          placeholder={t("sidebar.search", locale)}
+          aria-label={t("sidebar.search", locale)}
         />
-        {search && <button onClick={onClearSearch} title="清除搜索">×</button>}
+        {search && <button onClick={onClearSearch} title={t("sidebar.clearSearch", locale)}>×</button>}
       </div>}
 
       <div className="sidebar-heading">
         {archiveOpen ? (
-          <div className="sidebar-heading-title"><button className="sidebar-back-button" type="button" onClick={() => setArchiveOpen(false)} title="返回会话列表" aria-label="返回会话列表">←</button><span>归档</span></div>
-        ) : <span>会话</span>}
+          <div className="sidebar-heading-title"><button className="sidebar-back-button" type="button" onClick={() => setArchiveOpen(false)} title={t("sidebar.backToSessions", locale)} aria-label={t("sidebar.backToSessions", locale)}>←</button><span>{t("sidebar.archive", locale)}</span></div>
+        ) : <span>{t("sidebar.sessions", locale)}</span>}
         <div className="sidebar-heading-actions">
           <span>{archiveOpen ? archivedSessions.length : (search.trim() ? visibleSessions.length : (selectedWorkspaceGroup.sessions.length > 0 ? selectedWorkspaceGroup.sessions.length : ""))}</span>
           {!archiveOpen && <>
-            <button type="button" onClick={() => setArchiveOpen(true)} title="打开归档页">归档</button>
+            <button type="button" onClick={() => setArchiveOpen(true)} title={t("sidebar.openArchive", locale)}>{t("sidebar.archive", locale)}</button>
           </>}
         </div>
       </div>
-      <div className="session-list" aria-label={archiveOpen ? "归档会话列表" : "会话列表"}>
+      <div className="session-list" aria-label={archiveOpen ? t("sidebar.archiveList", locale) : t("sidebar.sessionList", locale)}>
         {archiveOpen ? (
-          archivedSessions.length === 0 ? <div className="sidebar-empty">没有归档会话</div> : archivedSessions.map(renderArchivedSession)
+          archivedSessions.length === 0 ? <div className="sidebar-empty">{t("sidebar.archiveEmpty", locale)}</div> : archivedSessions.map(renderArchivedSession)
         ) : search.trim() ? (
-          visibleSessions.length === 0 ? <div className="sidebar-empty">没有匹配的会话</div> : visibleSessions.map(renderSessionRow)
+          visibleSessions.length === 0 ? <div className="sidebar-empty">{t("sidebar.searchEmpty", locale)}</div> : visibleSessions.map(renderSessionRow)
         ) : <>
           {/* 会话区：当前选中工作区的会话 */}
           <WorkspaceGroupSection
@@ -245,18 +250,18 @@ export function SessionSidebar({
             onDeleteWorkspace={onDeleteWorkspace}
             renderSession={renderSessionRow}
           />
-          {selectedWorkspaceGroup.sessions.length === 0 && <div className="sidebar-empty">当前工作区没有已开始的会话</div>}
+          {selectedWorkspaceGroup.sessions.length === 0 && <div className="sidebar-empty">{t("sidebar.workspaceEmpty", locale)}</div>}
         </>}
       </div>
 
       {!archiveOpen && sessionContextMenu && createPortal(
         <div ref={sessionMenuRef} className="session-context-menu" style={{ left: sessionMenuAt?.left ?? sessionContextMenu.x, top: sessionMenuAt?.top ?? sessionContextMenu.y }} role="menu" onMouseDown={(event) => event.stopPropagation()}>
-          {workspaceBySessionId.has(sessionContextMenu.session.sessionId) && !search.trim() && <button role="menuitem" onClick={() => onRequestSessionAction("pin", sessionContextMenu.session)}>{workspaceBySessionId.get(sessionContextMenu.session.sessionId)?.pinnedSessionIds?.includes(sessionContextMenu.session.sessionId) ? "取消置顶" : "在此工作区置顶"}</button>}
-          <button role="menuitem" onClick={() => onRequestSessionAction("rename", sessionContextMenu.session)}>重命名</button>
-          <button role="menuitem" onClick={() => onRequestSessionAction("fork", sessionContextMenu.session)}>分叉会话</button>
-          <button role="menuitem" onClick={() => onRequestSessionAction("export", sessionContextMenu.session)}>导出 JSON</button>
-          <button role="menuitem" onClick={() => onRequestSessionAction("exportZip", sessionContextMenu.session)}>导出 ZIP</button>
-          <button className="danger" role="menuitem" onClick={() => onRequestSessionAction("archive", sessionContextMenu.session)}>归档会话</button>
+          {workspaceBySessionId.has(sessionContextMenu.session.sessionId) && !search.trim() && <button role="menuitem" onClick={() => onRequestSessionAction("pin", sessionContextMenu.session)}>{workspaceBySessionId.get(sessionContextMenu.session.sessionId)?.pinnedSessionIds?.includes(sessionContextMenu.session.sessionId) ? t("session.unpin", locale) : t("session.pinInWorkspace", locale)}</button>}
+          <button role="menuitem" onClick={() => onRequestSessionAction("rename", sessionContextMenu.session)}>{t("session.rename", locale)}</button>
+          <button role="menuitem" onClick={() => onRequestSessionAction("fork", sessionContextMenu.session)}>{t("session.fork", locale)}</button>
+          <button role="menuitem" onClick={() => onRequestSessionAction("export", sessionContextMenu.session)}>{t("session.exportJson", locale)}</button>
+          <button role="menuitem" onClick={() => onRequestSessionAction("exportZip", sessionContextMenu.session)}>{t("session.exportZip", locale)}</button>
+          <button className="danger" role="menuitem" onClick={() => onRequestSessionAction("archive", sessionContextMenu.session)}>{t("session.archive", locale)}</button>
         </div>,
         document.body,
       )}

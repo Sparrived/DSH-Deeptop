@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { WorkspaceGitGraphLine } from "../lib/desktop";
 import { gitGraphLaneColor, gitRefKind, formatRelativeTime } from "../app/git-model";
 import { gitGraphLayout, type GitLayoutCommit } from "../app/git-graph-layout";
+import { t, type UiLocale } from "../app/i18n";
 
 // 向量渲染几何：泳道宽、行高，泳道画在列中心，跨泳道边用圆角折线。
 const LANE_W = 15;
@@ -12,22 +13,23 @@ type GitTreeGraphProps = {
   lines: WorkspaceGitGraphLine[];
   selectedHash: string | null;
   onSelect: (hash: string) => void;
+  locale?: UiLocale;
 };
 
-function formatCommitTime(timestamp: number | null): string {
-  if (timestamp === null || timestamp <= 0) return "未知时间";
-  const relative = formatRelativeTime(timestamp);
+function formatCommitTime(timestamp: number | null, locale: UiLocale): string {
+  if (timestamp === null || timestamp <= 0) return t("gitGraph.unknownTime", locale);
+  const relative = formatRelativeTime(timestamp, undefined, locale);
   try {
     const date = new Date(timestamp * 1000);
     const pad = (value: number) => String(value).padStart(2, "0");
     const absolute = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-    return `${relative}（${absolute}）`;
+    return t("gitGraph.commitTime", locale, { relative, absolute });
   } catch {
     return relative;
   }
 }
 
-export function GitTreeGraph({ lines, selectedHash, onSelect }: GitTreeGraphProps) {
+export function GitTreeGraph({ lines, selectedHash, onSelect, locale = "zh" }: GitTreeGraphProps) {
   const layout = useMemo(() => gitGraphLayout(lines), [lines]);
   const [hovered, setHovered] = useState<GitLayoutCommit | null>(null);
   if (layout.commits.length === 0) return null;
@@ -122,7 +124,7 @@ export function GitTreeGraph({ lines, selectedHash, onSelect }: GitTreeGraphProp
       key={`lb${index}`}
       className={`git-lane-label git-lane-label-${label.kind}`}
       style={{ marginLeft: label.lane * LANE_W }}
-      title={`${label.label}（泳道 ${label.lane + 1}）`}
+      title={t("gitGraph.laneTitle", locale, { label: label.label, lane: label.lane + 1 })}
     >
       <i style={{ background: gitGraphLaneColor(label.lane) }} aria-hidden="true" />
       {label.label}
@@ -155,9 +157,9 @@ export function GitTreeGraph({ lines, selectedHash, onSelect }: GitTreeGraphProp
           <div className="git-graph-tooltip-subject">{hovered.subject}</div>
           <div className="git-graph-tooltip-row">
             <span className="git-graph-tooltip-hash">{hovered.shortHash}</span>
-            <span>{hovered.author ?? "未知作者"}{hovered.email ? ` <${hovered.email}>` : ""}</span>
+            <span>{hovered.author ?? t("gitGraph.unknownAuthor", locale)}{hovered.email ? ` <${hovered.email}>` : ""}</span>
           </div>
-          <div className="git-graph-tooltip-row">{formatCommitTime(hovered.timestamp)}</div>
+          <div className="git-graph-tooltip-row">{formatCommitTime(hovered.timestamp, locale)}</div>
           {hovered.refs.length > 0 && (
             <div className="git-graph-tooltip-row">
               {hovered.refs.map((ref) => (
@@ -168,11 +170,11 @@ export function GitTreeGraph({ lines, selectedHash, onSelect }: GitTreeGraphProp
           {hoveredLabel && (
             <div className="git-graph-tooltip-row">
               <i className="git-graph-tooltip-lane-dot" style={{ background: gitGraphLaneColor(hoveredLabel.lane) }} aria-hidden="true" />
-              <span>分支：{hoveredLabel.label}</span>
+              <span>{t("gitGraph.branchLabel", locale, { label: hoveredLabel.label })}</span>
             </div>
           )}
           <div className="git-graph-tooltip-row">
-            <span>泳道 {hovered.lane + 1} · 第 {hovered.row + 1} 行</span>
+            <span>{t("gitGraph.laneRow", locale, { lane: hovered.lane + 1, row: hovered.row + 1 })}</span>
           </div>
         </div>
       )}

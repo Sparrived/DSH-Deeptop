@@ -1,5 +1,6 @@
 import type { RefObject } from "react";
 import { projectName } from "../app/model";
+import { t, type UiLocale } from "../app/i18n";
 import type { DshWorkspace } from "../lib/desktop";
 
 type WorkspacePickerProps = {
@@ -8,6 +9,7 @@ type WorkspacePickerProps = {
   open: boolean;
   pinnedWorkspaceIds: string[];
   unpinnedSectionOpen: boolean;
+  locale?: UiLocale;
   onUnpinnedSectionChange: (open: boolean) => void;
   menuRef: RefObject<HTMLDivElement | null>;
   onToggle: () => void;
@@ -23,6 +25,7 @@ export function WorkspacePicker({
   open,
   pinnedWorkspaceIds,
   unpinnedSectionOpen,
+  locale = "zh",
   onUnpinnedSectionChange,
   menuRef,
   onToggle,
@@ -32,14 +35,14 @@ export function WorkspacePicker({
   onDelete,
 }: WorkspacePickerProps) {
   const selectedWorkspace = workspaces.find((item) => item.path === workspace);
-  const selectedTitle = selectedWorkspace?.title || (workspace ? projectName(workspace) : "未分组");
-  const selectedPath = selectedWorkspace?.path || (workspace || "未注册工作区的会话");
+  const selectedTitle = selectedWorkspace?.title || (workspace ? projectName(workspace, locale) : t("workspace.unfiled", locale));
+  const selectedPath = selectedWorkspace?.path || (workspace || t("workspace.unregistered", locale));
   const selectedPinned = Boolean(selectedWorkspace && pinnedWorkspaceIds.includes(selectedWorkspace.workspaceId));
   // 一级菜单只常驻未分组与置顶工作区；其余未置顶工作区收进二级列表，避免工作区过多。
   const pinnedWorkspaces = workspaces.filter((item) => pinnedWorkspaceIds.includes(item.workspaceId));
   const unpinnedWorkspaces = workspaces.filter((item) => !pinnedWorkspaceIds.includes(item.workspaceId));
   const renderWorkspaceItem = (item: DshWorkspace) => {
-    const label = item.title || projectName(item.path);
+    const label = item.title || projectName(item.path, locale);
     const pinned = pinnedWorkspaceIds.includes(item.workspaceId);
     return (
       <div key={item.workspaceId} className="workspace-menu-item" role="presentation">
@@ -50,31 +53,31 @@ export function WorkspacePicker({
           className={`workspace-menu-pin${pinned ? " active" : ""}`}
           onClick={(event) => { event.stopPropagation(); onTogglePin(item); }}
           role="menuitem"
-          title={pinned ? "取消置顶" : "置顶工作区"}
-          aria-label={pinned ? `取消置顶“${label}”` : `置顶工作区“${label}”`}
+          title={pinned ? t("workspace.unpin", locale) : t("workspace.pin", locale)}
+          aria-label={pinned ? t("workspace.unpinAria", locale, { name: label }) : t("workspace.pinAria", locale, { name: label })}
           aria-pressed={pinned}
         >📌</button>
         <button
           className="workspace-menu-delete"
           onClick={(event) => { event.stopPropagation(); void onDelete(item); }}
           role="menuitem"
-          title={`删除工作区“${label}”`}
-          aria-label={`删除工作区“${label}”`}
+          title={t("workspace.deleteAria", locale, { name: label })}
+          aria-label={t("workspace.deleteAria", locale, { name: label })}
         >🗑</button>
       </div>
     );
   };
   return (
     <div className="workspace-picker" ref={menuRef}>
-      <button className="workspace-line" onClick={onToggle} title={workspace || "未分组会话；新会话使用 DSH 运行目录"} aria-expanded={open}>
+      <button className="workspace-line" onClick={onToggle} title={workspace || t("workspace.unfiledHint", locale)} aria-expanded={open}>
         <span className="line-icon">⌂</span>
         <span><strong>{selectedTitle}</strong><small>{selectedPath}</small></span>
         <span className="line-arrow">{selectedPinned ? "📌" : "⌄"}</span>
       </button>
       {open && (
         <div className="workspace-menu" role="menu">
-          <button className={!workspace ? "selected" : ""} onClick={() => onChoose("")} role="menuitem" title="新会话使用 DSH 运行目录">
-            <strong>未分组</strong><small>未注册工作区的会话</small>
+          <button className={!workspace ? "selected" : ""} onClick={() => onChoose("")} role="menuitem" title={t("workspace.newSessionHint", locale)}>
+            <strong>{t("workspace.unfiled", locale)}</strong><small>{t("workspace.unregistered", locale)}</small>
           </button>
           {pinnedWorkspaces.map(renderWorkspaceItem)}
           {unpinnedWorkspaces.length > 0 && (
@@ -84,18 +87,18 @@ export function WorkspacePicker({
               onClick={() => onUnpinnedSectionChange(!unpinnedSectionOpen)}
               role="menuitem"
               aria-expanded={unpinnedSectionOpen}
-              title={unpinnedSectionOpen ? "收起未置顶工作区" : "展开未置顶工作区"}
+              title={unpinnedSectionOpen ? t("workspace.collapseUnpinned", locale) : t("workspace.expandUnpinned", locale)}
             >
               <span className="workspace-menu-chevron" aria-hidden="true">{unpinnedSectionOpen ? "▾" : "▸"}</span>
-              <span>未置顶工作区（{unpinnedWorkspaces.length}）</span>
+              <span>{t("workspace.unpinnedSection", locale, { count: unpinnedWorkspaces.length })}</span>
             </button>
           )}
           {unpinnedSectionOpen && unpinnedWorkspaces.length > 0 && (
-            <div className="workspace-menu-nested" role="group" aria-label="未置顶工作区列表">
+            <div className="workspace-menu-nested" role="group" aria-label={t("workspace.unpinnedListAria", locale)}>
               {unpinnedWorkspaces.map(renderWorkspaceItem)}
             </div>
           )}
-          <button className="workspace-add" onClick={() => void onAdd()} role="menuitem">＋ 添加工作目录</button>
+          <button className="workspace-add" onClick={() => void onAdd()} role="menuitem">＋ {t("workspace.add", locale)}</button>
         </div>
       )}
     </div>

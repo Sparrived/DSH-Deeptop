@@ -9,6 +9,7 @@ import {
 import { useDockSettings } from "../app/dock-settings";
 import { FLOATING_CONTEXT_MENU_SELECTOR, isWithinSelector } from "../app/context-menu";
 import { useDockPinLayer } from "./DockPinLayers";
+import { t, type UiLocale } from "../app/i18n";
 
 type DockPosition = {
   x: number;
@@ -25,6 +26,7 @@ type DockDragState = {
 
 type DockFrameProps = {
   id: string;
+  locale?: UiLocale;
   side?: "left" | "right";
   className: string;
   collapsed: boolean;
@@ -99,6 +101,7 @@ function moveDockPosition(position: DockPosition, delta: DockPosition, startRect
 
 export function DockFrame({
   id,
+  locale = "zh",
   side = "right",
   className,
   collapsed,
@@ -316,13 +319,13 @@ export function DockFrame({
             onClick={onToggle}
             aria-controls={contentId}
             aria-expanded={!collapsed}
-            aria-label={`收起${label}`}
-            title={`收起${label}`}
+            aria-label={t("dock.collapse", locale, { label })}
+            title={t("dock.collapse", locale, { label })}
           >
             <span aria-hidden="true">{toggleGlyph}</span>
           </button>
         </div>
-        <div className={joinClasses("dock-frame-toolbar", headerActionsClassName)} role="group" aria-label={`${label}操作`}>
+        <div className={joinClasses("dock-frame-toolbar", headerActionsClassName)} role="group" aria-label={t("dock.toolbarAria", locale, { label })}>
           {total !== undefined && <span className={joinClasses("dock-frame-total", totalClassName)}>{total}</span>}
           <span className="dock-frame-toolbar-spacer" aria-hidden="true" />
           <button
@@ -330,8 +333,8 @@ export function DockFrame({
             type="button"
             onClick={() => toggleDockPinned(id)}
             aria-pressed={pinned}
-            aria-label={pinned ? `取消钉住${label}` : `钉住${label}`}
-            title={pinned ? "取消钉住：恢复浮动卡片" : "钉住：固定为窗口边缘的分栏"}
+            aria-label={pinned ? t("dock.unpin", locale, { label }) : t("dock.pin", locale, { label })}
+            title={pinned ? t("dock.unpinTooltip", locale) : t("dock.pinTooltip", locale)}
           >
             <span aria-hidden="true">📌</span>
           </button>
@@ -340,8 +343,8 @@ export function DockFrame({
               className="dock-frame-reset"
               type="button"
               onClick={handleResetPosition}
-              aria-label="还原面板位置"
-              title="还原面板位置"
+              aria-label={t("dock.resetPosition", locale)}
+              title={t("dock.resetPosition", locale)}
             >
               <span aria-hidden="true">↺</span>
             </button>
@@ -366,8 +369,8 @@ export function DockFrame({
         onClick={onToggle}
         aria-controls={contentId}
         aria-expanded={!collapsed}
-        aria-label={collapsed ? `展开${label}` : `收起${label}`}
-        title={collapsed ? `展开${label}` : `收起${label}`}
+        aria-label={collapsed ? t("dock.expand", locale, { label }) : t("dock.collapse", locale, { label })}
+        title={collapsed ? t("dock.expand", locale, { label }) : t("dock.collapse", locale, { label })}
       >
         <span className={joinClasses("dock-frame-rail-mark", railMarkClassName ?? markClassName)} aria-hidden="true">{icon}</span>
         {railExtra}

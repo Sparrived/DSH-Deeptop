@@ -181,27 +181,28 @@ export function ComposerShell({
         onChange={(event) => onComposerChange(event.target.value)}
         onPaste={onPaste}
         onKeyDown={handleKeyDown}
-        placeholder={planEffectiveTarget(plan) ? "描述你的任务以生成计划" : activeRunning ? "输入要排队或插入当前回合的内容" : t("composer.placeholder", locale)}
+        placeholder={planEffectiveTarget(plan) ? t("composer.planPlaceholder", locale) : activeRunning ? t("composer.queueOrInsertPlaceholder", locale) : t("composer.placeholder", locale)}
         rows={3}
         disabled={!runtimeAvailable}
         aria-controls={candidates.length > 0 && !candidatesDismissed ? "composer-candidates" : undefined}
         aria-activedescendant={candidates.length > 0 && !candidatesDismissed ? "composer-candidate-" + activeCandidateIndex : undefined}
       />
-      {attachments.length > 0 && <div className="composer-attachments" aria-label="待发送图片">
+      {attachments.length > 0 && <div className="composer-attachments" aria-label={t("composer.attachmentsAria", locale)}>
         {attachments.map((attachment) => (
           <div className="composer-attachment" key={attachment.id}>
             <img src={"data:" + attachment.mediaType + ";base64," + attachment.data} alt={attachment.name} />
             <span title={attachment.name}>{attachment.name}</span>
-            <button type="button" onClick={() => onRemoveAttachment(attachment.id)} title="移除图片" aria-label={"移除 " + attachment.name}>×</button>
+            <button type="button" onClick={() => onRemoveAttachment(attachment.id)} title={t("composer.removeAttachment", locale)} aria-label={t("composer.removeAttachmentAria", locale, { name: attachment.name })}>×</button>
           </div>
         ))}
       </div>}
-      {planEffectiveTarget(plan) && <div className="composer-plan-chip" role="status" aria-label="Plan 模式已开启">
+      {planEffectiveTarget(plan) && <div className="composer-plan-chip" role="status" aria-label={t("composer.planActiveAria", locale)}>
         <span className="composer-plan-chip-label">Plan</span>
-        <span className="composer-plan-chip-note">规划中，下一步提交计划</span>
-        <button type="button" className="composer-plan-chip-exit" onClick={() => void onExitPlan()} title="退出 Plan 模式（/plan off）" aria-label="退出 Plan 模式">×</button>
+        <span className="composer-plan-chip-note">{t("composer.planChipNote", locale)}</span>
+        <button type="button" className="composer-plan-chip-exit" onClick={() => void onExitPlan()} title={t("composer.planExitTitle", locale)} aria-label={t("composer.planExitAria", locale)}>×</button>
       </div>}
       <ComposerCandidates
+        locale={locale}
         candidates={candidates}
         triggerKind={triggerKind}
         dismissed={candidatesDismissed}
@@ -210,22 +211,22 @@ export function ComposerShell({
       />
       <div className="composer-controls">
         <div className="composer-left">
-          <button className="attachment-button" type="button" onClick={() => attachmentInputRef.current?.click()} title={t("composer.attach", locale)}>＋ 图片{attachments.length > 0 ? " " + attachments.length : ""}</button>
-          {permissions && <PermissionPicker permissions={permissions} onSetPermission={onSetPermission} showLabel />}
+          <button className="attachment-button" type="button" onClick={() => attachmentInputRef.current?.click()} title={t("composer.attach", locale)}>＋ {t("composer.attachLabel", locale)}{attachments.length > 0 ? " " + attachments.length : ""}</button>
+          {permissions && <PermissionPicker permissions={permissions} onSetPermission={onSetPermission} showLabel locale={locale} />}
           <div className="mode-picker" ref={modeMenuRef}>
             <button
               className="mode-picker-trigger"
               type="button"
-              aria-label="选择消息发送方式"
+              aria-label={t("composer.pickSendModeAria", locale)}
               aria-haspopup="menu"
               aria-expanded={modeMenuOpen}
-              title={promptMode === "queue" ? "将消息排入当前会话" : "插入当前回合"}
+              title={promptMode === "queue" ? t("composer.queueTitle", locale) : t("composer.steerTitle", locale)}
               onClick={() => setModeMenuOpen((open) => !open)}
             >
-              <span>{promptMode === "queue" ? "排队" : "插入"}</span>
+              <span>{promptMode === "queue" ? t("composer.queueLabel", locale) : t("composer.steerLabel", locale)}</span>
               <span className="mode-picker-chevron" aria-hidden="true">&gt;</span>
             </button>
-            {modeMenuOpen && <div className="mode-menu" role="menu" aria-label="消息发送方式">
+            {modeMenuOpen && <div className="mode-menu" role="menu" aria-label={t("composer.modeMenuAria", locale)}>
               {(["queue", "steer"] as PromptMode[]).map((mode) => {
                 const selected = promptMode === mode;
                 return <button
@@ -239,7 +240,7 @@ export function ComposerShell({
                     setModeMenuOpen(false);
                   }}
                 >
-                  <span className="mode-menu-option-label">{mode === "queue" ? "排队" : "插入"}</span>
+                  <span className="mode-menu-option-label">{mode === "queue" ? t("composer.queueLabel", locale) : t("composer.steerLabel", locale)}</span>
                   <span className="mode-menu-check" aria-hidden="true">{selected ? "✓" : ""}</span>
                 </button>;
               })}
@@ -263,7 +264,7 @@ export function ComposerShell({
             onChangeModel={onChangeModel}
             onChangeReasoningEffort={onChangeReasoningEffort}
           /> : <div className="model-picker">
-            <button className="model-picker-trigger model-picker-placeholder" type="button" disabled title="创建会话后可切换模型" aria-label={`当前默认模型：${defaultModelName}`}>
+            <button className="model-picker-trigger model-picker-placeholder" type="button" disabled title={t("composer.modelPlaceholderTitle", locale)} aria-label={t("composer.modelDefaultAria", locale, { name: defaultModelName })}>
               <span className="model-picker-label">{defaultModelName}</span>
               <span className="model-picker-chevron" aria-hidden="true">v</span>
             </button>
@@ -291,14 +292,14 @@ export function ComposerShell({
         </div>
       </div>
     </div>
-    <div className="composer-stats" title={sessionStats.contextTokensAvailable ? (sessionStats.contextLimit ? "下一次请求的上下文估算 " + formatTokens(sessionStats.contextTokens) + " / " + formatTokens(sessionStats.contextLimit) : "已提供上下文使用量，但模型未返回窗口上限。") : "当前模型未返回上下文使用量；累计 Token 不用于推算当前上下文。"}>
-      <span className="context-meter" aria-label="上下文使用量"><i style={{ width: String(contextPercent(sessionStats)) + "%" }} /></span>
-      <span>上下文 {sessionStats.contextTokensAvailable ? formatTokens(sessionStats.contextTokens) : "未提供"}{sessionStats.contextTokensAvailable && sessionStats.contextLimit ? " / " + formatTokens(sessionStats.contextLimit) : sessionStats.contextTokensAvailable ? " · 上限未知" : ""}</span>
-      <span title="输入 Token">↓ {formatTokens(sessionStats.inputTokens)}</span>
-      <span title="输出 Token">↑ {formatTokens(sessionStats.outputTokens)}</span>
-      <span title="缓存命中率">缓存 {sessionStats.cacheHitRate ? String(sessionStats.cacheHitRate.toFixed(0)) + "%" : "未提供"}</span>
-      <span title="会话运行时间">运行 {formatSessionElapsed(sessionRunningMs)}</span>
-      <span>{sessionStats.messages} 条消息</span>
+    <div className="composer-stats" title={sessionStats.contextTokensAvailable ? (sessionStats.contextLimit ? t("composer.stats.contextTitle", locale, { used: formatTokens(sessionStats.contextTokens), limit: formatTokens(sessionStats.contextLimit) }) : t("composer.stats.titleNoLimit", locale)) : t("composer.stats.titleNoContext", locale)}>
+      <span className="context-meter" aria-label={t("composer.stats.contextAria", locale)}><i style={{ width: String(contextPercent(sessionStats)) + "%" }} /></span>
+      <span>{t("composer.stats.context", locale, { value: sessionStats.contextTokensAvailable ? formatTokens(sessionStats.contextTokens) : t("composer.stats.notProvided", locale) })}{sessionStats.contextTokensAvailable && sessionStats.contextLimit ? " / " + formatTokens(sessionStats.contextLimit) : sessionStats.contextTokensAvailable ? t("composer.stats.limitUnknown", locale) : ""}</span>
+      <span title={t("composer.stats.inputTitle", locale)}>↓ {formatTokens(sessionStats.inputTokens)}</span>
+      <span title={t("composer.stats.outputTitle", locale)}>↑ {formatTokens(sessionStats.outputTokens)}</span>
+      <span title={t("composer.stats.cacheTitle", locale)}>{t("composer.stats.cache", locale, { value: sessionStats.cacheHitRate ? String(sessionStats.cacheHitRate.toFixed(0)) + "%" : t("composer.stats.notProvided", locale) })}</span>
+      <span title={t("composer.stats.runTitle", locale)}>{t("composer.stats.run", locale, { value: formatSessionElapsed(sessionRunningMs) })}</span>
+      <span>{t("composer.stats.messages", locale, { count: sessionStats.messages })}</span>
     </div>
   </footer>;
 }

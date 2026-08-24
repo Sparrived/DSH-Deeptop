@@ -1,7 +1,10 @@
 import { useEffect, useRef } from "react";
 import type { ComposerCandidate, ComposerTrigger } from "../app/model";
+import { t, type UiLocale } from "../app/i18n";
 
 type ComposerCandidatesProps = {
+  /** 界面语言：候选面板文案按语言渲染。 */
+  locale?: UiLocale;
   candidates: ComposerCandidate[];
   triggerKind?: ComposerTrigger["kind"];
   dismissed: boolean;
@@ -9,7 +12,7 @@ type ComposerCandidatesProps = {
   onChoose: (candidate: ComposerCandidate) => void;
 };
 
-export function ComposerCandidates({ candidates, triggerKind, dismissed, activeIndex, onChoose }: ComposerCandidatesProps) {
+export function ComposerCandidates({ locale = "zh", candidates, triggerKind, dismissed, activeIndex, onChoose }: ComposerCandidatesProps) {
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   useEffect(() => {
@@ -20,7 +23,7 @@ export function ComposerCandidates({ candidates, triggerKind, dismissed, activeI
   if (candidates.length === 0 || dismissed) return null;
 
   return (
-    <div className="composer-candidates" id="composer-candidates" role="listbox" aria-label="输入候选">
+    <div className="composer-candidates" id="composer-candidates" role="listbox" aria-label={t("composer.candidates.aria", locale)}>
       <div className="composer-candidates-heading">{triggerKind === "skill" ? "Command / Skill" : triggerKind === "reference" ? "File / Session / Subagent" : "Subagent"}</div>
       {candidates.map((candidate, index) => (
         <button

@@ -7,6 +7,7 @@ import {
   petStableAnimationForActivity,
   petTransientAnimationForActivity,
 } from "../app/pet-model";
+import { t, type UiLocale } from "../app/i18n";
 import { PetCanvas } from "./PetCanvas";
 
 interface PetHostProps {
@@ -20,6 +21,7 @@ interface PetHostProps {
   motionEnabled: boolean;
   interactionsEnabled: boolean;
   careReaction: { state: PetAnimationState; revision: number } | null;
+  locale?: UiLocale;
   onStartDrag: () => Promise<void>;
   onActivate: () => void;
   onCareGesture?: (action: PetCareActionKind) => void;
@@ -38,12 +40,12 @@ const DRAG_THRESHOLD = 6;
 const DOUBLE_TAP_MS = 280;
 const LONG_PRESS_MS = 560;
 
-function activityLabel(activity: PetActivity["state"]): string {
-  if (activity === "running") return "工作中";
-  if (activity === "waiting") return "等待输入";
-  if (activity === "failed") return "发生错误";
-  if (activity === "review") return "检查结果";
-  return "待机";
+function activityLabel(activity: PetActivity["state"], locale: UiLocale): string {
+  if (activity === "running") return t("pet.activity.working", locale);
+  if (activity === "waiting") return t("pet.activity.waitingInput", locale);
+  if (activity === "failed") return t("pet.activity.error", locale);
+  if (activity === "review") return t("pet.activity.reviewResult", locale);
+  return t("pet.activity.idle", locale);
 }
 
 /** 与业务树隔离的 Deeptop Pet 桌宠宿主；持续帧与注视绘制只发生在独立 Canvas。 */
@@ -58,6 +60,7 @@ export const PetHost = memo(function PetHost({
   motionEnabled,
   interactionsEnabled,
   careReaction,
+  locale = "zh",
   onStartDrag,
   onActivate,
   onCareGesture,
@@ -244,7 +247,7 @@ export const PetHost = memo(function PetHost({
           className="pet-hit-target"
           role={interactionsEnabled ? "button" : "img"}
           tabIndex={interactionsEnabled ? 0 : -1}
-          aria-label={`${petName} · ${activityLabel(activity.state)}${interactionsEnabled ? " · 可点击、长按或拖动" : ""}`}
+          aria-label={`${petName} · ${activityLabel(activity.state, locale)}${interactionsEnabled ? ` · ${t("pet.interactionsHint", locale)}` : ""}`}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={(event) => finishPointer(event, false)}

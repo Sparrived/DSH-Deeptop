@@ -2,6 +2,7 @@ import type { RefObject } from "react";
 import type { DshModel, DshSessionModels } from "../lib/desktop";
 import { modelPickerGroups } from "../app/ui-model";
 import type { ModelMenuPane } from "../app/model";
+import { t, type UiLocale } from "../app/i18n";
 
 type ReasoningChoice = {
   key: string;
@@ -11,6 +12,8 @@ type ReasoningChoice = {
 };
 
 type ModelPickerProps = {
+  /** 界面语言：模型菜单文案按语言渲染。 */
+  locale?: UiLocale;
   models: DshSessionModels;
   menuRef: RefObject<HTMLDivElement | null>;
   selectedModelValue: string;
@@ -28,6 +31,7 @@ type ModelPickerProps = {
 };
 
 export function ModelPicker({
+  locale = "zh",
   models,
   menuRef,
   selectedModelValue,
@@ -43,39 +47,39 @@ export function ModelPicker({
   onChangeModel,
   onChangeReasoningEffort,
 }: ModelPickerProps) {
-  const groups = modelPickerGroups(models);
+  const groups = modelPickerGroups(models, locale);
   return (
     <div className="model-picker" ref={menuRef}>
       <button
         className="model-picker-trigger"
         type="button"
-        aria-label="选择模型与思考程度"
+        aria-label={t("modelPicker.chooseAria", locale)}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
-        title={`${selectedModelName ?? "选择模型"}${selectedReasoningLabel ? ` · ${selectedReasoningLabel}` : ""}`}
+        title={`${selectedModelName ?? t("modelPicker.chooseModel", locale)}${selectedReasoningLabel ? ` · ${selectedReasoningLabel}` : ""}`}
         onClick={onToggleMenu}
       >
-        <span className="model-picker-label">{selectedModelName ?? "选择模型"}</span>
+        <span className="model-picker-label">{selectedModelName ?? t("modelPicker.chooseModel", locale)}</span>
         {selectedReasoningLabel && <span className="model-picker-effort">· {selectedReasoningLabel}</span>}
         <span className={`model-picker-chevron${menuOpen ? " open" : ""}`} aria-hidden="true">v</span>
       </button>
-      {menuOpen && <div className="model-menu" role="menu" aria-label="模型与思考程度">
+      {menuOpen && <div className="model-menu" role="menu" aria-label={t("modelPicker.menuAria", locale)}>
         {menuPane === "root" && <>
           <button className="model-menu-cell" type="button" role="menuitem" onClick={() => onSetPane("model")}>
-            <span>模型</span>
-            <span className="model-menu-cell-value">{selectedModelName ?? "选择模型"}</span>
+            <span>{t("modelPicker.model", locale)}</span>
+            <span className="model-menu-cell-value">{selectedModelName ?? t("modelPicker.chooseModel", locale)}</span>
             <span className="model-menu-arrow" aria-hidden="true">&gt;</span>
           </button>
           {selectedReasoning !== undefined && <button className="model-menu-cell" type="button" role="menuitem" onClick={() => onSetPane("effort")}>
-            <span>思考程度</span>
-            <span className="model-menu-cell-value">{selectedReasoningLabel ?? "默认"}</span>
+            <span>{t("modelPicker.reasoningEffort", locale)}</span>
+            <span className="model-menu-cell-value">{selectedReasoningLabel ?? t("modelPicker.default", locale)}</span>
             <span className="model-menu-arrow" aria-hidden="true">&gt;</span>
           </button>}
         </>}
         {menuPane === "model" && <>
           <div className="model-menu-heading">
-            <button type="button" onClick={() => onSetPane("root")} aria-label="返回模型与思考程度">&lt;</button>
-            <strong>模型</strong>
+            <button type="button" onClick={() => onSetPane("root")} aria-label={t("modelPicker.backAria", locale)}>&lt;</button>
+            <strong>{t("modelPicker.model", locale)}</strong>
           </div>
           <div className="model-menu-list">
             {groups.map((group) => <section className="model-menu-group" key={group.id}>
@@ -92,16 +96,16 @@ export function ModelPicker({
                 </button>;
               })}
             </section>)}
-            {groups.length === 0 && <div className="model-menu-empty">暂无可用模型</div>}
+            {groups.length === 0 && <div className="model-menu-empty">{t("modelPicker.noModels", locale)}</div>}
           </div>
         </>}
         {menuPane === "effort" && selectedReasoning !== undefined && <>
           <div className="model-menu-heading">
-            <button type="button" onClick={() => onSetPane("root")} aria-label="返回模型与思考程度">&lt;</button>
-            <strong>思考程度</strong>
+            <button type="button" onClick={() => onSetPane("root")} aria-label={t("modelPicker.backAria", locale)}>&lt;</button>
+            <strong>{t("modelPicker.reasoningEffort", locale)}</strong>
           </div>
           <div className="model-menu-list">
-            {reasoningChoices.length === 0 ? <div className="model-menu-empty">当前模型未提供思考程度。</div> : reasoningChoices.map((choice) => {
+            {reasoningChoices.length === 0 ? <div className="model-menu-empty">{t("modelPicker.noEfforts", locale)}</div> : reasoningChoices.map((choice) => {
               const selected = selectedReasoningEffort === choice.id;
               return <button className={`model-menu-option${selected ? " selected" : ""}`} type="button" role="menuitemradio" aria-checked={selected} key={choice.key} onClick={() => void onChangeReasoningEffort(choice.id)}>
                 <span className="model-menu-option-copy">
