@@ -3470,6 +3470,29 @@ async fn save_export_file(default_name: String, data: Vec<u8>) -> Result<Option<
     Ok(Some(path.to_string_lossy().into_owned()))
 }
 
+/// 把 Bridge 已流式下载到临时文件的会话 ZIP 转移到用户选择的路径。弹出原生
+/// “另存为”对话框；用户取消时删除临时文件并返回 None。复制（而非移动）到目标
+/// 后删除源文件，避免跨卷 rename 失败的场景；任一失败都返回错误并在上层清理。
+#[tauri::command]
+async fn move_export_temp_file(default_name: String, temp_path: String) -> Result<Option<String>, String> {
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        rfd::FileDialog::new()
+            .set_title("导出会话")
+            .set_file_name(&default_name)
+            .save_file()
+    })
+    .await
+    .map_err(|error| format!("打开保存对话框失败：{error}"))?;
+    let Some(path) = picked else {
+        let _ = fs::remove_file(&temp_path);
+        return Ok(None);
+    };
+    let source = std::path::PathBuf::from(&temp_path);
+    fs::copy(&source, &path).map_err(|error| format!("复制 {} 到 {} 失败：{error}", source.display(), path.display()))?;
+    let _ = fs::remove_file(&source);
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct WorkspaceFileEntry {
@@ -5555,6 +5578,7 @@ fn main() {
             export_runtime_logs,
             open_logs_directory,
             save_export_file,
+            move_export_temp_file,
             terminal::list_terminals,
             terminal::start_terminal,
             terminal::write_terminal,

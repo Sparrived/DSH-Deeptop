@@ -57,7 +57,7 @@ export interface DshSessionHistoryResult {
 }
 
 export type DshSessionExportResult = {
-  base64: string;
+  tempPath: string;
   contentType: string;
   filename: string;
   size: number;

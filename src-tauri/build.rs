@@ -55,6 +55,7 @@ fn main() {
         "list_terminals",
         "list_workspace_files",
         "log_frontend_event",
+        "move_export_temp_file",
         "open_connection_url",
         "open_in_vscode",
         "open_logs_directory",

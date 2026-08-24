@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { mkdtemp, readFile, rm as removePath, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm as removePath, stat, writeFile } from 'node:fs/promises'
 import test from 'node:test'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { constants, zstdCompressSync, zstdDecompressSync } from 'node:zlib'
 import { routeDesktopRequest } from './routes.mjs'
@@ -695,24 +695,35 @@ test('parses Codex-compatible GitHub repository and tree sources', () => {
   assert.throws(() => validateRelativeRepoPath('../outside'), /仓库内的相对路径/)
 })
 
-test('buffers the official session ZIP endpoint for the native download surface', async () => {
-  const result = await routeDesktopRequest({
-    apiProxy: {
-      downloads: {
-        sessionLog: async request => {
-          assert.deepEqual(request, { sessionId: 'session-123', includeDescendants: true })
-          return new Response(Uint8Array.from([80, 75, 3, 4]), {
-            headers: { 'content-type': 'application/zip' },
-          })
+test('streams the official session ZIP endpoint into a temp file for the native save surface', async () => {
+  let result
+  try {
+    result = await routeDesktopRequest({
+      apiProxy: {
+        downloads: {
+          sessionLog: async request => {
+            assert.deepEqual(request, { sessionId: 'session-123', includeDescendants: true })
+            return new Response(Uint8Array.from([80, 75, 3, 4]), {
+              headers: { 'content-type': 'application/zip' },
+            })
+          },
         },
       },
-    },
-  }, 'session.exportZip', { sessionId: 'session-123', includeDescendants: true }, signal)
+    }, 'session.exportZip', { sessionId: 'session-123', includeDescendants: true }, signal)
+  } catch (error) {
+    throw error
+  }
 
-  assert.equal(result.filename, 'dsh-session-session-123.zip')
-  assert.equal(result.contentType, 'application/zip')
-  assert.equal(result.size, 4)
-  assert.equal(Buffer.from(result.base64, 'base64').toString('hex'), '504b0304')
+  try {
+    assert.equal(result.filename, 'dsh-session-session-123.zip')
+    assert.equal(result.contentType, 'application/zip')
+    assert.equal(result.size, 4)
+    assert.match(result.tempPath, /deeptop-session-export-[^/\\]+[/\\]session\.zip$/)
+    const bytes = await readFile(result.tempPath)
+    assert.equal(bytes.toString('hex'), '504b0304')
+  } finally {
+    await removePath(dirname(result.tempPath), { recursive: true, force: true }).catch(() => undefined)
+  }
 })
 
 test('reports the official session ZIP error body without fabricating a file', async () => {
@@ -749,6 +760,37 @@ test('passes cancellation to the official session ZIP endpoint', async () => {
   assert.equal(receivedSignal, controller.signal)
 })
 
+test('cleans up the temp file when the ZIP stream is aborted mid-write', async () => {
+  const before = new Set((await readdir(tmpdir())).map(String))
+  const controller = new AbortController()
+  const stream = new ReadableStream({
+    pull(c) {
+      c.enqueue(Uint8Array.from([80, 75]))
+      return new Promise(resolve => {
+        setTimeout(() => {
+          controller.abort()
+          resolve()
+        }, 5)
+      })
+    },
+  })
+  await assert.rejects(
+    routeDesktopRequest({
+      apiProxy: {
+        downloads: {
+          sessionLog: async () => new Response(stream, { headers: { 'content-type': 'application/zip' } }),
+        },
+      },
+    }, 'session.exportZip', { sessionId: 'session-123' }, controller.signal),
+    /aborted/,
+  )
+  // The temp directories created by THIS export must be removed (the first
+  // streaming export test cleaned up its own; other tests may run in parallel).
+  const after = new Set((await readdir(tmpdir())).map(String))
+  const created = [...after].filter(name => !before.has(name) && name.startsWith('deeptop-session-export-'))
+  assert.deepEqual(created, [])
+})
+
 test('rejects invalid native session ZIP requests before contacting DSH', async () => {
   let called = false
   const ctx = { apiProxy: { downloads: { sessionLog: async () => { called = true; return new Response() } } } }
@@ -771,10 +813,14 @@ test('keeps message file-card validation on the native Tauri command', async () 
 test('keeps file export in the native save bridge instead of browser downloads', async () => {
   const app = await readFile(join(import.meta.dirname, '..', 'src', 'App.tsx'), 'utf8')
   const desktop = await readFile(join(import.meta.dirname, '..', 'src', 'lib', 'desktop.ts'), 'utf8')
+  const native = await readFile(join(import.meta.dirname, '..', 'src-tauri', 'src', 'main.rs'), 'utf8')
   assert.doesNotMatch(app, /link\.download|URL\.createObjectURL|window\.open/)
   assert.doesNotMatch(desktop, /window\.open/)
-  assert.match(app, /saveExportFile\(result\.filename, bytes\)/)
+  assert.match(app, /moveExportTempFile\(result\.filename, result\.tempPath\)/)
   assert.match(app, /saveExportFile\(fileName, new TextEncoder\(\)\.encode\(content\)\)/)
+  // 临时文件转移必须走原生另存为命令，不走浏览器下载。
+  assert.match(desktop, /move_export_temp_file/)
+  assert.match(native, /fn move_export_temp_file/)
 })
 
 test('routes message annotation operations through the Cordis service', async () => {

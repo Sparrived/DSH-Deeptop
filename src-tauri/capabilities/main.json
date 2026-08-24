@@ -68,6 +68,7 @@
     "allow-list-terminals",
     "allow-list-workspace-files",
     "allow-log-frontend-event",
+    "allow-move-export-temp-file",
     "allow-open-connection-url",
     "allow-open-in-vscode",
     "allow-open-logs-directory",

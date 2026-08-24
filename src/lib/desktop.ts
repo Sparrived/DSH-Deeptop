@@ -1252,6 +1252,16 @@ export async function saveExportFile(defaultName: string, data: Uint8Array): Pro
   return invoke<string | null>("save_export_file", { defaultName, data });
 }
 
+/**
+ * 把 Bridge 已流式下载到临时文件的会话 ZIP 通过原生“另存为”对话框转移到用户
+ * 选择的位置。返回保存后的完整路径；用户取消时返回 null（Tauri 侧会清理临时
+ * 文件）。ZIP 导出因此不再把整个归档以 Base64 缓冲进 Bridge JSONL。
+ */
+export async function moveExportTempFile(defaultName: string, tempPath: string): Promise<string | null> {
+  if (!isTauri()) return null;
+  return invoke<string | null>("move_export_temp_file", { defaultName, tempPath });
+}
+
 export async function listenToBridgeEvent(handler: (event: DshBridgeEvent) => void): Promise<UnlistenFn> {
   return listen<DshBridgeEvent>("deeptop-bridge-event", (event) => handler(event.payload));
 }

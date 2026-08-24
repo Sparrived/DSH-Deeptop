@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto'
-import { mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import { installSkillFromSource } from './skill-installer.mjs'
 import { repairCorruptLog } from './session-repair.mjs'
@@ -76,13 +77,40 @@ async function exportSessionZip(ctx, payload, signal) {
     const detail = await response.text().catch(() => '')
     throw new Error(detail || `session export failed with HTTP ${response.status}`)
   }
-  const bytes = Buffer.from(await response.arrayBuffer())
+  // 原生流式转移：把官方 Host 返回的 ZIP 流直接写入临时文件，绝不在内存里
+  // 缓冲整个 archive，也不把 Base64 塞进 Bridge JSONL。前端随后调用 Tauri
+  // 的原生“另存为”命令把临时文件转移到用户选择的位置，取消时由 Tauri 清理。
+  const directory = await mkdtemp(join(tmpdir(), 'deeptop-session-export-'))
+  const tempPath = join(directory, 'session.zip')
+  let size = 0
+  try {
+    const handle = await open(tempPath, 'w')
+    try {
+      if (response.body && typeof response.body[Symbol.asyncIterator] === 'function') {
+        for await (const chunk of response.body) {
+          signal?.throwIfAborted()
+          const bytes = Buffer.from(chunk)
+          await handle.writeFile(bytes)
+          size += bytes.byteLength
+        }
+      } else {
+        const bytes = Buffer.from(await response.arrayBuffer())
+        await handle.writeFile(bytes)
+        size = bytes.byteLength
+      }
+    } finally {
+      await handle.close()
+    }
+  } catch (error) {
+    await rm(directory, { recursive: true, force: true }).catch(() => undefined)
+    throw error
+  }
   const safeSessionId = payload.sessionId.replace(/[^A-Za-z0-9_-]/g, '_')
   return {
-    base64: bytes.toString('base64'),
+    tempPath,
     contentType: response.headers.get('content-type') || 'application/zip',
     filename: `dsh-session-${safeSessionId}.zip`,
-    size: bytes.byteLength,
+    size,
   }
 }
 

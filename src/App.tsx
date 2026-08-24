@@ -84,6 +84,7 @@ import {
   openLogsDirectory,
   openNodejsDownload,
   saveExportFile,
+  moveExportTempFile,
   pickPluginEntry,
   pickWorkspace,
   readDroppedImage,
@@ -3786,15 +3787,22 @@ function AppContent() {
         sessionId,
         includeDescendants: true,
       }, undefined, { timeoutMs: 90_000 });
-      const binary = atob(result.base64);
-      const bytes = new Uint8Array(binary.length);
-      for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
       if (!desktop) {
         setErrorNotice("会话 ZIP 导出只在 Deeptop 桌面端可用");
         return;
       }
-      const savedPath = await saveExportFile(result.filename, bytes);
-      if (savedPath) setNotice(`已导出 ZIP（${result.size} 字节）`);
+      // Bridge 已把官方 Host 的 ZIP 流写入临时文件；原生另存为对话框把它
+      // 转移到用户选择的位置。取消时 Tauri 侧清理临时文件并返回 null。
+      const savedPath = await moveExportTempFile(result.filename, result.tempPath);
+      if (savedPath === null) {
+        setNotice("已取消 ZIP 导出");
+        return;
+      }
+      if (activeSessionRef.current !== sessionId) {
+        setNotice(`已导出 ZIP（${result.size} 字节），会话已切换，文件保存在 ${savedPath}`);
+      } else {
+        setNotice(`已导出 ZIP（${result.size} 字节）`);
+      }
     } catch (error) {
       setErrorNotice(`ZIP 导出失败：${errorText(error)}`);
     }
