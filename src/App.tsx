@@ -3822,9 +3822,23 @@ function AppContent() {
     }
   }
 
+  // 同一 rpcId 只允许发出一次 client-response：主窗口弹窗与桌宠快捷卡
+  // 都可能对同一审批/问题作答，先同步认领再发送，避免双窗口竞态下
+  // 同一 rpcId 收到两个响应（甚至 allow 与 reject 并存）。失败时释放认领以便重试。
+  const respondedRpcIdsRef = useRef(new Set<string>());
+  function claimRespond(rpcId: string) {
+    if (respondedRpcIdsRef.current.has(rpcId)) return false;
+    respondedRpcIdsRef.current.add(rpcId);
+    return true;
+  }
+  function releaseRespondClaim(rpcId: string) {
+    respondedRpcIdsRef.current.delete(rpcId);
+  }
+
   async function respondToApproval(outcome: "allowed-once" | "rejected") {
     if (!approval) return;
     const request = approval;
+    if (!claimRespond(request.rpcId)) return;
     try {
       await desktopRequest("respond", {
         type: "client-response",
@@ -3841,6 +3855,7 @@ function AppContent() {
         return next;
       });
     } catch (error) {
+      releaseRespondClaim(request.rpcId);
       setErrorNotice(errorText(error));
     }
   }
@@ -3877,6 +3892,7 @@ function AppContent() {
     const answer = {
       answers: questionAnswerItems(request.questions, answers, customAnswers),
     };
+    if (!claimRespond(request.rpcId)) return;
     try {
       await desktopRequest("respond", {
         type: "client-response",
@@ -3900,6 +3916,7 @@ function AppContent() {
         return next;
       });
     } catch (error) {
+      releaseRespondClaim(request.rpcId);
       setErrorNotice(errorText(error));
     }
   }
@@ -3907,6 +3924,7 @@ function AppContent() {
   async function cancelQuestion() {
     if (!question) return;
     const request = question;
+    if (!claimRespond(request.rpcId)) return;
     try {
       await desktopRequest("respond", {
         type: "client-response",
@@ -3933,20 +3951,29 @@ function AppContent() {
         return next;
       });
     } catch (error) {
+      releaseRespondClaim(request.rpcId);
       setErrorNotice(errorText(error));
     }
   }
 
   // @deeptop-pets:start app-action-handlers
   async function respondToPetApprovalRequest(request: PendingApproval, outcome: "allowed-once" | "rejected") {
-    await desktopRequest("respond", {
-      type: "client-response",
-      rpcId: request.rpcId,
-      result: {
-        ok: true,
-        value: { sessionId: request.sessionId, approvalId: request.approvalId, outcome },
-      },
-    });
+    if (!claimRespond(request.rpcId)) {
+      throw new Error("该请求已经在其他窗口处理");
+    }
+    try {
+      await desktopRequest("respond", {
+        type: "client-response",
+        rpcId: request.rpcId,
+        result: {
+          ok: true,
+          value: { sessionId: request.sessionId, approvalId: request.approvalId, outcome },
+        },
+      });
+    } catch (error) {
+      releaseRespondClaim(request.rpcId);
+      throw error;
+    }
     setPendingApprovals((current) => {
       if (current[request.sessionId]?.rpcId !== request.rpcId) return current;
       const next = { ...current };
@@ -3963,11 +3990,19 @@ function AppContent() {
     const answer = {
       answers: questionAnswerItems(request.questions, answers, customAnswers),
     };
-    await desktopRequest("respond", {
-      type: "client-response",
-      rpcId: request.rpcId,
-      result: { ok: true, value: { sessionId: request.sessionId, answer } },
-    });
+    if (!claimRespond(request.rpcId)) {
+      throw new Error("该请求已经在其他窗口处理");
+    }
+    try {
+      await desktopRequest("respond", {
+        type: "client-response",
+        rpcId: request.rpcId,
+        result: { ok: true, value: { sessionId: request.sessionId, answer } },
+      });
+    } catch (error) {
+      releaseRespondClaim(request.rpcId);
+      throw error;
+    }
     setPendingQuestions((current) => {
       if (current[request.sessionId]?.rpcId !== request.rpcId) return current;
       const next = { ...current };
