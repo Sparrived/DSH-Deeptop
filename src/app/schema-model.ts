@@ -20,6 +20,8 @@ type SchemaNode = {
   bits?: Record<string, unknown>;
 };
 
+export type { SchemaNode };
+
 export function isSchemaEnvelope(value: unknown): value is { uid: unknown; refs: Record<string, SchemaNode> } {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
