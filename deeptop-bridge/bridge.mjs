@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 import { routeDesktopRequest } from './routes.mjs'
-import { initNetworkProxy } from './network-proxy.mjs'
+import { initNetworkProxy, stopSystemProxyWatch } from './network-proxy.mjs'
 
 const PROTOCOL = 'deeptop/1'
 
@@ -125,6 +125,7 @@ export class DesktopBridge {
   dispose() {
     this.closed = true
     this.abort.abort()
+    stopSystemProxyWatch()
     this.input?.close()
   }
 }

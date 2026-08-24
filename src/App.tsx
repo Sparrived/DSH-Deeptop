@@ -68,6 +68,7 @@ import {
   getNetworkProxy,
   setNetworkProxy,
   type DshNetworkProxy,
+  type DshEffectiveNetworkProxy,
   resolveWindowClose,
   listPendingWindowClose,
   cancelWindowClose,
@@ -483,6 +484,7 @@ function AppContent() {
   const [windowBehavior, setWindowBehavior] = useState<WindowBehaviorSettings>({ minimizeToTray: false, closeBehavior: "ask" });
   const [windowBehaviorUpdating, setWindowBehaviorUpdating] = useState(false);
   const [networkProxy, setNetworkProxyState] = useState<DshNetworkProxy>({ enabled: false, url: "" });
+  const [networkEffective, setNetworkEffective] = useState<DshEffectiveNetworkProxy>({ source: "none", url: "", noProxy: "" });
   const [networkProxyUpdating, setNetworkProxyUpdating] = useState(false);
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft | null>(null);
   const [goal, setGoal] = useState<DshGoalProjection | null | undefined>(undefined);
@@ -653,7 +655,9 @@ function AppContent() {
     try {
       const result = await setNetworkProxy(proxy);
       setNetworkProxyState(result.proxy);
-      setNotice(result.applied ? "网络代理已保存并即时生效" : "网络代理已保存（等待运行时加载 undici 后生效）");
+      setNetworkEffective(result.effective);
+      const label = result.effective.source === "system" ? "（跟随系统代理）" : result.effective.source === "explicit" ? "（显式代理）" : "（直连）";
+      setNotice(result.applied ? `网络代理已保存并即时生效${label}` : `网络代理已保存（等待运行时加载 undici 后生效）${label}`);
     } catch (error) {
       setErrorNotice(`网络代理设置失败：${errorText(error)}`);
     } finally {
@@ -829,7 +833,10 @@ function AppContent() {
   useEffect(() => {
     if (!desktop) return;
     void getWindowBehaviorSettings().then(normalizeWindowBehavior).then(setWindowBehavior).catch((error) => setErrorNotice(`读取窗口行为设置失败：${errorText(error)}`));
-    void getNetworkProxy().then((proxy) => setNetworkProxyState(proxy)).catch(() => { /* 读取失败不阻断启动 */ });
+    void getNetworkProxy().then((snapshot) => {
+      setNetworkProxyState(snapshot.explicit);
+      setNetworkEffective(snapshot.effective);
+    }).catch(() => { /* 读取失败不阻断启动 */ });
     let disposed = false;
     let unlisten: UnlistenFn | undefined;
     const setupWindowCloseListener = async () => {
@@ -4445,6 +4452,7 @@ function AppContent() {
                     onResetSidebar={() => setSidebarWidth(320)}
                     onOpenNamespace={openSettingsNamespace}
                     networkProxy={networkProxy}
+                    networkEffective={networkEffective}
                     networkProxyUpdating={networkProxyUpdating}
                     onUpdateNetworkProxy={updateNetworkProxy}
                   />}

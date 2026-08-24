@@ -20,6 +20,7 @@ import type {
   DshSettingsDescription,
   DshNetworkProxy,
   DshNetworkProxyResult,
+  DshNetworkProxySnapshot,
   DshSkill,
   DshSkillInstallResult,
   DshSubagentCatalog,
@@ -378,7 +379,7 @@ const settings = {
   "network.getProxy": {
     requires: "settings",
     payload: {} as Record<string, never>,
-    value: {} as DshNetworkProxy,
+    value: {} as DshNetworkProxySnapshot,
   },
   "network.setProxy": {
     requires: "settings",

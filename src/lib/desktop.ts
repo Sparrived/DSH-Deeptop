@@ -798,17 +798,31 @@ export interface DshNetworkProxy {
   url: string;
 }
 
+export type DshNetworkProxySource = "explicit" | "system" | "none";
+
+export interface DshEffectiveNetworkProxy {
+  source: DshNetworkProxySource;
+  url: string;
+  noProxy: string;
+}
+
+export interface DshNetworkProxySnapshot {
+  explicit: DshNetworkProxy;
+  effective: DshEffectiveNetworkProxy;
+}
+
 export interface DshNetworkProxyResult {
   proxy: DshNetworkProxy;
   applied: boolean;
+  effective: DshEffectiveNetworkProxy;
 }
 
-/** 读取当前 DSH 进程的网络代理设置（已保存值）。 */
-export async function getNetworkProxy(): Promise<DshNetworkProxy> {
-  return bridgeRequest<DshNetworkProxy>("network.getProxy");
+/** 读取当前网络代理状态：显式设置与当前生效来源（显式/系统代理/直连）。 */
+export async function getNetworkProxy(): Promise<DshNetworkProxySnapshot> {
+  return bridgeRequest<DshNetworkProxySnapshot>("network.getProxy");
 }
 
-/** 保存并即时应用网络代理（setProxy 会立即 setGlobalDispatcher，无需重启）。 */
+/** 保存显式代理并即时应用（留空则回退到跟随系统代理/直连）。 */
 export async function setNetworkProxy(proxy: DshNetworkProxy): Promise<DshNetworkProxyResult> {
   return bridgeRequest<DshNetworkProxyResult>("network.setProxy", { proxy });
 }

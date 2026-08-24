@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { constants, zstdCompressSync, zstdDecompressSync } from 'node:zlib'
 import { routeDesktopRequest } from './routes.mjs'
 import { bridgeErrorFrame } from './bridge.mjs'
-import { applyProxy, initNetworkProxy, loadProxySetting, setProxySetting } from './network-proxy.mjs'
+import { applyProxy, initNetworkProxy, loadProxySetting, normalizeProxyOverride, parseWindowsProxyServer, setProxySetting, stopSystemProxyWatch } from './network-proxy.mjs'
 import { describePluginConfig, mutatePluginConfig } from './plugin-config.mjs'
 import { parseGitHubSource, validateRelativeRepoPath } from './skill-installer.mjs'
 import { reconstructContiguous, rowSeqs, scanZstdFrames, verifyReadable } from './session-repair.mjs'
@@ -86,16 +86,22 @@ test('validates, persists, and routes the desktop HTTP proxy setting', async () 
     const saved = await routeDesktopRequest({}, 'network.setProxy', {
       proxy: { enabled: true, url: ' http://127.0.0.1:7890 ' },
     }, signal)
-    assert.deepEqual(saved, {
-      proxy: { enabled: true, url: 'http://127.0.0.1:7890/' },
-      applied: true,
-    })
-    assert.deepEqual(await routeDesktopRequest({}, 'network.getProxy', {}, signal), saved.proxy)
+    assert.equal(saved.applied, true)
+    assert.deepEqual(saved.proxy, { enabled: true, url: 'http://127.0.0.1:7890/' })
+    assert.equal(saved.effective.source, 'explicit')
+    assert.equal(saved.effective.url, 'http://127.0.0.1:7890/')
+
+    const snapshot = await routeDesktopRequest({}, 'network.getProxy', {}, signal)
+    assert.deepEqual(snapshot.explicit, { enabled: true, url: 'http://127.0.0.1:7890/' })
+    assert.equal(snapshot.effective.source, 'explicit')
 
     const direct = await routeDesktopRequest({}, 'network.setProxy', {
       proxy: { enabled: false, url: '' },
     }, signal)
-    assert.deepEqual(direct, { proxy: { enabled: false, url: '' }, applied: true })
+    assert.equal(direct.applied, true)
+    assert.deepEqual(direct.proxy, { enabled: false, url: '' })
+    // With no explicit proxy, the effective source falls back to the system proxy (or none).
+    assert.ok(direct.effective.source === 'system' || direct.effective.source === 'none')
   } finally {
     await applyProxy({ enabled: false, url: '' })
     if (previousHome === undefined) delete process.env.DSH_HOME
@@ -115,6 +121,8 @@ test('does not block bridge startup when a persisted proxy is unusable', async (
     assert.equal(result.applied, false)
     assert.match(result.error, /HTTP\/HTTPS/)
   } finally {
+    stopSystemProxyWatch()
+    applyProxy({ enabled: false, url: '' })
     if (previousHome === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previousHome
     await removePath(root, { recursive: true, force: true })
@@ -150,6 +158,18 @@ test('routes Node global fetch through the selected HTTP proxy', async () => {
     await applyProxy({ enabled: false, url: '' })
     await new Promise((resolve, reject) => proxy.close(error => error === undefined ? resolve() : reject(error)))
   }
+})
+
+test('parses Windows ProxyServer into a usable proxy URL', () => {
+  assert.equal(parseWindowsProxyServer('127.0.0.1:7890'), 'http://127.0.0.1:7890')
+  assert.equal(parseWindowsProxyServer('http=127.0.0.1:7890;https=127.0.0.1:7891'), 'http://127.0.0.1:7891')
+  assert.equal(parseWindowsProxyServer('http=127.0.0.1:7890'), 'http://127.0.0.1:7890')
+  assert.equal(parseWindowsProxyServer(''), undefined)
+})
+
+test('normalizes ProxyOverride into a rule list for the custom dispatcher', () => {
+  assert.deepEqual(normalizeProxyOverride('localhost;127.*;192.168.*;10.*;<local>'), ['localhost', '127.*', '192.168.*', '10.*', 'localhost'])
+  assert.deepEqual(normalizeProxyOverride(''), [])
 })
 
 test('routes an allowlisted API method with a generated RPC id', async () => {
