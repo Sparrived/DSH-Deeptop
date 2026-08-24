@@ -94,21 +94,21 @@ ask_user_question、todo_write、web 搜索/抓取、workflow、plan 与 compact
 
 ### P1：已有官方能力的原生体验补齐
 
-- [ ] Plan chip、Plan 状态在输入区的显示，以及结构化 Plan Review；不引入 WebUI Plan UI，而是使用现有问题响应和 Projection 在 React 中实现。
-- [~] Permission 全局设置入口、当前会话权限弹窗和逐工具权限状态：当前会话权限弹窗和新会话默认权限已接入；继续复用官方权限服务和 `/permission`，不在桌面端复制权限决策逻辑，全局设置入口与逐工具权限状态未做。
-- [~] 展示 `sessionStats` 的 LLM 时间、工具时间、TTFT、Decode 等完整字段：每消息统计条已展示 TTFT、Decode 速度、输入/输出/缓存与 tokens/s，token 仪表盘展示上下文窗口和 turns/steps；LLM 耗时与工具耗时已进入投影类型但尚未展示。
-- [ ] 将 Session ZIP 下载从 Base64 缓冲改为原生文件流或临时文件转移，保持官方 Host 的流式和取消能力。
-- [ ] 对 `/export`、命令执行、反馈写入等功能补充成功、失败、取消和 Session 切换后的可见状态。
+- [x] Plan chip、Plan 状态在输入区的显示，以及结构化 Plan Review；不引入 WebUI Plan UI，而是使用现有问题响应和 Projection 在 React 中实现。
+- [x] Permission 全局设置入口、当前会话权限弹窗和逐工具权限状态：默认权限下拉由官方 permission 命名空间的 Schema 枚举驱动（缺失时回退本地三档）；逐工具审批状态从 `approval/asked` → `approval/decided` 审计事件折叠并展示在轨迹视图；继续复用官方权限服务和 `/permission`，不在桌面端复制权限决策逻辑。
+- [x] 展示 `sessionStats` 的 LLM 时间、工具时间、TTFT、Decode 等完整字段：每消息统计条展示 TTFT、Decode 速度、输入/输出/缓存与 tokens/s，token 仪表盘新增会话墙钟耗时面板（LLM/工具/首 Token/解码 + decode tok/s），turns/steps 同步展示。
+- [x] 将 Session ZIP 下载从 Base64 缓冲改为原生文件流或临时文件转移：Bridge 把官方 Host 的 ZIP 流式写入临时文件（保留 AbortSignal 取消与失败清理），Tauri `move_export_temp_file` 原生另存为对话框把临时文件转移到用户选择的位置；JSON 导出与注记写入补齐取消与 Session 切换后的可见状态。
+- [x] 对 `/export`、命令执行、反馈写入等功能补充成功、失败、取消和 Session 切换后的可见状态：导出/命令/注记三类操作均有进行中、成功、失败与取消文案，保存期间会话切换时会明确提示文件位置或成功落点。
 
 ### P1：已有桌面功能的官方契约深化
 
-- [ ] Provider/模型设置改为使用官方 Schema 驱动表单，同时保留当前自定义 Provider 和本地凭据安全边界。
-- [~] 插件设置增加 Schema 表单、启用状态、依赖失败和 Host/Remote 能力信息：原生安装流程（来源/名称/Entry 校验、安装与取消）已增加，原始 JSON 编辑保留为诊断后备；Schema 表单、启用/依赖状态仍未做。
+- [x] Provider/模型设置改为使用官方 Schema 驱动表单，同时保留当前自定义 Provider 和本地凭据安全边界：设置弹窗对有 schemastery schema 的命名空间自动渲染 Schema 表单（字符串/数字/布尔/枚举/对象/数组），密钥字段保持 Host 保管、写只输入，未触碰字段绝不重写；无 schema 时保留 JSON 编辑后备。Provider 卡片的编辑入口复用同一表单。
+- [x] 插件设置增加 Schema 表单、启用状态、依赖失败和 Host/Remote 能力信息：原生安装流程（来源/名称/Entry 校验、安装与取消）、配置启停与运行时清单仍保留；有 schema 的插件命名空间使用 Schema 表单编辑，原始 JSON 编辑作为诊断后备。
 - [x] Agent Preset 补齐新会话 chip、完整创建/复制/删除和默认值变更后的 Session 状态同步。
-- [~] Subagent 补齐递归树、任意深度导航、懒加载和稳定的 `@` 引用：`@` 候选引用与书签面板已具备；继续复用官方子 Session API，递归树、任意深度导航和懒加载未做。
+- [x] Subagent 补齐递归树、任意深度导航、懒加载和稳定的 `@` 引用：Subagent Dock 改为递归树（childSessionId 可直接作为下一个 parentSessionId），按 `hasChildren` 懒加载展开、分支失败可重试；任意深度条目打开执行抽屉时携带直接父会话地址；`@` 候选引用与局部刷新保留。
 - [x] Goal 增加输入区 GoalBar（常驻摘要条可与管理面板互操作）。
-- [ ] Workflow 成员卡支持打开对应子 Session。
-- [~] Tool/Trajectory 对齐更多官方事件语义：终端（原生 PTY Dock）、文件/路径卡片、Diff 统计、Todo 面板和连接卡片已增加；搜索、Web、Skill 领域卡片仍未复刻。
+- [x] Workflow 成员卡支持打开对应子 Session：`tool-workflow/agent-start` 的 childId 即成员子会话，成员卡可点击并打开该子会话的执行记录。
+- [x] Tool/Trajectory 对齐更多官方事件语义：工具结果按官方 presentResult 投影渲染领域卡片——Web 搜索结果源列表（标题/链接/摘要/日期，可安全打开）、Web 抓取目标卡、Skill 加载记录；终端（原生 PTY Dock）、文件/路径卡片、Diff 统计、Todo 面板与审批记录（approval 审计）继续生效，其余工具保留通用 call/result 展示。
 
 ### P2：桌面体验增强
 

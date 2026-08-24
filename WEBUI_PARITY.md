@@ -42,31 +42,31 @@
 - [x] 对话流：`assistant/chunk` 文本/reasoning 流式拼装、Think 折叠行和实时尾部更新。
 - [~] 历史分页：`load older`、尾部跟随暂停和完整导出已完成；未做长会话虚拟化。
 - [x] 消息操作：复制、按 `atSeq` 分叉、assistant Like/Dislike/反馈备注，以及用户消息“重试”（从最近已完成回合分支后重发当前提示词）已完成。
-- [~] 工具视图：通用 call/result、Workflow、Produced Files、Diff 统计、路径/连接卡片和文件看板已完成；终端以原生 PTY Dock 提供，Todo 有 Inspector 面板；搜索、Web、Skill 专用卡片仍未全部复刻。
+- [~] 工具视图：通用 call/result、Workflow、Produced Files、Diff 统计、路径/连接卡片和文件看板已完成；搜索/Web/Skill 领域卡片已按官方 presentResult 投影补上（来源列表、抓取目标、Skill 加载记录），终端以原生 PTY Dock 提供，Todo 有 Inspector 面板。
 - [~] Markdown/媒体：GFM、图片展示、粘贴/拖放上传和图片点击放大已完成；缺少数学公式和更完整的附件画廊。
 
 ### P1：输入和运行交互
 
 - [x] `/` 命令菜单、通用命令目录、Skill 快捷候选、`@` Subagent 候选和键盘导航：官方 `commands/list`、`commands/execute` 已接入运行台和输入候选。
 - [x] 队列：排队、Steer、编辑、删除和队列 dock 已完成。
-- [~] Plan 模式、`/plan` 和运行台状态切换已接入；Plan chip 与结构化 Plan Review 仍未复刻。
-- [x] 用户问题：单选/多选、自定义文本、推荐标记和 Markdown detail 已完成；逐题导航和 Plan Review intent 未由当前问题 RPC 提供。
-- [~] 当前会话 Permission preset、权限投影、`/permission` 与危险权限保留确认已接入，新会话默认权限（模型/权限/工作目录/Preset）也已具备；全局设置弹窗和逐工具命令级权限 UI 仍未复刻。
-- [~] Subagent：已有直接子 Agent 与 `@` 候选引用；缺少递归树、任意深度导航和懒加载。
+- [x] Plan 模式、`/plan` 和运行台状态切换已接入；输入区 Plan chip（固定 Plan 标签 + 退出）与结构化 Plan Review（确认执行 / 拒绝 / 去聊天里说三动作决策卡，答案逐字回传官方选项 label）已完成。
+- [x] 用户问题：单选/多选、自定义文本、推荐标记和 Markdown detail 已完成；Plan Review intent 复用同一 question RPC 并以独立决策卡呈现。
+- [x] 当前会话 Permission preset、权限投影、`/permission` 与危险权限保留确认已接入，新会话默认权限（模型/权限/工作目录/Preset）也已具备；默认权限下拉由官方 permission 命名空间 Schema 枚举驱动（缺失回退本地三档），权限审计（approval/asked → decided）在轨迹中呈现逐工具审批状态。
+- [x] Subagent：直接子 Agent、`@` 候选引用、递归树、任意深度导航与懒加载（按 `hasChildren` 展开、分支失败可重试、任意深度条目携带直接父地址打开执行抽屉）均已完成。
 - [x] Goal：运行台生命周期操作与输入区 GoalBar 集成均已具备（常驻 Goal 摘要条可与管理面板互操作）。
 - [x] Background Jobs 列表和运行状态菜单。
-- [~] Workflow Run 成员/进度卡片：状态、阶段和成员已展示，尚未支持从成员卡直接打开子会话。
+- [x] Workflow Run 成员/进度卡片：状态、阶段和成员已展示，成员卡可直接打开对应子会话的执行记录。
 - [x] Produced Files 文件卡片和“在文件夹中显示”。
 
 ### P1：设置和模型管理
 
-- [~] Provider/模型设置：已有新增/移除、API Key 写入/清除、Base URL/协议、模型发现和模型增删；未完成官方的 schema 驱动表单和全部适配器专用字段。
+- [~] Provider/模型设置：已有新增/移除、API Key 写入/清除、Base URL/协议、模型发现和模型增删；有 schema 的命名空间（含 Provider 配置）改用官方 Schemastery Schema 驱动表单编辑，凭据仍由 Host 保管、写只输入；自定义 Provider 与本地凭据安全边界保留。
 - [~] Light/Dark/System 主题及持久化：桌面端本地主题及外部 CSS/背景/文字自定义已完成，尚未与 Host `ui-theme` 设置双向同步。
 - [ ] 中英文语言切换和本地化资源。
-- [~] 插件设置：已有原生安装流程（来源/名称/Entry 校验、安装与取消）、原始 JSON 编辑和只读清单；缺少 schema 驱动表单及插件管理卡片。
+- [~] 插件设置：原生安装流程（来源/名称/Entry 校验、安装与取消）、启停配置、运行时清单与 Schema 表单编辑均已具备，原始 JSON 编辑作为诊断后备。
 - [x] Agent Preset：选择、默认值、新建、复制、删除、查看和打开文件，以及新会话 chip 与缺失 Preset 迁移。
 - [x] 消息 Like/Dislike 及反馈备注：复用官方 `messageFeedback` Remote，使用版本号做并发冲突对账。
-- [~] 会话日志导出、ZIP 下载和完整会话统计：复用 RC8 的 `session-log-download` Host endpoint 与 `session-stats` projection；完整 token 统计（输入/输出/缓存/上下文窗口）、每消息 TTFT/Decode 速度与 turns/steps 已展示，会话统计条基本达到官方字段；ZIP 仍经 Bridge JSONL 路由以 Base64 缓冲交给 Tauri 原生另存为，未做原生流式/临时文件转移，也未加载 WebUI 浏览器下载插件。
+- [~] 会话日志导出、ZIP 下载和完整会话统计：复用 RC8 的 `session-log-download` Host endpoint 与 `session-stats` projection；完整 token 统计（输入/输出/缓存/上下文窗口）、每消息 TTFT/Decode 速度、会话墙钟耗时（LLM/工具/首 Token/解码）与 turns/steps 已展示；ZIP 下载改为 Bridge 流式写临时文件 + Tauri 原生另存为转移，不再经 Base64 缓冲；取消与 Session 切换有可见状态。
 
 ### 插件兼容边界
 
@@ -91,7 +91,9 @@
 - [x] 每消息统计条（TTFT/Decode 速度）与 Token/上下文仪表盘，`sessionStats` 完整字段接入（turns/steps/llmMs/toolMs/ttft/decode）。
 - [x] 消息内路径/连接识别卡片、Diff 统计卡片与文件看板；当前会话权限弹窗与新会话默认权限。
 - [x] 官方 Remote 契约统一登记（`bridge-contracts` + `desktopRequest` 类型推断），桥错误帧带 `code/details` 并统一还原；`desktop.capabilities` 能力探测与前端降级（引用/命令/注记/ZIP 导出），通用 Projection 缓存（会话隔离 + seq 水位叠加），DSH 断线重连（`waitForReconnect`）与前端超时（`timeoutMs`）。
-- [x] 明确未推进，保留为缺口：Plan chip/Review、Subagent 递归树、Provider/插件 Schema 表单、数学公式/附件画廊、i18n 本地化、`ui-theme` 双向同步、ZIP 原生流传输。
+- [x] P1 原生体验补齐：Plan chip（输入区）+ 结构化 Plan Review 决策卡、`sessionStats` 全字段（LLM/工具/首 Token/解码墙钟）展示、Permission Schema 驱动默认权限 + 轨迹审批审计、Session ZIP 原生流式/临时文件转移、导出/命令/注记的可见状态与会话切换守卫。
+- [x] P1 官方契约深化：Schemastery Schema 驱动设置表单（Provider/插件命名空间，凭据 Host 保管、写只输入）、Subagent 递归树（任意深度懒加载导航）、Workflow 成员卡打开子会话、Web 搜索/抓取与 Skill 领域卡片。
+- [x] 明确未推进，保留为缺口：数学公式/附件画廊、i18n 本地化、`ui-theme` 双向同步、长会话虚拟化。
 
 ## 后续顺序
 
@@ -121,6 +123,6 @@
 
 ## 对齐结论
 
-当前桌面端已经覆盖 WebUI 的核心会话、工作区、输入、运行状态、Provider、媒体工作流，以及本轮选定的官方命令、反馈、权限、Plan、统计和 ZIP Host 能力；进一步补齐了输入区 GoalBar、Agent Preset 管理、右栏 Dock（终端/子 Agent/队列/Git）与完整统计条。Plan chip/Review、Schema 设置、完整本地化、Subagent 递归树、更多领域卡片和 ZIP 原生流传输仍需原生实现或优化；WebUI ModuleLoader、Client runner、slot registry 和客户端生命周期则是明确排除项。整体策略是复用官方 Host/Remote contract，在原生界面完成功能兼容，而不是加载整套 WebUI client bundle。
+当前桌面端已经覆盖 WebUI 的核心会话、工作区、输入、运行状态、Provider、媒体工作流，以及官方命令、反馈、权限、Plan、统计和 ZIP Host 能力；并完成 P1 原生体验补齐与官方契约深化：输入区 GoalBar、Agent Preset 管理、右栏 Dock（终端/子 Agent/队列/Git）与完整统计条，Plan chip/Review、Permission Schema 驱动默认值与审批审计、ZIP 原生流传输、Provider/插件 Schema 表单、Subagent 递归树、Workflow 成员卡与 Web/搜索/Skill 领域卡片。仍缺：数学公式/附件画廊、i18n 本地化、`ui-theme` 双向同步、长会话虚拟化。WebUI ModuleLoader、Client runner、slot registry 和客户端生命周期则是明确排除项。整体策略是复用官方 Host/Remote contract，在原生界面完成功能兼容，而不是加载整套 WebUI client bundle。
 
 界面结构同理：右侧工具区由可拖拽、可持久化的 Dock 体系承载，不复刻 WebUI 三栏布局；Inspector 保持设置与诊断的模态入口。Dock 钉住模式已实现：钉住的展开面板固定为窗口边缘的流内分栏（portal 渲染，对话列让位），钉住状态经桌面桥接持久化。
