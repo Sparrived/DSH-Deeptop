@@ -15,6 +15,9 @@ export type GitLayoutCommit = {
   hash: string;
   shortHash: string;
   subject: string;
+  author: string | null;
+  email: string | null;
+  timestamp: number | null;
   refs: string[];
   isHead: boolean;
   lane: number;
@@ -38,14 +41,40 @@ export type GitLayoutEdge = {
   colorLane: number;
 };
 
+export type GitLaneLabelKind = "current" | "branch" | "remote" | "tag" | "other";
+
+/** 一个泳道占用段的分支标签（从该段提交的引用推导）。 */
+export type GitLaneLabel = {
+  lane: number;
+  fromRow: number;
+  label: string;
+  kind: GitLaneLabelKind;
+};
+
 export type GitGraphLayout = {
   commits: GitLayoutCommit[];
   /** 泳道占用段（同一泳道可能有多段）。 */
   laneSegments: GitLayoutLaneSegment[];
+  /** 各占用段的分支标签（无引用的段不输出）。 */
+  segmentLabels: GitLaneLabel[];
   edges: GitLayoutEdge[];
   /** 总共用到的泳道数（列数）。 */
   columnCount: number;
 };
+
+/** 从一组引用推导泳道段标签：HEAD 指向 > 本地/远程分支 > 标签 > 其他。 */
+export function deriveLaneLabel(refs: string[]): Omit<GitLaneLabel, "lane" | "fromRow"> | null {
+  if (refs.length === 0) return null;
+  const head = refs.find((ref) => ref.startsWith("HEAD -> "));
+  if (head) return { label: head.slice("HEAD -> ".length), kind: "current" };
+  const branch = refs.find((ref) => !ref.startsWith("HEAD") && !ref.startsWith("tag: "));
+  if (branch) {
+    return { label: branch, kind: branch.includes("/") ? "remote" : "branch" };
+  }
+  const tag = refs.find((ref) => ref.startsWith("tag: "));
+  if (tag) return { label: tag.slice("tag: ".length), kind: "tag" };
+  return { label: refs[0], kind: "other" };
+}
 
 type CommitInput = WorkspaceGitGraphLine & {
   hash: string;
@@ -62,7 +91,7 @@ export function gitGraphLayout(input: WorkspaceGitGraphLine[]): GitGraphLayout {
       line.hash !== null && line.shortHash !== null && line.subject !== null,
   );
   if (commits.length === 0) {
-    return { commits: [], laneSegments: [], edges: [], columnCount: 0 };
+    return { commits: [], laneSegments: [], segmentLabels: [], edges: [], columnCount: 0 };
   }
 
   const parentsOf = new Map(commits.map((commit) => [commit.hash, commit.parents]));
@@ -147,6 +176,9 @@ export function gitGraphLayout(input: WorkspaceGitGraphLine[]): GitGraphLayout {
       hash,
       shortHash: commit.shortHash,
       subject: commit.subject,
+      author: commit.author ?? null,
+      email: commit.email ?? null,
+      timestamp: commit.timestamp ?? null,
       refs: commit.refs,
       isHead: commit.refs.some((ref) => ref.startsWith("HEAD")),
       lane,
@@ -228,9 +260,22 @@ export function gitGraphLayout(input: WorkspaceGitGraphLine[]): GitGraphLayout {
     segments.push({ lane, fromRow: from, toRow: Math.max(openTo.get(lane) ?? from, from, lastRow) });
   }
 
+  // 泳道段分支标签：收集该段内提交的引用，推导分支名。
+  const segmentLabels: GitLaneLabel[] = [];
+  for (const seg of segments) {
+    const refs: string[] = [];
+    for (const commit of out) {
+      if (commit.lane !== seg.lane || commit.row < seg.fromRow || commit.row > seg.toRow) continue;
+      refs.push(...commit.refs);
+    }
+    const label = deriveLaneLabel(refs);
+    if (label) segmentLabels.push({ lane: seg.lane, fromRow: seg.fromRow, ...label });
+  }
+
   return {
     commits: out,
     laneSegments: segments,
+    segmentLabels,
     edges,
     columnCount: lanes.length,
   };

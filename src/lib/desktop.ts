@@ -1345,6 +1345,8 @@ export interface WorkspaceGitGraphLine {
   graph: string;
   hash: string | null;
   shortHash: string | null;
+  author: string | null;
+  email: string | null;
   timestamp: number | null;
   refs: string[];
   parents: string[];

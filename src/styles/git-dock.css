@@ -625,6 +625,80 @@
   white-space: nowrap;
 }
 
+/* 泳道分支标签条（图谱顶部，与泳道列对齐） */
+.git-graph-lane-labels {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 10px 4px;
+  min-width: max-content;
+}
+.git-lane-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 140px;
+  overflow: hidden;
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-muted);
+  font-family: var(--mono);
+  font-size: 9px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.git-lane-label i,
+.git-graph-tooltip-lane-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  display: inline-block;
+}
+.git-lane-label-current {
+  color: var(--accent-deep);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  font-weight: 700;
+}
+.git-lane-label-remote { color: var(--ink-muted); }
+.git-lane-label-tag { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 45%, var(--line)); }
+.git-lane-label-branch { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, var(--line)); }
+
+/* 悬浮提交详情提示 */
+.git-graph-tooltip {
+  position: absolute;
+  z-index: 50;
+  left: 0;
+  right: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-panel);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-panel);
+  pointer-events: none;
+  display: grid;
+  gap: 5px;
+}
+.git-graph-tooltip-subject {
+  color: var(--ink-strong);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.git-graph-tooltip-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--ink-muted);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+.git-graph-tooltip-hash { color: var(--accent-deep); font-weight: 700; }
+
 /* —— 分支标签页 —— */
 .git-branch-row { padding: 4px 0; }
 .git-branch-row.current .git-branch-name { color: var(--accent-deep); font-weight: 600; }

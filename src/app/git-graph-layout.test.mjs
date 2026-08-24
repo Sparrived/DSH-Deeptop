@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { gitGraphLayout } from "./git-graph-layout.ts";
+import { deriveLaneLabel, gitGraphLayout } from "./git-graph-layout.ts";
 
 function commit(hash, parents, shortHash = hash.slice(0, 7), refs = []) {
   return {
@@ -120,4 +120,24 @@ test("fork reuses a freed adjacent lane instead of widening the tree", () => {
   // 复用的泳道在空档后开启新段：[1..2] 与 [5..5]
   const lane1Segs = layout.laneSegments.filter((seg) => seg.lane === 1).map((s) => [s.fromRow, s.toRow]);
   assert.deepEqual(lane1Segs, [[1, 2], [5, 5]]);
+});
+
+test("lane segments derive branch labels from refs", () => {
+  const a0 = "abababababababababababababababababababab";
+  const b0 = "babababababababababababababababababababa";
+  const c0 = "cbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcb";
+  const layout = layoutOf(
+    commit(a0, [b0], "aaaaaaa", ["HEAD -> main"]),
+    commit(b0, [c0], "bbbbbbb", ["feature/x"]),
+    commit(c0, [], "ccccccc", ["tag: v1.0"]),
+  );
+  assert.equal(layout.columnCount, 1);
+  // 聚合段内所有提交的引用：HEAD -> main 优先级最高，feature/x 与 tag 不覆盖它
+  assert.deepEqual(
+    layout.segmentLabels.map((l) => [l.lane, l.label, l.kind]),
+    [[0, "main", "current"]],
+  );
+  const joined = deriveLaneLabel(["tag: v1.0", "origin/main"]);
+  assert.deepEqual(joined, { label: "origin/main", kind: "remote" });
+  assert.equal(deriveLaneLabel([]), null);
 });

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   checkoutGitBranch,
   commitGit,
@@ -9,6 +10,7 @@ import {
   getGitCommitFileDiff,
   getGitFileDiff,
   getWorkspaceGitStatus,
+  isTauri,
   listGitBranches,
   listGitGraph,
   listGitLog,
@@ -273,6 +275,43 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
   useEffect(() => {
     if (tab === "history" && historyView === "graph" && branches === null) void reloadBranches();
   }, [tab, historyView, branches, reloadBranches]);
+
+  // 实时性：外层 git 操作可能改变仓库状态。展开时每 15 秒轮询刷新一次，
+  // 避免重复请求（用 ref 防重入）。
+  const refreshingRef = useRef(false);
+  useEffect(() => {
+    if (collapsed || !workspace) return;
+    const timer = window.setInterval(() => {
+      if (refreshingRef.current) return;
+      refreshingRef.current = true;
+      void refreshAll().finally(() => {
+        refreshingRef.current = false;
+      });
+    }, 15_000);
+    return () => window.clearInterval(timer);
+  }, [collapsed, workspace, refreshAll]);
+
+  // 窗口重新聚焦时立即刷新（切回应用后马上看到最新状态）。
+  useEffect(() => {
+    if (collapsed || !workspace || !isTauri()) return;
+    let unlisten: (() => void) | undefined;
+    void getCurrentWindow()
+      .onFocusChanged(({ payload: focused }) => {
+        if (!focused) return;
+        if (refreshingRef.current) return;
+        refreshingRef.current = true;
+        void refreshAll().finally(() => {
+          refreshingRef.current = false;
+        });
+      })
+      .then((fn) => {
+        unlisten = fn;
+      })
+      .catch(() => undefined);
+    return () => {
+      unlisten?.();
+    };
+  }, [collapsed, workspace, refreshAll]);
 
   function changeGraphRev(rev: string) {
     const next = rev || null;

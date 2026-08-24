@@ -16,7 +16,7 @@ const NODE_R = 6;
 const LANES = ["#f5d99b", "#8ab4f8", "#ff7b72", "#79d8a8", "#d2a8ff", "#79d8d8"];
 const laneColor = (lane) => LANES[((lane % LANES.length) + LANES.length) % LANES.length];
 
-const fmt = "%H%x1f%h%x1f%at%x1f%D%x1f%P%x1f%s%x1e";
+const fmt = "%H%x1f%h%x1f%an%x1f%ae%x1f%at%x1f%D%x1f%P%x1f%s%x1e";
 const raw = execFileSync("git", ["--no-pager", "log", "--graph", "--no-color", "--all", "-n", "120", `--format=${fmt}`], { encoding: "utf8" });
 const sep1 = String.fromCharCode(0x1f);
 const sep2 = String.fromCharCode(0x1e);
@@ -30,14 +30,17 @@ for (let rawLine of raw.split("\n")) {
   const graph = hashStart < 0 ? line.trimEnd() : line.slice(0, hashStart).trimEnd();
   if (hashStart < 0 || line.indexOf(sep1) < 0) { lines.push({ graph, hash: null, parents: [] }); continue; }
   const fields = line.slice(hashStart).split(sep1);
-  if (fields[0].length !== 40 || fields.length < 6) { lines.push({ graph, hash: null, parents: [] }); continue; }
+  if (fields[0].length !== 40 || fields.length < 8) { lines.push({ graph, hash: null, parents: [] }); continue; }
   lines.push({
     graph,
     hash: fields[0],
     shortHash: fields[1],
-    refs: fields[3].split(",").map((s) => s.trim()).filter(Boolean),
-    parents: fields[4].split(" ").map((s) => s.trim()).filter(Boolean),
-    subject: fields[5],
+    author: fields[2],
+    email: fields[3],
+    timestamp: Number(fields[4]) || null,
+    refs: fields[5].split(",").map((s) => s.trim()).filter(Boolean),
+    parents: fields[6].split(" ").map((s) => s.trim()).filter(Boolean),
+    subject: fields[7],
   });
 }
 
@@ -76,12 +79,22 @@ const rows = layout.commits.map((c) => {
   return `<button class="r" style="top:${c.row * ROW_H}px;left:${graphW + 10}px;height:${ROW_H}px">${refs}<span>${c.subject}</span></button>`;
 }).join("\n");
 
+const labels = (layout.segmentLabels || [])
+  .map((lb) => `<span class="lb lb-${lb.kind}" style="margin-left:${lb.lane * LANE_W}px"><i style="background:${laneColor(lb.lane)}"></i>${lb.label}</span>`)
+  .join("");
+
 const html = `<!doctype html><html><head><meta charset="utf-8"><style>
   body{margin:0;padding:0;background:#f7f8fa;font-family:Consolas,'Cascadia Mono',monospace;font-size:11px;color:#1f2633}
   .wrap{position:relative;width:100%;height:${graphH}px}
   svg{position:absolute;left:0;top:0}
   .r{position:absolute;display:flex;align-items:center;gap:6px;padding:0 8px;border:0;background:transparent;color:#1f2633;white-space:nowrap;font-family:inherit;font-size:11px;width:auto;min-width:140px;overflow:hidden;text-overflow:ellipsis}
   .ref{padding:1px 5px;border:1px solid #c9d2dd;border-radius:4px;font-size:9px;color:#7a8798}
-</style></head><body><div class="wrap"><svg width="${graphW}" height="${graphH}">${svg.join("")}</svg>${rows}</div></body></html>`;
+  .labels{display:flex;align-items:center;gap:2px;padding:6px 10px 4px}
+  .lb{display:flex;align-items:center;gap:5px;padding:2px 7px;border:1px solid #dfe4ea;border-radius:999px;background:#fff;color:#7a8798;font-size:9px;white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis}
+  .lb i{width:7px;height:7px;border-radius:50%;display:inline-block}
+  .lb-current{color:#2a6db5;border-color:#b8d4f0;font-weight:700}
+  .lb-tag{color:#c7991f;border-color:#f0e2b8}
+  .lb-branch{color:#2f946a;border-color:#bfe3d3}
+</style></head><body><div class="labels">${labels}</div><div class="wrap"><svg width="${graphW}" height="${graphH}">${svg.join("")}</svg>${rows}</div></body></html>`;
 writeFileSync(path.join(outDir, "graph-preview.html"), html);
-console.log(`wrote vector preview: commits=${layout.commits.length} lanes=${layout.columnCount} edges=${layout.edges.length}`);
+console.log(`wrote vector preview: commits=${layout.commits.length} lanes=${layout.columnCount} edges=${layout.edges.length} labels=${labels.length}`);

@@ -1,7 +1,7 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { WorkspaceGitGraphLine } from "../lib/desktop";
-import { gitGraphLaneColor, gitRefKind } from "../app/git-model";
-import { gitGraphLayout } from "../app/git-graph-layout";
+import { gitGraphLaneColor, gitRefKind, formatRelativeTime } from "../app/git-model";
+import { gitGraphLayout, type GitLayoutCommit } from "../app/git-graph-layout";
 
 // 向量渲染几何：泳道宽、行高，泳道画在列中心，跨泳道边用圆角折线。
 const LANE_W = 15;
@@ -14,8 +14,22 @@ type GitTreeGraphProps = {
   onSelect: (hash: string) => void;
 };
 
+function formatCommitTime(timestamp: number | null): string {
+  if (timestamp === null || timestamp <= 0) return "未知时间";
+  const relative = formatRelativeTime(timestamp);
+  try {
+    const date = new Date(timestamp * 1000);
+    const pad = (value: number) => String(value).padStart(2, "0");
+    const absolute = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    return `${relative}（${absolute}）`;
+  } catch {
+    return relative;
+  }
+}
+
 export function GitTreeGraph({ lines, selectedHash, onSelect }: GitTreeGraphProps) {
   const layout = useMemo(() => gitGraphLayout(lines), [lines]);
+  const [hovered, setHovered] = useState<GitLayoutCommit | null>(null);
   if (layout.commits.length === 0) return null;
 
   const graphW = layout.columnCount * LANE_W;
@@ -91,6 +105,8 @@ export function GitTreeGraph({ lines, selectedHash, onSelect }: GitTreeGraphProp
         style={{ top: commit.row * ROW_H, left: graphW + 10, right: 10, height: ROW_H }}
         onClick={() => onSelect(commit.hash)}
         title={commit.subject}
+        onMouseEnter={() => setHovered(commit)}
+        onMouseLeave={() => setHovered((current) => (current?.hash === commit.hash ? null : current))}
       >
         <span className="git-graph-hash">{commit.shortHash}</span>
         {commit.refs.map((ref) => (
@@ -101,8 +117,29 @@ export function GitTreeGraph({ lines, selectedHash, onSelect }: GitTreeGraphProp
     );
   });
 
+  const laneLabels = layout.segmentLabels.map((label, index) => (
+    <span
+      key={`lb${index}`}
+      className={`git-lane-label git-lane-label-${label.kind}`}
+      style={{ marginLeft: label.lane * LANE_W }}
+      title={`${label.label}（泳道 ${label.lane + 1}）`}
+    >
+      <i style={{ background: gitGraphLaneColor(label.lane) }} aria-hidden="true" />
+      {label.label}
+    </span>
+  ));
+
+  const hoveredLabel = hovered
+    ? layout.segmentLabels.find(
+        (label) => label.lane === hovered.lane
+          && label.fromRow <= hovered.row
+          && (layout.laneSegments.find((seg) => seg.lane === label.lane && seg.fromRow === label.fromRow)?.toRow ?? Infinity) >= hovered.row,
+      )
+    : null;
+
   return (
     <div className="git-graph-list">
+      {laneLabels.length > 0 && <div className="git-graph-lane-labels">{laneLabels}</div>}
       <div className="git-graph-canvas" style={{ width: graphW, height: graphH }}>
         <svg className="git-graph-svg" width={graphW} height={graphH} aria-hidden="true">
           {laneLines}
@@ -113,6 +150,32 @@ export function GitTreeGraph({ lines, selectedHash, onSelect }: GitTreeGraphProp
       {/* 提交行挂在画布外的滚动容器上：left/right 相对整个面板解析，
           画布只占泳道宽度，避免提交标题被画布宽度挤没。 */}
       {rows}
+      {hovered && (
+        <div className="git-graph-tooltip" role="tooltip" style={{ top: hovered.row * ROW_H }}>
+          <div className="git-graph-tooltip-subject">{hovered.subject}</div>
+          <div className="git-graph-tooltip-row">
+            <span className="git-graph-tooltip-hash">{hovered.shortHash}</span>
+            <span>{hovered.author ?? "未知作者"}{hovered.email ? ` <${hovered.email}>` : ""}</span>
+          </div>
+          <div className="git-graph-tooltip-row">{formatCommitTime(hovered.timestamp)}</div>
+          {hovered.refs.length > 0 && (
+            <div className="git-graph-tooltip-row">
+              {hovered.refs.map((ref) => (
+                <span key={ref} className={`git-graph-ref git-ref-${gitRefKind(ref)}`}>{ref}</span>
+              ))}
+            </div>
+          )}
+          {hoveredLabel && (
+            <div className="git-graph-tooltip-row">
+              <i className="git-graph-tooltip-lane-dot" style={{ background: gitGraphLaneColor(hoveredLabel.lane) }} aria-hidden="true" />
+              <span>分支：{hoveredLabel.label}</span>
+            </div>
+          )}
+          <div className="git-graph-tooltip-row">
+            <span>泳道 {hovered.lane + 1} · 第 {hovered.row + 1} 行</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -4093,6 +4093,8 @@ struct WorkspaceGitGraphLine {
     graph: String,
     hash: Option<String>,
     short_hash: Option<String>,
+    author: Option<String>,
+    email: Option<String>,
     timestamp: Option<i64>,
     refs: Vec<String>,
     parents: Vec<String>,
@@ -4117,7 +4119,7 @@ fn git_graph(
         Some(rev) => Some(validate_git_ref(&rev)?.to_string()),
         None => None,
     };
-    let format = "%H%x1f%h%x1f%at%x1f%D%x1f%P%x1f%s%x1e";
+    let format = "%H%x1f%h%x1f%an%x1f%ae%x1f%at%x1f%D%x1f%P%x1f%s%x1e";
     let mut args: Vec<&str> = vec!["--no-pager", "log", "--graph", "--no-color"];
     if simplify {
         args.push("--simplify-by-decoration");
@@ -4167,25 +4169,27 @@ fn git_graph(
             continue;
         }
         let fields: Vec<&str> = line[hash_start..].split('\x1f').collect();
-        if fields.len() < 6 || fields[0].len() != 40 {
+        if fields.len() < 8 || fields[0].len() != 40 {
             continue;
         }
         lines.push(WorkspaceGitGraphLine {
             graph,
             hash: Some(fields[0].to_string()),
             short_hash: Some(fields[1].to_string()),
-            timestamp: fields[2].parse::<i64>().ok(),
-            refs: fields[3]
+            author: Some(fields[2].to_string()),
+            email: Some(fields[3].to_string()),
+            timestamp: fields[4].parse::<i64>().ok(),
+            refs: fields[5]
                 .split(',')
                 .map(|item| item.trim().to_string())
                 .filter(|item| !item.is_empty())
                 .collect(),
-            parents: fields[4]
+            parents: fields[6]
                 .split(' ')
                 .map(|item| item.trim().to_string())
                 .filter(|item| !item.is_empty())
                 .collect(),
-            subject: Some(fields[5].to_string()),
+            subject: Some(fields[7].to_string()),
         });
     }
     Ok(lines)
