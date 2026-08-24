@@ -808,6 +808,10 @@ fn replacement_required(directory: &std::path::Path, id: &str) -> Result<bool, S
     Ok(bundle_path(directory, id)?.exists())
 }
 
+/// `pinned_sha256` 来自 pick_pet_bundle 的选取记录；安装时文件必须与
+/// 用户在原生选择器里确认的内容逐字节一致，防止选择后替换（TOCTOU）。
+/// 测试直接调用本函数并传 `None` 跳过 pinned 校验。
+#[cfg(test)]
 fn install_pet_bundle_into_directory(
     directory: &std::path::Path,
     source: &std::path::Path,
