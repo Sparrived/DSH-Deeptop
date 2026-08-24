@@ -1292,8 +1292,7 @@
     position: relative;
     flex-direction: column;
     gap: var(--right-surface-gap, 12px);
-    /* 顶部与最上方第一个 dock（浮动窄栏）齐平：标题栏高度 + 10px 间距。 */
-    padding: calc(var(--conversation-header-height, 64px) + 10px) 12px 10px;
+    padding: 10px 12px;
     overflow: hidden;
   }
 

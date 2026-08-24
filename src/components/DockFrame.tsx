@@ -62,6 +62,18 @@ const dockViewportMargin = 8;
 /** 钉住分栏层只在桌面宽度启用；窄屏保持原有浮动/静态卡片行为。 */
 const pinDesktopQuery = "(min-width: 761px)";
 
+/**
+ * 浮动展开框的默认位置：桌面布局下把顶部对齐到所在 dock 排最上方第一个 dock
+ * （首个 dock 自身偏移为 0，后续 dock 为相对首 dock 的负纵向偏移），而不是与
+ * 自身窄栏平齐。实际布局（窄栏高度、间距、条件渲染）通过 offsetTop 差值度量。
+ */
+function alignedDefaultDockPosition(frame: HTMLElement | null): DockPosition {
+  const parent = frame?.parentElement;
+  const first = parent?.firstElementChild as HTMLElement | null;
+  if (!frame || !parent || !first || first === frame) return defaultDockPosition;
+  return { x: defaultDockPosition.x, y: -(frame.offsetTop - first.offsetTop) };
+}
+
 function useDesktopPinLayout(): boolean {
   const [desktop, setDesktop] = useState(() => typeof window === "undefined" || window.matchMedia(pinDesktopQuery).matches);
   useEffect(() => {
@@ -127,6 +139,11 @@ export function DockFrame({
   const pinned = isDockPinned(id);
   const pinLayer = useDockPinLayer(side);
   const desktopPinLayout = useDesktopPinLayout();
+  // 窄屏卡片退化为流内静态布局，默认位置保持零偏移；用 ref 避免跨断点重载已保存位置。
+  const desktopPinLayoutRef = useRef(desktopPinLayout);
+  useEffect(() => {
+    desktopPinLayoutRef.current = desktopPinLayout;
+  }, [desktopPinLayout]);
   const pinPortalTarget = pinned && desktopPinLayout ? pinLayer : null;
   const persistDockPosition = (next: DockPosition) => {
     persistenceRef.current = persistenceRef.current
@@ -149,15 +166,17 @@ export function DockFrame({
 
   useEffect(() => {
     let active = true;
-    positionRef.current = defaultDockPosition;
-    setPosition(defaultDockPosition);
+    // 默认位置：桌面布局下展开框顶部与排内最上方第一个 dock 平齐；窄屏零偏移。
+    const initial = desktopPinLayoutRef.current ? alignedDefaultDockPosition(frameRef.current) : defaultDockPosition;
+    positionRef.current = initial;
+    setPosition(initial);
     setPositionReady(!isTauri());
     if (!isTauri()) return () => { active = false; };
 
     void getDockPosition(id)
       .then((saved) => {
         if (!active) return;
-        const next = saved ?? defaultDockPosition;
+        const next = saved ?? initial;
         positionRef.current = next;
         setPosition(next);
       })
@@ -262,8 +281,9 @@ export function DockFrame({
   const handleResetPosition = () => {
     dragStateRef.current = null;
     setDragging(false);
-    positionRef.current = defaultDockPosition;
-    setPosition(defaultDockPosition);
+    const next = desktopPinLayoutRef.current ? alignedDefaultDockPosition(frameRef.current) : defaultDockPosition;
+    positionRef.current = next;
+    setPosition(next);
     clearDockPosition();
   };
 
