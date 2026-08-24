@@ -3,6 +3,9 @@ import { isValidElement, memo, useEffect, useState, type HTMLAttributes, type Re
 import { SKIP, visit } from "unist-util-visit";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import { decodeFileLink, entityHost, FILE_LINK_PREFIX, pathLabel, splitMessageEntities } from "./message-entities";
 
 function remarkMessageEntities() {
@@ -149,7 +152,8 @@ export const MarkdownContent = memo(function MarkdownContent({ text, className =
   return (
     <div className={contentClassName}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkBreaks, remarkMessageEntities]}
+        remarkPlugins={[remarkGfm, remarkMath, remarkBreaks, remarkMessageEntities]}
+        rehypePlugins={[rehypeKatex]}
         components={components}
         urlTransform={(url) => url}
         skipHtml

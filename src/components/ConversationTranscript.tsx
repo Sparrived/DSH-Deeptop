@@ -326,6 +326,8 @@ const ReasoningEntry = memo(function ReasoningEntry({ text, streaming }: { text:
 
 type PreviewImage = { src: string; alt: string };
 
+type PreviewGallery = { images: TranscriptImage[]; index: number };
+
 function MessageImage({
   image,
   index,
@@ -392,18 +394,118 @@ const MessageImages = memo(function MessageImages({
 }: {
   images: TranscriptImage[];
   onLoadAttachment?: (attachmentId: string) => Promise<string>;
-  onOpen: (image: PreviewImage) => void;
+  onOpen: (image: PreviewImage, images: TranscriptImage[], index: number) => void;
 }) {
   return <div className="message-images">
     {images.map((image, index) => <MessageImage
       image={image}
       index={index}
       onLoadAttachment={onLoadAttachment}
-      onOpen={onOpen}
+      onOpen={(preview) => onOpen(preview, images, index)}
       key={`${image.attachmentId ?? image.name ?? "inline"}-${index}`}
     />)}
   </div>;
 }, (prev, next) => sameImages(prev.images, next.images));
+
+/** Attachment gallery: current image with lazy load, prev/next, keyboard. */
+function MessageLightbox({
+  gallery,
+  onLoadAttachment,
+  onClose,
+  onNavigate,
+}: {
+  gallery: PreviewGallery;
+  onLoadAttachment?: (attachmentId: string) => Promise<string>;
+  onClose: () => void;
+  onNavigate: (index: number) => void;
+}) {
+  const { images, index } = gallery;
+  const current = images[index];
+  const [src, setSrc] = useState<string | null>(() => current ? imageSource(current) || null : null);
+  const [state, setState] = useState<"loading" | "ready" | "error">(() => src ? "ready" : "loading");
+  const [attempt, setAttempt] = useState(0);
+  const alt = current?.name || `图片 ${index + 1}`;
+
+  useEffect(() => {
+    let active = true;
+    if (!current) {
+      setSrc(null);
+      setState("error");
+      return () => { active = false; };
+    }
+    const inline = imageSource(current);
+    if (inline) {
+      setSrc(inline);
+      setState("ready");
+      return () => { active = false; };
+    }
+    if (!current.attachmentId || !onLoadAttachment) {
+      setSrc(null);
+      setState("error");
+      return () => { active = false; };
+    }
+    setSrc(null);
+    setState("loading");
+    void onLoadAttachment(current.attachmentId).then((loaded) => {
+      if (!active) return;
+      setSrc(loaded);
+      setState("ready");
+    }).catch(() => {
+      if (active) setState("error");
+    });
+    return () => { active = false; };
+  }, [attempt, current, onLoadAttachment]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+      if (event.key === "ArrowLeft" && index > 0) onNavigate(index - 1);
+      if (event.key === "ArrowRight" && index < images.length - 1) onNavigate(index + 1);
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [images.length, index, onClose, onNavigate]);
+
+  return <div className="message-lightbox" role="dialog" aria-modal="true" aria-label="图片画廊" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className="message-lightbox-toolbar">
+      <span>{index + 1} / {images.length} · {alt}</span>
+      <button type="button" onClick={onClose} aria-label="关闭画廊" title="关闭（Esc）">×</button>
+    </div>
+    <div className="message-lightbox-stage">
+      {state === "loading" && <span className="message-image-placeholder" role="status">正在读取图片…</span>}
+      {state === "error" && <button className="message-image-placeholder error" type="button" onClick={() => setAttempt((value) => value + 1)} title="重新读取图片">图片读取失败，点击重试</button>}
+      {state === "ready" && src !== null && <img className="message-lightbox-image" src={src} alt={alt} onClick={onClose} />}
+    </div>
+    {images.length > 1 && <div className="message-lightbox-nav">
+      <button type="button" disabled={index === 0} onClick={() => onNavigate(index - 1)} aria-label="上一张">‹</button>
+      <div className="message-lightbox-thumbs">
+        {images.map((image, thumbIndex) => (
+          <button
+            type="button"
+            className={thumbIndex === index ? "active" : ""}
+            key={`${image.attachmentId ?? image.name ?? "inline"}-${thumbIndex}`}
+            onClick={() => onNavigate(thumbIndex)}
+            aria-label={`查看第 ${thumbIndex + 1} 张`}
+            title={image.name || `图片 ${thumbIndex + 1}`}
+          >
+            <LightboxThumb image={image} />
+          </button>
+        ))}
+      </div>
+      <button type="button" disabled={index >= images.length - 1} onClick={() => onNavigate(index + 1)} aria-label="下一张">›</button>
+    </div>}
+  </div>;
+}
+
+function LightboxThumb({ image }: { image: TranscriptImage }) {
+  const [src, setSrc] = useState<string | null>(() => imageSource(image) || null);
+  useEffect(() => {
+    setSrc(imageSource(image) || null);
+  }, [image]);
+  return src === null
+    ? <span className="message-lightbox-thumb-placeholder" aria-hidden="true" />
+    : <img src={src} alt="" loading="lazy" />;
+}
 
 type TranscriptArticleProps = {
   item: TranscriptItem;
@@ -412,7 +514,7 @@ type TranscriptArticleProps = {
   activeRunning: boolean;
   loading: boolean;
   activeSessionId: string | null;
-  onPreviewImage: (image: PreviewImage) => void;
+  onPreviewImage: (image: PreviewImage, images: TranscriptImage[], index: number) => void;
   onLoadImageAttachment?: (attachmentId: string) => Promise<string>;
   onCopyMessage: (text: string) => void | Promise<void>;
   onRequestCopyMenu: (item: TranscriptItem, x: number, y: number, target: EventTarget | null) => void;
@@ -583,7 +685,7 @@ export function ConversationTranscript({
   onOpenUrl,
   onOpenWorkflowMember,
 }: ConversationTranscriptProps) {
-  const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null);
+  const [previewGallery, setPreviewGallery] = useState<PreviewGallery | null>(null);
 
   // 会话文本右键复制菜单：右击选中文本时可复制选区，或复制整条消息。
   type TranscriptCopyMenu = {
@@ -685,7 +787,7 @@ export function ConversationTranscript({
               activeRunning={activeRunning}
               loading={loading}
               activeSessionId={activeSessionId}
-              onPreviewImage={setPreviewImage}
+              onPreviewImage={(image, images, index) => setPreviewGallery({ images, index })}
               onLoadImageAttachment={onLoadImageAttachment}
               onCopyMessage={onCopyMessage}
               onRequestCopyMenu={requestCopyMenu}
@@ -703,15 +805,12 @@ export function ConversationTranscript({
         </div>
       )}
     </div>
-    {previewImage && <PopupDialog
-      title="图片预览"
-      eyebrow="MESSAGE / IMAGE"
-      description={previewImage.alt}
-      className="image-preview-dialog"
-      onClose={() => setPreviewImage(null)}
-    >
-      <img className="image-preview" src={previewImage.src} alt={previewImage.alt} />
-    </PopupDialog>}
+    {previewGallery && <MessageLightbox
+      gallery={previewGallery}
+      onLoadAttachment={onLoadImageAttachment}
+      onClose={() => setPreviewGallery(null)}
+      onNavigate={(index) => setPreviewGallery((current) => current ? { ...current, index } : current)}
+    />}
     {copyMenu && createPortal(
       <div
         ref={menuRef}
