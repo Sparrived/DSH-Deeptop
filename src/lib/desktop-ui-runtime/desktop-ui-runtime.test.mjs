@@ -3,6 +3,7 @@ import test from 'node:test'
 import { DesktopUiRuntime } from './client-runtime.ts'
 import { SlotRegistry } from './slot-registry.ts'
 import { PluginScope } from './plugin-runner.ts'
+import { loadProtocolClientModule, PROTOCOL_IMPORT_TIMEOUT_MS } from './module-loader.ts'
 import {
   CapabilityDeniedError,
   PluginEventScope,
@@ -27,7 +28,7 @@ function descriptor(overrides = {}) {
   }
 }
 
-function fakeRuntime({ items = [], modules = {}, responses = new Map() } = {}) {
+function fakeRuntime({ items = [], modules = {}, responses = new Map(), resolveBundle, importModule } = {}) {
   const requests = []
   const handlers = new Set()
   const request = async (method, payload) => {
@@ -44,6 +45,8 @@ function fakeRuntime({ items = [], modules = {}, responses = new Map() } = {}) {
       return () => handlers.delete(handler)
     },
     bundledModules: modules,
+    ...(resolveBundle ? { resolveBundle } : {}),
+    ...(importModule ? { importModule } : {}),
   })
   return { runtime, requests, handlers, request }
 }
@@ -135,6 +138,118 @@ test('a missing bundle or throwing activate settles into coded failure states', 
   await boom.runtime.start()
   assert.equal(boom.runtime.entries.get('a.boom')?.runner.state, 'activate-failed')
   assert.equal(boom.runtime.status, 'partial')
+})
+
+const protocolModule = {
+  activate(context) {
+    context.ui.register('session.context-menu', { kind: 'action', id: 'pins.proto', render: () => null })
+  },
+  deactivate() {},
+}
+
+test('an external bundle loads through the controlled resource protocol', async () => {
+  const resolvedIds = []
+  const importedUrls = []
+  const full = descriptor({
+    client: { entryId: 'example.session-pins/client', format: 'esm', sdkVersion: '^1.0.0' },
+  })
+  const { runtime } = fakeRuntime({
+    items: [full],
+    resolveBundle: async (pluginId) => {
+      resolvedIds.push(pluginId)
+      return { url: `deeptop-plugin://localhost/${pluginId}/client.mjs`, sizeBytes: 1024 }
+    },
+    importModule: async (url) => {
+      importedUrls.push(url)
+      return protocolModule
+    },
+  })
+  await runtime.start()
+  assert.equal(runtime.status, 'ready')
+  assert.deepEqual(resolvedIds, ['example.session-pins'])
+  // Windows serves the same handler over http://deeptop-plugin.localhost/...;
+  // the URL always comes from the desktop process, never assembled here.
+  assert.match(importedUrls[0], /example\.session-pins\/client\.mjs$/)
+  assert.equal(runtime.slots.snapshot('session.context-menu').length, 1)
+  await runtime.stop()
+  assert.equal(runtime.slots.snapshot('session.context-menu').length, 0)
+})
+
+test('protocol failures refuse to load without touching slots already contributed declaratively', async () => {
+  const withDeclarative = descriptor({
+    client: { entryId: 'example.session-pins/client', format: 'esm', sdkVersion: '^1.0.0' },
+    contributions: [
+      { kind: 'badge', id: 'pins.badge', slot: 'session.row.trailing', label: '置顶' },
+    ],
+  })
+  const rejecting = fakeRuntime({
+    items: [withDeclarative],
+    resolveBundle: async () => {
+      throw Object.assign(new Error('ui-integrity-mismatch: 完整性校验失败'), { code: 'ui-integrity-mismatch' })
+    },
+  })
+  await rejecting.runtime.start()
+  assert.equal(rejecting.runtime.status, 'partial')
+  assert.equal(rejecting.runtime.entries.get('example.session-pins')?.runner.state, 'load-failed')
+  assert.equal(rejecting.runtime.slots.snapshot('session.row.trailing').length, 1)
+
+  const unavailable = fakeRuntime({
+    items: [descriptor({
+      pluginId: 'c.ext',
+      slots: ['composer.actions'],
+      capabilities: { remotes: [] },
+      client: { entryId: 'c.ext/client', format: 'esm', sdkVersion: '^1.0.0' },
+    })],
+  })
+  await unavailable.runtime.start()
+  assert.equal(unavailable.runtime.entries.get('c.ext')?.runner.state, 'load-failed')
+  assert.ok(
+    JSON.stringify(unavailable.runtime.diagnostics).includes('controlled resource protocol'),
+    'missing resolver produces an actionable diagnostic',
+  )
+})
+
+test('loadProtocolClientModule enforces SDK range, export shape and deadline', async () => {
+  let resolverCalls = 0
+  const resolver = async () => {
+    resolverCalls += 1
+    return { url: 'deeptop-plugin://localhost/x/y/client.mjs' }
+  }
+  await assert.rejects(
+    loadProtocolClientModule(
+      { pluginId: 'x.y', entryId: 'x/y/client', sdkVersion: '^9.0.0', runtimeSdkVersion: '1.0.0' },
+      resolver,
+    ),
+    error => error.code === 'check-failed',
+  )
+  assert.equal(resolverCalls, 0, 'SDK range is checked before any bundle resolution')
+
+  await assert.rejects(
+    loadProtocolClientModule(
+      { pluginId: 'x.y', entryId: 'x/y/client', sdkVersion: '^1.0.0', runtimeSdkVersion: '1.0.0' },
+      resolver,
+      async () => ({ noActivate: true }),
+    ),
+    error => error.code === 'load-failed' && /does not export activate/.test(error.message),
+  )
+
+  await assert.rejects(
+    loadProtocolClientModule(
+      { pluginId: 'x.y', entryId: 'x/y/client', sdkVersion: '^1.0.0', runtimeSdkVersion: '1.0.0' },
+      resolver,
+      () => new Promise(() => undefined),
+      20,
+    ),
+    error => error.code === 'load-failed' && /超时/.test(error.message),
+  )
+  assert.equal(PROTOCOL_IMPORT_TIMEOUT_MS, 30_000)
+
+  const activated = await loadProtocolClientModule(
+    { pluginId: 'x.y', entryId: 'x/y/client', sdkVersion: '~1.0.3', runtimeSdkVersion: '1.0.9' },
+    resolver,
+    async () => protocolModule,
+  )
+  assert.equal(typeof activated.activate, 'function')
 })
 
 test('deactivate is idempotent and scope disposal unwinds in reverse order', async () => {

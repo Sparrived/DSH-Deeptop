@@ -7,6 +7,7 @@ import {
   bridgeRequest,
   listenToBridgeEvent,
   listenToRuntimeStatus,
+  resolveUiPluginBundle,
   type DshBridgeEvent,
 } from "../lib/desktop";
 import { DesktopUiRuntime } from "../lib/desktop-ui-runtime/client-runtime";
@@ -28,6 +29,9 @@ function getOrCreateRuntime(): DesktopUiRuntime {
         };
       },
       bundledModules: bundledUiClientModules,
+      // Phase 2: external bundles load through the Tauri controlled resource
+      // protocol (path fence + integrity enforced in the desktop process).
+      resolveBundle: (pluginId) => resolveUiPluginBundle(pluginId),
     });
   }
   return sharedRuntime;

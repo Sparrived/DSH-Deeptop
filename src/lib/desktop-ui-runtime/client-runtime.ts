@@ -20,8 +20,8 @@ import {
 } from "./capability-client.ts";
 import { errorMessageOf } from "./plugin-error.ts";
 import { ClientPluginRunner, LifecycleError, PluginScope } from "./plugin-runner.ts";
-import type { BundledClientModuleFactory } from "./module-loader.ts";
-import { loadBundledClientModule } from "./module-loader.ts";
+import type { BundledClientModuleFactory, ModuleImporter, UiBundleResolver } from "./module-loader.ts";
+import { loadBundledClientModule, loadProtocolClientModule } from "./module-loader.ts";
 import { SlotRegistry } from "./slot-registry.ts";
 import type {
   ClientPluginState,
@@ -57,6 +57,14 @@ export interface DesktopUiRuntimeOptions {
   listen(handler: (frame: BridgeEventFrameInput) => void): () => void;
   /** Build-time bundled client modules keyed by entryId (Phase 1 static table). */
   bundledModules?: Record<string, BundledClientModuleFactory>;
+  /**
+   * Phase 2 controlled resource protocol: ask the desktop process to verify
+   * and preload an external plugin bundle. Absent → external bundles refuse
+   * to load with a clear diagnostic instead of failing silently.
+   */
+  resolveBundle?: UiBundleResolver;
+  /** Dynamic import seam (tests stub this; production uses native import()). */
+  importModule?: ModuleImporter;
   enabled?: boolean;
   log?(message: string): void;
 }
@@ -293,13 +301,27 @@ export class DesktopUiRuntime {
 
   private async loadModule(descriptor: DshUiPluginDescriptor): Promise<DeeptopClientModule> {
     if (!descriptor.client) throw new LifecycleError("load-failed", "plugin has no client module");
-    return loadBundledClientModule(
-      {
-        entryId: descriptor.client.entryId,
-        sdkVersion: descriptor.client.sdkVersion,
-        runtimeSdkVersion: UI_RUNTIME_SDK_VERSION,
-      },
-      this.options.bundledModules ?? {},
+    const source = {
+      entryId: descriptor.client.entryId,
+      sdkVersion: descriptor.client.sdkVersion,
+      runtimeSdkVersion: UI_RUNTIME_SDK_VERSION,
+    };
+    // Bundled modules win (§9.2): they ship with the app and need no protocol.
+    const bundled = this.options.bundledModules?.[descriptor.client.entryId];
+    if (bundled) {
+      return loadBundledClientModule(source, this.options.bundledModules ?? {});
+    }
+    const resolveBundle = this.options.resolveBundle;
+    if (!resolveBundle) {
+      throw new LifecycleError(
+        "load-failed",
+        `client module "${descriptor.client.entryId}" is not bundled and the controlled resource protocol is unavailable in this context`,
+      );
+    }
+    return loadProtocolClientModule(
+      { ...source, pluginId: descriptor.pluginId },
+      resolveBundle,
+      this.options.importModule,
     );
   }
 
