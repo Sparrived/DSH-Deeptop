@@ -69,6 +69,15 @@ impl PetDisplaySettings {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct PetWindowLayoutUpdate {
+    expanded: bool,
+    previous_display: Option<PetDisplaySettings>,
+    restore_saved: bool,
+    reanchor: bool,
+    ensure_visible: bool,
+}
+
 #[derive(Default)]
 pub struct PetWindowRuntime {
     activity: Mutex<PetActivityUpdate>,
@@ -635,12 +644,15 @@ fn configure_pet_window(
     app: &AppHandle,
     window: &WebviewWindow,
     settings: &PetSettings,
-    expanded: bool,
-    previous_display: Option<PetDisplaySettings>,
-    restore_saved: bool,
-    reanchor: bool,
-    ensure_visible: bool,
+    update: PetWindowLayoutUpdate,
 ) -> Result<(), String> {
+    let PetWindowLayoutUpdate {
+        expanded,
+        previous_display,
+        restore_saved,
+        reanchor,
+        ensure_visible,
+    } = update;
     let logical_side = pet_window_side(settings.size);
     let (logical_width, logical_height) = pet_window_dimensions(settings.size, expanded);
     let previous_pet_position = if !restore_saved && !reanchor {
@@ -824,16 +836,14 @@ pub fn synchronize(app: &AppHandle, settings: &PetSettings) -> Result<(), String
     let ensure_visible = previous_display.is_some_and(|previous| {
         previous.size != next_display.size || previous.expanded != next_display.expanded
     });
-    configure_pet_window(
-        app,
-        &window,
-        settings,
+    let update = PetWindowLayoutUpdate {
         expanded,
         previous_display,
         restore_saved,
         reanchor,
         ensure_visible,
-    )?;
+    };
+    configure_pet_window(app, &window, settings, update)?;
     *runtime
         .display
         .lock()
