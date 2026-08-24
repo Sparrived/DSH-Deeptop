@@ -9,7 +9,8 @@
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./message-annotations": "./message-annotations.mjs",
     "./skill-install-plugin": "./skill-install-plugin.mjs",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./theme-settings": "./theme-settings.mjs"
   },
   "dependencies": {
     "undici": "^8.10.0"

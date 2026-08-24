@@ -39,6 +39,9 @@
     - id: session-stats
       name: '@deepseek-ai/dsh-session-stats'
 
+    - id: theme-settings
+      name: 'deeptop-bridge/theme-settings'
+
     - id: workspace
       name: '@deepseek-ai/dsh-workspace'
 

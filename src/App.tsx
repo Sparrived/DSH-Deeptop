@@ -225,6 +225,7 @@ import {
   hasAnyBackground,
   useAppearanceSettings,
 } from "./app/useAppearanceSettings";
+import { useThemeHostSync } from "./app/useThemeHostSync";
 import { SEND_SHORTCUT_STORAGE_KEY, readSendShortcut, type SendShortcut } from "./app/keyboard-shortcut";
 import { defaultWorkingIndicator, normalizeWorkingIndicator } from "./app/working-indicator";
 import { externalLaunchKey } from "./lib/external-launch";
@@ -752,6 +753,17 @@ function AppContent() {
     openThemesDirectory,
     resetAppearance,
   } = useAppearanceSettings({ onNotice: setNotice, onError: setErrorNotice });
+  // 本地主题与 Host ui-theme 命名空间双向同步：启动采纳 Host、用户修改回写、
+  // 外部修改（settings/document-updated）重新采纳。
+  const { pushToHost: pushThemeToHost } = useThemeHostSync({
+    desktop,
+    themeMode,
+    onUserChange: setThemeMode,
+  });
+  function changeThemeMode(mode: ThemeMode) {
+    setThemeMode(mode);
+    void pushThemeToHost();
+  }
   // @deeptop-pets:start app-system-hook
   const petSystem = usePetSystem({
     desktop,
@@ -823,7 +835,7 @@ function AppContent() {
         const nextTheme = data.appTheme === "one-dark" || data.appTheme === "monokai-pro" || data.appTheme === "custom" ? data.appTheme : null;
         const nextPath = typeof data.themeCssPath === "string" && data.themeCssPath.length <= 2000 ? data.themeCssPath : "";
         if (!nextMode || !nextTheme) throw new Error("主题配置中的明暗模式或配色方案无效");
-        setThemeMode(nextMode);
+        changeThemeMode(nextMode);
         setAppTheme(nextTheme);
         updateAppearance({ themeCssPath: nextPath });
       } else if (appearanceSection === "background") {
@@ -843,7 +855,7 @@ function AppContent() {
   }
   function resetAppearanceSection() {
     if (appearanceSection === "theme") {
-      setThemeMode("system");
+      changeThemeMode("system");
       setAppTheme("monokai-pro");
       updateAppearance({ themeCssPath: themeFilesInfo?.monokaiPro ?? appearance.themeCssPath });
     } else if (appearanceSection === "background") {
@@ -4987,7 +4999,7 @@ function AppContent() {
                      onClearBackground={clearBackground}
                      onImport={importAppearanceConfig}
                      onExport={exportAppearanceConfig}
-                    onThemeChange={setThemeMode}
+                    onThemeChange={changeThemeMode}
                     onAppThemeChange={setAppTheme}
                     onPickThemeCss={handlePickThemeCss}
                     onReloadThemeCss={reloadThemeCss}
