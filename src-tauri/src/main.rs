@@ -37,6 +37,7 @@ mod dock_position;
 mod dock_settings;
 mod external_launch;
 mod terminal;
+mod ui_plugin_bundle;
 mod window_behavior;
 mod windows_context_menu;
 
@@ -1939,6 +1940,14 @@ impl BridgeManager {
         let _ = app.emit("dsh-runtime-status", self.status());
     }
 
+    /// 当前启动代次；UI 插件 bundle 缓存按代次失效（DSH 重启后旧代不可读）。
+    fn generation(&self) -> u64 {
+        self.state
+            .lock()
+            .map(|state| state.generation)
+            .unwrap_or(u64::MAX)
+    }
+
     fn ensure_started(&self, app: &AppHandle) {
         let should_start = self
             .state
@@ -3404,6 +3413,24 @@ fn bridge_request(
     payload: Value,
 ) -> Result<Value, String> {
     runtime.request(method, payload)
+}
+
+/// 解析并预载一个 UI 插件的客户端 bundle（docs/DEEPTOP_UI_RUNTIME.md §9.3）。
+/// 在阻塞线程里执行桥请求与文件校验；成功后协议处理器即可按 pluginId 回放。
+#[tauri::command]
+async fn resolve_ui_plugin_bundle(
+    runtime: State<'_, BridgeManager>,
+    store: State<'_, ui_plugin_bundle::UiPluginBundleStore>,
+    plugin_id: String,
+) -> Result<Value, String> {
+    let runtime = runtime.inner().clone();
+    let store = store.inner().clone();
+    let generation = runtime.generation();
+    tauri::async_runtime::spawn_blocking(move || {
+        ui_plugin_bundle::resolve(&runtime, &store, generation, &plugin_id)
+    })
+    .await
+    .map_err(|error| format!("解析 UI 插件资源任务失败：{error}"))?
 }
 
 #[tauri::command]
@@ -5418,6 +5445,10 @@ fn main() {
         .manage(TrayMenuState::default())
         .manage(about::UpdateCheckManager::default())
         .manage(terminal::TerminalManager::default())
+        .manage(ui_plugin_bundle::UiPluginBundleStore::default())
+        .register_uri_scheme_protocol(ui_plugin_bundle::UI_PLUGIN_SCHEME, |ctx, request| {
+            ui_plugin_bundle::handle_protocol(ctx, request)
+        })
         .setup(move |app| {
             if prepare_runtime {
                 let exit_code = match materialize_bundled_runtime(app.handle()) {
@@ -5479,6 +5510,7 @@ fn main() {
             dismiss_tray_popup,
             send_system_notification,
             bridge_request,
+            resolve_ui_plugin_bundle,
             get_runtime_logs,
             log_frontend_event,
             export_runtime_logs,
