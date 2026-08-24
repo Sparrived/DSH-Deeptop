@@ -13,6 +13,7 @@ import {
 } from './ui-plugin-manifest.mjs'
 import {
   deleteUiPluginStorage,
+  getUiPluginBundle,
   getUiPluginModule,
   getUiPluginStorage,
   invokeUiPluginRemote,
@@ -63,6 +64,21 @@ function registryWith(...records) {
       return { pluginId, entryId: record.client.entryId, format: record.client.format, sdkVersion: record.client.sdkVersion }
     },
     require: pluginId => map.get(pluginId),
+    bundle: pluginId => {
+      const record = map.get(pluginId)
+      if (record === undefined) {
+        throw uiPluginError(UI_PLUGIN_ERROR_CODES.pluginNotFound, `ui plugin ${pluginId} is not registered`)
+      }
+      if (typeof record.clientPath !== 'string' || record.clientPath === '') {
+        throw uiPluginError(UI_PLUGIN_ERROR_CODES.moduleUnavailable, `ui plugin ${pluginId} has no registered client bundle path`)
+      }
+      return {
+        pluginId,
+        entryPath: record.clientPath,
+        format: record.client?.format ?? 'esm',
+        ...(record.client?.integrity ? { integrity: record.client.integrity } : {}),
+      }
+    },
     storageGet: async (namespace, key) => (namespace === 'session-pins' && key === 'last' ? { pinned: true } : undefined),
     storageSet: async () => {},
     storageDelete: async () => {},
@@ -121,6 +137,8 @@ test('rejects invalid registrations with coded errors', () => {
     [{ ...sessionPinsManifest, ui: { slots: ['made.up.slot'] } }, /known desktop slot/],
     [{ ...sessionPinsManifest, client: { entryId: 'x/client', format: 'cjs', sdkVersion: '^1.0.0' } }, /format/],
     [{ ...sessionPinsManifest, client: { entryId: 'x/client', sdkVersion: 'latest' } }, /sdkVersion/],
+    [{ ...sessionPinsManifest, client: { entryId: 'x/client', sdkVersion: '^1.0.0', integrity: 'sha256-XYZ' } }, /integrity/],
+    [{ ...sessionPinsManifest, client: { entryId: 'x/client', sdkVersion: '^1.0.0', integrity: `sha256-${'A'.repeat(64)}` } }, /integrity/],
     [{ ...declarativeManifest, capabilities: { remotes: [{ namespace: 'other', methods: ['x'] }] } }, /does not declare|invokes/],
     [{
       schemaVersion: 1, pluginId: 'a.host-only', version: '0.1.0',
@@ -211,6 +229,39 @@ test('ui.plugin.module returns metadata for registered modules only', async () =
   await assert.rejects(getUiPluginModule(ctxWith(undefined), { pluginId: 'example.session-pins' }), error => error.code === UI_PLUGIN_ERROR_CODES.hostUnavailable)
   const declarativeOnly = ctxWith(registryWith(normalizeUiPluginRegistration(declarativeManifest)))
   await assert.rejects(getUiPluginModule(declarativeOnly, { pluginId: 'vendor.notes-tools' }), error => error.code === UI_PLUGIN_ERROR_CODES.pluginNotFound)
+})
+
+test('ui.plugin.bundle serves the host-private path to the desktop process only', async () => {
+  const record = normalizeUiPluginRegistration({
+    ...sessionPinsManifest,
+    client: { ...sessionPinsManifest.client, integrity: `sha256-${'a'.repeat(64)}` },
+    clientEntry: '/home/dsh/plugins/session-pins/dist/client.mjs',
+  })
+  const ctx = ctxWith(registryWith(record))
+  const bundle = await getUiPluginBundle(ctx, { pluginId: 'example.session-pins' })
+  assert.deepEqual(bundle, {
+    pluginId: 'example.session-pins',
+    entryPath: '/home/dsh/plugins/session-pins/dist/client.mjs',
+    format: 'esm',
+    integrity: `sha256-${'a'.repeat(64)}`,
+  })
+
+  // A registration without a resolved bundle path cannot be served.
+  const withoutPath = ctxWith(registryWith(normalizeUiPluginRegistration(sessionPinsManifest)))
+  await assert.rejects(
+    getUiPluginBundle(withoutPath, { pluginId: 'example.session-pins' }),
+    error => error.code === UI_PLUGIN_ERROR_CODES.moduleUnavailable,
+  )
+
+  await assert.rejects(
+    getUiPluginBundle(ctx, { pluginId: 'absent.x' }),
+    error => error.code === UI_PLUGIN_ERROR_CODES.pluginNotFound,
+  )
+  await assert.rejects(
+    getUiPluginBundle(ctxWith(undefined), { pluginId: 'example.session-pins' }),
+    error => error.code === UI_PLUGIN_ERROR_CODES.hostUnavailable,
+  )
+  await assert.rejects(getUiPluginBundle(ctx, {}), error => error.code === UI_PLUGIN_ERROR_CODES.invalidRequest)
 })
 
 test('ui.plugin.invoke forwards declared calls and preserves abort semantics', async () => {

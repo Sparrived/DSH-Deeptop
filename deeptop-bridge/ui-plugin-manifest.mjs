@@ -35,6 +35,7 @@ export const UI_PLUGIN_ERROR_CODES = Object.freeze({
   hostUnavailable: 'ui-host-unavailable',
   invalidRequest: 'ui-invalid-request',
   manifestInvalid: 'ui-manifest-invalid',
+  moduleUnavailable: 'ui-module-unavailable',
   storageLimitExceeded: 'ui-storage-limit-exceeded',
   storageInvalidKey: 'ui-storage-invalid-key',
 })
@@ -191,8 +192,8 @@ export function normalizeUiPluginRegistration(input) {
       fail(pluginId, 'client.sdkVersion must be a range like ^1.0.0 or ~1.2.3')
     }
     if (rawClient.integrity !== undefined
-      && (typeof rawClient.integrity !== 'string' || !/^sha256-[A-Za-z0-9+/=]{44}$/.test(rawClient.integrity))) {
-      fail(pluginId, 'client.integrity must look like sha256-<base64 digest>')
+      && (typeof rawClient.integrity !== 'string' || !/^sha256-[0-9a-f]{64}$/.test(rawClient.integrity))) {
+      fail(pluginId, 'client.integrity must look like sha256-<lowercase hex sha256 digest>')
     }
     client = {
       entryId: rawClient.entryId,

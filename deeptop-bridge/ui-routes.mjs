@@ -42,6 +42,23 @@ export async function getUiPluginModule(ctx, payload) {
   return descriptor
 }
 
+/**
+ * ui.plugin.bundle: host-only route consumed by the Tauri controlled resource
+ * protocol (never by the WebView). Returns the registered local bundle path so
+ * the desktop process can enforce the path fence and integrity before serving
+ * `deeptop-plugin://` bytes. clientPath stays host-private: this response must
+ * not be forwarded to any webview realm.
+ */
+export async function getUiPluginBundle(ctx, payload) {
+  if (!isRecord(payload) || typeof payload.pluginId !== 'string' || payload.pluginId.trim() === '') {
+    throw uiPluginError(UI_PLUGIN_ERROR_CODES.invalidRequest, 'ui.plugin.bundle requires pluginId')
+  }
+  const registry = optionalRegistry(ctx)
+  if (!registry) throw uiPluginError(UI_PLUGIN_ERROR_CODES.hostUnavailable, 'the desktop profile does not provide deeptop-ui-registry')
+  if (typeof registry.bundle !== 'function') throw uiPluginError(UI_PLUGIN_ERROR_CODES.hostUnavailable, 'the ui registry does not support bundle resolution')
+  return registry.bundle(payload.pluginId)
+}
+
 /** ui.plugin.invoke: manifest-checked gateway forwarding with official cancel semantics. */
 export async function invokeUiPluginRemote(ctx, payload, signal) {
   const registry = optionalRegistry(ctx)

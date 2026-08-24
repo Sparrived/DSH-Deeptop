@@ -96,6 +96,31 @@ export class DeeptopUiRegistryService extends Service {
     return this.records.get(pluginId)
   }
 
+  /**
+   * Host-private bundle descriptor for the Tauri controlled resource protocol
+   * (ui.plugin.bundle). This is the only accessor that reveals a local path,
+   * and it is consumed exclusively by the desktop process: it must never be
+   * serialized into a webview-facing route response.
+   */
+  bundle(pluginId) {
+    const record = this.records.get(pluginId)
+    if (record === undefined) {
+      throw uiPluginError(UI_PLUGIN_ERROR_CODES.pluginNotFound, `ui plugin ${pluginId} is not registered`)
+    }
+    if (typeof record.clientPath !== 'string' || record.clientPath === '') {
+      throw uiPluginError(
+        UI_PLUGIN_ERROR_CODES.moduleUnavailable,
+        `ui plugin ${pluginId} has no registered client bundle path`,
+      )
+    }
+    return {
+      pluginId,
+      entryPath: record.clientPath,
+      format: record.client?.format ?? 'esm',
+      ...(record.client?.integrity ? { integrity: record.client.integrity } : {}),
+    }
+  }
+
   async storageGet(namespace, key) {
     const composedKey = validateScopedStorageKey(namespace, key)
     const row = this.requireStorageTable().get(composedKey)
