@@ -3474,7 +3474,10 @@ async fn save_export_file(default_name: String, data: Vec<u8>) -> Result<Option<
 /// “另存为”对话框；用户取消时删除临时文件并返回 None。复制（而非移动）到目标
 /// 后删除源文件，避免跨卷 rename 失败的场景；任一失败都返回错误并在上层清理。
 #[tauri::command]
-async fn move_export_temp_file(default_name: String, temp_path: String) -> Result<Option<String>, String> {
+async fn move_export_temp_file(
+    default_name: String,
+    temp_path: String,
+) -> Result<Option<String>, String> {
     let picked = tauri::async_runtime::spawn_blocking(move || {
         rfd::FileDialog::new()
             .set_title("导出会话")
@@ -3488,7 +3491,13 @@ async fn move_export_temp_file(default_name: String, temp_path: String) -> Resul
         return Ok(None);
     };
     let source = std::path::PathBuf::from(&temp_path);
-    fs::copy(&source, &path).map_err(|error| format!("复制 {} 到 {} 失败：{error}", source.display(), path.display()))?;
+    fs::copy(&source, &path).map_err(|error| {
+        format!(
+            "复制 {} 到 {} 失败：{error}",
+            source.display(),
+            path.display()
+        )
+    })?;
     let _ = fs::remove_file(&source);
     Ok(Some(path.to_string_lossy().into_owned()))
 }
@@ -4184,6 +4193,8 @@ fn git_graph(
                 graph,
                 hash: None,
                 short_hash: None,
+                author: None,
+                email: None,
                 timestamp: None,
                 refs: Vec::new(),
                 parents: Vec::new(),
