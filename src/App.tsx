@@ -3024,6 +3024,7 @@ function AppContent() {
       }
       const commandName = /^\/([a-z0-9][a-z0-9_-]*)(?:\s|$)/i.exec(text)?.[1].toLocaleLowerCase();
       if (!attachments.length && commandName && commands.some((command) => command.name === commandName)) {
+        setNotice(`正在执行 /${commandName}…`);
         const execution = await executeCommandLine(sessionId, text);
         if (!execution || execution.result.kind === "error") return;
         setComposer("");
@@ -3549,19 +3550,33 @@ function AppContent() {
   }
 
   async function editMessageAnnotation(messageId: string) {
+    const sessionId = activeSessionRef.current;
     const current = annotations[messageId];
     const draft = await requestPrompt("消息注记", current?.note ?? "", "为这条消息添加仅自己可见的注记。");
     if (draft === null) return;
+    setNotice("正在保存消息注记…");
     try {
       if (draft.trim()) {
         await putAnnotation(messageId, draft.trim());
-        setNotice(current ? "消息注记已更新" : "消息注记已添加");
+        if (activeSessionRef.current !== sessionId) {
+          setNotice("消息注记已保存（保存期间会话已切换）");
+        } else {
+          setNotice(current ? "消息注记已更新" : "消息注记已添加");
+        }
       } else if (current) {
         await deleteAnnotation(messageId);
-        setNotice("消息注记已清除");
+        if (activeSessionRef.current !== sessionId) {
+          setNotice("消息注记已清除（保存期间会话已切换）");
+        } else {
+          setNotice("消息注记已清除");
+        }
       }
     } catch (error) {
-      setErrorNotice(errorText(error));
+      if (activeSessionRef.current !== sessionId) {
+        setErrorNotice(`注记保存失败（会话已切换）：${errorText(error)}`);
+      } else {
+        setErrorNotice(errorText(error));
+      }
     }
   }
 
@@ -3569,7 +3584,12 @@ function AppContent() {
     const sessionId = activeSessionRef.current;
     if (!sessionId) return;
     try {
+      setNotice(`正在执行 ${line.trim().split(/\s+/)[0]}…`);
       const execution = await executeCommandLine(sessionId, line);
+      if (activeSessionRef.current !== sessionId) {
+        if (execution?.result.kind === "success" && execution.result.text) setNotice(`${execution.result.text}（命令已执行，会话已切换）`);
+        return;
+      }
       if (execution?.result.kind === "success" && execution.result.text) setNotice(execution.result.text);
     } catch (error) {
       setErrorNotice(errorText(error));
@@ -3769,7 +3789,15 @@ function AppContent() {
         return;
       }
       const savedPath = await saveExportFile(fileName, new TextEncoder().encode(content));
-      if (savedPath) setNotice(`已导出 ${exported.length} 条事件`);
+      if (savedPath === null) {
+        setNotice("已取消会话导出");
+        return;
+      }
+      if (activeSessionRef.current !== sessionId) {
+        setNotice(`已导出 ${exported.length} 条事件（导出期间已切换会话，文件保存在 ${savedPath}）`);
+      } else {
+        setNotice(`已导出 ${exported.length} 条事件`);
+      }
     } catch (error) {
       setErrorNotice(`导出失败：${errorText(error)}`);
     }
