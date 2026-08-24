@@ -4978,6 +4978,47 @@ mod tests {
         RUNTIME_CACHE_MARKER,
     };
 
+    /// ACL 防漂移守卫：invoke_handler 注册的每个命令都必须出现在 build.rs 的
+    /// APP_COMMANDS 里，否则启用 App ACL 后该命令会被默认拒绝（静默失效）。
+    #[test]
+    fn every_registered_command_is_acl_listed_in_build_script() {
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let main_rs =
+            std::fs::read_to_string(format!("{manifest_dir}/src/main.rs")).expect("read main.rs");
+        // 用 rfind 取最后一次出现：本测试源码里也包含同样的字面量，
+        // 而 invoke_handler 调用位于文件更靠后的位置。
+        let handler_start = main_rs
+            .rfind("invoke_handler(tauri::generate_handler![")
+            .expect("generate_handler block");
+        let list_start = handler_start + main_rs[handler_start..].find('[').expect("[") + 1;
+        let block_end = main_rs[list_start..]
+            .find(']')
+            .expect("generate_handler block terminator")
+            + list_start;
+        let registered: Vec<String> = main_rs[list_start..block_end]
+            .split(',')
+            .map(|entry| entry.trim())
+            .filter(|entry| !entry.is_empty() && !entry.starts_with("//"))
+            .map(|entry| entry.rsplit("::").next().unwrap_or("").to_string())
+            .filter(|name| !name.is_empty())
+            .collect();
+        assert!(
+            registered.len() > 50,
+            "命令清单解析异常，仅得到 {} 个条目",
+            registered.len()
+        );
+
+        let build_rs =
+            std::fs::read_to_string(format!("{manifest_dir}/build.rs")).expect("read build.rs");
+        for name in &registered {
+            assert!(
+                build_rs.contains(&format!("\"{name}\"")),
+                "命令 {name} 已在 invoke_handler 注册，但缺失于 build.rs 的 APP_COMMANDS；\
+                 启用 App ACL 后该命令将被默认拒绝"
+            );
+        }
+    }
+
     #[cfg(windows)]
     use super::{
         normalize_windows_resource_path_for_display, process_dsh_home, tray_popup_height,
