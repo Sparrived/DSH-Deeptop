@@ -2,6 +2,17 @@ export const WORKSPACE_FILES_CONTEXT_MENU_SELECTOR = ".workspace-files-context-m
 
 export const TASK_CONTEXT_MENU_SELECTOR = ".task-context-menu";
 
+/** 会话正文中允许选中文本、可触发右键复制菜单的表面。 */
+export const TRANSCRIPT_TEXT_SELECTOR = [
+  ".message-text",
+  ".tool-call-arguments",
+  ".tool-result-part pre",
+  ".reasoning-body pre",
+].join(", ");
+
+/** 会话文本右键复制菜单的容器类名。 */
+export const TRANSCRIPT_CONTEXT_MENU_SELECTOR = ".transcript-text-context-menu";
+
 export const OWNED_CONTEXT_MENU_SELECTOR = [
   ".session-row",
   ".workspace-group-header",
@@ -18,6 +29,7 @@ export const FLOATING_CONTEXT_MENU_SELECTOR = [
   ".workspace-context-menu",
   ".workspace-files-context-menu",
   ".task-context-menu",
+  TRANSCRIPT_CONTEXT_MENU_SELECTOR,
 ].join(", ");
 
 /** 判断原生事件目标是否位于应用自有的右键菜单触发区域内。 */

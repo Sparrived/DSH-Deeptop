@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isWithinSelector, positionFloatingMenu, OWNED_CONTEXT_MENU_SELECTOR, FLOATING_CONTEXT_MENU_SELECTOR } from "./context-menu.ts";
+import { isWithinSelector, positionFloatingMenu, OWNED_CONTEXT_MENU_SELECTOR, FLOATING_CONTEXT_MENU_SELECTOR, TRANSCRIPT_TEXT_SELECTOR, TRANSCRIPT_CONTEXT_MENU_SELECTOR } from "./context-menu.ts";
 
 function targetMatching(selectorPart) {
   return {
@@ -28,6 +28,21 @@ test("recognizes every floating right-click menu the dock must not treat as outs
   assert.equal(isWithinSelector(targetMatching(".workspace-context-menu"), FLOATING_CONTEXT_MENU_SELECTOR), true);
   assert.equal(isWithinSelector(targetMatching(".workspace-files-context-menu"), FLOATING_CONTEXT_MENU_SELECTOR), true);
   assert.equal(isWithinSelector(targetMatching(".task-context-menu"), FLOATING_CONTEXT_MENU_SELECTOR), true);
+  assert.equal(isWithinSelector(targetMatching(".transcript-text-context-menu"), FLOATING_CONTEXT_MENU_SELECTOR), true);
+});
+
+test("transcript text selector covers every selectable conversation surface", () => {
+  assert.equal(isWithinSelector(targetMatching(".message-text"), TRANSCRIPT_TEXT_SELECTOR), true);
+  assert.equal(isWithinSelector(targetMatching(".tool-call-arguments"), TRANSCRIPT_TEXT_SELECTOR), true);
+  assert.equal(isWithinSelector(targetMatching(".tool-result-part pre"), TRANSCRIPT_TEXT_SELECTOR), true);
+  assert.equal(isWithinSelector(targetMatching(".reasoning-body pre"), TRANSCRIPT_TEXT_SELECTOR), true);
+  assert.equal(isWithinSelector(targetMatching(".message-actions"), TRANSCRIPT_TEXT_SELECTOR), false);
+  assert.equal(isWithinSelector(targetMatching(".reasoning-entry"), TRANSCRIPT_TEXT_SELECTOR), false);
+  assert.equal(isWithinSelector(targetMatching(".tool-parts"), TRANSCRIPT_TEXT_SELECTOR), false);
+  assert.equal(isWithinSelector(targetMatching(".message-gutter"), TRANSCRIPT_TEXT_SELECTOR), false);
+  assert.equal(isWithinSelector(null, TRANSCRIPT_TEXT_SELECTOR), false);
+  assert.equal(isWithinSelector(targetMatching(".message-row"), TRANSCRIPT_CONTEXT_MENU_SELECTOR), false);
+  assert.equal(isWithinSelector(targetMatching(".transcript-text-context-menu"), TRANSCRIPT_CONTEXT_MENU_SELECTOR), true);
 });
 
 test("floating context-menu selector does not exempt non-menu surfaces", () => {

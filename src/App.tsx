@@ -70,6 +70,7 @@ import {
   setWindowBehaviorSettings,
   getNetworkProxy,
   setNetworkProxy,
+  writeClipboard,
   type DshNetworkProxy,
   type DshEffectiveNetworkProxy,
   resolveWindowClose,
@@ -3253,6 +3254,15 @@ function AppContent() {
     }
   }
 
+  async function copySelection(text: string) {
+    try {
+      await writeClipboard(text);
+      setNotice("选中文本已复制");
+    } catch (error) {
+      setErrorNotice(`复制失败：${errorText(error)}`);
+    }
+  }
+
   async function archiveSession(session: DshSessionSummary) {
     try {
       await desktopRequest("workspace.archiveSession", { sessionId: session.sessionId });
@@ -4481,6 +4491,7 @@ function AppContent() {
               onTogglePresetMenu={() => setPresetMenuOpen((open) => !open)}
               onStagePreset={stagePresetForNextSession}
               onCopyMessage={copyMessage}
+              onCopySelection={copySelection}
               onEditAnnotation={editMessageAnnotation}
                onRetryMessage={retryMessage}
                retryingMessageSeq={retryingMessageSeq}

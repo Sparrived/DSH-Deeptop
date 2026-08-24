@@ -1,8 +1,11 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject, type UIEvent } from "react";
+import { createPortal } from "react-dom";
 import { isFilePath, type DshHistoryEntry, type DshMessageAnnotationItem, type DshPreset, type DshSessionSummary } from "../lib/desktop";
 import { MarkdownContent } from "../lib/markdown";
 import { PopupDialog } from "./PopupDialog";
 import { TrajectoryView } from "./TrajectoryView";
+import { isWithinSelector, TRANSCRIPT_CONTEXT_MENU_SELECTOR, TRANSCRIPT_TEXT_SELECTOR } from "../app/context-menu";
+import { useFloatingMenuPosition } from "../app/useFloatingMenuPosition";
 import {
   formatClock,
   formatTokens,
@@ -46,6 +49,7 @@ type ConversationTranscriptProps = {
   onTogglePresetMenu: () => void;
   onStagePreset: (id: string) => void;
   onCopyMessage: (text: string) => void | Promise<void>;
+  onCopySelection: (text: string) => void | Promise<void>;
   onEditAnnotation: (messageId: string) => void | Promise<void>;
   onRetryMessage?: (seq: number) => void | Promise<void>;
   onForkSession: (sessionId: string, seq?: number) => void | Promise<void>;
@@ -343,6 +347,7 @@ type TranscriptArticleProps = {
   onPreviewImage: (image: PreviewImage) => void;
   onLoadImageAttachment?: (attachmentId: string) => Promise<string>;
   onCopyMessage: (text: string) => void | Promise<void>;
+  onRequestCopyMenu: (item: TranscriptItem, x: number, y: number, target: EventTarget | null) => void;
   onEditAnnotation: (messageId: string) => void | Promise<void>;
   onRetryMessage?: (seq: number) => void | Promise<void>;
   onForkSession: (sessionId: string, seq?: number) => void | Promise<void>;
@@ -361,6 +366,7 @@ function TranscriptArticleView({
   onPreviewImage,
   onLoadImageAttachment,
   onCopyMessage,
+  onRequestCopyMenu,
   onEditAnnotation,
   onRetryMessage,
   onForkSession,
@@ -374,7 +380,14 @@ function TranscriptArticleView({
   const streamingAssistant = item.kind === "assistant" && item.key.startsWith("stream-");
   const annotation = note;
   return (
-    <article className={`message-row ${item.kind}${item.injected ? " context-row" : ""}${item.kind === "tool" ? " tool-row" : ""}${annotation ? " has-annotation" : ""}`}>
+    <article
+      className={`message-row ${item.kind}${item.injected ? " context-row" : ""}${item.kind === "tool" ? " tool-row" : ""}${annotation ? " has-annotation" : ""}`}
+      onContextMenu={(event) => {
+        if (!isWithinSelector(event.target, TRANSCRIPT_TEXT_SELECTOR)) return;
+        event.preventDefault();
+        onRequestCopyMenu(item, event.clientX, event.clientY, event.target);
+      }}
+    >
       {item.kind !== "tool" && item.kind !== "reasoning" && <div className="message-gutter"><span>{item.label}</span><time>{formatClock(item.time)}</time>{annotation && <aside className="message-annotation" title="消息注记"><i aria-hidden="true" />{annotation}</aside>}</div>}
       <div className="message-content">
         {item.images && item.images.length > 0 && <MessageImages images={item.images} onLoadAttachment={onLoadImageAttachment} onOpen={onPreviewImage} />}
@@ -480,6 +493,7 @@ export function ConversationTranscript({
   onTogglePresetMenu,
   onStagePreset,
   onCopyMessage,
+  onCopySelection,
   onEditAnnotation,
   onRetryMessage,
   onForkSession,
@@ -487,6 +501,46 @@ export function ConversationTranscript({
   onOpenUrl,
 }: ConversationTranscriptProps) {
   const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null);
+
+  // 会话文本右键复制菜单：右击选中文本时可复制选区，或复制整条消息。
+  type TranscriptCopyMenu = {
+    x: number;
+    y: number;
+    selection: string;
+    message: string;
+    hasMessageCopy: boolean;
+  };
+  const [copyMenu, setCopyMenu] = useState<TranscriptCopyMenu | null>(null);
+  const { menuRef, menuAt } = useFloatingMenuPosition(copyMenu);
+
+  useEffect(() => {
+    if (!copyMenu) return;
+    const handleMouseDown = (event: globalThis.MouseEvent) => {
+      if (!(event.target instanceof Element) || !event.target.closest(TRANSCRIPT_CONTEXT_MENU_SELECTOR)) setCopyMenu(null);
+    };
+    const handleContextMenu = (event: globalThis.MouseEvent) => {
+      if (event.target instanceof Element && event.target.closest(TRANSCRIPT_CONTEXT_MENU_SELECTOR)) return;
+      setCopyMenu(null);
+    };
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setCopyMenu(null);
+    };
+    window.addEventListener("mousedown", handleMouseDown, true);
+    window.addEventListener("contextmenu", handleContextMenu, true);
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      window.removeEventListener("mousedown", handleMouseDown, true);
+      window.removeEventListener("contextmenu", handleContextMenu, true);
+      window.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [copyMenu]);
+
+  const requestCopyMenu = useCallback((item: TranscriptItem, x: number, y: number, target: EventTarget | null) => {
+    // 只允许在可选中文本表面打开复制菜单：选区为空时该项置灰，但消息复制仍可用。
+    if (!isWithinSelector(target, TRANSCRIPT_TEXT_SELECTOR)) return;
+    const selection = typeof window === "undefined" ? "" : (window.getSelection()?.toString() ?? "");
+    setCopyMenu({ x, y, selection, message: item.text, hasMessageCopy: item.kind !== "tool" });
+  }, []);
   const checkPath = useCallback(async (path: string) => {
     if (!activeSession?.cwd) return false;
     return isFilePath(sessionPath(activeSession.cwd, path));
@@ -551,6 +605,7 @@ export function ConversationTranscript({
               onPreviewImage={setPreviewImage}
               onLoadImageAttachment={onLoadImageAttachment}
               onCopyMessage={onCopyMessage}
+              onRequestCopyMenu={requestCopyMenu}
               onEditAnnotation={onEditAnnotation}
               onRetryMessage={onRetryMessage}
               onForkSession={onForkSession}
@@ -573,6 +628,28 @@ export function ConversationTranscript({
     >
       <img className="image-preview" src={previewImage.src} alt={previewImage.alt} />
     </PopupDialog>}
+    {copyMenu && createPortal(
+      <div
+        ref={menuRef}
+        className="transcript-text-context-menu"
+        role="menu"
+        aria-label="文本复制选项"
+        style={menuAt ? { left: menuAt.left, top: menuAt.top } : { left: copyMenu.x, top: copyMenu.y }}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <button type="button" role="menuitem" disabled={!copyMenu.selection} onClick={() => {
+          const text = copyMenu.selection;
+          setCopyMenu(null);
+          if (text) void onCopySelection(text);
+        }}>复制选中文本</button>
+        {copyMenu.hasMessageCopy && <button type="button" role="menuitem" onClick={() => {
+          const text = copyMenu.message;
+          setCopyMenu(null);
+          void onCopyMessage(text);
+        }}>复制消息</button>}
+      </div>,
+      document.body,
+    )}
     </>
   );
 }
