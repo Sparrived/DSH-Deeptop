@@ -6,13 +6,38 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fs,
     io::{Cursor, Read, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
+    sync::Mutex,
 };
 use tauri::{AppHandle, Manager};
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipArchive, ZipWriter};
+
+/// pick_pet_bundle 记录的候选包：canonical 路径 → 选取时的 SHA-256。
+/// install_pet_bundle 只接受此表内的路径并复核文件未被替换，
+/// 阻断对任意路径的读取探测与 pick→install 之间的 TOCTOU。
+#[derive(Default)]
+pub struct PickedBundles(Mutex<HashMap<PathBuf, String>>);
+
+impl PickedBundles {
+    fn lock(&self) -> Result<std::sync::MutexGuard<'_, HashMap<PathBuf, String>>, String> {
+        self.0
+            .lock()
+            .map_err(|_| "宠物包选择记录不可用".to_string())
+    }
+
+    fn record(&self, path: PathBuf, sha256: String) -> Result<(), String> {
+        self.lock()?.insert(path, sha256);
+        Ok(())
+    }
+
+    /// 取出（消费）记录的哈希；每次选取只能用于一次安装。
+    fn take(&self, path: &Path) -> Result<Option<String>, String> {
+        Ok(self.lock()?.remove(path))
+    }
+}
 
 const SETTINGS_FILE: &str = "pet-settings.json";
 const WINDOW_PLACEMENT_FILE: &str = "pet-window-placement.json";
@@ -781,8 +806,26 @@ fn install_pet_bundle_into_directory(
     replace_existing: bool,
     expected_sha256: Option<&str>,
 ) -> Result<PetBundleDescriptor, String> {
+    install_pet_bundle_verified(directory, source, replace_existing, expected_sha256, None)
+}
+
+/// `pinned_sha256` 来自 pick_pet_bundle 的选取记录；安装时文件必须与
+/// 用户在原生选择器里确认的内容逐字节一致，防止选择后替换（TOCTOU）。
+fn install_pet_bundle_verified(
+    directory: &std::path::Path,
+    source: &std::path::Path,
+    replace_existing: bool,
+    expected_sha256: Option<&str>,
+    pinned_sha256: Option<&str>,
+) -> Result<PetBundleDescriptor, String> {
     let data = read_bundle_file_bytes(source)?;
+    let actual = bundle_sha256(&data);
     verify_bundle_sha256(&data, expected_sha256)?;
+    if let Some(pinned) = pinned_sha256 {
+        if !actual.eq_ignore_ascii_case(pinned) {
+            return Err("宠物包自选择后内容已变化，请重新导入".to_string());
+        }
+    }
     let bundle = parse_bundle_bytes_with_assets(&data, false)?;
     fs::create_dir_all(directory)
         .map_err(|error| format!("无法创建宠物目录 {}：{error}", directory.display()))?;
@@ -964,37 +1007,62 @@ pub async fn read_pet_bundle(app: AppHandle, id: String) -> Result<PetBundle, St
 }
 
 #[tauri::command]
-pub async fn pick_pet_bundle(app: AppHandle) -> Result<Option<PetBundleCandidate>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let picked = rfd::FileDialog::new()
-            .set_title("导入 Deeptop Pet")
-            .add_filter("Deeptop 宠物包", &[PET_BUNDLE_EXTENSION])
-            .pick_file();
-        let Some(mut candidate) = candidate_from_path(picked)? else {
-            return Ok(None);
-        };
-        candidate.replace_required =
-            replacement_required(&pets_directory(&app)?, &candidate.pet.id)?;
-        Ok(Some(candidate))
-    })
+pub async fn pick_pet_bundle(
+    app: AppHandle,
+    picked: tauri::State<'_, PickedBundles>,
+) -> Result<Option<PetBundleCandidate>, String> {
+    let selected = tauri::async_runtime::spawn_blocking(
+        move || -> Result<Option<(PetBundleCandidate, PathBuf)>, String> {
+            let picked_path = rfd::FileDialog::new()
+                .set_title("导入 Deeptop Pet")
+                .add_filter("Deeptop 宠物包", &[PET_BUNDLE_EXTENSION])
+                .pick_file();
+            let Some(mut candidate) = candidate_from_path(picked_path.clone())? else {
+                return Ok(None);
+            };
+            candidate.replace_required =
+                replacement_required(&pets_directory(&app)?, &candidate.pet.id)?;
+            let canonical = picked_path
+                .as_ref()
+                .map(|path| {
+                    path.canonicalize()
+                        .map_err(|error| format!("无法解析宠物包路径 {}：{error}", path.display()))
+                })
+                .transpose()?;
+            Ok(canonical.map(|canonical| (candidate, canonical)))
+        },
+    )
     .await
-    .map_err(|error| format!("打开宠物包选择任务失败：{error}"))?
+    .map_err(|error| format!("打开宠物包选择任务失败：{error}"))??;
+    let Some((candidate, canonical)) = selected else {
+        return Ok(None);
+    };
+    picked.record(canonical, candidate.sha256.clone())?;
+    Ok(Some(candidate))
 }
 
 #[tauri::command]
 pub async fn install_pet_bundle(
     app: AppHandle,
+    picked: tauri::State<'_, PickedBundles>,
     path: String,
     replace_existing: bool,
     expected_sha256: Option<String>,
 ) -> Result<PetBundleDescriptor, String> {
+    let source = PathBuf::from(&path);
+    let canonical = source
+        .canonicalize()
+        .map_err(|_| "请先通过文件选择器选取宠物包后再安装".to_string())?;
+    // 消费选取记录；未经过选择器的任意路径在此被拒绝。
+    let pinned_sha256 = picked.take(&canonical)?;
     tauri::async_runtime::spawn_blocking(move || {
         let directory = ensure_pets_directory(&app)?;
-        install_pet_bundle_into_directory(
+        install_pet_bundle_verified(
             &directory,
-            &PathBuf::from(path),
+            &source,
             replace_existing,
             expected_sha256.as_deref(),
+            pinned_sha256.as_deref(),
         )
     })
     .await
@@ -1038,11 +1106,11 @@ mod tests {
 
     use super::{
         bundle_path, bundle_sha256, candidate_from_path, export_pet_bundle_to_path,
-        install_pet_bundle_into_directory, normalize_settings, parse_bundle_bytes,
-        remove_pet_bundle_from_directory, replacement_required, seed_starter_pets,
-        starter_pet_archive, valid_window_placement, PetAnchor, PetSettings, PetWindowPlacement,
-        PET_ATLAS_HEIGHT, PET_ATLAS_WIDTH, PET_CELL_HEIGHT, PET_CELL_WIDTH, PET_RUNTIME_PROFILE,
-        PET_USED_COLUMNS, STARTER_PETS,
+        install_pet_bundle_into_directory, install_pet_bundle_verified, normalize_settings,
+        parse_bundle_bytes, remove_pet_bundle_from_directory, replacement_required,
+        seed_starter_pets, starter_pet_archive, valid_window_placement, PetAnchor, PetSettings,
+        PetWindowPlacement, PickedBundles, PET_ATLAS_HEIGHT, PET_ATLAS_WIDTH, PET_CELL_HEIGHT,
+        PET_CELL_WIDTH, PET_RUNTIME_PROFILE, PET_USED_COLUMNS, STARTER_PETS,
     };
 
     fn temporary_directory(label: &str) -> std::path::PathBuf {
@@ -1340,6 +1408,54 @@ mod tests {
 
         install_pet_bundle_into_directory(&library, &exported, false, Some(&sha256)).unwrap();
         assert_eq!(std::fs::read(installed_path).unwrap(), bytes);
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_installs_without_a_recorded_pick_and_detects_swapped_files() {
+        let root = temporary_directory("pick-guard");
+        std::fs::create_dir_all(&root).unwrap();
+        let library = root.join("library");
+        let source = root.join("incoming.deeptop-pet");
+        let bytes = archive(true, (PET_ATLAS_WIDTH, PET_ATLAS_HEIGHT), None);
+        std::fs::write(&source, &bytes).unwrap();
+        let canonical = source.canonicalize().unwrap();
+        let sha256 = bundle_sha256(&bytes);
+
+        // 未经 pick_pet_bundle 记录的任意路径必须被拒绝。
+        assert!(PickedBundles::default().take(&canonical).unwrap().is_none());
+
+        let picked = PickedBundles::default();
+        picked.record(canonical.clone(), sha256.clone()).unwrap();
+
+        // 选择后文件被替换：即使路径有记录也必须拒绝。
+        std::fs::write(&source, b"swapped after picking").unwrap();
+        let swapped = install_pet_bundle_verified(
+            &library,
+            &source,
+            false,
+            None,
+            picked.take(&canonical).unwrap().as_deref(),
+        )
+        .unwrap_err();
+        assert!(swapped.contains("自选择后内容已变化"));
+
+        // 内容一致时才能通过 pinned 校验。
+        std::fs::write(&source, &bytes).unwrap();
+        picked.record(canonical.clone(), sha256).unwrap();
+        let installed = install_pet_bundle_verified(
+            &library,
+            &source,
+            false,
+            None,
+            picked.take(&canonical).unwrap().as_deref(),
+        )
+        .unwrap();
+        assert_eq!(installed.id, "maker.cloud-cat");
+
+        // take 是消费语义：同一记录不能重复用于第二次安装。
+        assert!(picked.take(&canonical).unwrap().is_none());
 
         std::fs::remove_dir_all(root).unwrap();
     }

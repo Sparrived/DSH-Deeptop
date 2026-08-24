@@ -25,6 +25,7 @@ pub fn init() -> TauriPlugin<Wry> {
     Builder::new("desktop-pets")
         .setup(|app, _api| {
             app.manage(window::PetWindowRuntime::default());
+            app.manage(store::PickedBundles::default());
             Ok(())
         })
         .build()
