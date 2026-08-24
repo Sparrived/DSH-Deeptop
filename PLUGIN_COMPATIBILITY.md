@@ -115,7 +115,7 @@ ask_user_question、todo_write、web 搜索/抓取、workflow、plan 与 compact
 - [x] 长会话虚拟化和更细粒度历史分页缓存：历史向前翻页收敛到 40 条/页，新增按会话隔离的历史分页缓存（`(sessionId, beforeSeq)` 键、hasMore 快照、loading 水位防并发、FIFO 淘汰、会话删除清理），回看后前进不再重复请求 Bridge；消息行启用 `content-visibility: auto` 让浏览器跳过屏外消息的布局与绘制，历史合并不再全量重排。
 - [x] 数学公式、附件画廊、Lightbox 和更完整的媒体预览：消息渲染接入 remark-math + rehype-katex（行内/块级公式，KaTeX 样式随构建打包）；图片预览升级为附件画廊 Lightbox（全屏遮罩、懒加载主图、前后导航与缩略图、Esc/方向键、计数标题）。
 - [x] Host `ui-theme` 与本地主题双向同步：deeptop-bridge 注册官方同名 `ui-theme.preference`（light/dark/system）命名空间；本地主题切换写回 `settings.mutate`，启动采纳 Host 值，`settings/document-updated` 外部修改重新采纳，同步期间不回写避免循环。
-- [x] 中英文资源和语言切换：i18n 基础（zh/en 字典、t() 缺失回退中文、本地持久化），设置面板语言行，与官方 `locale.preference`（zh/en）命名空间双向同步；设置导航与输入区等核心界面文案已接入翻译，其余文案保持中文并作为后续增量。
+- [x] 中英文资源和语言切换：i18n（zh/en 字典与 `{name}` 占位符插值、`t()` 缺失回退 key、本地持久化）与官方 `locale.preference`（zh/en）命名空间双向同步；全部用户可见文案已接入翻译（组件、设置、弹窗、通知、错误、tray/宠物/轨迹/Git 等约 1700 个 key），模型层纯函数以 `locale` 参数切换；Host/Rust 侧错误文案与命令行诊断保持原文。
 - [x] 在不引入 WebUI slot 系统的前提下，完善原生设置与 Dock 布局：DockFrame 提供钉住模式（`dock-settings` 持久化），展开面板可固定为不遮挡对话流的分栏；设置与诊断保持模态 Inspector 入口。
 
 ## 明确不安排的工作
