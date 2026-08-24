@@ -33,6 +33,7 @@ export const defaultPetSettings: PetSettings = {
   motionEnabled: true,
   interactionsEnabled: true,
   careEnabled: true,
+  alwaysOnTop: true,
 };
 
 export const petAnimationSpecs: Readonly<Record<PetAnimationState, PetAnimationSpec>> = {
@@ -98,6 +99,7 @@ export function normalizePetSettings(value: unknown, availableIds?: ReadonlySet<
     motionEnabled: record.motionEnabled !== false,
     interactionsEnabled: record.interactionsEnabled !== false,
     careEnabled: record.careEnabled !== false,
+    alwaysOnTop: record.alwaysOnTop !== false,
   };
 }
 

@@ -618,7 +618,7 @@ fn install_placement_listener(app: &AppHandle, window: &WebviewWindow) -> Result
     Ok(())
 }
 
-fn build_pet_window(app: &AppHandle) -> Result<WebviewWindow, String> {
+fn build_pet_window(app: &AppHandle, settings: &PetSettings) -> Result<WebviewWindow, String> {
     let window = WebviewWindowBuilder::new(
         app,
         PET_WINDOW_LABEL,
@@ -629,7 +629,7 @@ fn build_pet_window(app: &AppHandle) -> Result<WebviewWindow, String> {
     .resizable(false)
     .decorations(false)
     .transparent(true)
-    .always_on_top(true)
+    .always_on_top(settings.always_on_top)
     .skip_taskbar(true)
     .shadow(false)
     .visible(false)
@@ -689,6 +689,11 @@ fn configure_pet_window(
     window
         .set_ignore_cursor_events(!settings.interactions_enabled)
         .map_err(|error| format!("切换宠物窗口互动状态失败：{error}"))?;
+    // 每次同步都按设置强制置顶：创建后仅调用一次不够稳妥，
+    // 某些平台流程（隐藏/重新显示、失去焦点后的重排）可能清掉置顶标志。
+    window
+        .set_always_on_top(settings.always_on_top)
+        .map_err(|error| format!("设置宠物窗口置顶失败：{error}"))?;
 
     if !restore_saved && !reanchor && !ensure_visible {
         return Ok(());
@@ -819,7 +824,7 @@ pub fn synchronize(app: &AppHandle, settings: &PetSettings) -> Result<(), String
 
     let (window, created) = match app.get_webview_window(PET_WINDOW_LABEL) {
         Some(window) => (window, false),
-        None => (build_pet_window(app)?, true),
+        None => (build_pet_window(app, settings)?, true),
     };
     let expanded = *runtime
         .expanded

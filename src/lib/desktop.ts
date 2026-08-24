@@ -56,6 +56,7 @@ export interface PetSettings {
   motionEnabled: boolean;
   interactionsEnabled: boolean;
   careEnabled: boolean;
+  alwaysOnTop: boolean;
 }
 
 /** 独立于角色皮肤的温和养成状态；所有宠物包共用这一份本地数据。 */
@@ -836,6 +837,7 @@ export async function getPetSettings(): Promise<PetSettings> {
       motionEnabled: true,
       interactionsEnabled: true,
       careEnabled: true,
+      alwaysOnTop: true,
     };
   }
   return invoke<PetSettings>("get_pet_settings");

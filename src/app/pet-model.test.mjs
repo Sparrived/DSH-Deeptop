@@ -64,6 +64,7 @@ test("defaults to a disabled Deeptop Pet library", () => {
   assert.equal(defaultPetSettings.interactionsEnabled, true);
   assert.equal(defaultPetSettings.motionEnabled, true);
   assert.equal(defaultPetSettings.careEnabled, true);
+  assert.equal(defaultPetSettings.alwaysOnTop, true);
   assert.equal(defaultPetSettings.selectedPetId, "");
 });
 
@@ -84,6 +85,17 @@ test("normalizes persisted settings and falls back when a pet disappeared", () =
     motionEnabled: false,
     interactionsEnabled: false,
     careEnabled: false,
+    alwaysOnTop: true,
+  });
+  assert.deepEqual(normalizePetSettings({
+    enabled: true,
+    selectedPetId: "maker.cloud-cat",
+    alwaysOnTop: false,
+  }, new Set(["maker.cloud-cat"])), {
+    ...defaultPetSettings,
+    enabled: true,
+    selectedPetId: "maker.cloud-cat",
+    alwaysOnTop: false,
   });
   assert.equal(normalizePetSettings({ selectedPetId: "missing.pet" }, new Set(["maker.cloud-cat"])).selectedPetId, "maker.cloud-cat");
   assert.deepEqual(normalizePetSettings({ enabled: true, selectedPetId: "missing.pet" }, new Set()), {

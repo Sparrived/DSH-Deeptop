@@ -117,6 +117,7 @@ pub struct PetSettings {
     pub motion_enabled: bool,
     pub interactions_enabled: bool,
     pub care_enabled: bool,
+    pub always_on_top: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -137,6 +138,7 @@ impl Default for PetSettings {
             motion_enabled: default_true(),
             interactions_enabled: default_true(),
             care_enabled: default_true(),
+            always_on_top: default_true(),
         }
     }
 }
@@ -1357,12 +1359,14 @@ mod tests {
             motion_enabled: false,
             interactions_enabled: false,
             care_enabled: false,
+            always_on_top: false,
         });
         assert!(settings.selected_pet_id.is_empty());
         assert_eq!(settings.size, 160);
         assert!(!settings.enabled);
         assert!(!settings.interactions_enabled);
         assert!(!settings.care_enabled);
+        assert!(!settings.always_on_top);
     }
 
     #[test]
@@ -1371,6 +1375,29 @@ mod tests {
         assert_eq!(settings["selectedPetId"], "");
         assert_eq!(settings["interactionsEnabled"], true);
         assert_eq!(settings["careEnabled"], true);
+        assert_eq!(settings["alwaysOnTop"], true);
+    }
+
+    #[test]
+    fn old_settings_without_always_on_top_default_to_topmost() {
+        let value = serde_json::json!({
+            "enabled": true,
+            "selectedPetId": "maker.cloud-cat",
+            "anchor": "bottom-right",
+            "size": 112,
+            "motionEnabled": true,
+            "interactionsEnabled": true,
+            "careEnabled": true
+        });
+        let settings: PetSettings = serde_json::from_value(value).unwrap();
+        assert!(
+            settings.always_on_top,
+            "旧配置文件缺少 alwaysOnTop 时应默认为置顶"
+        );
+
+        let explicit_off = serde_json::json!({ "alwaysOnTop": false });
+        let settings: PetSettings = serde_json::from_value(explicit_off).unwrap();
+        assert!(!settings.always_on_top, "显式关闭置顶应被保留");
     }
 
     #[test]
