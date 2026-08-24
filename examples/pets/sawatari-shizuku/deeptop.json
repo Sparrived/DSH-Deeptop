@@ -1,0 +1,17 @@
+{
+  "kind": "deeptop-pet",
+  "schemaVersion": 2,
+  "runtimeProfile": "deeptop",
+  "version": "1.0.3",
+  "author": "suakitsu",
+  "license": "Fan-made · Personal non-commercial use only",
+  "interactions": [
+    { "on": "pointerEnter", "play": "waving", "then": "idle", "cooldownMs": 3000 },
+    { "on": "tap", "play": "waving", "then": "idle", "cooldownMs": 350 },
+    { "on": "doubleTap", "play": "jumping", "then": "idle", "cooldownMs": 500 },
+    { "on": "longPress", "play": "waving", "then": "idle", "cooldownMs": 700 },
+    { "on": "dragEnd", "play": "jumping", "then": "idle", "cooldownMs": 0 },
+    { "on": "idleTimeout", "play": "waving", "then": "idle", "cooldownMs": 5000 },
+    { "on": "idleTimeout", "play": "jumping", "then": "idle", "cooldownMs": 5000 }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop-pet",
+  "description": "Desktop pet event-listener permissions",
+  "windows": [
+    "desktop-pet"
+  ],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-begin-pet-window-drag",
+    "allow-dispatch-pet-action",
+    "allow-get-pet-care-state",
+    "allow-get-pet-pointer-context",
+    "allow-get-pet-window-context",
+    "allow-perform-pet-care-action",
+    "allow-read-pet-bundle",
+    "allow-set-pet-window-expanded",
+    "allow-show-pet-window"
+  ]
+}

@@ -140,6 +140,38 @@ Keep code outside Cordis when it is an operating-system or presentation concern:
 - event-to-view formatting stays in the pure `app/*-model.ts` modules behind
   the `app/model.ts` compatibility barrel.
 
+<!-- @deeptop-pets:start architecture -->
+Interactive pets follow this presentation boundary. `pet_feature/store.rs` owns native
+file dialogs, atomic installation and independent validation of ZIP-based
+`.deeptop-pet` manifests and sprite assets. The same installer accepts an
+optional expected SHA-256 before any write, so a removable marketplace adapter
+can reuse local import semantics without adding a second package format.
+`usePetSystem.ts` owns feature-local persistence orchestration;
+`pet_feature/window.rs` owns a separate, transparent, always-on-top Tauri
+WebView whose bounds contain only the pet; and `pet_feature/care.rs` owns the
+skin-independent care state, elapsed-time updates,
+persisted action cooldowns, score gates and atomic action writes. Packs can
+supply only visuals and declarative animation
+responses; they cannot change care rules or carry saved care data.
+The memoized `PetHost` interprets fixed pointer events plus coarse running,
+waiting, failed and ready-for-review activity. Sprite frames render in an
+isolated Canvas, the native layer supplies a position-only global pointer
+vector for the 16 look directions, and the operating system performs window
+dragging across application and monitor boundaries. Pet packs cannot register
+code or call the Bridge. The main UI sends the pet WebView a bounded activity
+list containing session identifiers, titles and action-specific fields; a ready
+item may additionally contain a bounded excerpt of its final
+`assistant/message`. The pet WebView receives no complete history, reasoning,
+tool result, file content, model configuration or Bridge credential. Disabling
+the feature destroys the pet WebView and all of its interaction and animation
+work without changing the main window or DSH runtime.
+All native pet state and restoration are registered by the local
+`desktop-pets` plugin. One marked application command block preserves the
+existing frontend invoke names. Shared source references use validated feature markers;
+`npm run pets:remove` removes the plugin, renderer, assets, authoring tools,
+dependencies and documentation as one operation, then refreshes both lockfiles.
+<!-- @deeptop-pets:end architecture -->
+
 For a new DSH capability, follow the Harness seam only when the provider and
 consumer need to evolve independently. Otherwise use one small plugin and
 compose it from the Profile. The Profile is intentionally user-editable, so

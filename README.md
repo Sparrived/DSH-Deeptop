@@ -39,6 +39,9 @@ It does not put `dsh web` inside a desktop window, nor does it reimplement an ag
 | --- | --- |
 | **Workspaces & sessions** | Attach working directories with the native directory picker; create, search, fork, archive, restore and export sessions. |
 | **Session tray** | See unread and recent sessions in the system tray, reach the rest through “More”, and restore the window straight into a conversation; the Windows tray popup has a fixed width and follows Deeptop's light/dark and custom themes. |
+<!-- @deeptop-pets:start readme-feature -->
+| **Interactive pets** | Enable an isolated transparent always-on-top pet window that can be dragged across applications and monitors and reacts to taps, long presses and task activity. A shared care layer persists satiety, mood and affection, supports feeding, petting and play, survives skin changes and can be paused independently. The Deeptop activity card can handle a session or switch to the care panel. Script-free `.deeptop-pet` packs remain separate from care rules and the DSH Bridge, and the master switch destroys the complete pet window. The complete feature can also be removed from source with `npm run pets:remove`. |
+<!-- @deeptop-pets:end readme-feature -->
 | **Continuous conversations** | Stream answers and reasoning as they generate; attach images; queue or steer follow-up prompts while a task is running. |
 | **Agent interaction** | Watch tool calls, Todos, Workflows, Jobs and execution trajectories in one place, and answer approvals plus single-choice, multi-choice or free-form questions. |
 | **Models & providers** | Browse available providers and models, and pick the model and reasoning effort per session; credentials stay managed by the DSH API. |
@@ -111,6 +114,9 @@ After launch, wait for the embedded DSH runtime to become ready, pick or create 
 | [Architecture](ARCHITECTURE.md) | Dependency directions, the pure model layer and plugin boundaries. |
 | [Plugin compatibility](PLUGIN_COMPATIBILITY.md) | Host/Cordis versus WebUI Client compatibility layers. |
 | [WebUI parity checklist](WEBUI_PARITY.md) | Covered capabilities, work in progress and explicit exclusions. |
+<!-- @deeptop-pets:start readme-doc-link -->
+| [Pet pack authoring](docs/PET_PACKS.md) | Build, validate, import and share declarative `.deeptop-pet` bundles. |
+<!-- @deeptop-pets:end readme-doc-link -->
 | [CI/CD & release](docs/CI_CD.md) | Version sync, cross-platform builds, checksums and the GitHub Release flow. |
 | [Full Chinese reference](README.zh.md) | 完整功能清单、配置示例与常见问题（中文完整版）。 |
 

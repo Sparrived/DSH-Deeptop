@@ -1,0 +1,7 @@
+{
+  "id": "io.github.suakitsu.whale-maid-bubble",
+  "displayName": "鲸鱼娘",
+  "description": "会跟随鼠标、回应互动和任务状态的鲸鱼娘桌宠。",
+  "spriteVersionNumber": 2,
+  "spritesheetPath": "spritesheet.webp"
+}

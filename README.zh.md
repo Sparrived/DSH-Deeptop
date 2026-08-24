@@ -16,6 +16,9 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 - [架构说明](ARCHITECTURE.md)：说明依赖方向、纯前端模型层和插件化规则。
 - [官方插件兼容策略](PLUGIN_COMPATIBILITY.md)：Host/Cordis 与 WebUI Client 的兼容分层、当前状态和后续工作。
 - [WebUI 对齐清单](WEBUI_PARITY.md)：当前功能覆盖、缺口和明确排除的 WebUI 基础设施。
+<!-- @deeptop-pets:start readme-zh-doc-link -->
+- [宠物包开发指南](docs/PET_PACKS.zh.md)：制作、校验、导入和分享声明式 `.deeptop-pet` 宠物包。
+<!-- @deeptop-pets:end readme-zh-doc-link -->
 
 ## 当前功能
 
@@ -27,6 +30,9 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 | 对话 | 已支持 | assistant/reasoning 流式拼装、Markdown/GFM、图片附件、排队/steering（引导）提示、队列编辑/移除、停止和消息重试。重试会创建可恢复的前缀分支，不回滚原会话。 |
 | 工作区 | 已支持 | 原生目录选择、创建/重命名/删除、会话归属、分组和排序。选定路径会作为会话 `cwd` 传入 DSH。 |
 | 系统托盘 | 已支持 | 显示未读、最近与更多会话并可直接跳转；Windows 使用固定宽度的 Deeptop 弹窗，跟随应用的 Light、Dark、System 与自定义 CSS 主题。 |
+<!-- @deeptop-pets:start readme-zh-feature -->
+| 互动宠物 | 已支持 | 独立透明置顶窗口可跨应用和显示器拖动，并响应点击、长按和任务状态；共享养成层保存饱食、心情和亲密度，支持喂食、摸摸和陪玩，换皮不会重置状态且可单独暂停。活动列表按 Deeptop 的“需要输入、阻塞、已完成未读、运行中”顺序显示多个会话，卡片可处理会话并切换到照顾面板。第三方宠物使用不含脚本的 `.deeptop-pet` 精灵包导入、导出和分享，总开关会直接销毁窗口。需要完全移除源码时执行 `npm run pets:remove`。 |
+<!-- @deeptop-pets:end readme-zh-feature -->
 | 模型与 Provider | 有边界地支持 | Provider/模型目录、每会话模型选择、思考程度、上下文窗口和输入模态元数据、Provider 发现及自定义连接设置。RC8 的 `current`/`routable` 是发送准入依据，`groups` 仅用于候选展示；Schema 驱动的 Provider 表单尚未完整实现。 |
 | File/Session Reference | 已支持 | 使用 DSH RC8 官方 Host 服务提供 `@` 文件/目录候选和 canonical session mention；查询通过 Bridge 传递取消信号，React 不读取历史或构造会话快照。 |
 | 图片附件限制 | 已支持 | 从 `session.history` projection 和实时 projection 事件读取 RC8 `imageLimits`，在本地提前检查媒体类型、字节数、像素/边长、单条消息图片数和总大小；Host 仍是最终校验者。 |
