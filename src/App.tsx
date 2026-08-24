@@ -897,7 +897,7 @@ function AppContent() {
     for (const completion of Object.values(petCompletions)) {
       if (completion.previewLoaded || petCompletionPreviewRequestsRef.current.has(completion.id)) continue;
       petCompletionPreviewRequestsRef.current.add(completion.id);
-      void bridgeRequest<{ events: DshHistoryEntry[] }>("session.history", {
+      void desktopRequest("session.history", {
         sessionId: completion.sessionId,
         maxMessages: 40,
       }).then((result) => {
@@ -3939,7 +3939,7 @@ function AppContent() {
 
   // @deeptop-pets:start app-action-handlers
   async function respondToPetApprovalRequest(request: PendingApproval, outcome: "allowed-once" | "rejected") {
-    await bridgeRequest("respond", {
+    await desktopRequest("respond", {
       type: "client-response",
       rpcId: request.rpcId,
       result: {
@@ -3963,7 +3963,7 @@ function AppContent() {
     const answer = {
       answers: questionAnswerItems(request.questions, answers, customAnswers),
     };
-    await bridgeRequest("respond", {
+    await desktopRequest("respond", {
       type: "client-response",
       rpcId: request.rpcId,
       result: { ok: true, value: { sessionId: request.sessionId, answer } },
@@ -3991,7 +3991,7 @@ function AppContent() {
     if (!message) throw new Error("快捷回复不能为空");
     const session = sessionsRef.current.find((item) => item.sessionId === sessionId);
     if (!session) throw new Error("目标会话已经不存在");
-    const sessionModels = await bridgeRequest<DshSessionModels>("session.models", { sessionId });
+    const sessionModels = await desktopRequest("session.models", { sessionId });
     if (!sessionModels.routable) throw new Error("目标会话当前没有可用模型路由");
     const promptPayload: DshSessionPromptPayload = {
       sessionId,
@@ -3999,7 +3999,7 @@ function AppContent() {
       content: promptContentParts(message, []),
       clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     };
-    await bridgeRequest("session.prompt", { ...promptPayload });
+    await desktopRequest("session.prompt", { ...promptPayload });
     setSessionIndicators((current) => ({ ...current, [sessionId]: "running" }));
     setNotice(`已从桌宠向“${displayTitle(session)}”发送消息`);
   }
