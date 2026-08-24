@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  applyRemovalPlan,
   removeDesktopPets,
   resolveOwnedPath,
   stripFeatureBlocks,
@@ -179,6 +180,63 @@ test("removeDesktopPets applies a complete miniature removal plan", async () => 
     await assert.rejects(access(path.join(root, "generated")));
     await assert.rejects(access(path.join(root, "tool.mjs")));
     await assert.rejects(access(path.join(root, "desktop-pets.feature.json")));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("applyRemovalPlan rolls back every change when a write fails mid-run", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "deeptop-pet-rollback-test-"));
+  const put = async (relative, content) => {
+    const target = path.join(root, relative);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, content, "utf8");
+  };
+  try {
+    // 两个带标记的文件 + 一个待删除目录；把第二个标记文件的属性改为只读，
+    // 使写入在第一个文件已被改写之后失败，验证快照回滚。
+    await put("first.ts", [
+      "const one = true;",
+      "// @deeptop-pets:start block-one",
+      "const petOne = true;",
+      "// @deeptop-pets:end block-one",
+      "",
+    ].join("\n"));
+    await put("second.ts", [
+      "const two = true;",
+      "// @deeptop-pets:start block-two",
+      "const petTwo = true;",
+      "// @deeptop-pets:end block-two",
+      "",
+    ].join("\n"));
+    await put("owned/pet.txt", "pet\n");
+    await put("owned/nested/deep.txt", "deep\n");
+
+    const originalFirst = await readFile(path.join(root, "first.ts"), "utf8");
+    const originalSecond = await readFile(path.join(root, "second.ts"), "utf8");
+    const plan = {
+      writes: new Map([
+        [path.join(root, "first.ts"), "const one = true;\n"],
+        [path.join(root, "second.ts"), "const two = true;\n"],
+      ]),
+      ownedPaths: [path.join(root, "owned")],
+      generatedPaths: [],
+      removalToolPaths: [],
+    };
+    const locked = path.join(root, "second.ts");
+    await chmod(locked, 0o444);
+
+    await assert.rejects(applyRemovalPlan(plan, root), /已回滚全部改动/u);
+    assert.equal(await readFile(path.join(root, "first.ts"), "utf8"), originalFirst);
+    assert.equal(await readFile(path.join(root, "second.ts"), "utf8"), originalSecond);
+    assert.equal(await readFile(path.join(root, "owned", "pet.txt"), "utf8"), "pet\n");
+    assert.equal(await readFile(path.join(root, "owned", "nested", "deep.txt"), "utf8"), "deep\n");
+
+    await chmod(locked, 0o644);
+    // 回滚后仓库保持原状，剔除可以重新执行并成功。
+    await applyRemovalPlan(plan, root);
+    assert.equal(await readFile(path.join(root, "first.ts"), "utf8"), "const one = true;\n");
+    await assert.rejects(access(path.join(root, "owned", "pet.txt")));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

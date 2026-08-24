@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -210,6 +210,76 @@ async function refreshedCargoLock(root, cargoToml) {
   }
 }
 
+/** Recursively yield one backup entry per file under a write/delete target. */
+async function* collectFileBackups(target) {
+  const info = await stat(target);
+  if (info.isDirectory()) {
+    for (const entry of await readdir(target, { withFileTypes: true })) {
+      const child = path.join(target, entry.name);
+      if (entry.isDirectory()) yield* collectFileBackups(child);
+      else if (entry.isFile()) yield { filePath: child, bytes: await readFile(child) };
+    }
+    return;
+  }
+  if (info.isFile()) yield { filePath: target, bytes: await readFile(target) };
+}
+
+async function restoreFileBackups(snapshots) {
+  for (const { filePath, bytes } of snapshots) {
+    await mkdir(path.dirname(filePath), { recursive: true });
+    // Windows 只读属性会让恢复写入同样 EPERM，先补回写位再重试一次。
+    await writeFile(filePath, bytes).catch(async (error) => {
+      if (error.code !== "EPERM" && error.code !== "EACCES") throw error;
+      const current = await stat(filePath).catch(() => undefined);
+      if (!current?.isFile()) throw error;
+      await chmod(filePath, current.mode | 0o200);
+      await writeFile(filePath, bytes);
+    });
+  }
+}
+
+/**
+ * Apply the removal plan transactionally: every rewritten and deleted file is
+ * backed up first; on any failure mid-run all changes are restored so the
+ * repository never stays half-removed (Windows 文件锁等场景)。
+ * 可选的 generatedPaths 构建缓存放在关键段之外尽力删除，失败只警告。
+ */
+export async function applyRemovalPlan(plan, root) {
+  const criticalTargets = [
+    ...plan.writes.keys(),
+    ...plan.ownedPaths,
+    ...plan.removalToolPaths,
+  ];
+  let snapshots;
+  try {
+    snapshots = [];
+    for (const target of criticalTargets) {
+      for await (const backup of collectFileBackups(target)) snapshots.push(backup);
+    }
+  } catch (error) {
+    throw new Error(`无法备份待改动文件，已取消剔除且未修改任何文件：${error.message}`);
+  }
+  try {
+    for (const [file, content] of plan.writes) await writeFile(file, content, "utf8");
+    for (const target of plan.ownedPaths) await rm(target, { recursive: true, force: false });
+    for (const target of plan.removalToolPaths) await rm(target, { recursive: true, force: false });
+  } catch (error) {
+    try {
+      await restoreFileBackups(snapshots);
+    } catch (restoreError) {
+      throw new Error(
+        `剔除在中途失败：${error.message}；且回滚也未能完成，请按 git status 手工恢复：${restoreError.message}`,
+      );
+    }
+    throw new Error(`剔除在中途失败，已回滚全部改动，仓库保持原状：${error.message}`);
+  }
+  for (const target of plan.generatedPaths) {
+    await rm(target, { recursive: true, force: true }).catch((error) => {
+      console.warn(`可选构建缓存删除失败（可稍后手工清理）：${path.relative(root, target)}：${error.message}`);
+    });
+  }
+}
+
 /** Validate and optionally apply complete source removal. */
 export async function removeDesktopPets(root, { apply = false, refreshCargoLock = true } = {}) {
   const resolvedRoot = path.resolve(root);
@@ -222,10 +292,7 @@ export async function removeDesktopPets(root, { apply = false, refreshCargoLock 
     plan.writes.set(cargoLockPath, await refreshedCargoLock(resolvedRoot, plan.writes.get(cargoPath)));
   }
 
-  for (const [file, content] of plan.writes) await writeFile(file, content, "utf8");
-  for (const target of plan.ownedPaths) await rm(target, { recursive: true, force: false });
-  for (const target of plan.generatedPaths) await rm(target, { recursive: true, force: true });
-  for (const target of plan.removalToolPaths) await rm(target, { recursive: true, force: false });
+  await applyRemovalPlan(plan, resolvedRoot);
   return plan;
 }
 
