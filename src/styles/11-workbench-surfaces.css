@@ -57,13 +57,12 @@
   transform: translate3d(var(--dock-position-x, 0px), var(--dock-position-y, 0px), 0);
 }
 
+/* 两层头部：外壳只管配色/边框（主题化头部见各 dock 与 15-final-overrides 的收窄规则），
+   标题行放图标+标题+收起钮，工具条放计数与图钉/还原，避免按钮增多挤压标题文字。 */
 .dock-frame-header {
   min-width: 0;
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 16px;
+  flex-direction: column;
   border-bottom: 1px solid var(--line);
   background: var(--surface-soft);
   cursor: move;
@@ -71,13 +70,31 @@
   user-select: none;
 }
 .dock-frame-header-dragging { cursor: grabbing; }
-.dock-frame-heading { min-width: 0; display: flex; align-items: flex-start; gap: 10px; }
-.dock-frame-header h2 { margin: 0; color: var(--ink-strong); font-size: 16px; line-height: 1.35; }
-.dock-frame-kicker { display: block; margin-bottom: 3px; color: var(--ink-faint); font-size: 11px; }
-.dock-frame-header-actions { display: flex; align-items: center; gap: 8px; }
+.dock-frame-titlebar {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 13px 10px 4px 14px;
+}
+.dock-frame-heading { min-width: 0; flex: 1 1 auto; display: flex; align-items: flex-start; gap: 10px; }
+.dock-frame-titles { min-width: 0; flex: 1 1 auto; }
+.dock-frame-header h2 { margin: 0; color: var(--ink-strong); font-size: 16px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-frame-kicker { display: block; margin-bottom: 3px; max-width: 100%; color: var(--ink-faint); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-frame-toolbar {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px 10px 14px;
+}
+.dock-frame-toolbar .dock-frame-total { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.dock-frame-toolbar-spacer { flex: 1 1 auto; min-width: 8px; }
 .dock-frame-total { color: var(--accent-deep); font-family: var(--mono); font-size: 13px; font-weight: 700; white-space: nowrap; }
 .dock-frame-toggle,
-.dock-frame-reset {
+.dock-frame-reset,
+.dock-frame-pin {
   width: 30px;
   height: 30px;
   display: grid;
@@ -90,8 +107,19 @@
   cursor: pointer;
 }
 .dock-frame-toggle { font-size: 18px; }
+.dock-frame-pin { font-size: 13px; }
+.dock-frame-pin.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent-deep);
+}
 .dock-frame-toggle:hover,
-.dock-frame-reset:hover { border-color: var(--accent); color: var(--accent-deep); }
+.dock-frame-reset:hover,
+.dock-frame-pin:hover { border-color: var(--accent); color: var(--accent-deep); }
+
+/* 钉住的 Dock 卡片经 portal 渲染进分栏层（见 15-final-overrides 的 .pin-layer），
+   此处仅让标题栏不再提供拖拽光标；浮动偏移对分栏内的静态卡片无效。 */
+.dock-frame.pinned .dock-frame-header { cursor: default; }
 .dock-frame-body { min-height: 0; flex: 1 1 auto; display: flex; flex-direction: column; overflow: hidden; background: var(--surface-raised); }
 
 /* UtilityDockShelf owns canonical right-side order. */

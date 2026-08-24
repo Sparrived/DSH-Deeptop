@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict'
+import { createServer } from 'node:http'
 import { mkdtemp, readFile, rm as removePath, stat, writeFile } from 'node:fs/promises'
 import test from 'node:test'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { constants, zstdCompressSync, zstdDecompressSync } from 'node:zlib'
 import { routeDesktopRequest } from './routes.mjs'
+import { bridgeErrorFrame } from './bridge.mjs'
+import { applyProxy, initNetworkProxy, loadProxySetting, normalizeProxyOverride, parseWindowsProxyServer, setProxySetting, stopSystemProxyWatch } from './network-proxy.mjs'
 import { describePluginConfig, mutatePluginConfig } from './plugin-config.mjs'
 import { parseGitHubSource, validateRelativeRepoPath } from './skill-installer.mjs'
 import { reconstructContiguous, rowSeqs, scanZstdFrames, verifyReadable } from './session-repair.mjs'
@@ -69,6 +72,106 @@ test('routes plugin inventory and config methods through the desktop bridge', as
   }
 })
 
+test('validates, persists, and routes the desktop HTTP proxy setting', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-network-proxy-'))
+  const previousHome = process.env.DSH_HOME
+  process.env.DSH_HOME = root
+  try {
+    await assert.rejects(
+      setProxySetting({ enabled: true, url: 'socks5://127.0.0.1:7890' }),
+      /HTTP\/HTTPS/,
+    )
+    assert.deepEqual(await loadProxySetting(), { enabled: false, url: '' })
+
+    const saved = await routeDesktopRequest({}, 'network.setProxy', {
+      proxy: { enabled: true, url: ' http://127.0.0.1:7890 ' },
+    }, signal)
+    assert.equal(saved.applied, true)
+    assert.deepEqual(saved.proxy, { enabled: true, url: 'http://127.0.0.1:7890/' })
+    assert.equal(saved.effective.source, 'explicit')
+    assert.equal(saved.effective.url, 'http://127.0.0.1:7890/')
+
+    const snapshot = await routeDesktopRequest({}, 'network.getProxy', {}, signal)
+    assert.deepEqual(snapshot.explicit, { enabled: true, url: 'http://127.0.0.1:7890/' })
+    assert.equal(snapshot.effective.source, 'explicit')
+
+    const direct = await routeDesktopRequest({}, 'network.setProxy', {
+      proxy: { enabled: false, url: '' },
+    }, signal)
+    assert.equal(direct.applied, true)
+    assert.deepEqual(direct.proxy, { enabled: false, url: '' })
+    // With no explicit proxy, the effective source falls back to the system proxy (or none).
+    assert.ok(direct.effective.source === 'system' || direct.effective.source === 'none')
+  } finally {
+    await applyProxy({ enabled: false, url: '' })
+    if (previousHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previousHome
+    await removePath(root, { recursive: true, force: true })
+  }
+})
+
+test('does not block bridge startup when a persisted proxy is unusable', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-network-proxy-'))
+  const previousHome = process.env.DSH_HOME
+  process.env.DSH_HOME = root
+  try {
+    await writeFile(join(root, 'network-proxy.json'), JSON.stringify({ enabled: true, url: 'socks5://127.0.0.1:7890' }), 'utf8')
+    const result = await initNetworkProxy()
+    assert.equal(result.ok, false)
+    assert.equal(result.applied, false)
+    assert.match(result.error, /HTTP\/HTTPS/)
+  } finally {
+    stopSystemProxyWatch()
+    applyProxy({ enabled: false, url: '' })
+    if (previousHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previousHome
+    await removePath(root, { recursive: true, force: true })
+  }
+})
+
+test('routes Node global fetch through the selected HTTP proxy', async () => {
+  let received
+  let receivedConnect
+  const proxy = createServer((request, response) => {
+    received = { method: request.method, url: request.url, host: request.headers.host }
+    response.writeHead(200, { 'content-type': 'text/plain' })
+    response.end('proxied')
+  })
+  proxy.on('connect', (request, socket) => {
+    receivedConnect = { method: request.method, url: request.url, host: request.headers.host }
+    socket.end('HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n')
+  })
+  await new Promise((resolve, reject) => {
+    proxy.once('error', reject)
+    proxy.listen(0, '127.0.0.1', resolve)
+  })
+  const address = proxy.address()
+  if (address === null || typeof address === 'string') throw new Error('test proxy did not bind a TCP port')
+  try {
+    await applyProxy({ enabled: true, url: `http://127.0.0.1:${address.port}` })
+    const response = await fetch('http://model.invalid/probe')
+    assert.equal(await response.text(), 'proxied')
+    assert.deepEqual(received, { method: 'GET', url: 'http://model.invalid/probe', host: 'model.invalid' })
+    await assert.rejects(fetch('https://model.invalid/probe'))
+    assert.deepEqual(receivedConnect, { method: 'CONNECT', url: 'model.invalid:443', host: 'model.invalid' })
+  } finally {
+    await applyProxy({ enabled: false, url: '' })
+    await new Promise((resolve, reject) => proxy.close(error => error === undefined ? resolve() : reject(error)))
+  }
+})
+
+test('parses Windows ProxyServer into a usable proxy URL', () => {
+  assert.equal(parseWindowsProxyServer('127.0.0.1:7890'), 'http://127.0.0.1:7890')
+  assert.equal(parseWindowsProxyServer('http=127.0.0.1:7890;https=127.0.0.1:7891'), 'http://127.0.0.1:7891')
+  assert.equal(parseWindowsProxyServer('http=127.0.0.1:7890'), 'http://127.0.0.1:7890')
+  assert.equal(parseWindowsProxyServer(''), undefined)
+})
+
+test('normalizes ProxyOverride into a rule list for the custom dispatcher', () => {
+  assert.deepEqual(normalizeProxyOverride('localhost;127.*;192.168.*;10.*;<local>'), ['localhost', '127.*', '192.168.*', '10.*', 'localhost'])
+  assert.deepEqual(normalizeProxyOverride(''), [])
+})
+
 test('routes an allowlisted API method with a generated RPC id', async () => {
   const ctx = {
     apiProxy: {
@@ -82,6 +185,63 @@ test('routes an allowlisted API method with a generated RPC id', async () => {
 
   assert.match(result.rpcId, /^[0-9a-f-]{36}$/)
   assert.deepEqual(result.payload, { cwd: 'D:/repo' })
+})
+
+test('probes official Host capabilities without failing when services are missing', async () => {
+  const agent = { id: 'session-target' }
+  const ctx = {
+    apiProxy: {
+      sessions: { list: async () => [] },
+      workspace: { list: async () => [] },
+      subagents: { list: async () => [] },
+      skills: { list: async () => [] },
+      agentPresets: { list: async () => [] },
+      goals: { create: async () => ({}) },
+      settings: { describe: async () => ({}) },
+      credentials: { describe: async () => ({}) },
+      llm: { providers: async () => [] },
+      downloads: { sessionLog: async () => ({ ok: true }) },
+    },
+    get: key => key === 'agents' ? { get: () => agent }
+      : key === 'workspaceRegistry' ? { get: () => ({}) }
+      : key === 'fileReferences' ? { list: async () => [] }
+      : key === 'sessionReferenceResolver' ? { remoteExportCandidates: async () => [] }
+      : key === 'messageAnnotations' ? { list: async () => [], put: async () => ({}), delete: async () => ({}) }
+      : key === 'typertGateway' ? { invoke: async () => ({}) }
+      : undefined,
+    pluginInventory: { list: async () => ({ entries: [] }) },
+  }
+
+  const result = await routeDesktopRequest(ctx, 'desktop.capabilities', {}, signal)
+  assert.equal(typeof result.probedAt, 'number')
+  assert.deepEqual(result.services, {
+    sessions: true,
+    workspace: true,
+    references: true,
+    annotations: true,
+    subagents: true,
+    skills: true,
+    agentPresets: true,
+    goals: true,
+    settings: true,
+    credentials: true,
+    llm: true,
+    plugins: true,
+    sessionExport: true,
+    commands: true,
+  })
+})
+
+test('keeps typed error codes in the bridge error frame and plain text otherwise', () => {
+  const structured = new Error('file reference service is unavailable')
+  structured.code = 'reference-unavailable'
+  structured.details = { capability: 'references' }
+  assert.deepEqual(bridgeErrorFrame(structured), {
+    code: 'reference-unavailable',
+    message: 'file reference service is unavailable',
+    details: { capability: 'references' },
+  })
+  assert.equal(bridgeErrorFrame(new Error('plain failure')), 'plain failure')
 })
 
 test('forwards an explicit session preset migration through the official fork API', async () => {

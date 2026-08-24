@@ -12,7 +12,7 @@ index 01ff631bc4..696f5b71db 100644
  
  **Separate `ctx.sessionFork` service.** An earlier iteration shipped this as a separate service; it overfit the capability-seam pattern. The code had no swappable backend, no extra event surface, no independent ownership lifecycle, and no durable behavior beyond `ctx.sessions.create({ seed, meta })`. Keeping a separate package would make callers discover and install a second service just to perform policy around a session-store primitive.
 diff --git a/.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.zh.md b/.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.zh.md
-index 2a95a504db..40f3d6848a 100644
+index f0fd158a51..92e788cf2b 100644
 --- a/.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.zh.md
 +++ b/.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.zh.md
 @@ -34,6 +34,8 @@ Host 的 `session.fork` RPC 接受 `atSeq`，并将其视为所需轮次内的
@@ -25,10 +25,10 @@ index 2a95a504db..40f3d6848a 100644
  
  **独立的 `ctx.sessionFork` 服务。** 较早的一版迭代曾把它作为独立服务交付；它过度套用了能力 seam 模式。代码没有可替换的后端、没有额外的事件面、没有独立的所有权生命周期，也没有超出 `ctx.sessions.create({ seed, meta })` 的持久化行为。保留独立包会迫使调用方为了在会话存储原语之上执行一层策略而去发现并安装第二个服务。
 diff --git a/packages/host/apiproxy/src/api-proxy.ts b/packages/host/apiproxy/src/api-proxy.ts
-index ccb2d6d20c..d166fd1ecc 100644
+index ba354e1173..cc449c7eef 100644
 --- a/packages/host/apiproxy/src/api-proxy.ts
 +++ b/packages/host/apiproxy/src/api-proxy.ts
-@@ -2277,7 +2277,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
+@@ -2261,7 +2261,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
        },
  
        async fork(request) {
@@ -37,7 +37,7 @@ index ccb2d6d20c..d166fd1ecc 100644
          let source: SessionReadState
          try {
            source = await readSessionState(sessionId)
-@@ -2292,32 +2292,41 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
+@@ -2276,32 +2276,41 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
            })
          }
          const events = source.events
@@ -104,7 +104,7 @@ index ccb2d6d20c..d166fd1ecc 100644
          let workspace: Workspace | undefined
          try {
            workspace = await forkWorkspace(source)
-@@ -2329,12 +2338,29 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
+@@ -2313,12 +2322,29 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
            })
          }
          const childId = `session-${randomUUID()}` as SessionId
@@ -140,7 +140,7 @@ index ccb2d6d20c..d166fd1ecc 100644
          try {
            await ctx.agents.create({
              sessionId: childId,
-@@ -2348,7 +2374,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
+@@ -2332,7 +2358,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                  : { agentPreset: forkComposition.agentPreset },
              },
              agentOptions: agentOptions(),
@@ -176,10 +176,10 @@ index c415015776..a47e574cae 100644
  
  /** session.fork response value (the child session id). */
 diff --git a/packages/host/apiproxy/src/api/sessions.ts b/packages/host/apiproxy/src/api/sessions.ts
-index 2e7c9b22f4..465c7d7cd4 100644
+index 6b5fadf248..3a13233986 100644
 --- a/packages/host/apiproxy/src/api/sessions.ts
 +++ b/packages/host/apiproxy/src/api/sessions.ts
-@@ -332,9 +332,10 @@ export interface SessionsApi {
+@@ -336,9 +336,10 @@ export interface SessionsApi {
     * title. Reading the source uses attached state or persistence inspection
     * without acquiring an Agent. Workspace attachment follows the source
     * directly, or the nearest workspace-owning ancestor when the source is a

@@ -269,3 +269,7 @@ WEBUI_PARITY.md            WebUI 对齐状态与缺口
 - 新 Bridge 方法保持显式 allowlist、参数校验、错误和取消语义；
 - 覆盖历史恢复、实时事件、插件缺失、错误、取消和快速切换 Session；
 - 运行 `npm run build` 及相关测试，并同步更新兼容文档。
+
+## 许可证
+
+Deeptop 以 [MIT 许可证](LICENSE) 开源发布，版权所有 © 2026 Sparrived。

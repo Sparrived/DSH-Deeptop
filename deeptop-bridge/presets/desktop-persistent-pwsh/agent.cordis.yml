@@ -1,4 +1,4 @@
-# Deeptop opt-in preset for the official RC8 persistent PowerShell tool.
+# Deeptop opt-in preset for the official persistent PowerShell tool.
 # It is shipped for explicit user selection and is not part of the standard preset.
 - id: persistent-shell
   name: cordis:group

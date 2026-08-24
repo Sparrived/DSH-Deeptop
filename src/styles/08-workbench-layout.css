@@ -764,7 +764,9 @@ textarea:focus-visible {
   margin: 0 0 1px;
   padding: 0;
   border-left: 3px solid transparent;
+  border-right: 3px solid color-mix(in srgb, var(--session-status-color, var(--rail-muted)) 42%, transparent);
   border-radius: var(--radius-control);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .2);
   transition: background 120ms ease, box-shadow 120ms ease, opacity 120ms ease, outline-color 120ms ease;
 }
 
@@ -812,7 +814,6 @@ textarea:focus-visible {
 }
 
 .session-row.active {
-  border-left-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 13%, var(--rail));
 }
 
@@ -838,7 +839,6 @@ textarea:focus-visible {
   z-index: 190;
   margin: 0;
   border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--line-strong));
-  border-left: 3px solid var(--accent);
   background: color-mix(in srgb, var(--rail) 94%, var(--accent));
   box-shadow: 0 14px 30px rgba(20, 28, 42, .25), 0 2px 8px rgba(20, 28, 42, .16);
   opacity: .96;
@@ -898,7 +898,10 @@ textarea:focus-visible {
   transform: translateY(-1px);
 }
 
-.session-row::after,
+/* Right status edge: a real rounded border on the row itself, mirroring
+   the former left accent stroke (same geometry as tool cards). Selection
+   lights it with the theme accent; running sessions play a light effect
+   across it. Archived rows keep their inset status pill. */
 .archived-session-row::after {
   position: absolute;
   top: 7px;
@@ -918,6 +921,10 @@ textarea:focus-visible {
   --session-status-color: var(--rail-muted);
 }
 
+.session-row.session-status-idle.active {
+  --session-status-color: var(--accent);
+}
+
 .session-row.session-status-running,
 .session-row.session-status-pending,
 .archived-session-row.session-status-running {
@@ -932,35 +939,82 @@ textarea:focus-visible {
   --session-status-color: var(--danger);
 }
 
-.session-row.session-status-running::after,
-.session-row.session-status-pending::after {
-  opacity: 1;
-  animation: session-status-pulse 1.6s ease-in-out infinite;
+.session-row.session-drag-ghost {
+  --session-status-color: var(--accent);
+  border-right: 3px solid var(--accent);
 }
 
-.session-row.session-status-completed::after {
-  opacity: .82;
+.session-row.session-status-idle.active,
+.session-row.session-status-running,
+.session-row.session-status-pending {
+  border-right-color: var(--session-status-color);
 }
 
-.session-row.session-status-error::after {
-  opacity: .95;
+.session-row.session-status-completed {
+  border-right-color: color-mix(in srgb, var(--session-status-color) 82%, transparent);
+}
+
+.session-row.session-status-error {
+  border-right-color: color-mix(in srgb, var(--session-status-color) 95%, transparent);
   animation: session-status-error 1.2s ease-in-out 2;
 }
 
-@keyframes session-status-pulse {
+.session-row.session-status-running::after,
+.session-row.session-status-pending::after {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: calc(var(--radius-control) + 3px);
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  background-image: linear-gradient(180deg, transparent 6%, color-mix(in srgb, var(--session-status-color) 32%, white) 42%, #fff 52%, color-mix(in srgb, var(--session-status-color) 32%, white) 62%, transparent 94%);
+  background-repeat: no-repeat;
+  background-size: 100% 46%;
+  -webkit-mask-image: linear-gradient(90deg, transparent calc(100% - 3px), #000 calc(100% - 3px));
+  mask-image: linear-gradient(90deg, transparent calc(100% - 3px), #000 calc(100% - 3px));
+  content: "";
+  pointer-events: none;
+  animation:
+    session-status-light-flow 1.7s linear infinite,
+    session-status-light-glow 2.4s ease-in-out infinite;
+}
+
+.session-row.session-status-pending::after {
+  animation:
+    session-status-light-flow 1.9s ease-in-out infinite alternate,
+    session-status-light-glow 1.9s ease-in-out infinite;
+}
+
+@keyframes session-status-light-flow {
+  from { background-position-y: 210%; }
+  to { background-position-y: -110%; }
+}
+
+/* Glow via drop-shadow so it follows the masked silhouette (the arc-ended
+   border strip) instead of a rectangular box. */
+@keyframes session-status-light-glow {
   0%, 100% {
-    opacity: .55;
-    transform: scaleY(.7);
+    filter: drop-shadow(0 0 1px color-mix(in srgb, var(--session-status-color, var(--rail-muted)) 45%, transparent));
   }
   50% {
-    opacity: 1;
-    transform: scaleY(1);
+    filter: drop-shadow(0 0 6px color-mix(in srgb, var(--session-status-color, var(--rail-muted)) 90%, transparent));
   }
 }
 
 @keyframes session-status-error {
-  0%, 100% { opacity: .72; }
-  50% { opacity: 1; }
+  0%, 100% { border-right-color: color-mix(in srgb, var(--session-status-color) 72%, transparent); }
+  50% { border-right-color: var(--session-status-color); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-row.session-status-running::after,
+  .session-row.session-status-pending::after {
+    display: none;
+  }
+
+  .session-row.session-status-error {
+    animation: none;
+  }
 }
 
 .session-row-copy {

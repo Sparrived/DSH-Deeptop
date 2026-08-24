@@ -1,4 +1,5 @@
-import type { CloseBehavior, DshPreset, DshSettingsDescription, DshSettingsNamespace, WindowBehaviorSettings, WindowsContextMenuStatus } from "../lib/desktop";
+import type { CloseBehavior, DshEffectiveNetworkProxy, DshNetworkProxy, DshPreset, DshSettingsDescription, DshSettingsNamespace, WindowBehaviorSettings, WindowsContextMenuStatus } from "../lib/desktop";
+import { useState, useEffect } from "react";
 import { presetDisplayName } from "../app/model";
 import type { DshHostModelCatalog, ModelSelection } from "../app/model";
 
@@ -27,6 +28,10 @@ type SettingsGeneralPanelProps = {
   windowBehavior: WindowBehaviorSettings;
   windowBehaviorSupported: boolean;
   windowBehaviorUpdating: boolean;
+  networkProxy: DshNetworkProxy;
+  networkEffective: DshEffectiveNetworkProxy;
+  networkProxyUpdating: boolean;
+  onUpdateNetworkProxy: (proxy: DshNetworkProxy) => void | Promise<void>;
   onSetContextMenuEnabled: (enabled: boolean) => void | Promise<void>;
   onUpdateWindowBehavior: (patch: Partial<WindowBehaviorSettings>) => void | Promise<void>;
   onOpenDocument: () => void | Promise<void>;
@@ -53,6 +58,10 @@ export function SettingsGeneralPanel({
   windowBehavior,
   windowBehaviorSupported,
   windowBehaviorUpdating,
+  networkProxy,
+  networkEffective,
+  networkProxyUpdating,
+  onUpdateNetworkProxy,
   onSetContextMenuEnabled,
   onUpdateWindowBehavior,
   onOpenDocument,
@@ -77,6 +86,12 @@ export function SettingsGeneralPanel({
   const permissionStorageHint = permissionNamespace ? "由 DSH Host 应用到新会话" : "保存在此桌面端，并应用到新会话";
   const modelReasoning = selectedModel?.reasoning;
   const reasoningValue = defaultModel?.reasoningEffort ?? modelReasoning?.defaultEffort ?? "";
+  const [proxyUrl, setProxyUrl] = useState(networkProxy.url);
+  const [proxyEnabled, setProxyEnabled] = useState(networkProxy.enabled);
+  useEffect(() => {
+    setProxyUrl(networkProxy.url);
+    setProxyEnabled(networkProxy.enabled);
+  }, [networkProxy.url, networkProxy.enabled]);
 
   return (
     <div className="settings-page">
@@ -108,6 +123,16 @@ export function SettingsGeneralPanel({
           <div className="settings-preference-row"><span><strong>最小化到托盘</strong><small>点击最小化按钮时隐藏窗口，并保留后台任务与托盘入口。</small></span><label className="settings-plugin-toggle" aria-label="启用最小化到托盘"><input type="checkbox" checked={windowBehavior.minimizeToTray} disabled={windowBehaviorUpdating} onChange={(event) => void onUpdateWindowBehavior({ minimizeToTray: event.target.checked })} /><span aria-hidden="true" /></label></div>
           <div className="settings-preference-row"><span><strong>关闭窗口时</strong><small>首次关闭会询问；选择后会记录为后续默认行为。</small></span><select disabled={windowBehaviorUpdating} value={windowBehavior.closeBehavior} onChange={(event) => void onUpdateWindowBehavior({ closeBehavior: event.target.value as CloseBehavior })}><option value="ask">首次关闭时询问</option><option value="hide-to-tray">隐藏到托盘并继续运行</option><option value="exit">退出 Deeptop</option></select></div>
         </div> : <p className="settings-empty">窗口托盘行为仅在 Deeptop 桌面端可用。</p>}
+      </div>
+
+      <div className="settings-block">
+        <div className="settings-block-heading"><div><h3>网络代理</h3><p>默认跟随 Windows 系统代理（例如 Clash 的「系统代理」开关）；填写地址后改为使用显式代理。保存后即时生效，无需重启。</p></div></div>
+        <div className="settings-preference-list">
+          <label className="settings-preference-row"><span><strong>启用代理</strong><small>开启后所有模型请求经下方代理地址转发；不勾选则跟随系统代理或直连</small></span><label className="settings-plugin-toggle" aria-label="启用网络代理"><input type="checkbox" checked={proxyEnabled} disabled={networkProxyUpdating} onChange={(event) => setProxyEnabled(event.target.checked)} /><span aria-hidden="true" /></label></label>
+          <div className="settings-preference-row"><span><strong>代理地址</strong><small>例如 http://127.0.0.1:7890；留空则不使用显式代理，改为跟随系统代理。若使用 SOCKS，请填写客户端提供的 HTTP 监听端口</small></span><input className="settings-text-input" type="text" value={proxyUrl} placeholder="http://127.0.0.1:7890" disabled={networkProxyUpdating} onChange={(event) => setProxyUrl(event.target.value)} /></div>
+          <div className="settings-preference-row"><span><strong>当前代理</strong><small>{networkEffective.source === "system" ? `跟随系统代理：${networkEffective.url || "系统代理未提供地址"}` : networkEffective.source === "explicit" ? `显式代理：${networkEffective.url}` : "直连（未使用代理）"}</small></span><span className="settings-state-tag" data-source={networkEffective.source}>{networkEffective.source === "system" ? "系统代理" : networkEffective.source === "explicit" ? "显式" : "直连"}</span></div>
+          <div className="settings-preference-row"><span><strong>应用</strong><small>{networkProxyUpdating ? "正在应用代理…" : "保存并立即切换代理；下次启动自动恢复；留空则跟随系统代理"}</small></span><button disabled={networkProxyUpdating} onClick={() => void onUpdateNetworkProxy({ enabled: proxyEnabled, url: proxyUrl })}>{networkProxyUpdating ? "应用中…" : proxyEnabled ? "应用代理" : "应用（跟随系统/直连）"}</button></div>
+        </div>
       </div>
 
       <div className="settings-block">

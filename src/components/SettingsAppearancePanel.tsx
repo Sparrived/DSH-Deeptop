@@ -1,8 +1,8 @@
-import { useRef, type ComponentProps, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type ComponentProps, type CSSProperties } from "react";
 import type { AppearanceSettings, AppearanceSection, WorkingIndicatorEffect } from "../app/model";
 import type { AppTheme, ThemeMode } from "../app/model";
 import { SettingsBackgroundPanel } from "./SettingsBackgroundPanel";
-import { normalizeWorkingIndicator } from "../app/working-indicator";
+import { normalizeWorkingIndicator, workingIndicatorTextAt } from "../app/working-indicator";
 
 type FontPreset = { value: string; label: string };
 
@@ -89,6 +89,19 @@ export function SettingsAppearancePanel({
   const backgroundCount = Object.values(appearance.backgrounds).filter((bg) => Boolean(bg.image)).length;
   const workingIndicator = normalizeWorkingIndicator(appearance.workingIndicator);
   const workingTextCount = workingIndicator.texts.length;
+  // 预览与运行中的指示器保持同一轮换节奏，便于在设置里直接核对效果。
+  const [previewIndex, setPreviewIndex] = useState(0);
+  const previewTextKey = workingIndicator.texts.join("\u0000");
+
+  useEffect(() => {
+    setPreviewIndex(0);
+  }, [previewTextKey]);
+
+  useEffect(() => {
+    if (workingTextCount < 2) return;
+    const timer = window.setInterval(() => setPreviewIndex((current) => current + 1), workingIndicator.rotationInterval);
+    return () => window.clearInterval(timer);
+  }, [workingIndicator.rotationInterval, workingTextCount, previewTextKey]);
 
   return (
     <div className="settings-page appearance-settings-page">
@@ -180,7 +193,7 @@ export function SettingsAppearancePanel({
             <label className="settings-preference-row"><span><strong>文字特效</strong><small>仅作用于运行中提示，不改变消息正文</small></span><select value={appearance.workingIndicator.effect} onChange={(event) => onUpdate({ workingIndicator: { ...appearance.workingIndicator, effect: event.target.value as WorkingIndicatorEffect } })}><option value="shimmer">流光</option><option value="pulse">呼吸</option><option value="glow">发光</option><option value="none">静态</option></select></label>
             {workingTextCount > 1 && <label className="settings-preference-row"><span><strong>轮换速度</strong><small>{(appearance.workingIndicator.rotationInterval / 1000).toFixed(1)} 秒切换一次</small></span><span className="appearance-range-control"><input type="range" min="1200" max="10000" step="100" value={appearance.workingIndicator.rotationInterval} onChange={(event) => onUpdate({ workingIndicator: { ...appearance.workingIndicator, rotationInterval: Number(event.target.value) } })} /><output>{(appearance.workingIndicator.rotationInterval / 1000).toFixed(1)}s</output></span></label>}
           </div>
-          <div className="working-indicator-preview" style={{ "--working-indicator-color": workingIndicator.color } as CSSProperties}><span className={`effect-${workingIndicator.effect}`}>{workingIndicator.texts[0]}</span><small>预览 · 运行时轮换 {workingTextCount} 条</small></div>
+          <div className="working-indicator-preview" style={{ "--working-indicator-color": workingIndicator.color } as CSSProperties}><span className={`effect-${workingIndicator.effect}`}>{workingIndicatorTextAt(workingIndicator, previewIndex)}</span><small>预览 · 运行时轮换 {workingTextCount} 条</small></div>
         </div>
       )}
 

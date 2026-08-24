@@ -48,9 +48,9 @@ const laneX = (lane) => (lane + 0.5) * LANE_W;
 const nodeY = (row) => row * ROW_H + ROW_H / 2;
 
 const svg = [];
-for (const lane of layout.lanes) {
-  const x = laneX(lane.lane);
-  svg.push(`<line x1="${x}" y1="${nodeY(lane.fromRow)}" x2="${x}" y2="${nodeY(lane.toRow)}" stroke="${laneColor(lane.lane)}" stroke-width="2" stroke-linecap="round" opacity="0.9"/>`);
+for (const seg of layout.laneSegments) {
+  const x = laneX(seg.lane);
+  svg.push(`<line x1="${x}" y1="${nodeY(seg.fromRow)}" x2="${x}" y2="${nodeY(seg.toRow)}" stroke="${laneColor(seg.lane)}" stroke-width="2" stroke-linecap="round" opacity="0.9"/>`);
 }
 for (const edge of layout.edges) {
   const xs = laneX(edge.fromLane), ys = nodeY(edge.fromRow);

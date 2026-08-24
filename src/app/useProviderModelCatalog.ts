@@ -1,10 +1,10 @@
 import { useState } from "react";
 import {
-  bridgeRequest,
   type DshCredential,
   type DshProvider,
   type DshSettingsDescription,
 } from "../lib/desktop";
+import { desktopRequest } from "../lib/desktop-api";
 import { errorText, providerModels, providerProfile, providerSettingsOps, valueAtPath } from "./settings-model";
 import type { CustomProviderDraft, DiscoveredModel, ProviderSettingsPatch } from "./model-types";
 
@@ -96,7 +96,7 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
     const ops = providerSettingsOps(provider.settingsPath, providerProfile(provider, namespace), patch);
     if (ops.length === 0) return true;
     try {
-      await bridgeRequest("settings.mutate", { ns: provider.settingsNs, ops, expectedRevision: namespace.revision });
+      await desktopRequest("settings.mutate", { ns: provider.settingsNs, ops, expectedRevision: namespace.revision });
       await loadRuntimeDetails();
       onNotice(`${provider.displayName} 设置已保存`);
       return true;
@@ -111,7 +111,7 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
     setDiscoveryBusy(provider.provider);
     try {
       const key = credentialDrafts[provider.provider]?.trim();
-      const result = await bridgeRequest<{ models: DiscoveredModel[] }>("llm.discoverModels", {
+      const result = await desktopRequest("llm.discoverModels", {
         settingsNs: provider.settingsNs,
         provider: provider.provider,
         ...(baseURL.trim() ? { baseURL: baseURL.trim() } : {}),
@@ -178,10 +178,10 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
     if (!namespace || provider.settingsPath.length === 0 || valueAtPath(namespace.user, provider.settingsPath) === undefined) return;
     if (!await onConfirm(`移除 Provider“${provider.displayName}”？`)) return;
     try {
-      await bridgeRequest("settings.mutate", { ns: provider.settingsNs, ops: [{ op: "unset", path: provider.settingsPath }], expectedRevision: namespace.revision });
+      await desktopRequest("settings.mutate", { ns: provider.settingsNs, ops: [{ op: "unset", path: provider.settingsPath }], expectedRevision: namespace.revision });
       const profile = providerProfile(provider, namespace);
       const derivedRef = `${provider.provider.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_API_KEY`;
-      if (profile?.apiKeyEnv === derivedRef && credentials[derivedRef]?.configured && credentials[derivedRef].writable) await bridgeRequest("credentials.unset", { ref: derivedRef });
+      if (profile?.apiKeyEnv === derivedRef && credentials[derivedRef]?.configured && credentials[derivedRef].writable) await desktopRequest("credentials.unset", { ref: derivedRef });
       await loadRuntimeDetails();
       onNotice(`${provider.displayName} 已移除`);
     } catch (error) {
@@ -197,7 +197,7 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
     }
     setCustomProviderBusy(true);
     try {
-      const result = await bridgeRequest<{ models: DiscoveredModel[] }>("llm.discoverModels", {
+      const result = await desktopRequest("llm.discoverModels", {
         settingsNs: "llm-pi-ai",
         baseURL: draft.baseURL.trim(),
         ...(draft.api.trim() ? { api: draft.api.trim() } : {}),
@@ -245,12 +245,12 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
     setCustomProviderBusy(true);
     try {
       const keyRef = `${route.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_API_KEY`;
-      await bridgeRequest("settings.mutate", {
+      await desktopRequest("settings.mutate", {
         ns: "llm-pi-ai",
         ops: [{ op: "set", path: ["providers", route], value: { ...(draft.displayName.trim() ? { displayName: draft.displayName.trim() } : {}), ...(draft.apiKey.trim() ? { apiKeyEnv: keyRef } : {}), api: draft.api.trim(), baseURL: draft.baseURL.trim(), models } }],
         expectedRevision: namespace.revision,
       });
-      if (draft.apiKey.trim()) await bridgeRequest("credentials.set", { ref: keyRef, value: draft.apiKey.trim() });
+      if (draft.apiKey.trim()) await desktopRequest("credentials.set", { ref: keyRef, value: draft.apiKey.trim() });
       await loadRuntimeDetails();
       setCustomProviderDraft(emptyCustomProviderDraft);
       setCustomProviderOpen(false);

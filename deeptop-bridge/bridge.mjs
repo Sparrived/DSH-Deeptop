@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 import { routeDesktopRequest } from './routes.mjs'
+import { initNetworkProxy, stopSystemProxyWatch } from './network-proxy.mjs'
 
 const PROTOCOL = 'deeptop/1'
 
@@ -10,6 +11,19 @@ function isRecord(value) {
 
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error)
+}
+
+// Keep structured bridge errors (code/details) intact across the process
+// boundary so the frontend can degrade by error code instead of message
+// matching. Errors without a code stay plain strings for backward compatibility.
+export function bridgeErrorFrame(error) {
+  const code = error instanceof Error && typeof error.code === 'string' && error.code.trim() ? error.code : undefined
+  if (code === undefined) return errorMessage(error)
+  return {
+    code,
+    message: errorMessage(error),
+    ...(error.details === undefined ? {} : { details: error.details }),
+  }
 }
 
 // Stack traces are forwarded as diagnostics (not as the user-facing error) so
@@ -32,6 +46,12 @@ export class DesktopBridge {
     if (this.closed) return
     if (this.ctx.get('apiProxy') === undefined) {
       throw new Error('deeptop-bridge requires @deepseek-ai/dsh-host-apiproxy')
+    }
+
+    // 在开始读取请求前安装已保存的代理，避免重启后的首个模型请求绕过代理。
+    const proxyResult = await initNetworkProxy()
+    if (!proxyResult.ok) {
+      console.warn(`[deeptop-bridge] 初始化网络代理失败：${proxyResult.error}`)
     }
 
     this.input = createInterface({ input: process.stdin, crlfDelay: Infinity })
@@ -67,14 +87,7 @@ export class DesktopBridge {
       )
       this.write({ type: 'response', id: request.id, response })
     } catch (error) {
-      // Coded errors (ui plugin protocol denials and domain errors) forward
-      // their stable code so the WebView can branch without parsing messages.
-      this.write({
-        type: 'response',
-        id: request.id,
-        error: errorMessage(error),
-        ...(typeof error?.code === 'string' && error.code ? { code: error.code } : {}),
-      })
+      this.write({ type: 'response', id: request.id, error: bridgeErrorFrame(error) })
       this.write({
         type: 'diagnostic',
         level: 'error',
@@ -112,6 +125,7 @@ export class DesktopBridge {
   dispose() {
     this.closed = true
     this.abort.abort()
+    stopSystemProxyWatch()
     this.input?.close()
   }
 }

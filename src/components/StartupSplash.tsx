@@ -28,23 +28,28 @@ export function StartupSplash({
 }: StartupSplashProps) {
   const failed = !status.runtimeStarting && !status.runtimeAvailable;
   const phase = failed ? "error" : status.runtimeStarting ? "start" : "check";
-  const phaseLabel = failed ? "RUNTIME UNAVAILABLE" : status.runtimeStarting ? "STARTING DEEPSEEK HARNESS" : "CHECKING DEEPSEEK HARNESS";
-  const phaseTitle = failed ? "DeepSeek Harness 暂时无法启动" : status.runtimeStarting ? "正在启动DeepSeek Harness" : "正在检查 DeepSeek Harness";
+  const phaseTitle = failed ? "DeepSeek Harness 暂时无法启动" : status.runtimeStarting ? "正在启动 DeepSeek Harness" : "正在检查 DeepSeek Harness";
   const phaseDescription = status.message || (failed ? "启动过程被中断，请检查环境后重试。" : "正在等待 DeepSeek Harness 桌面宿主就绪...");
   const logViewportRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const viewport = logViewportRef.current;
     if (viewport) viewport.scrollTop = viewport.scrollHeight;
   }, [logs]);
-  const statusDetails = [
-    { label: "Node.js", active: status.nodeAvailable, detail: status.nodeAvailable ? "已发现" : "未找到" },
-    { label: "DeepSeek Harness", active: status.packageAvailable, detail: status.packageAvailable ? "已校验" : "等待校验" },
-    { label: "Desktop bridge", active: status.runtimeAvailable, detail: status.runtimeAvailable ? "已连接" : status.runtimeStarting ? "连接中" : "等待中" },
+  const readoutRows = [
+    { label: "Node.js", value: status.nodeAvailable ? "已发现" : "未找到", tone: status.nodeAvailable ? "ok" : "bad" },
+    { label: "NPM", value: status.npmAvailable ? "可用" : "未找到", tone: status.npmAvailable ? "ok" : "bad" },
+    { label: "运行目录", value: status.dshHome, tone: "" },
+    { label: "安装包", value: status.packageAvailable ? `${status.packageName} · 已校验` : `${status.packageName} · 校验中`, tone: status.packageAvailable ? "ok" : "" },
+    { label: "REGISTRY", value: status.selectedRegistry || "默认源", tone: "" },
+    {
+      label: "DESKTOP BRIDGE",
+      value: status.runtimeAvailable ? "已连接" : status.runtimeStarting ? "连接中" : "等待中",
+      tone: status.runtimeAvailable ? "ok" : failed ? "bad" : "",
+    },
   ];
   const screenStyle = { "--startup-phase": `"${phase}"` } as CSSProperties;
   return (
     <main className={`startup-screen startup-phase-${phase}`} style={screenStyle} role="status" aria-live="polite">
-      <div className="startup-atmosphere" aria-hidden="true"><span /><span /><span /></div>
       <header
         className="window-bar startup-window-bar"
         onMouseDown={onDrag}
@@ -58,18 +63,20 @@ export function StartupSplash({
       </header>
       <section className="startup-content" aria-label="DeepSeek Harness 启动画面">
         <div className="startup-rule" />
-        <div className="startup-heading-row">
-          <p className="startup-kicker">{phaseLabel}</p>
-          <span className="startup-phase-chip"><i />{failed ? "ATTENTION" : "LIVE"}</span>
+        <div className="empty-mark" role="img" aria-label="Deeptop">
+          <span className="empty-mark-text" aria-hidden="true">Deeptop</span>
         </div>
-        <h1>{phaseTitle}</h1>
+        <p className="startup-phase-line">
+          {phaseTitle}
+          <span className="startup-cursor" aria-hidden="true" />
+        </p>
         <p className="startup-message">{phaseDescription}</p>
         <div className="startup-progress" aria-label="启动进度" role="progressbar"><i /></div>
-        <div className="startup-signal" aria-hidden="true"><span /><span /><span /><span /><span /><span /><span /><span /></div>
-        <div className="startup-status-list" aria-label="启动过程">
-          {statusDetails.map((item) => (
-            <div className={`startup-status-item ${item.active ? "active" : ""}`} key={item.label}>
-              <i aria-hidden="true" /><span>{item.label}</span><em>{item.detail}</em>
+        <div className="startup-readout" aria-label="启动环境">
+          {readoutRows.map((row) => (
+            <div className={`startup-readout-row${row.tone ? ` tone-${row.tone}` : ""}`} key={row.label}>
+              <span>{row.label}</span>
+              <code title={row.value}>{row.value}</code>
             </div>
           ))}
         </div>
@@ -95,7 +102,6 @@ export function StartupSplash({
         ) : (
           <p className="startup-wait"><i />正在等待桌面桥接就绪</p>
         )}
-        <p className="startup-package">{status.packageName}</p>
       </section>
     </main>
   );

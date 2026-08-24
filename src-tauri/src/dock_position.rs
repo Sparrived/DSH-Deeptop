@@ -17,7 +17,7 @@ fn positions_path(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|error| format!("无法定位 Dock 位置配置目录：{error}"))
 }
 
-fn valid_id(id: &str) -> Result<(), String> {
+pub(crate) fn valid_id(id: &str) -> Result<(), String> {
     if id.is_empty()
         || id.len() > 100
         || !id

@@ -499,7 +499,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError }: GitDockProp
       title="Git"
       kicker="源码管理"
       icon="⑂"
-      total={totalChanges}
+      total={`${totalChanges} 项变更`}
       toggleGlyph="‹"
       onToggle={onToggle}
       railClassName="git-dock-rail"
