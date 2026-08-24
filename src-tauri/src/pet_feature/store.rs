@@ -10,6 +10,7 @@ use std::{
     fs,
     io::{Cursor, Read, Write},
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
     sync::Mutex,
 };
 use tauri::{AppHandle, Manager};
@@ -401,11 +402,18 @@ fn seed_starter_pets(directory: &std::path::Path) -> Result<(), String> {
 }
 
 fn adjacent_path(path: &std::path::Path, suffix: &str) -> Result<PathBuf, String> {
+    static WRITE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
     let name = path
         .file_name()
         .and_then(|value| value.to_str())
         .ok_or_else(|| format!("无法生成 {} 的临时文件名", path.display()))?;
-    Ok(path.with_file_name(format!(".{name}.{suffix}")))
+    // 临时与备份名带进程号 + 进程内自增序号，并发写同一目标时不会互相覆盖。
+    let unique = WRITE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    Ok(path.with_file_name(format!(
+        ".{name}.{suffix}.{}.{}",
+        std::process::id(),
+        unique
+    )))
 }
 
 pub(crate) fn write_atomic(path: &std::path::Path, data: &[u8]) -> Result<(), String> {

@@ -1,4 +1,9 @@
-use std::{fs, path::PathBuf, time::SystemTime};
+use std::{
+    fs,
+    path::PathBuf,
+    sync::{Mutex, OnceLock},
+    time::{Instant, SystemTime},
+};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
@@ -125,12 +130,38 @@ pub struct PetCareActionResult {
     message: String,
 }
 
+/// 序列化对 pet-care-state.json 的读-改-写：宠物窗口与设置面板可能并发
+/// 触发喂食/查询/开关，交错写入会互相覆盖冷却与进度；write_atomic 的
+/// rename 替换间隙里文件瞬时缺失，未加锁的读取会把默认值回写冲掉真实数据。
+static CARE_STATE_LOCK: Mutex<()> = Mutex::new(());
+
+fn lock_care_state() -> Result<std::sync::MutexGuard<'static, ()>, String> {
+    CARE_STATE_LOCK
+        .lock()
+        .map_err(|_| "宠物养成状态写入冲突".to_string())
+}
+
+/// 进程内单调基准钟：以进程首次读取时刻的墙钟为起点，叠加 Instant 的
+/// 单调增量。运行期间把系统时钟向前拨不再能跳过养成冷却或放大离线结算；
+/// 跨重启仍以墙钟为基准（关闭应用期间改钟属于可接受的残余风险）。
+struct MonotonicClock {
+    wall_ms_at_start: u64,
+    started: Instant,
+}
+
+static CARE_CLOCK: OnceLock<MonotonicClock> = OnceLock::new();
+
 fn now_ms() -> Result<u64, String> {
-    let value = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map_err(|error| format!("读取系统时间失败：{error}"))?
-        .as_millis();
-    u64::try_from(value).map_err(|_| "系统时间超出支持范围".to_string())
+    let clock = CARE_CLOCK.get_or_init(|| MonotonicClock {
+        wall_ms_at_start: SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|value| u64::try_from(value.as_millis()).unwrap_or(0))
+            .unwrap_or(0),
+        started: Instant::now(),
+    });
+    let value = u64::try_from(clock.started.elapsed().as_millis())
+        .map_err(|_| "系统时间超出支持范围".to_string())?;
+    Ok(clock.wall_ms_at_start.saturating_add(value))
 }
 
 fn default_record(now: u64) -> PetCareRecord {
@@ -359,6 +390,7 @@ fn apply_action(
 }
 
 pub(crate) fn load_current(app: &AppHandle, enabled: bool) -> Result<PetCareState, String> {
+    let _guard = lock_care_state()?;
     let now = now_ms()?;
     let mut record = load_record(app, now)?;
     advance_record(&mut record, now, enabled);
@@ -374,6 +406,7 @@ pub fn synchronize_enabled(
     if was_enabled == is_enabled {
         return Ok(());
     }
+    let _guard = lock_care_state()?;
     let now = now_ms()?;
     let mut record = load_record(app, now)?;
     advance_record(&mut record, now, was_enabled);
@@ -397,6 +430,7 @@ pub fn perform_pet_care_action(
     if !settings.care_enabled {
         return Err("养成互动已关闭".to_string());
     }
+    let _guard = lock_care_state()?;
     let now = now_ms()?;
     let mut record = load_record(&app, now)?;
     advance_record(&mut record, now, true);
