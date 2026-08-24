@@ -431,6 +431,149 @@
   border-top: 1px solid var(--line);
 }
 
+/* 官方工具领域卡片（search / fetch / skill）：在通用 call/result 之上的结构化视图。 */
+.tool-domain-part { padding-bottom: 10px; }
+.tool-domain-card {
+  margin: 8px 11px 4px 25px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--paper);
+}
+.tool-domain-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.tool-domain-head strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+.tool-domain-head span {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+.search-answer {
+  margin: 0 0 8px;
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+.search-source-list {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.search-source-open {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+.search-source-open:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+.search-source-title {
+  overflow: hidden;
+  color: var(--accent-deep);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.search-source-open small {
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.search-source-open em {
+  width: fit-content;
+  color: var(--muted);
+  font-size: 9px;
+  font-style: normal;
+}
+.search-source-open p {
+  margin: 2px 0 0;
+  color: var(--ink-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.search-domain-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+.search-domain-note.error { color: var(--danger, #b04a3a); }
+.fetch-domain-target {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.fetch-domain-target strong {
+  overflow: hidden;
+  color: var(--accent-deep);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fetch-domain-target small {
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fetch-domain-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.fetch-domain-actions button {
+  padding: 4px 9px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 10px;
+}
+.fetch-domain-actions button:hover {
+  border-color: var(--accent);
+  color: var(--accent-deep);
+}
+.skill-domain-name {
+  display: block;
+  overflow: hidden;
+  color: var(--accent-deep);
+  font: 600 12px var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skill-domain-note {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+:root[data-theme="dark"] .tool-domain-card {
+  background: color-mix(in srgb, var(--paper) 82%, transparent);
+}
+
 .tool-part-label {
   display: flex;
   align-items: center;

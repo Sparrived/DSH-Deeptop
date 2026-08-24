@@ -18,6 +18,7 @@ import {
 } from "./message-model.ts";
 import { deliverablesFromHistory, workflowViewsFromHistory } from "./workflow-model.ts";
 import { turnTimingItems } from "./session-events.ts";
+import { toolDomainCard } from "./tool-domain.ts";
 import type { TranscriptItem } from "./model-types";
 
 function turnEndText(reason: unknown, kind: string) {
@@ -95,6 +96,7 @@ export function transcriptFromHistory(entries: DshHistoryEntry[]): TranscriptIte
     }
     if (event.type === "tool/call" || event.type === "tool/result") {
       const diff = diffSummaryFromHistoryEntry(entry);
+      const domainCard = toolDomainCard(entry);
       items.push({
         key: `event-${event.seq}`,
         kind: "tool",
@@ -106,6 +108,7 @@ export function transcriptFromHistory(entries: DshHistoryEntry[]): TranscriptIte
         toolCallId: eventToolCallId(event),
         toolState: event.type === "tool/call" ? "call" : "result",
         toolResultError: eventToolResultError(event),
+        ...(domainCard ? { domainCard } : {}),
         ...(event.type === "tool/call" ? { toolDiff: diff } : { toolResultDiff: diff }),
       });
       continue;
@@ -154,7 +157,7 @@ export function transcriptFromHistory(entries: DshHistoryEntry[]): TranscriptIte
         : pendingResultsWithoutId.shift();
       if (result) {
         if (item.toolCallId) pendingResults.delete(item.toolCallId);
-        paired.push({ ...item, toolResultText: result.text, toolResultTime: result.time, toolResultError: result.toolResultError, toolResultDiff: result.toolResultDiff });
+        paired.push({ ...item, toolResultText: result.text, toolResultTime: result.time, toolResultError: result.toolResultError, toolResultDiff: result.toolResultDiff, ...(result.domainCard ? { domainCard: result.domainCard } : {}) });
       } else {
         if (item.toolCallId) pendingCalls.set(item.toolCallId, paired.length);
         else pendingCallsWithoutId.push(paired.length);
@@ -168,7 +171,7 @@ export function transcriptFromHistory(entries: DshHistoryEntry[]): TranscriptIte
     if (callIndex !== undefined) {
       if (item.toolCallId) pendingCalls.delete(item.toolCallId);
       const call = paired[callIndex];
-      paired[callIndex] = { ...call, toolResultText: item.text, toolResultTime: item.time, toolResultError: item.toolResultError, toolResultDiff: item.toolResultDiff };
+      paired[callIndex] = { ...call, toolResultText: item.text, toolResultTime: item.time, toolResultError: item.toolResultError, toolResultDiff: item.toolResultDiff, ...(item.domainCard ? { domainCard: item.domainCard } : {}) };
     } else if (item.toolCallId) {
       pendingResults.set(item.toolCallId, item);
     } else {

@@ -4,6 +4,8 @@ import { isFilePath, type DshHistoryEntry, type DshMessageAnnotationItem, type D
 import { MarkdownContent } from "../lib/markdown";
 import { PopupDialog } from "./PopupDialog";
 import { TrajectoryView } from "./TrajectoryView";
+import { toolDomainCard, type ToolDomainCard } from "../app/tool-domain";
+import { entityHost } from "../lib/message-entities";
 import { isWithinSelector, TRANSCRIPT_CONTEXT_MENU_SELECTOR, TRANSCRIPT_TEXT_SELECTOR } from "../app/context-menu";
 import { useFloatingMenuPosition } from "../app/useFloatingMenuPosition";
 import {
@@ -97,6 +99,65 @@ function formatToolCall(text: string) {
   }
 }
 
+function SearchSourcesCard({ card, onOpenUrl }: { card: Extract<ToolDomainCard, { domain: "search" }>; onOpenUrl: (url: string) => void | Promise<void> }) {
+  const [error, setError] = useState("");
+  const [opening, setOpening] = useState<string | null>(null);
+  async function open(url: string) {
+    setOpening(url);
+    setError("");
+    try {
+      await onOpenUrl(url);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setOpening(null);
+    }
+  }
+  return <div className="tool-domain-card search-domain-card" aria-label="Web 搜索结果">
+    <div className="tool-domain-head"><strong>Web 搜索</strong><span>{card.query || "搜索结果"}</span></div>
+    {card.answer && <p className="search-answer">{card.answer}</p>}
+    {card.sources.length > 0 && <ul className="search-source-list">
+      {card.sources.map((source) => (
+        <li className="search-source" key={source.url}>
+          <button type="button" className="search-source-open" disabled={opening === source.url} onClick={() => void open(source.url)} title={`打开 ${source.url}`}>
+            <span className="search-source-title">{source.title || entityHost(source.url)}</span>
+            <small>{source.url}</small>
+            {source.publishedAt && <em>{source.publishedAt}</em>}
+            {source.snippet && <p>{source.snippet}</p>}
+          </button>
+        </li>
+      ))}
+    </ul>}
+    {card.truncated && <p className="search-domain-note">结果已截断，可细化查询获取更多来源。</p>}
+    {error && <p className="search-domain-note error">{error}</p>}
+  </div>;
+}
+
+function WebFetchCard({ card, onOpenUrl }: { card: Extract<ToolDomainCard, { domain: "fetch" }>; onOpenUrl: (url: string) => void | Promise<void> }) {
+  const url = card.url ?? card.title;
+  return <div className="tool-domain-card fetch-domain-card" aria-label="Web 抓取">
+    <div className="tool-domain-head"><strong>Web 抓取</strong>{typeof card.statusCode === "number" && <span>HTTP {card.statusCode}</span>}</div>
+    <div className="fetch-domain-target"><strong>{entityHost(url)}</strong><small>{url}</small></div>
+    {card.truncated && <p className="search-domain-note">内容已截断。</p>}
+    {card.url && <div className="fetch-domain-actions"><button type="button" onClick={() => void onOpenUrl(card.url!)}>打开</button></div>}
+  </div>;
+}
+
+function SkillLoadCard({ card }: { card: Extract<ToolDomainCard, { domain: "skill" }> }) {
+  return <div className="tool-domain-card skill-domain-card" aria-label="Skill 加载">
+    <div className="tool-domain-head"><strong>Skill</strong><span>加载到上下文</span></div>
+    <code className="skill-domain-name">{card.name}</code>
+    <p className="skill-domain-note">指令已注入模型上下文，本条为加载记录。</p>
+  </div>;
+}
+
+/** Render one official tool-domain card from the presentation view. */
+function ToolDomainCardView({ card, onOpenUrl }: { card: ToolDomainCard; onOpenUrl: (url: string) => void | Promise<void> }) {
+  if (card.domain === "search") return <SearchSourcesCard card={card} onOpenUrl={onOpenUrl} />;
+  if (card.domain === "fetch") return <WebFetchCard card={card} onOpenUrl={onOpenUrl} />;
+  return <SkillLoadCard card={card} />;
+}
+
 // Value equality for the fields that affect how a transcript article renders.
 // The transcript is rebuilt on every streamed delta, so items get fresh object
 // identities even when their content is unchanged; these helpers let the memo
@@ -125,6 +186,10 @@ function sameStats(left: MessageStats | undefined, right: MessageStats | undefin
     && left.tokensPerSecond === right.tokensPerSecond;
 }
 
+function sameDomainCard(left: ToolDomainCard | undefined, right: ToolDomainCard | undefined) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 function sameItemFields(left: TranscriptItem, right: TranscriptItem) {
   if (left === right) return true;
   return left.kind === right.kind
@@ -150,7 +215,8 @@ function sameItemFields(left: TranscriptItem, right: TranscriptItem) {
     && left.streaming === right.streaming
     && left.workflow === right.workflow
     && sameImages(left.images, right.images)
-    && sameStats(left.stats, right.stats);
+    && sameStats(left.stats, right.stats)
+    && sameDomainCard(left.domainCard, right.domainCard);
 }
 
 function DiffResult({ diff }: { diff: DiffSummary }) {
@@ -404,6 +470,7 @@ function TranscriptArticleView({
               <span className="tool-toggle" aria-hidden="true" />
             </summary>
             <div className="tool-parts">
+              {item.domainCard && <section className="tool-part tool-domain-part"><div className="tool-part-label"><span>领域视图</span></div><ToolDomainCardView card={item.domainCard} onOpenUrl={onOpenUrl} /></section>}
               <section className="tool-part tool-call-part"><div className="tool-part-label"><span>调用参数</span><time>{formatClock(item.time)}</time></div><pre className="tool-call-arguments">{formatToolCall(item.text)}</pre>{item.toolDiff && <DiffResult diff={item.toolDiff} />}</section>
               {hasToolResult && <section className={`tool-part tool-result-part ${item.toolResultError ? "tool-result-error" : ""}`}><div className="tool-part-label"><span>执行结果</span><time>{formatClock(item.toolResultTime)}</time></div>{item.toolResultDiff && <DiffResult key={`${item.key}-diff-${item.toolResultTime ?? "result"}`} diff={item.toolResultDiff} />}{item.toolResultText !== undefined && <pre>{item.toolResultText}</pre>}</section>}
             </div>

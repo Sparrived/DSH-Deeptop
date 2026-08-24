@@ -6,6 +6,7 @@ import type {
   DshSubagentAddress,
   DshSubagentCatalog,
 } from "../lib/desktop";
+import type { ToolDomainCard } from "./tool-domain";
 
 export type PromptMode = "queue" | "steer";
 export type ModelMenuPane = "root" | "model" | "effort";
@@ -93,6 +94,8 @@ export type TranscriptItem = {
   toolResultError?: boolean;
   toolDiff?: DiffSummary;
   toolResultDiff?: DiffSummary;
+  /** Official tool-presentation domain card (search/fetch/skill), when emitted. */
+  domainCard?: ToolDomainCard;
   source?: string;
   contextRole?: "inject" | "recall";
   contextForm?: "instructions" | "catalog" | "snapshot" | "notice" | "relay" | "recall" | null;
