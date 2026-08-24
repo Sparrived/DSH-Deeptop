@@ -2026,6 +2026,23 @@ function AppContent() {
     setNotice(`正在打开 ${subagentDisplayName(_entry, 0)}`);
   }
 
+  /** Workflow 成员卡：childId 即子 session，作为 one-shot 子代理打开执行抽屉。 */
+  function openWorkflowChild(childId: string, label: string) {
+    const parentSessionId = activeSessionRef.current;
+    if (!parentSessionId) {
+      setErrorNotice("当前没有活动会话，无法打开 Workflow 成员");
+      return;
+    }
+    setSubagentDockOpen(true);
+    setSubagentPanelOpen(true);
+    void openSubagent({
+      parentSessionId,
+      childSessionId: childId,
+      mode: "one-shot",
+    });
+    setNotice(`正在打开成员 ${label} 的执行记录`);
+  }
+
   function toggleSubagentDock() {
     setSubagentPanelOpen(false);
     setSubagentDockOpen((open) => !open);
@@ -4651,6 +4668,7 @@ function AppContent() {
                retryingMessageSeq={retryingMessageSeq}
               onForkSession={forkSession}
                onOpenUrl={openMessageUrl}
+               onOpenWorkflowMember={openWorkflowChild}
                              onOpenSessionPath={openSessionPath}
             />}
             <TokenUsageDashboard

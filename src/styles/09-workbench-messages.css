@@ -961,9 +961,16 @@
   padding: 4px 7px;
   border: 1px solid var(--line);
   border-radius: 5px;
+  background: transparent;
   color: var(--ink-muted);
   font-size: 12px;
+  font-family: inherit;
+  cursor: default;
 }
+
+.workflow-member.navigable { cursor: pointer; }
+.workflow-member.navigable:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-deep); }
+.workflow-member:disabled { opacity: 0.7; }
 
 .workflow-member i { width: 6px; height: 6px; }
 .workflow-empty { color: var(--ink-faint); font-size: 13px; }

@@ -55,6 +55,8 @@ type ConversationTranscriptProps = {
   onForkSession: (sessionId: string, seq?: number) => void | Promise<void>;
   onOpenSessionPath: (path: string) => void | Promise<void>;
   onOpenUrl: (url: string) => void | Promise<void>;
+  /** Open a workflow member's child session (childId → subagent history). */
+  onOpenWorkflowMember?: (childId: string, label: string) => void | Promise<void>;
 };
 
 function diffTextLines(text: string) {
@@ -354,6 +356,7 @@ type TranscriptArticleProps = {
   onOpenPath: (path: string) => void | Promise<void>;
   onCheckPath: (path: string) => Promise<boolean>;
   onOpenUrl: (url: string) => void | Promise<void>;
+  onOpenWorkflowMember?: (childId: string, label: string) => void | Promise<void>;
 };
 
 function TranscriptArticleView({
@@ -373,6 +376,7 @@ function TranscriptArticleView({
   onOpenPath,
   onCheckPath,
   onOpenUrl,
+  onOpenWorkflowMember,
 }: TranscriptArticleProps) {
   const diff = activeDiff(item);
   const hasToolResult = item.toolResultText !== undefined || item.toolResultDiff !== undefined || item.toolState === "result";
@@ -409,7 +413,18 @@ function TranscriptArticleView({
         ) : item.kind === "workflow" ? (
           <details className="workflow-entry" open={item.workflow?.status === "running"}>
             <summary><span className={`workflow-status ${item.workflow?.status ?? "running"}`} />{item.workflow?.name || item.text}<em>{item.workflow ? workflowStatusLabel(item.workflow.status) : "Workflow"}</em></summary>
-            <div className="workflow-body">{item.workflow?.phases.length ? item.workflow.phases.map((phase, phaseIndex) => <div className="workflow-phase" key={`${item.key}-phase-${phaseIndex}`}><strong>{phase.phase || "未命名阶段"}</strong><div>{phase.members.map((member) => <span className={`workflow-member ${member.status}`} key={`${member.childId}-${member.label}`}><i />{member.label}</span>)}</div></div>) : <span className="workflow-empty">暂无成员状态</span>}</div>
+            <div className="workflow-body">{item.workflow?.phases.length ? item.workflow.phases.map((phase, phaseIndex) => <div className="workflow-phase" key={`${item.key}-phase-${phaseIndex}`}><strong>{phase.phase || "未命名阶段"}</strong><div>{phase.members.map((member) => {
+              const childId = member.childId;
+              const navigable = Boolean(childId && onOpenWorkflowMember);
+              return <button
+                className={`workflow-member ${member.status}${navigable ? " navigable" : ""}`}
+                type="button"
+                key={`${member.childId}-${member.label}`}
+                onClick={() => { if (childId && onOpenWorkflowMember) onOpenWorkflowMember(childId, member.label); }}
+                title={navigable ? `打开子会话 ${childId.slice(0, 8)}…` : undefined}
+                disabled={!navigable}
+              ><i />{member.label}</button>;
+            })}</div></div>) : <span className="workflow-empty">暂无成员状态</span>}</div>
           </details>
         ) : item.injected ? (
           <details className="injected-entry">
@@ -499,6 +514,7 @@ export function ConversationTranscript({
   onForkSession,
   onOpenSessionPath,
   onOpenUrl,
+  onOpenWorkflowMember,
 }: ConversationTranscriptProps) {
   const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null);
 
@@ -612,6 +628,7 @@ export function ConversationTranscript({
                onOpenPath={onOpenSessionPath}
                onCheckPath={checkPath}
                onOpenUrl={onOpenUrl}
+              onOpenWorkflowMember={onOpenWorkflowMember}
             />
           ))}
           {(loading || activeRunning) && <WorkingIndicator settings={workingIndicator} />}
