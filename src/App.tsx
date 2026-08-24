@@ -291,47 +291,53 @@ type PopupRequest =
     };
 
 function WindowCloseBehaviorDialog({
+  locale,
   onClose,
   onSelect,
 }: {
+  locale: UiLocale;
   onClose: () => void;
   onSelect: (behavior: Exclude<CloseBehavior, "ask">) => void;
 }) {
   return <PopupDialog
-    title="关闭 Deeptop"
+    locale={locale}
+    title={t("dialog.closeBehavior.title", locale)}
     eyebrow="DSH / 窗口行为"
-    description="这是第一次关闭窗口，请选择之后关闭按钮的默认行为。你仍可在设置的“通用”中修改。"
+    description={t("dialog.closeBehavior.description", locale)}
     className="popup-close-behavior-dialog"
     role="alertdialog"
     onClose={onClose}
-    footer={<><button type="button" onClick={onClose}>取消</button><button type="button" onClick={() => onSelect("hide-to-tray")}>后台运行</button><button type="button" className="confirm" onClick={() => onSelect("exit")}>退出程序</button></>}
+    footer={<><button type="button" onClick={onClose}>{t("common.cancel", locale)}</button><button type="button" onClick={() => onSelect("hide-to-tray")}>{t("dialog.closeBehavior.hide", locale)}</button><button type="button" className="confirm" onClick={() => onSelect("exit")}>{t("dialog.closeBehavior.exit", locale)}</button></>}
   >
-    <div className="close-behavior-options"><div className="close-behavior-option"><strong>后台运行</strong><span>隐藏窗口到系统托盘，DSH 任务继续运行。</span></div><div className="close-behavior-option"><strong>退出程序</strong><span>关闭 Deeptop 和后台运行中的 DSH。</span></div></div>
+    <div className="close-behavior-options"><div className="close-behavior-option"><strong>{t("dialog.closeBehavior.hide", locale)}</strong><span>{t("dialog.closeBehavior.hideHint", locale)}</span></div><div className="close-behavior-option"><strong>{t("dialog.closeBehavior.exit", locale)}</strong><span>{t("dialog.closeBehavior.exitHint", locale)}</span></div></div>
   </PopupDialog>;
 }
 
 function DshConflictDialog({
+  locale,
   conflict,
   busy,
   onClose,
   onTerminate,
 }: {
+  locale: UiLocale;
   conflict: NonNullable<DshStatus["processConflict"]>;
   busy: boolean;
   onClose: () => void;
   onTerminate: () => void;
 }) {
   return <PopupDialog
-    title="检测到同一 DSH_HOME 正被其他 DSH 使用"
+    locale={locale}
+    title={t("dialog.conflict.title", locale)}
     eyebrow="DSH / 进程冲突"
-    description={`检测到同一 DSH_HOME 正被其他 DSH 使用：${conflict.dshHome}。为避免 Session 日志和配置同时写入，Deeptop 暂时不会启动新的 DSH。`}
+    description={t("dialog.conflict.description", locale, { home: conflict.dshHome })}
     className="popup-dsh-conflict-dialog"
     role="alertdialog"
     onClose={onClose}
-    footer={<><button type="button" disabled={busy} onClick={onClose}>暂不处理</button><button type="button" className="confirm danger-button" disabled={busy} onClick={onTerminate}>{busy ? "正在终止…" : "终止旧 DSH 并继续启动"}</button></>}
+    footer={<><button type="button" disabled={busy} onClick={onClose}>{t("dialog.conflict.later", locale)}</button><button type="button" className="confirm danger-button" disabled={busy} onClick={onTerminate}>{busy ? t("dialog.conflict.terminating", locale) : t("dialog.conflict.terminate", locale)}</button></>}
   >
     <div className="dsh-conflict-process-list">{conflict.processes.map((process) => <div className="dsh-conflict-process" key={process.pid}><strong>PID {process.pid}</strong><code>{process.commandLine}</code></div>)}</div>
-    <p className="popup-warning-copy">仅终止上面列出的 DSH 进程，不会终止其他 Node.js 进程。终止后 Deeptop 会重新启动自己的 DSH。</p>
+    <p className="popup-warning-copy">{t("dialog.conflict.warning", locale)}</p>
   </PopupDialog>;
 }
 
@@ -373,8 +379,14 @@ type AppearanceConfigEnvelope = {
   data: Record<string, unknown>;
 };
 
-function appearanceSectionLabel(section: AppearanceConfigSection) {
-  return section === "theme" ? "主题" : section === "background" ? "背景工作台" : section === "typography" ? "文字" : "CSS 主题";
+function appearanceSectionLabel(section: AppearanceConfigSection, locale: UiLocale) {
+  return section === "theme"
+    ? t("settings.theme", locale)
+    : section === "background"
+      ? t("settings.background", locale)
+      : section === "typography"
+        ? t("settings.typography", locale)
+        : t("settings.css", locale);
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
@@ -628,7 +640,7 @@ function AppContent() {
 
   const loadImageAttachment = useCallback((attachmentId: string) => {
     const sessionId = activeSessionRef.current;
-    if (!sessionId) return Promise.reject(new Error("当前没有打开的会话"));
+    if (!sessionId) return Promise.reject(new Error(t("err.noOpenSession", locale)));
     const key = `${sessionId}:${attachmentId}`;
     const cached = imageAttachmentCacheRef.current.get(key);
     if (cached) return cached;
@@ -684,7 +696,7 @@ function AppContent() {
       setWindowBehavior((current) => ({ ...current, closeBehavior: behavior }));
     } catch (error) {
       await cancelWindowClose().catch(() => undefined);
-      setErrorNotice(`关闭窗口失败：${errorText(error)}`);
+      setErrorNotice(t("notice.closeWindowFailed", locale, { error: errorText(error, locale) }));
     } finally {
       closeRequestPendingRef.current = false;
     }
@@ -695,9 +707,9 @@ function AppContent() {
     setWindowBehaviorUpdating(true);
     try {
       setWindowBehavior(await setWindowBehaviorSettings(next));
-      setNotice("窗口行为设置已保存");
+      setNotice(t("notice.windowBehaviorSaved", locale));
     } catch (error) {
-      setErrorNotice(`窗口行为设置保存失败：${errorText(error)}`);
+      setErrorNotice(t("notice.windowBehaviorSaveFailed", locale, { error: errorText(error, locale) }));
     } finally {
       setWindowBehaviorUpdating(false);
     }
@@ -709,10 +721,10 @@ function AppContent() {
       const result = await setNetworkProxy(proxy);
       setNetworkProxyState(result.proxy);
       setNetworkEffective(result.effective);
-      const label = result.effective.source === "system" ? "（跟随系统代理）" : result.effective.source === "explicit" ? "（显式代理）" : "（直连）";
-      setNotice(result.applied ? `网络代理已保存并即时生效${label}` : `网络代理已保存（等待运行时加载 undici 后生效）${label}`);
+      const label = result.effective.source === "system" ? t("notice.proxyLabelSystem", locale) : result.effective.source === "explicit" ? t("notice.proxyLabelExplicit", locale) : t("notice.proxyLabelDirect", locale);
+      setNotice(result.applied ? t("notice.proxySavedLive", locale, { label }) : t("notice.proxySavedPending", locale, { label }));
     } catch (error) {
-      setErrorNotice(`网络代理设置失败：${errorText(error)}`);
+      setErrorNotice(t("notice.proxyError", locale, { error: errorText(error, locale) }));
     } finally {
       setNetworkProxyUpdating(false);
     }
@@ -759,7 +771,7 @@ function AppContent() {
     reloadThemeCss,
     openThemesDirectory,
     resetAppearance,
-  } = useAppearanceSettings({ onNotice: setNotice, onError: setErrorNotice });
+  } = useAppearanceSettings({ onNotice: setNotice, onError: setErrorNotice, locale });
   // 本地主题与 Host ui-theme 命名空间双向同步：启动采纳 Host、用户修改回写、
   // 外部修改（settings/document-updated）重新采纳。
   const { pushToHost: pushThemeToHost } = useThemeHostSync({
@@ -789,6 +801,7 @@ function AppContent() {
     onNotice: setNotice,
     onError: setErrorNotice,
     onConfirm: requestConfirm,
+    locale,
   });
   // @deeptop-pets:end app-system-hook
   const { settings: dockSettings, loaded: dockSettingsLoaded, updateSettings: updateDockSettings, pinnedDocks } = useDockSettings();
@@ -798,9 +811,9 @@ function AppContent() {
     setDockSettingsUpdating(true);
     try {
       await updateDockSettings(patch);
-      setNotice("Dock 设置已保存");
+      setNotice(t("notice.dockSettingsSaved", locale));
     } catch (error) {
-      setErrorNotice(`Dock 设置保存失败：${errorText(error)}`);
+      setErrorNotice(t("notice.dockSettingsSaveFailed", locale, { error: errorText(error, locale) }));
     } finally {
       setDockSettingsUpdating(false);
     }
@@ -811,12 +824,12 @@ function AppContent() {
     const content = JSON.stringify(envelope, null, 2);
     const fileName = `deeptop-appearance-${section}.json`;
     if (!desktop) {
-      setErrorNotice("配置导出只在 Deeptop 桌面端可用");
+      setErrorNotice(t("notice.configExportDesktopOnly", locale));
       return;
     }
     void saveExportFile(fileName, new TextEncoder().encode(content)).then((savedPath) => {
-      if (savedPath) setNotice(`已导出${appearanceSectionLabel(section)}配置`);
-    }).catch((error) => setErrorNotice(`导出失败：${errorText(error)}`));
+      if (savedPath) setNotice(t("notice.configExported", locale, { section: appearanceSectionLabel(section, locale) }));
+    }).catch((error) => setErrorNotice(t("notice.exportFailed", locale, { error: errorText(error, locale) })));
   }
 
   function exportAppearanceConfig() {
@@ -826,7 +839,7 @@ function AppContent() {
   }
 
   function normalizeImportedBackgrounds(value: unknown) {
-    if (!value || typeof value !== "object") throw new Error("背景配置格式无效");
+    if (!value || typeof value !== "object") throw new Error(t("err.backgroundInvalid", locale));
     const source = value as Record<string, unknown>;
     const next = { ...appearance.backgrounds };
     for (const zone of backgroundZones) {
@@ -843,16 +856,16 @@ function AppContent() {
 
   async function importAppearanceConfig(file: File | undefined) {
     if (!file) return;
-    if (file.size > 8_000_000) { setErrorNotice("配置文件过大，请选择 8 MB 以内的 JSON 文件"); return; }
+    if (file.size > 8_000_000) { setErrorNotice(t("notice.configTooLarge", locale)); return; }
     try {
       const parsed = JSON.parse(await file.text()) as Partial<AppearanceConfigEnvelope>;
-      if (parsed.kind !== "deeptop-appearance-config" || parsed.version !== 1 || parsed.section !== appearanceSection || !parsed.data || typeof parsed.data !== "object") throw new Error(`这不是当前“${appearanceSectionLabel(appearanceSection)}”子页面的配置文件`);
+      if (parsed.kind !== "deeptop-appearance-config" || parsed.version !== 1 || parsed.section !== appearanceSection || !parsed.data || typeof parsed.data !== "object") throw new Error(`${t("notice.configSectionMismatch", locale, { section: appearanceSectionLabel(appearanceSection, locale) })}`);
       const data = parsed.data as Record<string, unknown>;
       if (appearanceSection === "theme") {
         const nextMode = data.themeMode === "light" || data.themeMode === "dark" || data.themeMode === "system" ? data.themeMode : null;
         const nextTheme = data.appTheme === "one-dark" || data.appTheme === "monokai-pro" || data.appTheme === "custom" ? data.appTheme : null;
         const nextPath = typeof data.themeCssPath === "string" && data.themeCssPath.length <= 2000 ? data.themeCssPath : "";
-        if (!nextMode || !nextTheme) throw new Error("主题配置中的明暗模式或配色方案无效");
+        if (!nextMode || !nextTheme) throw new Error(t("err.themeInvalid", locale));
         changeThemeMode(nextMode);
         setAppTheme(nextTheme);
         updateAppearance({ themeCssPath: nextPath });
@@ -868,8 +881,8 @@ function AppContent() {
         const customCss = typeof data.customCss === "string" && data.customCss.length <= 500_000 ? data.customCss : "";
         updateAppearance({ customCss, customCssName: typeof data.customCssName === "string" ? data.customCssName.slice(0, 200) : "", customCssEnabled: data.customCssEnabled === true && Boolean(customCss) });
       }
-      setNotice(`已应用${appearanceSectionLabel(appearanceSection)}配置：${file.name}`);
-    } catch (error) { setErrorNotice(`导入失败：${errorText(error)}`); }
+      setNotice(t("notice.configApplied", locale, { section: appearanceSectionLabel(appearanceSection, locale), name: file.name }));
+    } catch (error) { setErrorNotice(t("notice.configImportFailed", locale, { error: errorText(error, locale) })); }
   }
   function resetAppearanceSection() {
     if (appearanceSection === "theme") {
@@ -883,7 +896,7 @@ function AppContent() {
     } else {
       updateAppearance({ customCss: "", customCssName: "", customCssEnabled: false });
     }
-    setNotice(`已恢复${appearanceSectionLabel(appearanceSection)}默认`);
+    setNotice(t("notice.configReset", locale, { section: appearanceSectionLabel(appearanceSection, locale) }));
   }
 
   const providerSettings = useProviderSettings({
@@ -894,6 +907,7 @@ function AppContent() {
     onError: setErrorNotice,
     onConfirm: requestConfirm,
     loadRuntimeDetails,
+    locale,
   });
   const activeSession = sessions.find((session) => session.sessionId === activeSessionId);
   const activeRunning = Boolean(activeSession?.running);
@@ -903,7 +917,7 @@ function AppContent() {
   // @deeptop-pets:start app-activity-projection
   const petSessions = useMemo(() => sessions.map((session) => ({
     sessionId: session.sessionId,
-    title: displayTitle(session),
+    title: displayTitle(session, locale),
     running: session.running,
     updatedAt: session.updatedAt,
   })), [sessions]);
@@ -917,7 +931,7 @@ function AppContent() {
         id: `${kind}:${session.sessionId}:${session.updatedAt}`,
         sessionId: session.sessionId,
         kind,
-        title: displayTitle(session),
+        title: displayTitle(session, locale),
         message: "",
         updatedAt: session.updatedAt,
         previewLoaded: false,
@@ -1022,7 +1036,7 @@ function AppContent() {
 
   useEffect(() => {
     if (!desktop) return;
-    void getWindowBehaviorSettings().then(normalizeWindowBehavior).then(setWindowBehavior).catch((error) => setErrorNotice(`读取窗口行为设置失败：${errorText(error)}`));
+    void getWindowBehaviorSettings().then(normalizeWindowBehavior).then(setWindowBehavior).catch((error) => setErrorNotice(t("notice.windowBehaviorReadFailed", locale, { error: errorText(error, locale) })));
     void getNetworkProxy().then((snapshot) => {
       setNetworkProxyState(snapshot.explicit);
       setNetworkEffective(snapshot.effective);
@@ -1060,7 +1074,7 @@ function AppContent() {
       const expectedRelease = updateDownloadReleaseRef.current;
       if (progress.releaseTag && (!expectedRelease || progress.releaseTag !== expectedRelease)) return;
       if (!progress.releaseTag && (progress.phase === "failed" || progress.phase === "cancelled") && !expectedRelease) return;
-      setUpdateDownloadState(updateDownloadStateFromEvent(progress));
+      setUpdateDownloadState(updateDownloadStateFromEvent(progress, locale));
     }).then((cleanup) => { unlisten = cleanup; });
     return () => { unlisten?.(); };
   }, [desktop]);
@@ -1216,8 +1230,8 @@ function AppContent() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [renameTarget]);
 
-  const transcript = useMemo(() => transcriptFromHistory(history), [history]);
-  const subagentTranscript = useMemo(() => subagentSession ? transcriptFromHistory(subagentSession.history) : [], [subagentSession]);
+  const transcript = useMemo(() => transcriptFromHistory(history, locale), [history, locale]);
+  const subagentTranscript = useMemo(() => subagentSession ? transcriptFromHistory(subagentSession.history, locale) : [], [subagentSession, locale]);
   const turnTiming = useMemo(() => turnTimingFromHistory(history), [history]);
   // 会话运行时间：首个事件到最后一个事件（会话运行中则以当前时间延伸，随 jobNow 每秒刷新）。
   const sessionRunningMs = useMemo(
@@ -1295,12 +1309,12 @@ function AppContent() {
     pendingSessionIds,
     activeSessionId,
     workspaceTitles: trayWorkspaceTitles,
-  }), [activeSessionId, archivedSessionIds, pendingSessionIds, sessionIndicators, sessions, trayWorkspaceTitles]);
+  }, locale), [activeSessionId, archivedSessionIds, pendingSessionIds, sessionIndicators, sessions, trayWorkspaceTitles, locale]);
 
   useEffect(() => {
     if (!desktop) return;
     void updateTraySessionMenu(traySessionMenu).catch((error) => {
-      setErrorNotice(`更新系统托盘失败：${errorText(error)}`);
+      setErrorNotice(t("notice.trayUpdateFailed", locale, { error: errorText(error, locale) }));
     });
   }, [desktop, setErrorNotice, traySessionMenu]);
 
@@ -1386,9 +1400,9 @@ function AppContent() {
   }, [defaultPermission, draftPermission, permissionOptions]);
   const composerPermissions = activeSessionId ? permissionSelect : newSessionPermissionSelect;
   const defaultModelName = useMemo(() => {
-    if (!defaultModelSelection) return "默认模型";
+    if (!defaultModelSelection) return t("modelPicker.defaultModel", locale);
     return hostModels?.groups.find((group) => group.id === defaultModelSelection.provider)?.models.find((model) => model.id === defaultModelSelection.model)?.name ?? defaultModelSelection.model;
-  }, [defaultModelSelection, hostModels]);
+  }, [defaultModelSelection, hostModels, locale]);
   const pendingModelSelection = draftModelSelection ?? defaultModelSelection;
   const composerModels = !activeSessionId && hostModels && pendingModelSelection
     ? {
@@ -1398,7 +1412,7 @@ function AppContent() {
       routable: true,
     } satisfies DshSessionModels
     : models;
-  const composerModelGroups = composerModels ? modelPickerGroups(composerModels) : [];
+  const composerModelGroups = composerModels ? modelPickerGroups(composerModels, locale) : [];
   const selectedModelSupportsImages = modelSupportsImages(
     composerModelGroups.find((group) => group.id === composerModels?.current.provider)
       ?.models.find((model) => model.id === composerModels?.current.model),
@@ -1423,12 +1437,12 @@ function AppContent() {
   const selectedReasoningLabel = selectedReasoning === undefined
     ? undefined
     : selectedReasoningEffort === undefined
-      ? "默认"
+      ? t("reasoning.default", locale)
       : selectedReasoning.efforts.find((effort) => effort.id === selectedReasoningEffort)?.name ?? selectedReasoningEffort;
   const reasoningChoices: Array<{ key: string; id?: string; name: string; description?: string }> = selectedReasoning === undefined
     ? []
     : [
-      ...(selectedReasoning.defaultEffort === undefined ? [{ key: "provider-default", name: "默认" }] : []),
+      ...(selectedReasoning.defaultEffort === undefined ? [{ key: "provider-default", name: t("reasoning.default", locale) }] : []),
       ...selectedReasoning.efforts.map((effort) => ({ key: `effort:${effort.id}`, id: effort.id, name: effort.name, description: effort.description })),
     ];
 
@@ -1539,7 +1553,7 @@ function AppContent() {
         .slice(0, 8)
         .map((entry) => {
           const label = entry.label?.trim() || entry.id;
-          return { kind: "subagent" as const, id: entry.id, label: `@${label}`, detail: `${subagentModeLabel(entry.mode)} · ${subagentActivityLabel(entry.activity)}`, insertText: `@${label}` };
+          return { kind: "subagent" as const, id: entry.id, label: `@${label}`, detail: `${subagentModeLabel(entry.mode, locale)} · ${subagentActivityLabel(entry.activity, locale)}`, insertText: `@${label}` };
         });
       return [...referenceMatches, ...subagentMatches].slice(0, 8);
     }
@@ -1571,7 +1585,7 @@ function AppContent() {
       if (controller.signal.aborted || requestId !== referenceRequestRef.current) return;
       const fileItems = files.status === "fulfilled" ? files.value.items : [];
       const sessionItems = sessions.status === "fulfilled" ? sessions.value.items : [];
-      setReferenceCandidates(referenceComposerCandidates(fileItems, sessionItems, trigger.quoted === true));
+      setReferenceCandidates(referenceComposerCandidates(fileItems, sessionItems, trigger.quoted === true, locale));
     });
     return () => { controller.abort(); };
   }, [activeSessionId, composerTrigger, capabilityFeatures.references]);
@@ -1601,7 +1615,7 @@ function AppContent() {
   }
 
   function addPlugin(draft: PluginInstallDraft): string | null {
-    if (!desktop) return "添加插件只在 Tauri 桌面端可用。";
+    if (!desktop) return t("err.addPluginDesktopOnly", locale);
     setPluginConfigDraft((current) => [...current, {
       id: draft.id,
       name: draft.name,
@@ -1610,7 +1624,7 @@ function AppContent() {
       compatibility: { supported: true },
     }]);
     setPluginInstallOpen(false);
-    setNotice(`已添加插件：${draft.id}，保存列表后即可应用`);
+    setNotice(t("notice.pluginAdded", locale, { draft: draft.id }));
     return null;
   }
 
@@ -1620,7 +1634,7 @@ function AppContent() {
     try {
       return await pickPluginEntry();
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
       return null;
     } finally {
       setPluginPickingEntry(false);
@@ -1636,10 +1650,10 @@ function AppContent() {
         plugins: pluginConfigDraft.map(({ id, name, enabled }) => ({ id, name, enabled })),
       });
       applyPluginConfig(result);
-      setNotice("插件列表已保存，重启 Deeptop 后生效");
+      setNotice(t("notice.pluginsSavedRestart", locale));
       return true;
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
       return false;
     } finally {
       setPluginConfigSaving(false);
@@ -1763,11 +1777,11 @@ function AppContent() {
         }
       }
       if (workspaceVersion === workspaceRequestRef.current) {
-        if (repair.attached > 0 && repair.rejected === 0) setNotice(`已将 ${repair.attached} 个历史会话登记到对应工作区`);
+        if (repair.attached > 0 && repair.rejected === 0) setNotice(t("notice.repairAttached", locale, { count: repair.attached }));
         else if (repair.rejected > 0) {
           const message = repair.attached > 0
-            ? `已登记 ${repair.attached} 个历史会话，另有 ${repair.rejected} 个因工作区目录不可用未能分组：${repair.reason ?? ""}`
-            : `有 ${repair.rejected} 个会话因工作区目录不可用未能分组：${repair.reason ?? ""}`;
+            ? t("notice.repairPartial", locale, { attached: repair.attached, rejected: repair.rejected, reason: repair.reason ?? "" })
+            : t("notice.repairNone", locale, { rejected: repair.rejected, reason: repair.reason ?? "" });
           if (message !== workspaceRepairNoticeRef.current) {
             workspaceRepairNoticeRef.current = message;
             setErrorNotice(message);
@@ -1793,7 +1807,7 @@ function AppContent() {
     if (pluginConfigResult.status === "fulfilled") applyPluginConfig(pluginConfigResult.value);
     if (capabilityResult.status === "fulfilled") {
       setCapabilities(capabilityResult.value);
-      const noticeText = capabilityNotice(capabilityResult.value);
+      const noticeText = capabilityNotice(capabilityResult.value, locale);
       if (noticeText) setNotice(noticeText);
     }
   }
@@ -1803,7 +1817,7 @@ function AppContent() {
     try {
       setSubagents(await desktopRequest("subagent.list", { parentSessionId }));
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
@@ -1824,7 +1838,7 @@ function AppContent() {
         setSubagentCatalogs((current) => ({ ...current, [treeKey]: catalog }));
       })
       .catch((error) => {
-        setSubagentBranchErrors((current) => ({ ...current, [treeKey]: errorText(error) }));
+        setSubagentBranchErrors((current) => ({ ...current, [treeKey]: errorText(error, locale) }));
         setSubagentCatalogs((current) => {
           const next = { ...current };
           delete next[treeKey];
@@ -1930,7 +1944,7 @@ function AppContent() {
         if (pluginConfigResult.status === "fulfilled") applyPluginConfig(pluginConfigResult.value);
       }
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     } finally {
       setSurfaceLoading(false);
     }
@@ -1947,7 +1961,7 @@ function AppContent() {
     if (!preset) return;
     setNextPreset(id);
     setPresetMenuOpen(false);
-    setNotice(`下一个会话将使用 ${presetDisplayName(id, presets)}`);
+    setNotice(t("notice.nextSessionPreset", locale, { presetDisplayName_id__presets_: presetDisplayName(id, presets, locale) }));
   }
 
   async function setDefaultPreset(id: string) {
@@ -1957,9 +1971,9 @@ function AppContent() {
       await desktopRequest("settings.update", { ns: "agent-presets", patch: { default: id } });
       setNextPreset("");
       await loadRuntimeDetails();
-      setNotice(`${presetDisplayName(id, presets)} 已设为新会话默认值`);
+      setNotice(t("notice.presetDefault", locale, { presetDisplayName_id__presets_: presetDisplayName(id, presets, locale) }));
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
@@ -1968,7 +1982,7 @@ function AppContent() {
       const result = await desktopRequest("agentPreset.read", { agentPreset: id });
       setPresetView({ id: result.agentPreset, content: result.content });
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
@@ -1976,11 +1990,11 @@ function AppContent() {
     if (!presetCopy || !presetAuthorable) return;
     const id = presetCopy.id.trim();
     if (!/^[a-z0-9][a-z0-9-]*$/.test(id)) {
-      setNotice("Preset id 只能使用小写字母、数字与连字符，且以字母或数字开头");
+      setNotice(t("notice.presetIdInvalid", locale));
       return;
     }
     if (presets.some((preset) => preset.id === id)) {
-      setNotice("该 Preset id 已被占用");
+      setNotice(t("notice.presetIdTaken", locale));
       return;
     }
     try {
@@ -1992,18 +2006,18 @@ function AppContent() {
       setPresetCopy(null);
       await loadRuntimeDetails();
       await openPresetDocument(id);
-      setNotice("Agent Preset 已复制");
+      setNotice(t("notice.presetCopied", locale));
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
   async function openPresetDocument(id: string) {
     try {
       const result = await desktopRequest("agentPreset.openDocument", { agentPreset: id });
-      setNotice(result.opened ? "已打开 Preset 文件夹" : `Preset 文件夹：${result.path}`);
+      setNotice(result.opened ? t("notice.presetFolderOpened", locale) : t("notice.presetFolderPath", locale, { path: result.path }));
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
@@ -2019,7 +2033,7 @@ function AppContent() {
       setSubagentSession({ address, history: result.events });
     } catch (error) {
       if (requestId !== subagentRequestRef.current) return;
-      const message = errorText(error);
+      const message = errorText(error, locale);
       setSubagentLoadError(message);
       setErrorNotice(message);
     } finally {
@@ -2040,7 +2054,7 @@ function AppContent() {
       childSessionId: entry.id,
       mode: entry.mode,
     });
-    setNotice(`正在打开 ${subagentDisplayName(entry, index)}`);
+    setNotice(t("notice.openingSubagent", locale, { name: subagentDisplayName(entry, index, locale) }));
   }
 
   /** 打开任意深度的子 Agent：直接父由树行携带，父会话存活时用官方地址。 */
@@ -2053,14 +2067,14 @@ function AppContent() {
       childSessionId,
       mode: _entry.mode,
     });
-    setNotice(`正在打开 ${subagentDisplayName(_entry, 0)}`);
+    setNotice(t("notice.openingSubagent", locale, { name: subagentDisplayName(_entry, 0, locale) }));
   }
 
   /** Workflow 成员卡：childId 即子 session，作为 one-shot 子代理打开执行抽屉。 */
   function openWorkflowChild(childId: string, label: string) {
     const parentSessionId = activeSessionRef.current;
     if (!parentSessionId) {
-      setErrorNotice("当前没有活动会话，无法打开 Workflow 成员");
+      setErrorNotice(t("notice.workflowMemberNoSession", locale));
       return;
     }
     setSubagentDockOpen(true);
@@ -2070,7 +2084,7 @@ function AppContent() {
       childSessionId: childId,
       mode: "one-shot",
     });
-    setNotice(`正在打开成员 ${label} 的执行记录`);
+    setNotice(t("notice.openingWorkflowMember", locale, { label: label }));
   }
 
   function toggleSubagentDock() {
@@ -2087,9 +2101,9 @@ function AppContent() {
         clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
       setSubagentComposer("");
-      setNotice("已发送给子 Agent");
+      setNotice(t("notice.subagentSent", locale));
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
@@ -2097,9 +2111,9 @@ function AppContent() {
     if (address.mode !== "continuable") return;
     try {
       await desktopRequest("subagent.interrupt", { ...address });
-      setNotice("已请求停止子 Agent");
+      setNotice(t("notice.subagentInterruptRequested", locale));
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
@@ -2118,7 +2132,7 @@ function AppContent() {
     if (!activeSessionId || !goalDraft.trim() || goalPanelBusy) return;
     const maxGoalRounds = goalMaxRoundsDraft.trim() ? Number(goalMaxRoundsDraft) : undefined;
     if (maxGoalRounds !== undefined && (!Number.isSafeInteger(maxGoalRounds) || maxGoalRounds < 1)) {
-      setErrorNotice("最大回合数必须是大于 0 的整数");
+      setErrorNotice(t("notice.goalRoundsInvalid", locale));
       return;
     }
     setGoalPanelBusy(true);
@@ -2128,9 +2142,9 @@ function AppContent() {
       setGoalMaxRoundsDraft("");
       await loadSurface("goal");
       setGoalPanelOpen(false);
-      setNotice("Goal 已创建");
+      setNotice(t("notice.goalCreated", locale));
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     } finally {
       setGoalPanelBusy(false);
     }
@@ -2144,11 +2158,11 @@ function AppContent() {
       if (action === "edit") {
         const maxGoalRounds = Number(goalMaxRoundsDraft);
         if (!goalDraft.trim()) {
-          setErrorNotice("Goal 目标不能为空");
+          setErrorNotice(t("notice.goalObjectiveEmpty", locale));
           return;
         }
         if (!Number.isSafeInteger(maxGoalRounds) || maxGoalRounds < 1) {
-          setErrorNotice("最大回合数必须是大于 0 的整数");
+          setErrorNotice(t("notice.goalRoundsInvalid", locale));
           return;
         }
         await desktopRequest("goal.edit", { sessionId: activeSessionId, ref, objective: goalDraft.trim(), maxGoalRounds });
@@ -2163,9 +2177,9 @@ function AppContent() {
         setGoalDraft("");
         setGoalMaxRoundsDraft("");
       }
-      setNotice(`Goal 已${action === "clear" ? "清除" : "更新"}`);
+      setNotice(t("notice.goalMutated", locale, { action: action === "clear" ? t("notice.goalActionCleared", locale) : t("notice.goalActionUpdated", locale) }));
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     } finally {
       setGoalPanelBusy(false);
     }
@@ -2174,7 +2188,7 @@ function AppContent() {
   async function saveSettings() {
     if (!settingsDraft) return;
     try {
-      const patch = parseJsonObject(settingsDraft.value);
+      const patch = parseJsonObject(settingsDraft.value, locale);
       const ops = settingsOps(settingsDraft.original, patch, [], settingsDraft.secrets);
       if (ops.length === 0) {
         setSettingsDraft(null);
@@ -2187,9 +2201,9 @@ function AppContent() {
       });
       setSettingsDraft(null);
       await refreshSettings();
-      setNotice(`${settingsDraft.ns} 已更新`);
+      setNotice(t("notice.namespaceUpdated", locale, { ns: settingsDraft.ns }));
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
@@ -2208,9 +2222,9 @@ function AppContent() {
       });
       if (settingsDraft?.ns === ns) setSettingsDraft(null);
       await refreshSettings();
-      setNotice(`${ns} 已更新`);
+      setNotice(t("notice.namespaceUpdated", locale, { ns }));
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     } finally {
       setSettingsSaving(false);
     }
@@ -2321,8 +2335,8 @@ function AppContent() {
           ? null
           : applyTodoSnapshot(historicalTodos, projectedTodos) ?? historicalTodos;
       setTodos(mergedTodos ?? null);
-      if (modelsResult.routable) setNotice("会话已打开");
-      else setErrorNotice("当前模型路由不可用");
+      if (modelsResult.routable) setNotice(t("notice.sessionOpened", locale));
+      else setErrorNotice(t("notice.modelRouteUnavailable", locale));
       return true;
     } catch (error) {
       if (allowAutoRepair && isSessionLogCorruption(error)) {
@@ -2330,14 +2344,14 @@ function AppContent() {
         try {
           const repair = await repairCorruptSession(session.sessionId);
           if (repair.repaired) {
-            const dropped = [repair.droppedTorn > 0 ? `${repair.droppedTorn} 条未完成记录` : null, repair.droppedSeqGap > 0 ? `${repair.droppedSeqGap} 条重叠记录` : null].filter(Boolean).join("、");
-            setNotice(`已自动修复崩溃损坏的会话日志（保留 ${repair.recoveredEvents} 条已提交记录${dropped ? `，丢弃 ${dropped}` : ""}）`);
+            const dropped = [repair.droppedTorn > 0 ? t("notice.logDroppedTorn", locale, { count: repair.droppedTorn }) : null, repair.droppedSeqGap > 0 ? t("notice.logDroppedSeqGap", locale, { count: repair.droppedSeqGap }) : null].filter(Boolean).join("、");
+            setNotice(t("notice.logAutoRepaired", locale, { recovered: repair.recoveredEvents, dropped: dropped ? t("notice.logDroppedSuffix", locale, { dropped }) : "" }));
           } else {
-            setNotice("会话日志已恢复可读，正在重新打开");
+            setNotice(t("notice.logRepairedReopen", locale));
           }
         } catch (repairError) {
           setCorruptSession(session);
-          setErrorNotice(`自动修复会话日志失败：${errorText(repairError)}`);
+          setErrorNotice(t("notice.logAutoRepairFailed", locale, { repairError: errorText(repairError, locale) }));
           return false;
         }
         // 重试一次；loadRequest 守卫保证此次的 loading 状态由重试自身管理。
@@ -2366,9 +2380,9 @@ function AppContent() {
             .map((preset) => preset.id);
           setPresetMigration({ session, missingPreset: missing.missingPreset, availablePresetIds });
           setPresetMigrationSelection(availablePresetIds[0] ?? "");
-          setErrorNotice(`会话依赖的 Agent Preset “${missing.missingPreset}”已不存在。请选择替代 Preset，以迁移副本后继续。原会话不会被修改。`);
+          setErrorNotice(t("notice.presetMissing", locale, { preset: missing.missingPreset }));
         } else {
-          setErrorNotice(errorText(error));
+          setErrorNotice(errorText(error, locale));
         }
       }
       return false;
@@ -2387,15 +2401,15 @@ function AppContent() {
     try {
       const repair = await repairCorruptSession(target.sessionId);
       if (repair.repaired) {
-        const dropped = [repair.droppedTorn > 0 ? `${repair.droppedTorn} 条未完成记录` : null, repair.droppedSeqGap > 0 ? `${repair.droppedSeqGap} 条重叠记录` : null].filter(Boolean).join("、");
-        setNotice(`已修复会话日志（保留 ${repair.recoveredEvents} 条已提交记录${dropped ? `，丢弃 ${dropped}` : ""}）`);
+        const dropped = [repair.droppedTorn > 0 ? t("notice.logDroppedTorn", locale, { count: repair.droppedTorn }) : null, repair.droppedSeqGap > 0 ? t("notice.logDroppedSeqGap", locale, { count: repair.droppedSeqGap }) : null].filter(Boolean).join("、");
+        setNotice(t("notice.logRepaired", locale, { recovered: repair.recoveredEvents, dropped: dropped ? t("notice.logDroppedSuffix", locale, { dropped }) : "" }));
       } else {
-        setNotice("会话日志当前可读，正在重新打开");
+        setNotice(t("notice.logReadableReopen", locale));
       }
       setCorruptSession(null);
       void openSessionRef.current(target);
     } catch (error) {
-      setErrorNotice(`修复会话日志失败：${errorText(error)}`);
+      setErrorNotice(t("notice.logRepairFailed", locale, { error: errorText(error, locale) }));
     } finally {
       setRepairingSession(false);
     }
@@ -2412,7 +2426,7 @@ function AppContent() {
       }
       if (!session) {
         await acknowledgePendingOpenSession(sessionId);
-        setNotice("通知对应的会话已不存在");
+        setNotice(t("notice.notificationSessionGone", locale));
         return;
       }
       const opened = await openSessionRef.current(session);
@@ -2502,7 +2516,7 @@ function AppContent() {
         nextScroll.scrollTop = nextScroll.scrollHeight - previousHeight + previousTop;
       });
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     } finally {
       historyPageCache.unmarkLoading(sessionId, beforeSeq);
       historyLoadingOlderRef.current = false;
@@ -2512,7 +2526,7 @@ function AppContent() {
 
   async function handleExternalLaunch(request: ExternalLaunchRequest) {
     const path = request.cwd.trim();
-    if (!path) throw new Error("右键启动没有提供有效工作目录");
+    if (!path) throw new Error(t("err.launchWithoutWorkdir", locale));
     const known = workspacesRef.current.find((item) => sameWorkspacePath(item.path, path));
     if (known) {
       await chooseWorkspaceRef.current(known.path);
@@ -2525,7 +2539,7 @@ function AppContent() {
         : [result.workspace, ...current]);
       await syncConversationToWorkspaceRef.current(result.workspace.path);
     }
-    setNotice(`已从路径启动 Deeptop：${path}`);
+    setNotice(t("notice.launchedFromPath", locale, { path: path }));
   }
 
   async function flushPendingExternalLaunches() {
@@ -2544,7 +2558,7 @@ function AppContent() {
           await acknowledgePendingExternalLaunch(request.paths);
         } catch (error) {
           if (!externalLaunchQueueRef.current.some((item) => externalLaunchKey(item) === key)) externalLaunchQueueRef.current.push(request);
-          setErrorNotice(`右键启动失败：${errorText(error)}`);
+          setErrorNotice(t("notice.contextMenuLaunchFailed", locale, { error: errorText(error, locale) }));
         }
       }
     })();
@@ -2568,7 +2582,7 @@ function AppContent() {
     try {
       setContextMenuStatus(await getWindowsContextMenuStatus());
     } catch (error) {
-      setContextMenuStatus({ supported: false, enabled: false, managed: false, message: errorText(error) });
+      setContextMenuStatus({ supported: false, enabled: false, managed: false, message: errorText(error, locale) });
     }
   }
 
@@ -2580,7 +2594,7 @@ function AppContent() {
       setContextMenuStatus(next);
       setNotice(next.message);
     } catch (error) {
-      setErrorNotice(`更新右键启动设置失败：${errorText(error)}`);
+      setErrorNotice(t("notice.contextMenuUpdateFailed", locale, { error: errorText(error, locale) }));
       await loadContextMenuStatus();
     } finally {
       setContextMenuUpdating(false);
@@ -2589,12 +2603,12 @@ function AppContent() {
 
   async function boot() {
     if (!desktop) {
-      setNotice("浏览器预览模式");
+      setNotice(t("notice.browserPreview", locale));
       return;
     }
     try {
       setStartupLogs([]);
-      const nextStatus = await withTimeout(checkDsh(), 10_000, "DSH 检查超时，请重试");
+      const nextStatus = await withTimeout(checkDsh(), 10_000, t("notice.dshCheckTimeout", locale));
       runtimeAvailableRef.current = nextStatus.runtimeAvailable;
       seedBridgeLinkStatus(nextStatus);
       setStatus(nextStatus);
@@ -2608,7 +2622,7 @@ function AppContent() {
         await flushPendingExternalLaunches();
       }
     } catch (error) {
-      const message = errorText(error);
+      const message = errorText(error, locale);
       runtimeAvailableRef.current = false;
       setStatus((current) => ({ ...current, runtimeAvailable: false, runtimeStarting: false, message }));
       setErrorNotice(message);
@@ -2643,6 +2657,7 @@ function AppContent() {
     setSubagentPanelOpen,
     setGoal,
     setNotice,
+    locale,
     loadSubagents,
     refreshSessionStats,
     startNewSession,
@@ -2682,7 +2697,7 @@ function AppContent() {
           await flushPendingOpenSessions();
           externalLaunchBootedRef.current = true;
           await flushPendingExternalLaunches();
-        })().catch((error) => setErrorNotice(errorText(error)));
+        })().catch((error) => setErrorNotice(errorText(error, locale)));
       } else if (wasAvailable) {
         // Transitioned from available to unavailable: DSH crashed or was stopped.
         // Remember we must recover, and snapshot the active session so it can be
@@ -2700,16 +2715,16 @@ function AppContent() {
       setAppLogs((current) => [...current, log].slice(-2000));
     }).then((unlisten) => { cleanups.push(unlisten); });
     void listenToNotificationClick((sessionId) => {
-      void openNotificationSession(sessionId).catch((error) => setErrorNotice(errorText(error)));
+      void openNotificationSession(sessionId).catch((error) => setErrorNotice(errorText(error, locale)));
     }).then((unlisten) => { cleanups.push(unlisten); });
     void listenToTraySessionOpen((sessionId) => {
-      void openNotificationSession(sessionId).catch((error) => setErrorNotice(errorText(error)));
+      void openNotificationSession(sessionId).catch((error) => setErrorNotice(errorText(error, locale)));
     }).then((unlisten) => { cleanups.push(unlisten); });
     void listenToTrayNewChat(() => {
       startNewSession();
     }).then((unlisten) => { cleanups.push(unlisten); });
     void listenToSingleInstance(() => {
-      setNotice("已切换到正在运行的 Deeptop");
+      setNotice(t("notice.switchedRunning", locale));
     }).then((unlisten) => { cleanups.push(unlisten); });
     void listenToExternalLaunch((request) => {
       queueExternalLaunch(request);
@@ -2775,7 +2790,7 @@ function AppContent() {
 
   async function addWorkspace() {
     if (!desktop) {
-      setNotice("请在 Tauri 桌面端选择本地目录");
+      setNotice(t("notice.pickDirectoryDesktopOnly", locale));
       return;
     }
     try {
@@ -2784,7 +2799,7 @@ function AppContent() {
       workspaceSelectionInitializedRef.current = true;
       setWorkspace(picked);
       setWorkspaceMenuOpen(false);
-      setNotice("新会话将使用此工作目录");
+      setNotice(t("notice.workspaceApplied", locale));
       try {
         const result = await desktopRequest("workspace.create", { path: picked });
         setWorkspace(result.workspace.path);
@@ -2796,16 +2811,16 @@ function AppContent() {
         if (repair.rejected > 0) {
           // 目录刚经原生对话框选择并创建成功，拒绝说明既有会话的 cwd 归属无法确认。
           setErrorNotice(repair.attached > 0
-            ? `已登记 ${repair.attached} 个会话，另有 ${repair.rejected} 个归属无法确认：${repair.reason ?? ""}`
-            : `有 ${repair.rejected} 个会话归属无法确认：${repair.reason ?? ""}`);
-        } else if (repair.attached > 0) setNotice(`已将 ${repair.attached} 个同目录会话登记到工作区`);
+            ? t("notice.repairUnconfirmedPartial", locale, { attached: repair.attached, rejected: repair.rejected, reason: repair.reason ?? "" })
+            : t("notice.repairUnconfirmed", locale, { rejected: repair.rejected, reason: repair.reason ?? "" }));
+        } else if (repair.attached > 0) setNotice(t("notice.repairAttachedSameDir", locale, { count: repair.attached }));
         // 保持对话页面与工作区选择同步：打开新工作区的第一个会话，没有会话则显示新会话页面。
         await syncConversationToWorkspace(result.workspace.path);
       } catch {
         // A session can use a directory even when workspace registration is unavailable.
       }
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
@@ -2816,21 +2831,21 @@ function AppContent() {
     workspaceSelectionInitializedRef.current = true;
     setWorkspace(path);
     setWorkspaceMenuOpen(false);
-    setNotice(path ? "新会话将使用此工作目录" : "新会话将使用 DSH 运行目录");
+    setNotice(path ? t("notice.workspaceApplied", locale) : t("notice.workspaceRuntimeDir", locale));
     const selected = workspaces.find((item) => item.path === path);
     if (selected) {
       try {
         const repair = await attachUnregisteredSessions(selected);
         if (repair.rejected > 0) {
           setErrorNotice(repair.attached > 0
-            ? `已登记 ${repair.attached} 个会话，另有 ${repair.rejected} 个因工作区目录不可用未能登记：${repair.reason ?? ""}`
-            : `有 ${repair.rejected} 个会话未能登记到工作区：${repair.reason ?? ""}`);
+            ? t("notice.repairFailedPartial", locale, { attached: repair.attached, rejected: repair.rejected, reason: repair.reason ?? "" })
+            : t("notice.repairFailed", locale, { rejected: repair.rejected, reason: repair.reason ?? "" }));
         } else if (repair.attached > 0) {
           await loadRuntimeDetails();
-          setNotice(`已将 ${repair.attached} 个同目录会话登记到工作区`);
+          setNotice(t("notice.repairAttachedSameDir", locale, { count: repair.attached }));
         }
       } catch (error) {
-        setErrorNotice(errorText(error));
+        setErrorNotice(errorText(error, locale));
       }
     }
     // 保持对话页面与工作区选择同步：打开新工作区的第一个会话，没有会话则显示新会话页面。
@@ -2863,7 +2878,7 @@ function AppContent() {
     return {
       attached: results.length - rejected.length,
       rejected: rejected.length,
-      ...(rejected.length === 0 ? {} : { reason: errorText(rejected[0]!.reason) }),
+      ...(rejected.length === 0 ? {} : { reason: errorText(rejected[0]!.reason, locale) }),
     };
   }
 
@@ -2879,7 +2894,7 @@ function AppContent() {
   }
 
   async function renameWorkspace(item: DshWorkspace) {
-    const title = await requestPrompt("重命名工作区", item.title, "修改工作区在侧边栏中的显示名称。");
+    const title = await requestPrompt(t("dialog.workspaceRename.title", locale), item.title, t("dialog.workspaceRename.description", locale));
     if (!title?.trim() || title.trim() === item.title) return;
     try {
       const result = await desktopRequest("workspace.rename", {
@@ -2889,37 +2904,37 @@ function AppContent() {
       setWorkspaces((current) => current.map((workspaceItem) => workspaceItem.workspaceId === item.workspaceId
         ? { ...result.workspace, pinnedSessionIds: result.workspace.pinnedSessionIds ?? workspaceItem.pinnedSessionIds }
         : workspaceItem));
-      setNotice("工作区已重命名");
+      setNotice(t("notice.workspaceRenamed", locale));
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
   async function removePreset(id: string) {
     const preset = presets.find((item) => item.id === id);
     if (!preset || preset.trust !== "user") return;
-    if (!await requestConfirm(`删除 Agent Preset“${presetDisplayName(id, presets)}”？已在其上运行的会话不受影响。`)) return;
+    if (!await requestConfirm(t("dialog.deletePreset", locale, { preset: presetDisplayName(id, presets, locale) }))) return;
     try {
       await desktopRequest("agentPreset.remove", { agentPreset: id });
       if (nextPreset === id) setNextPreset("");
       setPresetView((current) => current?.id === id ? null : current);
       await loadRuntimeDetails();
-      setNotice("Agent Preset 已删除");
+      setNotice(t("notice.presetDeleted", locale));
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
   async function deleteWorkspace(item: DshWorkspace) {
-    if (!await requestConfirm(`删除工作区“${item.title || projectName(item.path)}”？不会删除目录和会话。`)) return;
+    if (!await requestConfirm(t("dialog.deleteWorkspace", locale, { workspace: item.title || projectName(item.path, locale) }))) return;
     try {
       await desktopRequest("workspace.delete", { workspaceId: item.workspaceId });
       setWorkspaces((current) => current.filter((workspaceItem) => workspaceItem.workspaceId !== item.workspaceId));
       setPinnedWorkspaceIds((current) => current.filter((workspaceId) => workspaceId !== item.workspaceId));
       if (workspace === item.path) setWorkspace("");
-      setNotice("工作区已移除");
+      setNotice(t("notice.workspaceRemoved", locale));
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
@@ -2927,7 +2942,7 @@ function AppContent() {
     if (sessionId === beforeSessionId) return;
     const targetWorkspace = workspacesRef.current.find((item) => item.sessionIds.includes(beforeSessionId));
     if (!targetWorkspace) {
-      setNotice("未分组会话不能参与工作区排序");
+      setNotice(t("notice.ungroupedSortBlocked", locale));
       return;
     }
     const workspaceVersion = ++workspaceRequestRef.current;
@@ -2966,9 +2981,9 @@ function AppContent() {
       workspacesRef.current = refreshed.items;
       setWorkspaces(refreshed.items);
       if (refreshed.archivedSessionIds) setArchivedSessionIds(new Set(refreshed.archivedSessionIds));
-      if (announce) setNotice("会话顺序已更新");
+      if (announce) setNotice(t("notice.sessionOrderUpdated", locale));
     } catch (error) {
-      if (announce) setErrorNotice(errorText(error));
+      if (announce) setErrorNotice(errorText(error, locale));
     }
   }
 
@@ -2976,7 +2991,7 @@ function AppContent() {
     if (!desktop) return;
     const currentWorkspace = workspacesRef.current.find((item) => item.sessionIds.includes(session.sessionId));
     if (!currentWorkspace) {
-      setNotice("未分组会话不能置顶");
+      setNotice(t("notice.ungroupedPinBlocked", locale));
       return;
     }
     const pinned = new Set(currentWorkspace.pinnedSessionIds ?? []);
@@ -2992,9 +3007,9 @@ function AppContent() {
         : item);
       workspacesRef.current = nextWorkspaces;
       setWorkspaces(nextWorkspaces);
-      setNotice(nextPinned ? "会话已置顶" : "会话已取消置顶");
+      setNotice(nextPinned ? t("notice.sessionPinned", locale) : t("notice.sessionUnpinned", locale));
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
@@ -3062,7 +3077,7 @@ function AppContent() {
     setSubagentBranchExpanded({});
     setSubagentBranchErrors({});
     setPresetMenuOpen(false);
-    setNotice("输入消息后创建会话");
+    setNotice(t("notice.createOnMessage", locale));
   }
 
   async function ensureSession() {
@@ -3124,7 +3139,7 @@ function AppContent() {
     setModels({ ...nextModels, ...(projectedImageLimits ? { imageLimits: projectedImageLimits } : {}) });
     if (nextModels.contextWindow !== undefined) setSessionStats((current) => ({ ...current, contextLimit: nextModels.contextWindow! }));
     if (!nextModels.routable) {
-      setErrorNotice("当前模型路由不可用，请切换模型或检查 Provider 配置");
+      setErrorNotice(t("notice.modelUnavailable", locale));
     }
     return created.sessionId;
     })();
@@ -3143,7 +3158,7 @@ function AppContent() {
       images: [],
     });
     if (!execution) {
-      setErrorNotice(`未知命令：${line}`);
+      setErrorNotice(t("notice.unknownCommand", locale, { line: line }));
       return undefined;
     }
     if (execution.result.kind === "error") setErrorNotice(execution.result.text);
@@ -3154,35 +3169,35 @@ function AppContent() {
     const text = composer.trim();
     if ((!text && attachments.length === 0) || loading || !status.runtimeAvailable) return;
     if (activeSessionId && models && !models.routable) {
-      setErrorNotice("当前模型路由不可用，请切换模型或检查 Provider 配置");
+      setErrorNotice(t("notice.modelUnavailable", locale));
       return;
     }
     if (attachments.length > 0) {
       if (!selectedModelSupportsImages) {
-        setErrorNotice("当前模型仅支持文本输入，图片未发送。请切换到支持图片输入的模型后重试");
+        setErrorNotice(t("notice.imagesNotSupported", locale));
         return;
       }
     }
     setLoading(true);
-    setNotice(promptMode === "steer" ? "正在插入当前回合" : "正在发送");
+    setNotice(promptMode === "steer" ? t("notice.steering", locale) : t("notice.sending", locale));
     try {
       const sessionId = await ensureSession();
       const admissionModels = await desktopRequest("session.models", { sessionId });
       setModels((current) => current?.imageLimits ? { ...admissionModels, imageLimits: current.imageLimits } : admissionModels);
       if (!admissionModels.routable) {
-        setErrorNotice("当前模型路由不可用，请切换模型或检查 Provider 配置");
+        setErrorNotice(t("notice.modelUnavailable", locale));
         return;
       }
       const commandName = /^\/([a-z0-9][a-z0-9_-]*)(?:\s|$)/i.exec(text)?.[1].toLocaleLowerCase();
       if (!attachments.length && commandName && commands.some((command) => command.name === commandName)) {
-        setNotice(`正在执行 /${commandName}…`);
+        setNotice(t("notice.executingCommand", locale, { commandName: commandName }));
         const execution = await executeCommandLine(sessionId, text);
         if (!execution || execution.result.kind === "error") return;
         setComposer("");
         if (commandName === "export") {
           await exportSessionZip(sessionId);
         } else {
-          setNotice(execution.result.text || `/${commandName} 已执行`);
+          setNotice(execution.result.text || t("notice.commandExecuted", locale, { command: commandName }));
         }
         return;
       }
@@ -3196,9 +3211,9 @@ function AppContent() {
       setComposer("");
       setAttachments([]);
       void refreshSessionStats(sessionId);
-      setNotice(promptMode === "steer" ? "已插入当前回合" : "已发送");
+      setNotice(promptMode === "steer" ? t("notice.steered", locale) : t("notice.sent", locale));
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     } finally {
       setLoading(false);
     }
@@ -3209,9 +3224,9 @@ function AppContent() {
     if (!sessionId) return;
     try {
       await desktopRequest("session.cancel", { sessionId });
-      setNotice("已请求停止当前回合");
+      setNotice(t("notice.stopRequested", locale));
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
@@ -3232,7 +3247,7 @@ function AppContent() {
       nextTextarea.focus();
       nextTextarea.setSelectionRange(inserted.selectionStart, inserted.selectionEnd);
     });
-    setNotice("文件路径已添加到聊天框");
+    setNotice(t("notice.pathAddedToComposer", locale));
   }
 
   function updateSendShortcut(shortcut: SendShortcut) {
@@ -3254,9 +3269,9 @@ function AppContent() {
       const nextSessions = await loadSessions();
       const forked = nextSessions?.find((session) => session.sessionId === result.sessionId);
       if (forked) await openSession(forked);
-      else setNotice("已创建分叉会话");
+      else setNotice(t("notice.forkCreated", locale));
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
@@ -3264,11 +3279,11 @@ function AppContent() {
     if (!presetMigration || !presetMigrationSelection || presetMigrationRunning) return;
     const replacement = presets.find((preset) => preset.id === presetMigrationSelection && !preset.broken);
     if (!replacement) {
-      setErrorNotice("请选择当前可用的 Agent Preset");
+      setErrorNotice(t("notice.chooseAvailablePreset", locale));
       return;
     }
     const confirmed = await requestConfirm(
-      `原会话引用的 Agent Preset “${presetMigration.missingPreset}”已被删除，无法按原配置恢复。将创建一个保留现有历史的新副本，并使用“${presetDisplayName(replacement.id, presets)}”（${replacement.id}）。原会话会保留不变。由于工具、提示词和能力可能不同，历史中的工具调用可能只能以兼容或通用形式显示，后续回复也可能不同。确认迁移并打开副本吗？`,
+      t("dialog.presetMigration.confirmFull", locale, { preset: presetMigration.missingPreset, replacement: presetDisplayName(replacement.id, presets, locale), id: replacement.id }),
     );
     if (!confirmed) return;
     setPresetMigrationRunning(true);
@@ -3282,12 +3297,12 @@ function AppContent() {
       setPresetMigration(null);
       if (migrated) {
         await openSession(migrated, false);
-        setNotice(`已迁移为新会话副本（Preset：${presetDisplayName(replacement.id, presets)}）；原会话仍保留`);
+        setNotice(t("notice.migratedCopy", locale, { preset: presetDisplayName(replacement.id, presets, locale) }));
       } else {
-        setNotice("已创建迁移副本；原会话仍保留");
+        setNotice(t("notice.presetMigratedShort", locale));
       }
     } catch (error) {
-      setErrorNotice(`迁移会话失败：${errorText(error)}。原会话未修改。`);
+      setErrorNotice(t("notice.presetMigrationFailed", locale, { error: errorText(error, locale) }));
     } finally {
       setPresetMigrationRunning(false);
     }
@@ -3318,20 +3333,20 @@ function AppContent() {
   async function retryMessage(targetSeq: number) {
     const sessionId = activeSessionRef.current;
     if (!sessionId || activeRunning || loading || retryingMessageRef.current !== null) return;
-    if (!await requestConfirm("将清除此消息之后的会话内容，并从这条提示词重新请求。原会话会保留为分支；已执行的文件或外部操作不会回滚。继续吗？")) return;
+    if (!await requestConfirm(t("dialog.retry.confirm", locale))) return;
     retryingMessageRef.current = targetSeq;
     retryingSessionRef.current = sessionId;
     setRetryingMessageSeq(targetSeq);
     setLoading(true);
-    setNotice("正在创建重试分支");
+    setNotice(t("notice.creatingRetryBranch", locale));
     try {
       const entries = await loadHistoryForRetry(sessionId, targetSeq);
       const target = entries.find((entry) => entry.event.seq === targetSeq)?.event;
       if (!target || target.type !== "user/message" || isInjectedMessage(target)) {
-        throw new Error("找不到可重试的用户消息，请刷新会话后再试");
+        throw new Error(t("err.retryNoMessage", locale));
       }
-      const sourceParts = retryPromptSourceParts(target.data.content);
-      if (sourceParts.length === 0) throw new Error("这条消息没有可重发的提示词");
+      const sourceParts = retryPromptSourceParts(target.data.content, locale);
+      if (sourceParts.length === 0) throw new Error(t("err.retryNoPrompt", locale));
 
       const hydratedContent: DshPromptContentPart[] = await Promise.all(sourceParts.map(async (part) => {
         if (part.type === "text" || part.data) return part.type === "image" ? {
@@ -3344,7 +3359,7 @@ function AppContent() {
           sessionId,
           attachmentId: part.attachmentId!,
         });
-        if (attachment.attachment.mediaType !== part.mediaType) throw new Error("历史图片格式与消息记录不一致");
+        if (attachment.attachment.mediaType !== part.mediaType) throw new Error(t("err.mediaMismatch", locale));
         return {
           type: "image" as const,
           mediaType: part.mediaType,
@@ -3352,7 +3367,7 @@ function AppContent() {
           ...(part.name || attachment.attachment.name ? { name: part.name || attachment.attachment.name } : {}),
         };
       }));
-      if (activeSessionRef.current !== sessionId) throw new Error("会话已切换，已取消本次重试");
+      if (activeSessionRef.current !== sessionId) throw new Error(t("err.retrySessionSwitched", locale));
       const boundary = retryBoundarySeq(entries, targetSeq);
       let retrySessionId: string;
       if (boundary !== undefined) {
@@ -3385,7 +3400,7 @@ function AppContent() {
         }
       }
       const sourceSession = sessions.find((session) => session.sessionId === sessionId);
-      if (activeSessionRef.current !== sessionId) throw new Error("会话已切换，已取消本次重试");
+      if (activeSessionRef.current !== sessionId) throw new Error(t("err.retrySessionSwitched", locale));
       const nextSessions = await loadSessions().catch(() => undefined);
       const forked = nextSessions?.find((session) => session.sessionId === retrySessionId) ?? {
         sessionId: retrySessionId,
@@ -3395,9 +3410,9 @@ function AppContent() {
         ...(sourceSession?.cwd || workspace ? { cwd: sourceSession?.cwd ?? workspace } : {}),
         ...(sourceSession?.agentPreset ? { agentPreset: sourceSession.agentPreset } : {}),
       } satisfies DshSessionSummary;
-      if (activeSessionRef.current !== sessionId) throw new Error("会话已切换，已取消本次重试");
+      if (activeSessionRef.current !== sessionId) throw new Error(t("err.retrySessionSwitched", locale));
       await openSession(forked);
-      if (activeSessionRef.current !== retrySessionId) throw new Error("会话已切换，已取消本次重试");
+      if (activeSessionRef.current !== retrySessionId) throw new Error(t("err.retrySessionSwitchedFinal", locale));
       await desktopRequest("session.prompt", {
         sessionId: retrySessionId,
         mode: "queue",
@@ -3405,11 +3420,11 @@ function AppContent() {
         clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
       setLoading(false);
-      setNotice("已从该消息重新请求");
+      setNotice(t("notice.retryStarted", locale));
       void refreshSessionStats(retrySessionId);
     } catch (error) {
       if (activeSessionRef.current === sessionId) {
-        setErrorNotice(errorText(error));
+        setErrorNotice(errorText(error, locale));
         setLoading(false);
       }
     } finally {
@@ -3422,18 +3437,18 @@ function AppContent() {
   async function copyMessage(text: string) {
     try {
       await navigator.clipboard.writeText(text);
-      setNotice("消息已复制");
+      setNotice(t("notice.messageCopied", locale));
     } catch (error) {
-      setErrorNotice(`复制失败：${errorText(error)}`);
+      setErrorNotice(t("notice.copyFailed", locale, { error: errorText(error, locale) }));
     }
   }
 
   async function copySelection(text: string) {
     try {
       await writeClipboard(text);
-      setNotice("选中文本已复制");
+      setNotice(t("notice.selectionCopied", locale));
     } catch (error) {
-      setErrorNotice(`复制失败：${errorText(error)}`);
+      setErrorNotice(t("notice.copyFailed", locale, { error: errorText(error, locale) }));
     }
   }
 
@@ -3444,8 +3459,8 @@ function AppContent() {
       setArchivedSessionIds((current) => new Set(current).add(session.sessionId));
       await loadSessions();
       if (session.sessionId === activeSessionRef.current) startNewSession();
-      setNotice("会话已归档");
-    } catch (error) { setErrorNotice(errorText(error)); }
+      setNotice(t("notice.sessionArchived", locale));
+    } catch (error) { setErrorNotice(errorText(error, locale)); }
   }
 
   async function restoreSession(session: DshSessionSummary) {
@@ -3453,8 +3468,8 @@ function AppContent() {
       const result = await desktopRequest("workspace.restoreSession", { sessionId: session.sessionId });
       setArchivedSessionIds(new Set(result.archivedSessionIds));
       await loadSessions();
-      setNotice("会话已恢复");
-    } catch (error) { setErrorNotice(errorText(error)); }
+      setNotice(t("notice.sessionRestored", locale));
+    } catch (error) { setErrorNotice(errorText(error, locale)); }
   }
 
   async function deleteArchivedSession() {
@@ -3465,8 +3480,8 @@ function AppContent() {
       setDeleteArchivedTarget(null);
       await loadSessions();
       if (session.sessionId === activeSessionRef.current) startNewSession();
-      setNotice("归档会话已永久删除");
-    } catch (error) { setErrorNotice(errorText(error)); }
+      setNotice(t("notice.archivedDeleted", locale));
+    } catch (error) { setErrorNotice(errorText(error, locale)); }
   }
 
   function requestSessionAction(action: SessionAction, session: DshSessionSummary) {
@@ -3476,7 +3491,7 @@ function AppContent() {
     if (action === "fork") { void forkSession(session.sessionId); return; }
     if (action === "export") { void exportSession(session.sessionId); return; }
     if (action === "exportZip") { void exportSessionZip(session.sessionId); return; }
-    setRenameValue(displayTitle(session));
+    setRenameValue(displayTitle(session, locale));
     setRenameTarget(session);
   }
 
@@ -3489,9 +3504,9 @@ function AppContent() {
       setRenameTarget(null);
       setRenameValue("");
       await loadSessions();
-      setNotice("会话已重命名");
+      setNotice(t("notice.sessionRenamed", locale));
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
@@ -3519,8 +3534,8 @@ function AppContent() {
       setModels((current) => current ? { ...current, current: { ...current.current, reasoningEffort } } : current);
       setModelMenuOpen(false);
       setModelMenuPane("root");
-      setNotice("思考程度已更新");
-    } catch (error) { setErrorNotice(errorText(error)); }
+      setNotice(t("notice.reasoningUpdated", locale));
+    } catch (error) { setErrorNotice(errorText(error, locale)); }
   }
 
   async function changeModel(value: string) {
@@ -3531,7 +3546,7 @@ function AppContent() {
       if (selected) setDraftModelSelection({ provider, model, reasoningEffort: selected.reasoning?.defaultEffort });
       setModelMenuOpen(false);
       setModelMenuPane("root");
-      setNotice("新会话将使用此模型");
+      setNotice(t("notice.nextSessionModel", locale));
       return;
     }
     if (models?.current.provider === provider && models.current.model === model) {
@@ -3547,9 +3562,9 @@ function AppContent() {
        setSessionStats((current) => ({ ...current, contextTokens: 0, contextTokensAvailable: false, contextLimit: selectedContextWindow ?? 0 }));
       setModelMenuOpen(false);
       setModelMenuPane("root");
-      setNotice("模型已切换");
+      setNotice(t("notice.modelSwitched", locale));
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
@@ -3559,10 +3574,10 @@ function AppContent() {
     setDshConflictBusy(true);
     try {
       await terminateDshProcesses(conflict.processes.map((process) => process.pid));
-      setStatus((current) => ({ ...current, processConflict: null, message: "正在重新启动 Deeptop..." }));
+      setStatus((current) => ({ ...current, processConflict: null, message: t("notice.restartingDsh", locale) }));
       await restartRuntime();
     } catch (error) {
-      setErrorNotice(`终止旧 DSH 失败：${errorText(error)}`);
+      setErrorNotice(t("notice.terminateFailed", locale, { error: errorText(error, locale) }));
     } finally {
       setDshConflictBusy(false);
     }
@@ -3577,16 +3592,16 @@ function AppContent() {
     setStartupLogs([]);
     setPluginInventory(null);
     setExcludedPlugins([]);
-    setNotice("正在重新启动 Deeptop");
+    setNotice(t("notice.restarting", locale));
     try {
       const nextStatus = await refreshDsh();
       setStatus(nextStatus);
       if (nextStatus.runtimeAvailable) {
         await loadRuntimeDetails();
-        setNotice("Deeptop 已重启，插件列表已刷新");
+        setNotice(t("notice.restartedPluginsRefreshed", locale));
       }
     } catch (error) {
-      const message = errorText(error);
+      const message = errorText(error, locale);
       setStatus((current) => ({ ...current, runtimeAvailable: false, runtimeStarting: false, message }));
       setErrorNotice(message);
     }
@@ -3605,16 +3620,16 @@ function AppContent() {
   async function loadRuntimeLogs() {
     if (!desktop) return;
     try {
-      const logs = await withTimeout(getRuntimeLogs(), 5_000, "读取运行日志超时，请稍后重试");
+      const logs = await withTimeout(getRuntimeLogs(), 5_000, t("notice.logsReadTimeout", locale));
       setAppLogs(logs.slice(-2000));
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
   async function exportLogs() {
     if (!desktop) {
-      setErrorNotice("导出日志只在 Tauri 桌面端可用");
+      setErrorNotice(t("notice.logExportDesktopOnly", locale));
       return;
     }
     setLogExporting(true);
@@ -3626,10 +3641,10 @@ function AppContent() {
       const savedPath = await saveExportFile(`deeptop-logs-${stamp}.log`, new TextEncoder().encode(content));
       if (savedPath) {
         setLogExportPath(savedPath);
-        setNotice(`日志已导出：${savedPath}`);
+        setNotice(t("notice.logExported", locale, { savedPath: savedPath }));
       }
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     } finally {
       setLogExporting(false);
     }
@@ -3637,13 +3652,13 @@ function AppContent() {
 
   async function openLogsDirectoryHandle() {
     if (!desktop) {
-      setErrorNotice("打开日志目录只在 Tauri 桌面端可用");
+      setErrorNotice(t("notice.openLogsDesktopOnly", locale));
       return;
     }
     try {
       await openLogsDirectory();
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
@@ -3667,7 +3682,7 @@ function AppContent() {
           return next;
         });
       }
-      throw new Error(`注记未保存：${result.error.code}`);
+      throw new Error(t("err.annotationSave", locale, { code: result.error.code }));
     }
     setAnnotations((items) => ({ ...items, [messageId]: result.value }));
   }
@@ -3691,7 +3706,7 @@ function AppContent() {
           return next;
         });
       }
-      throw new Error(`注记未删除：${result.error.code}`);
+      throw new Error(t("err.annotationDelete", locale, { code: result.error.code }));
     }
     setAnnotations((items) => {
       const next = { ...items };
@@ -3703,30 +3718,30 @@ function AppContent() {
   async function editMessageAnnotation(messageId: string) {
     const sessionId = activeSessionRef.current;
     const current = annotations[messageId];
-    const draft = await requestPrompt("消息注记", current?.note ?? "", "为这条消息添加仅自己可见的注记。");
+    const draft = await requestPrompt(t("dialog.annotationEdit.title", locale), current?.note ?? "", t("dialog.annotationEdit.description", locale));
     if (draft === null) return;
-    setNotice("正在保存消息注记…");
+    setNotice(t("notice.annotationSaving", locale));
     try {
       if (draft.trim()) {
         await putAnnotation(messageId, draft.trim());
         if (activeSessionRef.current !== sessionId) {
-          setNotice("消息注记已保存（保存期间会话已切换）");
+          setNotice(t("notice.annotationSavedSwitched", locale));
         } else {
-          setNotice(current ? "消息注记已更新" : "消息注记已添加");
+          setNotice(current ? t("notice.annotationUpdated", locale) : t("notice.annotationAdded", locale));
         }
       } else if (current) {
         await deleteAnnotation(messageId);
         if (activeSessionRef.current !== sessionId) {
-          setNotice("消息注记已清除（保存期间会话已切换）");
+          setNotice(t("notice.annotationClearedSwitched", locale));
         } else {
-          setNotice("消息注记已清除");
+          setNotice(t("notice.annotationCleared", locale));
         }
       }
     } catch (error) {
       if (activeSessionRef.current !== sessionId) {
-        setErrorNotice(`注记保存失败（会话已切换）：${errorText(error)}`);
+        setErrorNotice(t("notice.annotationSaveFailedSwitched", locale, { error: errorText(error, locale) }));
       } else {
-        setErrorNotice(errorText(error));
+        setErrorNotice(errorText(error, locale));
       }
     }
   }
@@ -3735,29 +3750,29 @@ function AppContent() {
     const sessionId = activeSessionRef.current;
     if (!sessionId) return;
     try {
-      setNotice(`正在执行 ${line.trim().split(/\s+/)[0]}…`);
+      setNotice(t("notice.executingLine", locale, { command: line.trim().split(/\s+/)[0] }));
       const execution = await executeCommandLine(sessionId, line);
       if (activeSessionRef.current !== sessionId) {
-        if (execution?.result.kind === "success" && execution.result.text) setNotice(`${execution.result.text}（命令已执行，会话已切换）`);
+        if (execution?.result.kind === "success" && execution.result.text) setNotice(t("notice.commandResultSwitched", locale, { result: execution.result.text }));
         return;
       }
       if (execution?.result.kind === "success" && execution.result.text) setNotice(execution.result.text);
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
   function insertCommand(line: string) {
     setComposer(line);
     setShowInspector(false);
-    setNotice("命令已放入输入框");
+    setNotice(t("notice.commandInserted", locale));
   }
 
   async function setDefaultModel(selection: ModelSelection) {
     const group = hostModels?.groups.find((item) => item.id === selection.provider);
     const model = group?.models.find((item) => item.id === selection.model);
     if (!model) {
-      setErrorNotice("该模型当前不可用，请刷新模型目录后重试");
+      setErrorNotice(t("notice.modelUnavailableRefresh", locale));
       return;
     }
     const next = {
@@ -3788,9 +3803,9 @@ function AppContent() {
         setStoredDefaultModel(next);
       }
       setDraftModelSelection(next);
-      setNotice(`${model.name} 已设为新会话默认模型`);
+      setNotice(t("notice.modelDefault", locale, { model: model.name }));
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
@@ -3802,15 +3817,15 @@ function AppContent() {
           writeStoredDefaultPermission(value);
           setStoredDefaultPermission(value);
         } else {
-          throw new Error("当前 Host 未暴露 permission 设置命名空间，无法保存部署预设");
+          throw new Error(t("err.permissionNamespaceMissing", locale));
         }
       } else {
         await desktopRequest("settings.update", { ns: "permission", patch: { defaultPreset: value } });
         await refreshSettings();
       }
-      setNotice("新会话默认权限已更新");
+      setNotice(t("notice.permissionDefaultUpdated", locale));
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
@@ -3909,13 +3924,13 @@ function AppContent() {
       });
     } catch (error) {
       releaseRespondClaim(request.rpcId);
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
   async function exportSession(sessionId = activeSessionRef.current) {
     if (!sessionId) return;
-    setNotice("正在导出会话");
+    setNotice(t("notice.exportingSession", locale));
     try {
       let exported: DshHistoryEntry[] = [];
       let beforeSeq: number | undefined;
@@ -3936,54 +3951,54 @@ function AppContent() {
       const content = JSON.stringify({ exportedAt: new Date().toISOString(), session, events: exported }, null, 2);
       const fileName = `dsh-${sessionId.slice(0, 8)}.json`;
       if (!desktop) {
-        setErrorNotice("会话导出只在 Deeptop 桌面端可用");
+        setErrorNotice(t("notice.exportDesktopOnly", locale));
         return;
       }
       const savedPath = await saveExportFile(fileName, new TextEncoder().encode(content));
       if (savedPath === null) {
-        setNotice("已取消会话导出");
+        setNotice(t("notice.exportCancelled", locale));
         return;
       }
       if (activeSessionRef.current !== sessionId) {
-        setNotice(`已导出 ${exported.length} 条事件（导出期间已切换会话，文件保存在 ${savedPath}）`);
+        setNotice(t("notice.exportedSwitched", locale, { exported: exported.length, savedPath: savedPath }));
       } else {
-        setNotice(`已导出 ${exported.length} 条事件`);
+        setNotice(t("notice.exportedEvents", locale, { exported: exported.length }));
       }
     } catch (error) {
-      setErrorNotice(`导出失败：${errorText(error)}`);
+      setErrorNotice(t("notice.exportFailed", locale, { error: errorText(error, locale) }));
     }
   }
 
   async function exportSessionZip(sessionId = activeSessionRef.current) {
     if (!sessionId) return;
     if (!capabilityFeatures.sessionExport) {
-      setErrorNotice("会话 ZIP 导出能力未安装或未启用");
+      setErrorNotice(t("notice.zipExportUnavailable", locale));
       return;
     }
-    setNotice("正在生成会话 ZIP");
+    setNotice(t("notice.generatingZip", locale));
     try {
       const result = await desktopRequest("session.exportZip", {
         sessionId,
         includeDescendants: true,
       }, undefined, { timeoutMs: 90_000 });
       if (!desktop) {
-        setErrorNotice("会话 ZIP 导出只在 Deeptop 桌面端可用");
+        setErrorNotice(t("notice.zipExportDesktopOnly", locale));
         return;
       }
       // Bridge 已把官方 Host 的 ZIP 流写入临时文件；原生另存为对话框把它
       // 转移到用户选择的位置。取消时 Tauri 侧清理临时文件并返回 null。
       const savedPath = await moveExportTempFile(result.filename, result.tempPath);
       if (savedPath === null) {
-        setNotice("已取消 ZIP 导出");
+        setNotice(t("notice.zipExportCancelled", locale));
         return;
       }
       if (activeSessionRef.current !== sessionId) {
-        setNotice(`已导出 ZIP（${result.size} 字节），会话已切换，文件保存在 ${savedPath}`);
+        setNotice(t("notice.zipExportedSwitched", locale, { result: result.size, savedPath: savedPath }));
       } else {
-        setNotice(`已导出 ZIP（${result.size} 字节）`);
+        setNotice(t("notice.zipExported", locale, { result: result.size }));
       }
     } catch (error) {
-      setErrorNotice(`ZIP 导出失败：${errorText(error)}`);
+      setErrorNotice(t("notice.zipExportFailed", locale, { error: errorText(error, locale) }));
     }
   }
 
@@ -3992,9 +4007,9 @@ function AppContent() {
     if (!session) return;
     try {
       await desktopRequest("host.openPath", { path: sessionPath(session.cwd, path) });
-      setNotice("已交给系统打开");
+      setNotice(t("notice.openedInSystem", locale));
     } catch (error) {
-      setErrorNotice(`打开失败：${errorText(error)}`);
+      setErrorNotice(t("notice.openFailed", locale, { error: errorText(error, locale) }));
       throw error;
     }
   }
@@ -4002,9 +4017,9 @@ function AppContent() {
   async function openMessageUrl(url: string) {
     try {
       await openConnectionUrl(url);
-      setNotice("已交给系统打开连接");
+      setNotice(t("notice.connectionOpened", locale));
     } catch (error) {
-      setErrorNotice(`打开连接失败：${errorText(error)}`);
+      setErrorNotice(t("notice.connectionOpenFailed", locale, { error: errorText(error, locale) }));
       throw error;
     }
   }
@@ -4012,20 +4027,20 @@ function AppContent() {
   async function addComposerFiles(files: FileList | File[]) {
     const candidates = Array.from(files).filter((file) => Boolean(imageMediaType(file)));
     if (candidates.length === 0) {
-      setErrorNotice("只支持 PNG、JPEG、WebP 或 GIF 图片");
+      setErrorNotice(t("notice.imagesOnly", locale));
       return;
     }
     try {
       const limits = models?.imageLimits;
-      const next = await Promise.all(candidates.map((file) => readImageFile(file, limits)));
+      const next = await Promise.all(candidates.map((file) => readImageFile(file, limits, locale)));
       setAttachments((current) => {
-        const limitError = imageBatchLimitError(current, next, limits);
+        const limitError = imageBatchLimitError(current, next, limits, locale);
         if (limitError) throw new Error(limitError);
         return [...current, ...next];
       });
-      setNotice("图片已添加");
+      setNotice(t("notice.imagesAdded", locale));
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
@@ -4079,11 +4094,11 @@ function AppContent() {
             data: result.value.data,
           });
         } else {
-          errors.push(errorText(result.reason));
+          errors.push(errorText(result.reason, locale));
         }
       }
       if (loaded.length > 0) {
-        const limitError = imageBatchLimitError(attachmentsRef.current, loaded, limits);
+        const limitError = imageBatchLimitError(attachmentsRef.current, loaded, limits, locale);
         if (limitError) {
           errors.push(limitError);
         } else {
@@ -4099,8 +4114,8 @@ function AppContent() {
     }
 
     const notices: string[] = [];
-    if (addedImages > 0) notices.push(`已添加 ${addedImages} 张图片`);
-    if (referencedPaths > 0) notices.push(`已引用 ${referencedPaths} 个文件路径`);
+    if (addedImages > 0) notices.push(t("notice.imagesAddedCount", locale, { count: addedImages }));
+    if (referencedPaths > 0) notices.push(t("notice.referencedPathsCount", locale, { count: referencedPaths }));
     if (errors.length > 0) setErrorNotice([...new Set(errors)].join("；"));
     else if (notices.length > 0) setNotice(notices.join("，"));
   }
@@ -4117,7 +4132,7 @@ function AppContent() {
       if (requestId !== searchRequestRef.current) return;
       setRemoteSearchResults(result.items.map((item) => ({ sessionId: item.sessionId, snippet: item.snippet ?? "" })));
     } catch (error) {
-      if (requestId === searchRequestRef.current) setErrorNotice(errorText(error));
+      if (requestId === searchRequestRef.current) setErrorNotice(errorText(error, locale));
     }
   }
 
@@ -4155,7 +4170,7 @@ function AppContent() {
       });
     } catch (error) {
       releaseRespondClaim(request.rpcId);
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
@@ -4216,7 +4231,7 @@ function AppContent() {
       });
     } catch (error) {
       releaseRespondClaim(request.rpcId);
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
@@ -4230,7 +4245,7 @@ function AppContent() {
         rpcId: request.rpcId,
         result: {
           ok: false,
-          error: { code: "cancelled", message: "用户取消了问题", details: {} },
+          error: { code: "cancelled", message: t("err.questionCancelled", locale), details: {} },
         },
       });
       setPendingQuestions((current) => {
@@ -4251,14 +4266,14 @@ function AppContent() {
       });
     } catch (error) {
       releaseRespondClaim(request.rpcId);
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
   // @deeptop-pets:start app-action-handlers
   async function respondToPetApprovalRequest(request: PendingApproval, outcome: "allowed-once" | "rejected") {
     if (!claimRespond(request.rpcId)) {
-      throw new Error("该请求已经在其他窗口处理");
+      throw new Error(t("err.alreadyHandled", locale));
     }
     try {
       await desktopRequest("respond", {
@@ -4290,7 +4305,7 @@ function AppContent() {
       answers: questionAnswerItems(request.questions, answers, customAnswers),
     };
     if (!claimRespond(request.rpcId)) {
-      throw new Error("该请求已经在其他窗口处理");
+      throw new Error(t("err.alreadyHandled", locale));
     }
     try {
       await desktopRequest("respond", {
@@ -4322,11 +4337,11 @@ function AppContent() {
 
   async function sendPetReply(sessionId: string, text: string) {
     const message = text.trim();
-    if (!message) throw new Error("快捷回复不能为空");
+    if (!message) throw new Error(t("err.petReplyEmpty", locale));
     const session = sessionsRef.current.find((item) => item.sessionId === sessionId);
-    if (!session) throw new Error("目标会话已经不存在");
+    if (!session) throw new Error(t("err.petSessionGone", locale));
     const sessionModels = await desktopRequest("session.models", { sessionId });
-    if (!sessionModels.routable) throw new Error("目标会话当前没有可用模型路由");
+    if (!sessionModels.routable) throw new Error(t("err.petNoRoute", locale));
     const promptPayload: DshSessionPromptPayload = {
       sessionId,
       mode: "queue",
@@ -4335,7 +4350,7 @@ function AppContent() {
     };
     await desktopRequest("session.prompt", { ...promptPayload });
     setSessionIndicators((current) => ({ ...current, [sessionId]: "running" }));
-    setNotice(`已从桌宠向“${displayTitle(session)}”发送消息`);
+    setNotice(t("notice.petReplySent", locale, { session: displayTitle(session, locale) }));
   }
 
   async function handlePetAction(action: PetAction) {
@@ -4350,12 +4365,12 @@ function AppContent() {
       }
       if (action.kind === "approval-allow" || action.kind === "approval-reject") {
         const request = pendingApprovalsRef.current[action.sessionId];
-        if (!request) throw new Error("该权限请求已经处理或失效");
+        if (!request) throw new Error(t("err.petApprovalInvalid", locale));
         await respondToPetApprovalRequest(request, action.kind === "approval-allow" ? "allowed-once" : "rejected");
         return;
       }
       const request = pendingQuestionsRef.current[action.sessionId];
-      if (!request) throw new Error("该问题已经处理或失效");
+      if (!request) throw new Error(t("err.petQuestionInvalid", locale));
       if (request.questions.length !== 1 || !request.questions[0]) {
         await openNotificationSession(action.sessionId);
         return;
@@ -4368,7 +4383,7 @@ function AppContent() {
         action.selectedOption ? {} : { [questionId]: text },
       );
     } catch (error) {
-      setErrorNotice(`桌宠快捷操作失败：${errorText(error)}`);
+      setErrorNotice(t("notice.petActionFailed", locale, { error: errorText(error, locale) }));
     }
   }
   // @deeptop-pets:end app-action-handlers
@@ -4378,7 +4393,7 @@ function AppContent() {
     try {
       await desktopRequest("session.updateQueue", { sessionId: activeSessionId, itemId, action: { kind: "remove" } });
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
@@ -4391,7 +4406,7 @@ function AppContent() {
     if (!activeSessionId) return;
     const text = queueEditingText.trim();
     if (!text) {
-      setErrorNotice("排队消息不能为空");
+      setErrorNotice(t("notice.queueEmpty", locale));
       return;
     }
     try {
@@ -4403,7 +4418,7 @@ function AppContent() {
       setQueueEditingId(null);
       setQueueEditingText("");
     } catch (error) {
-      setErrorNotice(errorText(error));
+      setErrorNotice(errorText(error, locale));
     }
   }
 
@@ -4416,7 +4431,7 @@ function AppContent() {
 
   function openSettingsNamespace(namespace: DshSettingsNamespace | undefined) {
     if (!namespace) {
-      setErrorNotice("该设置命名空间当前不可用");
+      setErrorNotice(t("notice.namespaceUnavailable", locale));
       return;
     }
     setSettingsDraft({
@@ -4459,7 +4474,7 @@ function AppContent() {
         setUpdateState({ status: "idle", channel: updateChannel });
         return;
       }
-      setUpdateState({ status: "error", channel: updateChannel, message: updateCheckErrorMessage(error) });
+      setUpdateState({ status: "error", channel: updateChannel, message: updateCheckErrorMessage(error, locale) });
     }
   }
 
@@ -4477,7 +4492,7 @@ function AppContent() {
   function cancelAppUpdateCheck() {
     updateCheckRequestRef.current += 1;
     setUpdateState({ status: "idle", channel: updateChannel });
-    void cancelUpdateCheck().catch((error) => setErrorNotice(errorText(error)));
+    void cancelUpdateCheck().catch((error) => setErrorNotice(errorText(error, locale)));
   }
 
   async function downloadAppUpdate() {
@@ -4493,7 +4508,7 @@ function AppContent() {
         setUpdateDownloadState({ status: "cancelled" });
         return;
       }
-      setUpdateDownloadState({ status: "error", message: updateCheckErrorMessage(error) });
+      setUpdateDownloadState({ status: "error", message: updateCheckErrorMessage(error, locale) });
     }
   }
 
@@ -4501,28 +4516,28 @@ function AppContent() {
     updateDownloadRequestRef.current += 1;
     updateDownloadReleaseRef.current = null;
     setUpdateDownloadState({ status: "cancelled" });
-    void cancelUpdateDownload().catch((error) => setErrorNotice(errorText(error)));
+    void cancelUpdateDownload().catch((error) => setErrorNotice(errorText(error, locale)));
   }
 
   function launchAppUpdate() {
     if (updateDownloadState.status !== "ready" && !(updateDownloadState.status === "error" && updateDownloadState.canInstall)) return;
     setUpdateDownloadState({ status: "launching" });
     void launchUpdateInstaller().catch((error) => {
-      setUpdateDownloadState({ status: "error", message: errorText(error), canInstall: true });
+      setUpdateDownloadState({ status: "error", message: errorText(error, locale), canInstall: true });
     });
   }
 
   function openProjectPage() {
-    void openExternalUrl(DEEPTOP_PROJECT_URL).catch((error) => setErrorNotice(errorText(error)));
+    void openExternalUrl(DEEPTOP_PROJECT_URL).catch((error) => setErrorNotice(errorText(error, locale)));
   }
 
   function openLatestRelease() {
     if (updateState.status !== "available") return;
-    void openExternalUrl(updateState.releaseUrl).catch((error) => setErrorNotice(errorText(error)));
+    void openExternalUrl(updateState.releaseUrl).catch((error) => setErrorNotice(errorText(error, locale)));
   }
 
   function openModelsDevPricing() {
-    void openConnectionUrl(modelPricingSourceUrl).catch((error) => setErrorNotice(errorText(error)));
+    void openConnectionUrl(modelPricingSourceUrl).catch((error) => setErrorNotice(errorText(error, locale)));
   }
 
   function openSettings() {
@@ -4541,7 +4556,7 @@ function AppContent() {
         <StartupSplash
           status={status}
           logs={startupLogs}
-          onOpenNodejsDownload={() => void openNodejsDownload().catch((error) => setErrorNotice(errorText(error)))}
+          onOpenNodejsDownload={() => void openNodejsDownload().catch((error) => setErrorNotice(errorText(error, locale)))}
           onRetry={() => void restartRuntime()}
           windowMaximized={windowMaximized}
           onDrag={(event) => void startWindowDrag(event)}
@@ -4549,8 +4564,8 @@ function AppContent() {
           onToggleMaximize={() => void toggleWindowMaximize()}
           onClose={() => void closeWindow()}
         />
-        {popupRequest?.kind === "close-behavior" && <WindowCloseBehaviorDialog onClose={() => settlePopup(null)} onSelect={(behavior) => settlePopup(behavior)} />}
-        {status.processConflict && <DshConflictDialog conflict={status.processConflict} busy={dshConflictBusy} onClose={dismissDshConflict} onTerminate={() => void terminateConflictingDsh()} />}
+        {popupRequest?.kind === "close-behavior" && <WindowCloseBehaviorDialog locale={locale} onClose={() => settlePopup(null)} onSelect={(behavior) => settlePopup(behavior)} />}
+        {status.processConflict && <DshConflictDialog locale={locale} conflict={status.processConflict} busy={dshConflictBusy} onClose={dismissDshConflict} onTerminate={() => void terminateConflictingDsh()} />}
       </>
     );
   }
@@ -4558,6 +4573,7 @@ function AppContent() {
   return (
     <main className={`app-shell${hasAnyBackground(appearance.backgrounds) ? " has-custom-background" : ""}`} style={appearanceStyle}>
       <WindowChrome
+        locale={locale}
         windowMaximized={windowMaximized}
         settingsOpen={showInspector}
         onDrag={(event) => void startWindowDrag(event)}
@@ -4574,6 +4590,7 @@ function AppContent() {
       <DockPinLayersProvider value={pinLayerElements}>
       <div className={`workspace-layout ${todoVisible ? "todo-visible" : ""} ${todoVisible && todoCollapsed ? "todo-collapsed" : ""} ${activeJobs.length > 0 ? "tasks-visible" : ""} ${activeJobs.length > 0 && jobsCollapsed ? "tasks-collapsed" : ""} ${deliverablesVisible ? "deliverables-visible" : ""} ${deliverablesVisible && deliverablesCollapsed ? "deliverables-collapsed" : ""}`} style={{ "--sidebar-width": `${sidebarWidth}px`, "--pin-left-width": `${effectivePinLayerWidths.left}px`, "--pin-right-width": `${effectivePinLayerWidths.right}px` } as CSSProperties}>
         <SessionSidebar
+          locale={locale}
           search={search}
           onSearchChange={setSearch}
           onSearch={() => void searchSessions()}
@@ -4619,7 +4636,7 @@ function AppContent() {
         <div
           className="sidebar-resizer"
           role="separator"
-          aria-label="调整会话侧栏宽度"
+          aria-label={t("layout.resizeSidebarAria", locale)}
           aria-valuemin={300}
           aria-valuemax={440}
           aria-valuenow={sidebarWidth}
@@ -4636,7 +4653,7 @@ function AppContent() {
               className="pin-layer-resizer"
               role="separator"
               aria-orientation="vertical"
-              aria-label="调整左分栏宽度"
+              aria-label={t("layout.resizeLeftPinAria", locale)}
               aria-valuemin={PIN_LAYER_MIN_WIDTH}
               aria-valuemax={PIN_LAYER_MAX_WIDTH}
               aria-valuenow={effectivePinLayerWidths.left}
@@ -4648,6 +4665,7 @@ function AppContent() {
 
         <section className="conversation-panel">
           <ConversationHeader
+            locale={locale}
             activeSession={activeSession}
             presets={presets}
             runtimeDirectory={status.runtimeDirectory}
@@ -4662,6 +4680,7 @@ function AppContent() {
 
           <div className={`conversation-transcript-stage${activeGoal ? " has-current-goal" : ""}${goalBarCollapsed ? " current-goal-collapsed" : ""}`}>
             <CurrentGoalBar
+              locale={locale}
               activeGoal={activeGoal}
               roundsStarted={goalRoundsStarted}
               collapsed={goalBarCollapsed}
@@ -4671,14 +4690,15 @@ function AppContent() {
             {corruptSession && corruptSession.sessionId === activeSessionId && (
               <div className="session-repair-banner" role="alert">
                 <div className="session-repair-banner-text">
-                  该会话日志在 Deeptop 上次崩溃时受损，DSH 无法读取。可尝试修复：保留已提交的历史记录，丢弃崩溃时未写完的内容。
+                  {t("repair.banner", locale)}
                 </div>
                 <button type="button" className="session-repair-button" disabled={repairingSession} onClick={() => void repairActiveSession()}>
-                  {repairingSession ? "正在修复…" : "修复并重新打开"}
+                  {repairingSession ? t("repair.repairing", locale) : t("repair.repairAndReopen", locale)}
                 </button>
               </div>
             )}
             {!tokenUsageOpen && <ConversationTranscript
+              locale={locale}
               scrollRef={transcriptScroll}
               endRef={transcriptEnd}
               history={history}
@@ -4724,14 +4744,16 @@ function AppContent() {
               onOpenPricingSource={openModelsDevPricing}
             />
 
-            <div className="left-dock-shelf" aria-label="工作区工具">
+            <div className="left-dock-shelf" aria-label={t("layout.workspaceToolsAria", locale)}>
               <TerminalDock
+                locale={locale}
                 workspace={workspace}
                 collapsed={!terminalOpen}
                 onToggle={() => setTerminalOpen((open) => !open)}
                 onError={setErrorNotice}
               />
               <WorkspaceFilesPanel
+                locale={locale}
                 workspace={workspace}
                 collapsed={filesCollapsed}
                 onToggle={() => setFilesOpen((open) => !open)}
@@ -4739,6 +4761,7 @@ function AppContent() {
                 onError={setErrorNotice}
               />
               <GitDock
+                locale={locale}
                 workspace={workspace}
                 collapsed={!gitOpen}
                 onToggle={() => setGitOpen((open) => !open)}
@@ -4747,8 +4770,10 @@ function AppContent() {
             </div>
 
               <UtilityDockShelf
-               tasks={activeJobs.length > 0 ? <TaskPanel jobs={activeJobs} collapsed={jobsCollapsed} now={jobNow} onToggle={() => togglePanel("tasks")} /> : null}
+               locale={locale}
+               tasks={activeJobs.length > 0 ? <TaskPanel locale={locale} jobs={activeJobs} collapsed={jobsCollapsed} now={jobNow} onToggle={() => togglePanel("tasks")} /> : null}
                todo={todoVisible ? <TodoPanel
+                 locale={locale}
                  todos={todos ?? []}
                  collapsed={todoCollapsed}
                  counts={todoCounts}
@@ -4758,6 +4783,7 @@ function AppContent() {
                  onToggle={() => togglePanel("todo")}
                /> : null}
                 subagent={<SubagentDock
+                  locale={locale}
                   entries={childSubagents}
                   dockOpen={subagentDockOpen}
                   selectedId={selectedSubagentId}
@@ -4769,6 +4795,7 @@ function AppContent() {
                   onToggleBranch={toggleSubagentBranch}
                 />}
                 deliverables={deliverablesVisible && deliverables ? <DeliverablesPanel
+                 locale={locale}
                  item={deliverables}
                  activeSession={activeSession ?? null}
                  collapsed={deliverablesCollapsed}
@@ -4778,6 +4805,7 @@ function AppContent() {
              />
 
              <SubagentPanel
+              locale={locale}
               panelOpen={subagentPanelOpen}
               selectedId={selectedSubagentId}
               selectedIndex={selectedSubagentIndex}
@@ -4795,6 +4823,7 @@ function AppContent() {
           </div>
 
           <InteractionPanel
+            locale={locale}
             approval={approval}
             question={question}
             answers={questionAnswers}
@@ -4818,6 +4847,7 @@ function AppContent() {
           />
 
           <QueueDock
+            locale={locale}
             items={queue}
             editingId={queueEditingId}
             editingText={queueEditingText}
@@ -4895,7 +4925,7 @@ function AppContent() {
               className="pin-layer-resizer"
               role="separator"
               aria-orientation="vertical"
-              aria-label="调整右分栏宽度"
+              aria-label={t("layout.resizeRightPinAria", locale)}
               aria-valuemin={PIN_LAYER_MIN_WIDTH}
               aria-valuemax={PIN_LAYER_MAX_WIDTH}
               aria-valuenow={effectivePinLayerWidths.right}
@@ -4909,29 +4939,29 @@ function AppContent() {
 
          {showInspector && (
           <div className="inspector-modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="inspector-title">
-            <button className="inspector-backdrop" onClick={closeSettings} aria-label="关闭设置" />
+            <button className="inspector-backdrop" onClick={closeSettings} aria-label={t("settings.closeAria", locale)} />
             <aside className="inspector-panel">
-            <div className="inspector-header"><strong id="inspector-title">设置</strong><button onClick={closeSettings} title="关闭设置">×</button></div>
-            {surfaceLoading && <div className="surface-loading">正在读取 DSH 状态…</div>}
+            <div className="inspector-header"><strong id="inspector-title">{t("settings.title", locale)}</strong><button onClick={closeSettings} title={t("settings.closeAria", locale)}>×</button></div>
+            {surfaceLoading && <div className="surface-loading">{t("settings.loadingSurface", locale)}</div>}
 
             <div className="settings-layout">
-                <nav className="settings-navigation" aria-label="设置分区">
+                <nav className="settings-navigation" aria-label={t("settings.navAria", locale)}>
                   <div className="settings-navigation-title">DSH {t("settings.title", locale)}</div>
                   <div className={`settings-navigation-group${settingsSection === "appearance" ? " expanded" : ""}`}>
                     <button className="settings-navigation-group-toggle" aria-expanded={settingsSection === "appearance"} onClick={() => { setSettingsSection("appearance"); setAppearanceSection("theme"); }}>
                       <strong>{t("settings.appearance", locale)}</strong><span className="settings-navigation-chevron">⌄</span>
                     </button>
-                    {settingsSection === "appearance" && <div className="settings-navigation-subnav" role="tablist" aria-label="外观子页面">
+                    {settingsSection === "appearance" && <div className="settings-navigation-subnav" role="tablist" aria-label={t("settings.appearance", locale)}>
                       {(["theme", "background", "typography", "css"] as AppearanceSection[]).map((item) => <button key={item} className={`settings-navigation-subitem${appearanceSection === item ? " selected" : ""}`} onClick={() => setAppearanceSection(item)}>{item === "theme" ? t("settings.theme", locale) : item === "background" ? t("settings.background", locale) : item === "typography" ? t("settings.typography", locale) : t("settings.css", locale)}</button>)}
                     </div>}
                   </div>
                   {/* @deeptop-pets:start app-settings-nav */}
                   <button className={(settingsSection as string) === "pets" ? "selected" : ""} onClick={() => setSettingsSection("pets" as SettingsSection)}>
-                    <strong>宠物</strong><small>桌宠、安装与分享</small>
+                    <strong>{t("settings.pets", locale)}</strong><small>{t("settings.pets.hint", locale)}</small>
                   </button>
                   {/* @deeptop-pets:end app-settings-nav */}
                    <button className={settingsSection === "general" ? "selected" : ""} onClick={(event) => setSettingsSection(event.currentTarget.textContent?.includes("Dock") ? "dock" : "general")}>
-                     <strong data-legacy-general="true">{t("settings.general", locale)}</strong><small>会话与 Host</small>
+                     <strong data-legacy-general="true">{t("settings.general", locale)}</strong><small>{t("settings.general.hint", locale)}</small>
                    </button>{/*
                    </button>
                    <button className={settingsSection === "general" ? "selected" : ""} onClick={(event) => setSettingsSection(event.currentTarget.textContent?.includes("Dock") ? "dock" : "general")}>
@@ -4944,38 +4974,39 @@ function AppContent() {
                   </button>
                   */}
                    <button className={settingsSection === "dock" ? "selected" : ""} onClick={() => setSettingsSection("dock")}>
-                     <strong>Dock</strong><small>展开框交互与位置</small>
+                     <strong>{t("settings.dock", locale)}</strong><small>{t("settings.dock.hint", locale)}</small>
                    </button>
                    <button className={settingsSection === "general" ? "selected" : ""} onClick={(event) => setSettingsSection(event.currentTarget.textContent?.includes("Dock") ? "dock" : "general")}>
-                     <strong data-legacy-general="true">通用</strong><small>会话与 Host</small>
+                     <strong data-legacy-general="true">{t("settings.general", locale)}</strong><small>{t("settings.general.hint", locale)}</small>
                    </button>
                    <button className={settingsSection === "general" ? "selected" : ""} onClick={() => setSettingsSection("general")}>
-                     <strong>{t("settings.general", locale)}</strong><small>会话与 Host</small>
+                     <strong>{t("settings.general", locale)}</strong><small>{t("settings.general.hint", locale)}</small>
                    </button>
                    <button className={settingsSection === "logs" ? "selected" : ""} onClick={() => { setSettingsSection("logs"); void loadRuntimeLogs(); }}>
-                    <strong>{t("settings.logs", locale)}</strong><small>堆栈与运行日志</small>
+                    <strong>{t("settings.logs", locale)}</strong><small>{t("settings.logs.hint", locale)}</small>
                   </button>
                   <button className={settingsSection === "keyboard" ? "selected" : ""} onClick={() => setSettingsSection("keyboard")}>
-                     <strong>{t("settings.keyboard", locale)}</strong><small>消息快捷键</small>
+                     <strong>{t("settings.keyboard", locale)}</strong><small>{t("settings.keyboard.hint", locale)}</small>
                    </button>
                    <button className={settingsSection === "models" ? "selected" : ""} onClick={() => setSettingsSection("models")}>
-                    <strong>{t("settings.models", locale)}</strong><small>Provider 与模型目录</small>
+                    <strong>{t("settings.models", locale)}</strong><small>{t("settings.models.hint", locale)}</small>
                   </button>
                   <button className={settingsSection === "presets" ? "selected" : ""} onClick={() => setSettingsSection("presets")}>
-                    <strong>Agent Preset</strong><small>会话 Agent 组装</small>
+                    <strong>{t("settings.presets", locale)}</strong><small>{t("settings.presets.hint", locale)}</small>
                   </button>
                   <button className={settingsSection === "plugins" ? "selected" : ""} onClick={() => setSettingsSection("plugins")}>
-                    <strong>{t("settings.plugins", locale)}</strong><small>运行中的 Cordis 插件</small>
+                    <strong>{t("settings.plugins", locale)}</strong><small>{t("settings.plugins.hint", locale)}</small>
                   </button>
                 <button className={settingsSection === "about" ? "selected" : ""} onClick={() => setSettingsSection("about")}>
-                     <strong>{t("settings.about", locale)}</strong><small>版本与更新检查</small>
+                     <strong>{t("settings.about", locale)}</strong><small>{t("settings.about.hint", locale)}</small>
                    </button>
                  </nav>
 
                 <section className="settings-main">
-                   {settingsSection === "dock" && <SettingsDockPanel settings={dockSettings} loaded={dockSettingsLoaded} updating={dockSettingsUpdating} onUpdate={updateDockSettingsWithNotice} />}
+                   {settingsSection === "dock" && <SettingsDockPanel locale={locale} settings={dockSettings} loaded={dockSettingsLoaded} updating={dockSettingsUpdating} onUpdate={updateDockSettingsWithNotice} />}
                   {/* @deeptop-pets:start app-settings-panel */}
                   {(settingsSection as string) === "pets" && <SettingsPetPanel
+                    locale={locale}
                     desktop={desktop}
                     settings={petSystem.settings}
                     entries={petSystem.entries}
@@ -4998,6 +5029,7 @@ function AppContent() {
                   />}
                   {/* @deeptop-pets:end app-settings-panel */}
                   {settingsSection === "about" && <SettingsAboutPanel
+                     locale={locale}
                      version={DEEPTOP_VERSION}
                      desktop={desktop}
                      updateChannel={updateChannel}
@@ -5063,7 +5095,7 @@ function AppContent() {
                      windowBehaviorUpdating={windowBehaviorUpdating}
                      onSetContextMenuEnabled={setContextMenuEnabled}
                      onUpdateWindowBehavior={updateWindowBehavior}
-                    onOpenDocument={() => desktopRequest("settings.openDocument").then(() => setNotice("已打开 DSH 配置文件")).catch((error) => setErrorNotice(errorText(error)))}
+                    onOpenDocument={() => desktopRequest("settings.openDocument").then(() => setNotice(t("notice.configOpened", locale))).catch((error) => setErrorNotice(errorText(error, locale)))}
                     onSetDefaultPreset={setDefaultPreset}
                     onSetDefaultModel={setDefaultModel}
                     onSetDefaultPermission={setDefaultPermission}
@@ -5077,11 +5109,13 @@ function AppContent() {
                   />}
 
                   {settingsSection === "keyboard" && <SettingsKeyboardPanel
+                     locale={locale}
                      sendShortcut={sendShortcut}
                      onSendShortcutChange={updateSendShortcut}
                    />}
 
                    {settingsSection === "logs" && <SettingsLogsPanel
+                     locale={locale}
                      logs={appLogs}
                      exportPath={logExportPath}
                      exporting={logExporting}
@@ -5091,6 +5125,7 @@ function AppContent() {
                    />}
 
                    {settingsSection === "presets" && <SettingsPresetPanel
+                    locale={locale}
                     presets={presets}
                     writable={settings?.writable}
                     authorable={presetAuthorable}
@@ -5102,6 +5137,7 @@ function AppContent() {
                   />}
 
                   {settingsSection === "models" && <SettingsModelsPanel
+                    locale={locale}
                     providers={providers}
                     settings={settings}
                     hostModels={hostModels}
@@ -5110,6 +5146,7 @@ function AppContent() {
                   />}
 
                   {settingsSection === "plugins" && <SettingsPluginsPanel
+                    locale={locale}
                     inventory={pluginInventory}
                      excludedPlugins={excludedPlugins}
                     visiblePlugins={visiblePlugins}
@@ -5135,30 +5172,33 @@ function AppContent() {
                   />}
                 </section>
                 {/* settings JSON popup is rendered below the settings sheet */}
-                 {settingsDraft && !isSchemaEnvelope(settingsDraft.schema) && <PopupDialog title={`编辑 ${settingsDraft.ns}`} eyebrow="公开设置 / JSON" description="仅修改公开字段；密钥和其他 Host 专属字段不会被覆盖。" className="popup-json-dialog" onClose={() => setSettingsDraft(null)} footer={<><button type="button" onClick={() => setSettingsDraft(null)}>取消</button><button type="button" className="confirm" onClick={() => void saveSettings()}>保存设置</button></>}><textarea className="surface-code-input popup-code-input" value={settingsDraft.value} onChange={(event) => setSettingsDraft({ ...settingsDraft, value: event.target.value })} autoFocus aria-label={`${settingsDraft.ns} JSON`} /></PopupDialog>}
-                {settingsDraft && isSchemaEnvelope(settingsDraft.schema) && <PopupDialog title={`设置 ${settingsDraft.ns}`} eyebrow="公开设置 / Schema 表单" description="按官方 Schema 渲染可编辑字段；密钥始终由 Host 保管，不回显。" className="popup-schema-dialog" onClose={() => setSettingsDraft(null)}>
+                 {settingsDraft && !isSchemaEnvelope(settingsDraft.schema) && <PopupDialog locale={locale} title={t("dialog.jsonEdit.title", locale, { ns: settingsDraft.ns })} eyebrow="公开设置 / JSON" description={t("dialog.jsonEdit.description", locale)} className="popup-json-dialog" onClose={() => setSettingsDraft(null)} footer={<><button type="button" onClick={() => setSettingsDraft(null)}>{t("common.cancel", locale)}</button><button type="button" className="confirm" onClick={() => void saveSettings()}>{t("dialog.jsonEdit.save", locale)}</button></>}><textarea className="surface-code-input popup-code-input" value={settingsDraft.value} onChange={(event) => setSettingsDraft({ ...settingsDraft, value: event.target.value })} autoFocus aria-label={`${settingsDraft.ns} JSON`} /></PopupDialog>}
+                {settingsDraft && isSchemaEnvelope(settingsDraft.schema) && <PopupDialog locale={locale} title={t("dialog.schemaEdit.title", locale, { ns: settingsDraft.ns })} eyebrow="公开设置 / Schema 表单" description={t("dialog.schemaEdit.description", locale)} className="popup-schema-dialog" onClose={() => setSettingsDraft(null)}>
                   <SchemaFormPanel
+                    locale={locale}
                     namespace={settingsSchemaNamespace(settingsDraft, settings)}
                     onSave={(ops, revision) => void saveSettingsOps(settingsDraft.ns, ops, revision, settingsDraft)}
                     onCancel={() => setSettingsDraft(null)}
                     saving={settingsSaving}
                   />
                 </PopupDialog>}
-                {presetCopy && <PopupDialog title={`复制 ${presetCopy.from}`} eyebrow="AGENT PRESET / 新建" description="从现有 Preset 创建一份用户组合，创建后可继续在本地文件中编辑。" className="popup-form-dialog" onClose={() => setPresetCopy(null)} footer={<><button type="button" onClick={() => setPresetCopy(null)}>取消</button><button type="button" className="confirm" disabled={!presetCopy.id.trim()} onClick={() => void copyPreset()}>创建 Preset</button></>}><label className="popup-field"><span>Preset id</span><input placeholder="例如：researcher-local" value={presetCopy.id} onChange={(event) => setPresetCopy({ ...presetCopy, id: event.target.value })} autoFocus /></label><label className="popup-field"><span>显示名称 <em>可选</em></span><input placeholder="例如：本地研究助手" value={presetCopy.name} onChange={(event) => setPresetCopy({ ...presetCopy, name: event.target.value })} /></label></PopupDialog>}
-                {presetView && <PopupDialog title={`${presetView.id} / agent.cordis.yml`} eyebrow="AGENT PRESET / 预览" description="查看该 Preset 的组合内容。" className="popup-preview-dialog" onClose={() => setPresetView(null)} footer={<button type="button" className="confirm" onClick={() => setPresetView(null)}>完成</button>}><pre className="surface-code popup-code-preview">{presetView.content}</pre></PopupDialog>}
+                {presetCopy && <PopupDialog locale={locale} title={t("dialog.presetCopy.title", locale, { from: presetCopy.from })} eyebrow="AGENT PRESET / 新建" description={t("dialog.presetCopy.description", locale)} className="popup-form-dialog" onClose={() => setPresetCopy(null)} footer={<><button type="button" onClick={() => setPresetCopy(null)}>{t("common.cancel", locale)}</button><button type="button" className="confirm" disabled={!presetCopy.id.trim()} onClick={() => void copyPreset()}>{t("dialog.presetCopy.create", locale)}</button></>}><label className="popup-field"><span>Preset id</span><input placeholder="例如：researcher-local" value={presetCopy.id} onChange={(event) => setPresetCopy({ ...presetCopy, id: event.target.value })} autoFocus /></label><label className="popup-field"><span>{t("dialog.presetCopy.displayName", locale)} <em>{t("dialog.presetCopy.optional", locale)}</em></span><input placeholder="例如：本地研究助手" value={presetCopy.name} onChange={(event) => setPresetCopy({ ...presetCopy, name: event.target.value })} /></label></PopupDialog>}
+                {presetView && <PopupDialog locale={locale} title={`${presetView.id} / agent.cordis.yml`} eyebrow="AGENT PRESET / 预览" description={t("dialog.presetView.description", locale)} className="popup-preview-dialog" onClose={() => setPresetView(null)} footer={<button type="button" className="confirm" onClick={() => setPresetView(null)}>{t("common.done", locale)}</button>}><pre className="surface-code popup-code-preview">{presetView.content}</pre></PopupDialog>}
               </div>
             </aside>
           </div>
         )}
       {goalPanelOpen && activeSessionId && <PopupDialog
-          title={activeGoal ? "管理当前 Goal" : "创建当前 Goal"}
+          locale={locale}
+          title={activeGoal ? t("dialog.goal.manage", locale) : t("dialog.goal.create", locale)}
           eyebrow="DSH / GOAL"
-          description={activeGoal ? "查看持续目标的执行状态，调整预算，或控制下一步是否继续自动推进。" : "为当前会话创建一个可跨回合持续推进的目标。"}
+          description={activeGoal ? t("dialog.goal.manageHint", locale) : t("dialog.goal.createHint", locale)}
           className="popup-goal-dialog"
           onClose={() => { if (!goalPanelBusy) setGoalPanelOpen(false); }}
-          footer={<button type="button" disabled={goalPanelBusy} onClick={() => setGoalPanelOpen(false)}>关闭</button>}
+          footer={<button type="button" disabled={goalPanelBusy} onClick={() => setGoalPanelOpen(false)}>{t("common.close", locale)}</button>}
         >
           <GoalSurfacePanel
+            locale={locale}
             activeGoal={activeGoal}
             roundsStarted={goalRoundsStarted}
             draft={goalDraft}
@@ -5171,6 +5211,7 @@ function AppContent() {
           />
         </PopupDialog>}
         {pluginInstallOpen && <PluginInstallDialog
+         locale={locale}
          existingIds={pluginConfigDraft.map((plugin) => plugin.id)}
          pickingEntry={pluginPickingEntry}
          onClose={() => setPluginInstallOpen(false)}
@@ -5178,75 +5219,79 @@ function AppContent() {
          onSubmit={addPlugin}
        />}
        {presetMigration && <PopupDialog
-         title="迁移到可用的 Agent Preset"
+         locale={locale}
+         title={t("dialog.presetMigration.title", locale)}
          eyebrow="会话恢复 / 需要确认"
-         description={`会话“${presetMigration.session.sessionId}”无法恢复，因为它引用的 Preset “${presetMigration.missingPreset}”已不存在。`}
+         description={t("dialog.presetMigration.description", locale, { session: presetMigration.session.sessionId, preset: presetMigration.missingPreset })}
          className="popup-form-dialog"
          role="alertdialog"
          onClose={() => { if (!presetMigrationRunning) setPresetMigration(null); }}
-         footer={<><button type="button" disabled={presetMigrationRunning} onClick={() => setPresetMigration(null)}>取消</button><button type="button" className="confirm" disabled={presetMigrationRunning || !presetMigrationSelection} onClick={() => void migrateMissingPreset()}>{presetMigrationRunning ? "正在创建副本…" : "确认迁移并打开副本"}</button></>}
+         footer={<><button type="button" disabled={presetMigrationRunning} onClick={() => setPresetMigration(null)}>{t("common.cancel", locale)}</button><button type="button" className="confirm" disabled={presetMigrationRunning || !presetMigrationSelection} onClick={() => void migrateMissingPreset()}>{presetMigrationRunning ? t("dialog.presetMigration.creating", locale) : t("dialog.presetMigration.confirm", locale)}</button></>}
        >
-         <p>迁移会创建一个新的会话副本，保留原会话和已有历史；不会修改、覆盖或删除原会话。</p>
-         <p>不同 Preset 可能带来不同的工具、系统提示词和能力。历史中的工具调用可能只能以兼容或通用形式显示，迁移后的后续回复也可能不同。</p>
-         <label className="popup-field"><span>选择替代 Preset</span><select value={presetMigrationSelection} onChange={(event) => setPresetMigrationSelection(event.target.value)} disabled={presetMigrationRunning}><option value="" disabled>请选择</option>{presets.filter((preset) => !preset.broken && preset.id !== presetMigration?.missingPreset).map((preset) => <option value={preset.id} key={preset.id}>{presetDisplayName(preset.id, presets)}（{preset.id}）</option>)}</select></label>
-         {presetMigration.availablePresetIds.length > 0 && <small>检测到可用选项：{presetMigration.availablePresetIds.join("、")}</small>}
+         <p>{t("dialog.presetMigration.copyHint", locale)}</p>
+         <p>{t("dialog.presetMigration.diffHint", locale)}</p>
+         <label className="popup-field"><span>{t("dialog.presetMigration.choose", locale)}</span><select value={presetMigrationSelection} onChange={(event) => setPresetMigrationSelection(event.target.value)} disabled={presetMigrationRunning}><option value="" disabled>{t("dialog.presetMigration.pleaseSelect", locale)}</option>{presets.filter((preset) => !preset.broken && preset.id !== presetMigration?.missingPreset).map((preset) => <option value={preset.id} key={preset.id}>{presetDisplayName(preset.id, presets, locale)}（{preset.id}）</option>)}</select></label>
+         {presetMigration.availablePresetIds.length > 0 && <small>{t("dialog.presetMigration.available", locale, { presets: presetMigration.availablePresetIds.join("、") })}</small>}
        </PopupDialog>}
        {popupRequest?.kind === "confirm" && <PopupDialog
-        title="请确认操作"
+        locale={locale}
+        title={t("dialog.confirm.title", locale)}
         eyebrow="DSH / 确认操作"
-        description="请确认是否继续执行此操作。"
+        description={t("dialog.confirm.description", locale)}
         className="popup-confirm-dialog"
         role="alertdialog"
         onClose={() => settlePopup(false)}
-        footer={<><button type="button" onClick={() => settlePopup(false)}>取消</button><button type="button" className="confirm" onClick={() => settlePopup(true)}>确认</button></>}
+        footer={<><button type="button" onClick={() => settlePopup(false)}>{t("common.cancel", locale)}</button><button type="button" className="confirm" onClick={() => settlePopup(true)}>{t("common.confirm", locale)}</button></>}
       >
         <p className="popup-confirm-message">{popupRequest.message}</p>
       </PopupDialog>}
-      {popupRequest?.kind === "close-behavior" && <WindowCloseBehaviorDialog onClose={() => settlePopup(null)} onSelect={(behavior) => settlePopup(behavior)} />}
+      {popupRequest?.kind === "close-behavior" && <WindowCloseBehaviorDialog locale={locale} onClose={() => settlePopup(null)} onSelect={(behavior) => settlePopup(behavior)} />}
        {popupRequest?.kind === "prompt" && <PopupDialog
         title={popupRequest.title}
         eyebrow="DSH / 输入"
         description={popupRequest.description}
         className="popup-prompt-dialog"
         onClose={() => settlePopup(null)}
-        footer={<><button type="button" onClick={() => settlePopup(null)}>取消</button><button type="button" className="confirm" onClick={() => settlePopup(popupValue)}>确定</button></>}
+        footer={<><button type="button" onClick={() => settlePopup(null)}>{t("common.cancel", locale)}</button><button type="button" className="confirm" onClick={() => settlePopup(popupValue)}>{t("dialog.prompt.ok", locale)}</button></>}
       >
         <form className="popup-prompt-form" onSubmit={(event) => { event.preventDefault(); settlePopup(popupValue); }}>
           <input className="popup-prompt-input" value={popupValue} onChange={(event) => setPopupValue(event.target.value)} autoFocus aria-label={popupRequest.title} />
         </form>
       </PopupDialog>}
       {pendingDefaultPermission && <PopupDialog
-        title="确认新会话默认权限"
+        locale={locale}
+        title={t("dialog.permissionDefault.title", locale)}
         eyebrow="DSH / 默认设置"
-        description="完全访问会让之后创建的会话拥有不受限制的操作权限。"
+        description={t("dialog.permissionDefault.description", locale)}
         className="popup-permission-dialog"
         onClose={() => setPendingDefaultPermission(null)}
-        footer={<><button type="button" onClick={() => setPendingDefaultPermission(null)}>取消</button><button type="button" className="confirm danger-button" onClick={() => void confirmDefaultPermission()}>确认设为默认</button></>}
+        footer={<><button type="button" onClick={() => setPendingDefaultPermission(null)}>{t("common.cancel", locale)}</button><button type="button" className="confirm danger-button" onClick={() => void confirmDefaultPermission()}>{t("dialog.permissionDefault.confirm", locale)}</button></>}
       >
         <div className="permission-confirm-content">
           <div className="permission-confirm-mark" aria-hidden="true">!</div>
-          <div><strong>仅在你信任之后创建会话所处的工作区时使用。</strong><p>当前已经打开的会话不会改变；这个默认值只会影响之后创建的新会话。</p></div>
+          <div><strong>{t("dialog.permissionDefault.warning", locale)}</strong><p>{t("dialog.permissionDefault.warningHint", locale)}</p></div>
         </div>
       </PopupDialog>}
       {pendingPermissionValue && <PopupDialog
-        title="确认修改权限"
+        locale={locale}
+        title={t("dialog.permissionSwitch.title", locale)}
         eyebrow="DSH / 权限变更"
-        description="即将把当前会话切换到危险权限模式。"
+        description={t("dialog.permissionSwitch.description", locale)}
         className="popup-permission-dialog"
         onClose={() => setPendingPermissionValue(null)}
-        footer={<><button type="button" onClick={() => setPendingPermissionValue(null)}>取消</button><button type="button" className="confirm danger-button" onClick={() => void confirmPermissionPreset()}>确认切换</button></>}
+        footer={<><button type="button" onClick={() => setPendingPermissionValue(null)}>{t("common.cancel", locale)}</button><button type="button" className="confirm danger-button" onClick={() => void confirmPermissionPreset()}>{t("dialog.permissionSwitch.confirm", locale)}</button></>}
       >
         <div className="permission-confirm-content">
           <div className="permission-confirm-mark" aria-hidden="true">!</div>
           <div>
-            <strong>危险权限会允许 DSH 在当前工作区执行不受限制的操作。</strong>
-            <p>仅在你明确了解风险并信任当前工作区时继续。你可以随时从权限菜单切换回更受限的模式。</p>
+            <strong>{t("dialog.permissionSwitch.warning", locale)}</strong>
+            <p>{t("dialog.permissionSwitch.warningHint", locale)}</p>
           </div>
         </div>
       </PopupDialog>}
-      {confirmAction && <div className="confirm-backdrop" onMouseDown={() => setConfirmAction(null)}><div className="confirm-dialog" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><strong>归档会话？</strong><p>“{displayTitle(confirmAction.session)}”将从会话列表中隐藏，历史记录会保留；可在归档页查看、恢复或永久删除。</p><div className="surface-dialog-actions"><button onClick={() => setConfirmAction(null)}>取消</button><button className="confirm danger-button" onClick={() => void archiveSession(confirmAction.session)}>确认归档</button></div></div></div>}
-      {deleteArchivedTarget && <div className="confirm-backdrop" onMouseDown={() => setDeleteArchivedTarget(null)}><div className="confirm-dialog" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><strong>永久删除归档会话？</strong><p>“{displayTitle(deleteArchivedTarget)}”的历史记录将被永久删除，无法恢复。</p><div className="surface-dialog-actions"><button onClick={() => setDeleteArchivedTarget(null)}>取消</button><button className="confirm danger-button" onClick={() => void deleteArchivedSession()}>永久删除</button></div></div></div>}
-      {renameTarget && <div className="confirm-backdrop" onMouseDown={() => setRenameTarget(null)}><form className="confirm-dialog rename-dialog" role="dialog" aria-modal="true" onSubmit={(event) => { event.preventDefault(); void renameSession(); }} onMouseDown={(event) => event.stopPropagation()}><strong>重命名会话</strong><p>修改“{displayTitle(renameTarget)}”在左侧会话列表中的显示名称。</p><input className="rename-dialog-input" value={renameValue} onChange={(event) => setRenameValue(event.target.value)} autoFocus aria-label="会话名称" /><div className="surface-dialog-actions"><button type="button" onClick={() => setRenameTarget(null)}>取消</button><button className="confirm" type="submit" disabled={!renameValue.trim()}>保存</button></div></form></div>}
+      {confirmAction && <div className="confirm-backdrop" onMouseDown={() => setConfirmAction(null)}><div className="confirm-dialog" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><strong>{t("dialog.archive.title", locale)}</strong><p>{t("dialog.archive.description", locale, { session: displayTitle(confirmAction.session, locale) })}</p><div className="surface-dialog-actions"><button onClick={() => setConfirmAction(null)}>{t("common.cancel", locale)}</button><button className="confirm danger-button" onClick={() => void archiveSession(confirmAction.session)}>{t("dialog.archive.confirm", locale)}</button></div></div></div>}
+      {deleteArchivedTarget && <div className="confirm-backdrop" onMouseDown={() => setDeleteArchivedTarget(null)}><div className="confirm-dialog" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><strong>{t("dialog.deleteArchived.title", locale)}</strong><p>{t("dialog.deleteArchived.description", locale, { session: displayTitle(deleteArchivedTarget, locale) })}</p><div className="surface-dialog-actions"><button onClick={() => setDeleteArchivedTarget(null)}>{t("common.cancel", locale)}</button><button className="confirm danger-button" onClick={() => void deleteArchivedSession()}>{t("dialog.deleteArchived.confirm", locale)}</button></div></div></div>}
+      {renameTarget && <div className="confirm-backdrop" onMouseDown={() => setRenameTarget(null)}><form className="confirm-dialog rename-dialog" role="dialog" aria-modal="true" onSubmit={(event) => { event.preventDefault(); void renameSession(); }} onMouseDown={(event) => event.stopPropagation()}><strong>{t("dialog.rename.title", locale)}</strong><p>{t("dialog.rename.description", locale, { session: displayTitle(renameTarget, locale) })}</p><input className="rename-dialog-input" value={renameValue} onChange={(event) => setRenameValue(event.target.value)} autoFocus aria-label={t("dialog.rename.inputAria", locale)} /><div className="surface-dialog-actions"><button type="button" onClick={() => setRenameTarget(null)}>{t("common.cancel", locale)}</button><button className="confirm" type="submit" disabled={!renameValue.trim()}>{t("common.save", locale)}</button></div></form></div>}
      </main>
   );
 }
