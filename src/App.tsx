@@ -145,6 +145,7 @@ import {
   subagentDisplayName,
   subagentActivityLabel,
   subagentModeLabel,
+  subagentTreeChildId,
   detectComposerTrigger,
   droppedImageMediaType,
   insertComposerCandidate,
@@ -489,6 +490,11 @@ function AppContent() {
   const [expandedPlugin, setExpandedPlugin] = useState<string | null>(null);
   const [skills, setSkills] = useState<DshSkill[]>([]);
   const [subagents, setSubagents] = useState<DshSubagentCatalog | null>(null);
+  // 递归树懒加载的目录缓存：treeKey = `${parentSessionId}\u0000${childSessionId}`，
+  // 值为该 child 的子目录（null 表示加载中）。展开分支时才发起 subagent.list。
+  const [subagentCatalogs, setSubagentCatalogs] = useState<Record<string, DshSubagentCatalog | null>>({});
+  const [subagentBranchExpanded, setSubagentBranchExpanded] = useState<Record<string, boolean>>({});
+  const [subagentBranchErrors, setSubagentBranchErrors] = useState<Record<string, string>>({});
   const [subagentPanelOpen, setSubagentPanelOpen] = useState(false);
   // 左侧子 Agent dock 默认收起：展开时显示书签列表，选中后进入执行抽屉。
   const [subagentDockOpen, setSubagentDockOpen] = useState(false);
@@ -1771,6 +1777,32 @@ function AppContent() {
     }
   }
 
+  /** Expand/collapse one recursive subagent branch; loads children lazily. */
+  function toggleSubagentBranch(treeKey: string) {
+    setSubagentBranchExpanded((current) => ({ ...current, [treeKey]: !current[treeKey] }));
+    if (subagentCatalogs[treeKey] !== undefined) return;
+    const childSessionId = subagentTreeChildId(treeKey);
+    if (!childSessionId) return;
+    setSubagentCatalogs((current) => ({ ...current, [treeKey]: null }));
+    setSubagentBranchErrors((current) => {
+      const next = { ...current };
+      delete next[treeKey];
+      return next;
+    });
+    void desktopRequest("subagent.list", { parentSessionId: childSessionId })
+      .then((catalog) => {
+        setSubagentCatalogs((current) => ({ ...current, [treeKey]: catalog }));
+      })
+      .catch((error) => {
+        setSubagentBranchErrors((current) => ({ ...current, [treeKey]: errorText(error) }));
+        setSubagentCatalogs((current) => {
+          const next = { ...current };
+          delete next[treeKey];
+          return next;
+        });
+      });
+  }
+
   async function loadCommands(sessionId = activeSessionRef.current) {
     if (!desktop || !sessionId) {
       setCommands([]);
@@ -1981,6 +2013,19 @@ function AppContent() {
     setNotice(`正在打开 ${subagentDisplayName(entry, index)}`);
   }
 
+  /** 打开任意深度的子 Agent：直接父由树行携带，父会话存活时用官方地址。 */
+  function openSubagentEntry(_entry: ChildSubagentEntry, parentSessionId: string, treeKey: string) {
+    const childSessionId = subagentTreeChildId(treeKey) ?? _entry.id;
+    setSubagentDockOpen(true);
+    setSubagentPanelOpen(true);
+    void openSubagent({
+      parentSessionId,
+      childSessionId,
+      mode: _entry.mode,
+    });
+    setNotice(`正在打开 ${subagentDisplayName(_entry, 0)}`);
+  }
+
   function toggleSubagentDock() {
     setSubagentPanelOpen(false);
     setSubagentDockOpen((open) => !open);
@@ -2181,6 +2226,9 @@ function AppContent() {
     setSubagentLoadError(null);
     setSubagentPanelOpen(false);
     setSubagentDockOpen(false);
+    setSubagentCatalogs({});
+    setSubagentBranchExpanded({});
+    setSubagentBranchErrors({});
     setPresetView(null);
     setModels(null);
     setDraftModelSelection(null);
@@ -2949,6 +2997,9 @@ function AppContent() {
     setSubagentLoadError(null);
     setSubagentPanelOpen(false);
     setSubagentDockOpen(false);
+    setSubagentCatalogs({});
+    setSubagentBranchExpanded({});
+    setSubagentBranchErrors({});
     setPresetMenuOpen(false);
     setNotice("输入消息后创建会话");
   }
@@ -4648,8 +4699,12 @@ function AppContent() {
                   entries={childSubagents}
                   dockOpen={subagentDockOpen}
                   selectedId={selectedSubagentId}
+                  catalogs={subagentCatalogs}
+                  expandedBranches={subagentBranchExpanded}
+                  loadingErrors={subagentBranchErrors}
                   onToggleDock={toggleSubagentDock}
-                  onToggle={toggleSubagent}
+                  onOpen={openSubagentEntry}
+                  onToggleBranch={toggleSubagentBranch}
                 />}
                 deliverables={deliverablesVisible && deliverables ? <DeliverablesPanel
                  item={deliverables}

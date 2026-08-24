@@ -59,6 +59,21 @@ export function questionAnswerItems(
   });
 }
 
+/** Recursive subagent tree keys: `parentSessionId\u0000childSessionId`. */
+export function subagentTreeKey(parentSessionId: string, childSessionId: string): string {
+  return `${parentSessionId}\u0000${childSessionId}`;
+}
+
+export function subagentTreeChildId(treeKey: string): string | undefined {
+  const child = treeKey.split("\u0000")[1];
+  return child && child.trim() ? child : undefined;
+}
+
+export function subagentTreeParentId(treeKey: string): string | undefined {
+  const parent = treeKey.split("\u0000")[0];
+  return parent && parent.trim() ? parent : undefined;
+}
+
 export function projectName(path: string | undefined) {
   if (!path) return "未选择工作目录";
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path;

@@ -323,6 +323,72 @@
 .subagent-bookmark-copy small { color: var(--ink-muted); font-size: 11px; }
 .subagent-bookmark-number { color: var(--ink-faint); font-family: var(--mono); font-size: 11px; }
 
+/* 递归子 Agent 树：每行 = 展开箭头 + 条目（状态点 + 名称/模式），子树缩进。 */
+.subagent-tree {
+  min-height: 0;
+  flex: 1 1 auto;
+  display: grid;
+  align-content: start;
+  padding: 4px 0 10px;
+  overflow-y: auto;
+}
+.subagent-tree-row { min-width: 0; }
+.subagent-tree-line {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  gap: 3px;
+  padding: 3px 12px 3px 8px;
+  border-left: 2px solid transparent;
+}
+.subagent-tree-line:hover { background: var(--surface-soft); }
+.subagent-tree-line.expanded { border-left-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+.subagent-tree-disclosure {
+  width: 14px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-align: center;
+}
+.subagent-tree-disclosure:hover { color: var(--accent-deep); }
+.subagent-tree-spacer { width: 14px; }
+.subagent-tree-entry {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+.subagent-tree-entry.selected { background: var(--surface-soft); box-shadow: inset 2px 0 0 var(--accent); }
+.subagent-tree-status i {
+  display: block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+.subagent-tree-status.running i { background: var(--good); box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 18%, transparent); }
+.subagent-tree-copy { min-width: 0; display: grid; gap: 2px; }
+.subagent-tree-copy strong,
+.subagent-tree-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subagent-tree-copy strong { font-size: 12px; }
+.subagent-tree-copy small { color: var(--ink-muted); font-size: 10px; }
+.subagent-tree-children { padding-left: 12px; }
+.subagent-tree-loading { padding: 4px 14px 6px 26px; color: var(--ink-muted); font-size: 10px; }
+.subagent-tree-loading.error { color: var(--danger, #b04a3a); }
+.subagent-tree-row[data-depth="0"] > .subagent-tree-line { padding-top: 5px; }
+
 .subagent-drawer {
   position: absolute;
   top: 16px;

@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { composerReferenceText, detectComposerTrigger, droppedImageMediaType, imageBatchLimitError, imageDimensionLimitError, imageLimitsFromProjection, insertComposerCandidate, modelPickerGroups, modelSupportsImages, promptContentParts, referenceComposerCandidates, relativeWorkspacePath, insertComposerText, formatRuntimeLog, formatRuntimeLogs, runtimeLogMatches, questionAnswerItems, sessionPath, planEffectiveTarget, planReviewOf } from "./ui-model.ts";
+import { composerReferenceText, detectComposerTrigger, droppedImageMediaType, imageBatchLimitError, imageDimensionLimitError, imageLimitsFromProjection, insertComposerCandidate, modelPickerGroups, modelSupportsImages, promptContentParts, referenceComposerCandidates, relativeWorkspacePath, insertComposerText, formatRuntimeLog, formatRuntimeLogs, runtimeLogMatches, questionAnswerItems, sessionPath, planEffectiveTarget, planReviewOf, subagentTreeKey, subagentTreeChildId, subagentTreeParentId } from "./ui-model.ts";
+
+test("builds recursive subagent tree keys and round-trips both sides", () => {
+  const key = subagentTreeKey("session-root", "child-3");
+  assert.equal(key, "session-root\u0000child-3");
+  assert.equal(subagentTreeChildId(key), "child-3");
+  assert.equal(subagentTreeParentId(key), "session-root");
+  assert.equal(subagentTreeChildId("only-parent"), undefined);
+  assert.equal(subagentTreeParentId("only-child\u0000"), "only-child");
+});
 
 test("folds the plan projection into the effective target", () => {
   assert.equal(planEffectiveTarget(null), false);
