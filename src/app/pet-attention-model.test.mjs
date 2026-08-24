@@ -141,3 +141,59 @@ test("extracts only the final assistant reply as a compact preview", () => {
 
   assert.equal(preview, "最终回复 包含结论");
 });
+
+test("strips fenced code blocks that may contain secrets from the preview", () => {
+  const preview = petCompletionMessageFromHistory([
+    { event: { seq: 1, time: 1, type: "assistant/message", data: { message: { content: [{ type: "text", text: "配置如下：\n```bash\nexport API_KEY=sk-secret-123\n```\n完成。" }] } } } },
+  ]);
+  assert.equal(preview, "配置如下： 完成。");
+
+  // 未闭合的围栏：从首个 ``` 起全部丢弃，避免残留半段代码。
+  const unterminated = petCompletionMessageFromHistory([
+    { event: { seq: 1, time: 1, type: "assistant/message", data: { message: { content: [{ type: "text", text: "结论已就绪。\n```\ntoken = abc123" }] } } } },
+  ]);
+  assert.equal(unterminated, "结论已就绪。");
+
+  // 行内代码只去掉反引号，保留可读内容。
+  const inline = petCompletionMessageFromHistory([
+    { event: { seq: 1, time: 1, type: "assistant/message", data: { message: { content: [{ type: "text", text: "请查看 `README.md` 说明" }] } } } },
+  ]);
+  assert.equal(inline, "请查看 README.md 说明");
+});
+
+test("bounds projected fields to the native validate_activity limits", async () => {
+  const { MAX_PET_TITLE_CHARS, MAX_PET_MESSAGE_CHARS, MAX_PET_TOOL_NAME_CHARS, MAX_PET_OPTION_CHARS } =
+    await import("./pet-attention-model.ts");
+  const longText = "长".repeat(500);
+  const activity = projectPetActivity({
+    activeSessionId: null,
+    sessions: [{ sessionId: "session-long", title: longText, running: false, updatedAt: 5 }],
+    approvals: [{
+      rpcId: "approval-long",
+      sessionId: "session-long",
+      approvalId: "approval-1",
+      toolName: longText,
+      reason: longText,
+    }],
+    questions: [{
+      rpcId: "question-long",
+      sessionId: "session-long",
+      questions: [{ id: "one", question: longText, options: [{ label: longText }] }],
+    }],
+    completions: [],
+  });
+
+  for (const item of activity.activities) {
+    assert.ok(Array.from(item.title).length <= MAX_PET_TITLE_CHARS);
+    assert.ok(Array.from(item.message).length <= MAX_PET_MESSAGE_CHARS);
+    if (item.toolName !== undefined) {
+      assert.ok(Array.from(item.toolName).length <= MAX_PET_TOOL_NAME_CHARS);
+    }
+    for (const option of item.options) {
+      assert.ok(Array.from(option).length <= MAX_PET_OPTION_CHARS);
+    }
+  }
+  if (activity.target) {
+    assert.ok(Array.from(activity.target.title).length <= MAX_PET_TITLE_CHARS);
+  }
+});
