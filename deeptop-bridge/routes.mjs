@@ -202,7 +202,22 @@ async function attachWorkspaceSession(ctx, payload) {
   const previousWorkspace = typeof registry.list === 'function'
     ? registry.list().find(item => item?.id !== workspace.id && item?.sessionIds?.includes(payload.sessionId))
     : undefined
-  await workspace.attachSession(payload.sessionId)
+  try {
+    await workspace.attachSession(payload.sessionId)
+  } catch (error) {
+    // The official entity rejects when the session's stored cwd cannot be
+    // confirmed to be the workspace directory (missing drive, moved or
+    // deleted directory). That is a recoverable environment condition, not
+    // a request fault: tag it so the frontend can explain instead of
+    // presenting the raw validation error.
+    if (error instanceof Error && error.message.includes('cannot attach session')) {
+      const wrapped = new Error(error.message)
+      wrapped.code = 'workspace-unavailable'
+      wrapped.cause = error
+      throw wrapped
+    }
+    throw error
+  }
   if (previousWorkspace !== undefined) await clearSessionPins(ctx, payload.sessionId)
   const pins = await readSessionPinStore(ctx)
   return { workspace: workspaceSnapshot(workspace, pins[workspace.id]) }

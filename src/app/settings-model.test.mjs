@@ -13,6 +13,9 @@ test("maps RC8 routing, timezone and image admission errors", () => {
   imageError.code = "attachment-error";
   imageError.details = { reason: "IMAGE_TOO_MANY_PIXELS" };
   assert.match(errorText(imageError), /图片像素数/);
+  const workspaceError = new Error("cannot attach session 'session-1' to workspace 'E:/目录': its cwd 'E:/目录' does not resolve");
+  workspaceError.code = "workspace-unavailable";
+  assert.match(errorText(workspaceError), /工作区目录当前不可用/);
 });
 
 const settingsPath = ["providers", "amkr-service"];

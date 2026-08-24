@@ -331,6 +331,12 @@ function sameWorkspacePath(left?: string, right?: string) {
   return normalize(left) === normalize(right);
 }
 
+type WorkspaceRepairResult = {
+  attached: number;
+  rejected: number;
+  reason?: string;
+};
+
 function applyFrontendVisualResetOnce() {
   if (frontendVisualResetChecked) return;
   frontendVisualResetChecked = true;
@@ -583,6 +589,7 @@ function AppContent() {
   const activeSessionRef = useRef<string | null>(null);
   const contextProjectionRef = useRef(false);
   const workspaceSelectionInitializedRef = useRef(false);
+  const workspaceRepairNoticeRef = useRef("");
   const selectedSubagentRef = useRef<string | null>(null);
   const subagentRequestRef = useRef(0);
   const searchRequestRef = useRef(0);
@@ -1683,8 +1690,8 @@ function AppContent() {
     if (workspaceResult.status === "fulfilled" && workspaceVersion === workspaceRequestRef.current) {
       let workspaceItems = workspaceResult.value.items;
       let archivedIds = new Set((workspaceResult.value.archivedSessionIds ?? []).filter((sessionId): sessionId is string => typeof sessionId === "string" && sessionId.length > 0));
-      const attachedCount = await repairWorkspaceMembership(workspaceItems, sessionItems);
-      if (attachedCount > 0) {
+      const repair = await repairWorkspaceMembership(workspaceItems, sessionItems);
+      if (repair.attached > 0) {
         try {
           const refreshed = await desktopRequest("workspace.list");
           workspaceItems = refreshed.items;
@@ -1694,7 +1701,18 @@ function AppContent() {
         }
       }
       if (workspaceVersion === workspaceRequestRef.current) {
-        if (attachedCount > 0) setNotice(`已将 ${attachedCount} 个历史会话登记到对应工作区`);
+        if (repair.attached > 0 && repair.rejected === 0) setNotice(`已将 ${repair.attached} 个历史会话登记到对应工作区`);
+        else if (repair.rejected > 0) {
+          const message = repair.attached > 0
+            ? `已登记 ${repair.attached} 个历史会话，另有 ${repair.rejected} 个因工作区目录不可用未能分组：${repair.reason ?? ""}`
+            : `有 ${repair.rejected} 个会话因工作区目录不可用未能分组：${repair.reason ?? ""}`;
+          if (message !== workspaceRepairNoticeRef.current) {
+            workspaceRepairNoticeRef.current = message;
+            setErrorNotice(message);
+          }
+        } else {
+          workspaceRepairNoticeRef.current = "";
+        }
         setWorkspaces(workspaceItems);
         setArchivedSessionIds(archivedIds);
         if (!workspaceSelectionInitializedRef.current && activeSessionRef.current) {
@@ -2601,9 +2619,14 @@ function AppContent() {
         setWorkspaces((current) => current.some((item) => item.workspaceId === result.workspace.workspaceId)
           ? current.map((item) => item.workspaceId === result.workspace.workspaceId ? result.workspace : item)
           : [result.workspace, ...current]);
-        const attachedCount = await attachUnregisteredSessions(result.workspace);
+        const repair = await attachUnregisteredSessions(result.workspace);
         await loadRuntimeDetails();
-        if (attachedCount > 0) setNotice(`已将 ${attachedCount} 个同目录会话登记到工作区`);
+        if (repair.rejected > 0) {
+          // 目录刚经原生对话框选择并创建成功，拒绝说明既有会话的 cwd 归属无法确认。
+          setErrorNotice(repair.attached > 0
+            ? `已登记 ${repair.attached} 个会话，另有 ${repair.rejected} 个归属无法确认：${repair.reason ?? ""}`
+            : `有 ${repair.rejected} 个会话归属无法确认：${repair.reason ?? ""}`);
+        } else if (repair.attached > 0) setNotice(`已将 ${repair.attached} 个同目录会话登记到工作区`);
         // 保持对话页面与工作区选择同步：打开新工作区的第一个会话，没有会话则显示新会话页面。
         await syncConversationToWorkspace(result.workspace.path);
       } catch {
@@ -2625,10 +2648,14 @@ function AppContent() {
     const selected = workspaces.find((item) => item.path === path);
     if (selected) {
       try {
-        const attachedCount = await attachUnregisteredSessions(selected);
-        if (attachedCount > 0) {
+        const repair = await attachUnregisteredSessions(selected);
+        if (repair.rejected > 0) {
+          setErrorNotice(repair.attached > 0
+            ? `已登记 ${repair.attached} 个会话，另有 ${repair.rejected} 个因工作区目录不可用未能登记：${repair.reason ?? ""}`
+            : `有 ${repair.rejected} 个会话未能登记到工作区：${repair.reason ?? ""}`);
+        } else if (repair.attached > 0) {
           await loadRuntimeDetails();
-          setNotice(`已将 ${attachedCount} 个同目录会话登记到工作区`);
+          setNotice(`已将 ${repair.attached} 个同目录会话登记到工作区`);
         }
       } catch (error) {
         setErrorNotice(errorText(error));
@@ -2649,21 +2676,26 @@ function AppContent() {
     workspaceItems: DshWorkspace[],
     sessionItems: DshSessionSummary[],
     allWorkspaceItems = workspaceItems,
-  ) {
+  ): Promise<WorkspaceRepairResult> {
     const registeredSessionIds = new Set(allWorkspaceItems.flatMap((item) => item.sessionIds));
     const candidates = workspaceItems.flatMap((item) => sessionItems
       .filter((session) => Boolean(session.cwd) && sameWorkspacePath(session.cwd, item.path) && !registeredSessionIds.has(session.sessionId))
       .map((session) => ({ item, session })));
-    if (candidates.length === 0) return 0;
+    if (candidates.length === 0) return { attached: 0, rejected: 0 };
     // The official attach operation performs canonical-path validation; this is only a candidate hint.
     const results = await Promise.allSettled(candidates.map(({ item, session }) => desktopRequest("workspace.attachSession", {
       workspaceId: item.workspaceId,
       sessionId: session.sessionId,
     })));
-    return results.filter((result) => result.status === "fulfilled").length;
+    const rejected = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+    return {
+      attached: results.length - rejected.length,
+      rejected: rejected.length,
+      ...(rejected.length === 0 ? {} : { reason: errorText(rejected[0]!.reason) }),
+    };
   }
 
-  async function attachUnregisteredSessions(item: DshWorkspace) {
+  async function attachUnregisteredSessions(item: DshWorkspace): Promise<WorkspaceRepairResult> {
     return repairWorkspaceMembership([item], sessions, [...workspaces, item]);
   }
 

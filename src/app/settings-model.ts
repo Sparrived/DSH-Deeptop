@@ -27,6 +27,7 @@ export function errorText(error: unknown) {
         "bridge-timeout": "DSH 响应超时，请重试",
         "bridge-unavailable": "DSH 运行时未就绪或已退出，请等待恢复或重启 Deeptop",
         "bridge-disconnected": "DSH 响应通道已断开，请重启 Deeptop",
+        "workspace-unavailable": "工作区目录当前不可用（磁盘未连接、目录被移动或删除），无法确认会话归属",
       };
       const label = (reason ? labels[reason] : undefined) ?? (typeof code === "string" ? labels[code] : undefined);
       if (label) return `${label}（${error.message}）`;

@@ -339,6 +339,45 @@ test('attaches an existing session through the official workspace entity', async
   assert.deepEqual(result.workspace.sessionIds, ['session-1'])
 })
 
+test('tags cwd-validation attach failures with the workspace-unavailable code', async () => {
+  const workspace = {
+    id: 'workspace-offline',
+    path: 'E:/外接盘目录',
+    title: '外接盘目录',
+    sessionIds: [],
+    attachSession: async () => {
+      throw new Error(
+        "cannot attach session 'session-offline' to workspace 'E:/外接盘目录': "
+        + "its cwd 'E:/外接盘目录' does not resolve, so it cannot be validated",
+      )
+    },
+  }
+  const registry = { get: id => id === workspace.id ? workspace : undefined }
+  await assert.rejects(
+    routeDesktopRequest({ get: key => key === 'workspaceRegistry' ? registry : undefined },
+      'workspace.attachSession', { workspaceId: workspace.id, sessionId: 'session-offline' }, signal),
+    error => error instanceof Error
+      && error.code === 'workspace-unavailable'
+      && error.message.includes('does not resolve'),
+  )
+})
+
+test('propagates non-validation attach failures unchanged', async () => {
+  const workspace = {
+    id: 'workspace-fault',
+    path: 'D:/repo',
+    title: 'repo',
+    sessionIds: [],
+    attachSession: async () => { throw new Error('storage exploded') },
+  }
+  const registry = { get: id => id === workspace.id ? workspace : undefined }
+  await assert.rejects(
+    routeDesktopRequest({ get: key => key === 'workspaceRegistry' ? registry : undefined },
+      'workspace.attachSession', { workspaceId: workspace.id, sessionId: 'session-1' }, signal),
+    /storage exploded/,
+  )
+})
+
 test('persists workspace-scoped session pins and decorates workspace listings', async () => {
   const root = await mkdtemp(join(tmpdir(), 'deeptop-session-pins-'))
   const workspace = {
