@@ -4,6 +4,7 @@ import { presetDisplayName } from "../app/model";
 import type { DshHostModelCatalog, ModelSelection } from "../app/model";
 import type { DshPermissionSelect } from "../lib/desktop";
 import { isSchemaEnvelope } from "../app/schema-model";
+import { t, type UiLocale } from "../app/i18n";
 
 function modelKey(selection: ModelSelection | null) {
   return selection ? `${selection.provider}\u0000${selection.model}` : "";
@@ -21,6 +22,9 @@ type SettingsGeneralPanelProps = {
   defaultPermission: string | null;
   /** Preset options exposed by the official permission namespace schema (fallback: local trio). */
   permissionOptions: DshPermissionSelect["options"];
+  /** 界面语言：本地状态与 Host locale 命名空间双向同步。 */
+  locale: UiLocale;
+  onLocaleChange: (locale: UiLocale) => void;
   workspace: string;
   runtimeDirectory: string;
   sidebarWidth: number;
@@ -52,6 +56,8 @@ export function SettingsGeneralPanel({
   defaultModel,
   defaultPermission,
   permissionOptions,
+  locale,
+  onLocaleChange,
   workspace,
   runtimeDirectory,
   sidebarWidth,
@@ -101,6 +107,13 @@ export function SettingsGeneralPanel({
       <div className="settings-page-header">
         <div><span className="settings-overline">GENERAL</span><h2>通用</h2><p>管理当前桌面端连接的 DSH Host 与新会话默认值。</p></div>
         {settings?.hasDocument && <button className="settings-header-action" onClick={() => void onOpenDocument()}>打开配置文件</button>}
+      </div>
+
+      <div className="settings-block">
+        <div className="settings-block-heading"><div><h3>{t("settings.language", locale)}</h3><p>{t("settings.language.hint", locale)}</p></div></div>
+        <div className="settings-preference-list">
+          <label className="settings-preference-row"><span><strong>{t("settings.language", locale)}</strong><small>{t("settings.language.hint", locale)}</small></span><select value={locale} onChange={(event) => onLocaleChange(event.target.value as UiLocale)}><option value="zh">中文</option><option value="en">English</option></select></label>
+        </div>
       </div>
 
       <div className="settings-block">

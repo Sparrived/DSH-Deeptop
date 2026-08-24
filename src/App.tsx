@@ -230,6 +230,8 @@ import {
   useAppearanceSettings,
 } from "./app/useAppearanceSettings";
 import { useThemeHostSync } from "./app/useThemeHostSync";
+import { useLocaleHostSync } from "./app/useLocaleHostSync";
+import { readStoredLocale, t, writeStoredLocale, type UiLocale } from "./app/i18n";
 import { SEND_SHORTCUT_STORAGE_KEY, readSendShortcut, type SendShortcut } from "./app/keyboard-shortcut";
 import { defaultWorkingIndicator, normalizeWorkingIndicator } from "./app/working-indicator";
 import { externalLaunchKey } from "./lib/external-launch";
@@ -472,6 +474,7 @@ function AppContent() {
       return "system";
     }
   });
+  const [locale, setLocale] = useState<UiLocale>(readStoredLocale);
   // 工作区视图偏好：置顶顺序与左下角工作区菜单中未置顶二级列表的展开状态（默认收起）。
   const [unpinnedSectionOpen, setUnpinnedSectionOpen] = useState(() => readWorkspaceViewPreferences().unpinnedSectionOpen);
   const [pinnedWorkspaceIds, setPinnedWorkspaceIds] = useState<string[]>(() => readWorkspaceViewPreferences().pinnedWorkspaceIds);
@@ -767,6 +770,17 @@ function AppContent() {
   function changeThemeMode(mode: ThemeMode) {
     setThemeMode(mode);
     void pushThemeToHost();
+  }
+  // 界面语言：本地持久化 + 与 Host locale 命名空间双向同步。
+  const { pushToHost: pushLocaleToHost } = useLocaleHostSync({
+    desktop,
+    locale,
+    onUserChange: setLocale,
+  });
+  function changeLocale(next: UiLocale) {
+    setLocale(next);
+    writeStoredLocale(next);
+    void pushLocaleToHost();
   }
   // @deeptop-pets:start app-system-hook
   const petSystem = usePetSystem({
@@ -4844,6 +4858,7 @@ function AppContent() {
              dropActive={composerDropActive}
              plan={plan}
              onExitPlan={exitPlanMode}
+             locale={locale}
             onComposerChange={(value) => {
               setComposer(value);
               setComposerMenuDismissed(false);
@@ -4901,13 +4916,13 @@ function AppContent() {
 
             <div className="settings-layout">
                 <nav className="settings-navigation" aria-label="设置分区">
-                  <div className="settings-navigation-title">DSH 设置</div>
+                  <div className="settings-navigation-title">DSH {t("settings.title", locale)}</div>
                   <div className={`settings-navigation-group${settingsSection === "appearance" ? " expanded" : ""}`}>
                     <button className="settings-navigation-group-toggle" aria-expanded={settingsSection === "appearance"} onClick={() => { setSettingsSection("appearance"); setAppearanceSection("theme"); }}>
-                      <strong>外观</strong><span className="settings-navigation-chevron">⌄</span>
+                      <strong>{t("settings.appearance", locale)}</strong><span className="settings-navigation-chevron">⌄</span>
                     </button>
                     {settingsSection === "appearance" && <div className="settings-navigation-subnav" role="tablist" aria-label="外观子页面">
-                      {(["theme", "background", "typography", "css"] as AppearanceSection[]).map((item) => <button key={item} className={`settings-navigation-subitem${appearanceSection === item ? " selected" : ""}`} onClick={() => setAppearanceSection(item)}>{item === "theme" ? "主题" : item === "background" ? "背景工作台" : item === "typography" ? "文字" : "CSS 主题"}</button>)}
+                      {(["theme", "background", "typography", "css"] as AppearanceSection[]).map((item) => <button key={item} className={`settings-navigation-subitem${appearanceSection === item ? " selected" : ""}`} onClick={() => setAppearanceSection(item)}>{item === "theme" ? t("settings.theme", locale) : item === "background" ? t("settings.background", locale) : item === "typography" ? t("settings.typography", locale) : t("settings.css", locale)}</button>)}
                     </div>}
                   </div>
                   {/* @deeptop-pets:start app-settings-nav */}
@@ -4916,7 +4931,7 @@ function AppContent() {
                   </button>
                   {/* @deeptop-pets:end app-settings-nav */}
                    <button className={settingsSection === "general" ? "selected" : ""} onClick={(event) => setSettingsSection(event.currentTarget.textContent?.includes("Dock") ? "dock" : "general")}>
-                     <strong data-legacy-general="true">通用</strong><small>会话与 Host</small>
+                     <strong data-legacy-general="true">{t("settings.general", locale)}</strong><small>会话与 Host</small>
                    </button>{/*
                    </button>
                    <button className={settingsSection === "general" ? "selected" : ""} onClick={(event) => setSettingsSection(event.currentTarget.textContent?.includes("Dock") ? "dock" : "general")}>
@@ -4935,25 +4950,25 @@ function AppContent() {
                      <strong data-legacy-general="true">通用</strong><small>会话与 Host</small>
                    </button>
                    <button className={settingsSection === "general" ? "selected" : ""} onClick={() => setSettingsSection("general")}>
-                     <strong>通用</strong><small>会话与 Host</small>
+                     <strong>{t("settings.general", locale)}</strong><small>会话与 Host</small>
                    </button>
                    <button className={settingsSection === "logs" ? "selected" : ""} onClick={() => { setSettingsSection("logs"); void loadRuntimeLogs(); }}>
-                    <strong>日志</strong><small>堆栈与运行日志</small>
+                    <strong>{t("settings.logs", locale)}</strong><small>堆栈与运行日志</small>
                   </button>
                   <button className={settingsSection === "keyboard" ? "selected" : ""} onClick={() => setSettingsSection("keyboard")}>
-                     <strong>按键</strong><small>消息快捷键</small>
+                     <strong>{t("settings.keyboard", locale)}</strong><small>消息快捷键</small>
                    </button>
                    <button className={settingsSection === "models" ? "selected" : ""} onClick={() => setSettingsSection("models")}>
-                    <strong>模型</strong><small>Provider 与模型目录</small>
+                    <strong>{t("settings.models", locale)}</strong><small>Provider 与模型目录</small>
                   </button>
                   <button className={settingsSection === "presets" ? "selected" : ""} onClick={() => setSettingsSection("presets")}>
                     <strong>Agent Preset</strong><small>会话 Agent 组装</small>
                   </button>
                   <button className={settingsSection === "plugins" ? "selected" : ""} onClick={() => setSettingsSection("plugins")}>
-                    <strong>插件</strong><small>运行中的 Cordis 插件</small>
+                    <strong>{t("settings.plugins", locale)}</strong><small>运行中的 Cordis 插件</small>
                   </button>
                 <button className={settingsSection === "about" ? "selected" : ""} onClick={() => setSettingsSection("about")}>
-                     <strong>关于</strong><small>版本与更新检查</small>
+                     <strong>{t("settings.about", locale)}</strong><small>版本与更新检查</small>
                    </button>
                  </nav>
 
@@ -5035,6 +5050,8 @@ function AppContent() {
                     defaultModel={defaultModelSelection}
                     defaultPermission={defaultPermission}
                     permissionOptions={permissionOptions}
+                    locale={locale}
+                    onLocaleChange={changeLocale}
                     workspace={workspace}
                     runtimeDirectory={status.runtimeDirectory}
                     sidebarWidth={sidebarWidth}

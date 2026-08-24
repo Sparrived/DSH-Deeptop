@@ -6,6 +6,7 @@ import { PermissionPicker } from "./PermissionPicker";
 import type { ComposerAttachment, ComposerCandidate, ComposerTrigger, ModelMenuPane, PromptMode, SessionStats } from "../app/model";
 import { contextPercent, formatSessionElapsed, formatTokens } from "../app/model";
 import { planEffectiveTarget } from "../app/ui-model";
+import { t, type UiLocale } from "../app/i18n";
 import type { DshModel, DshPermissionSelect, DshPlanProjection, DshSessionModels } from "../lib/desktop";
 
 type ReasoningChoice = {
@@ -47,6 +48,8 @@ interface ComposerShellProps {
   /** Official plan-mode projection; renders the input-area chip while active. */
   plan?: DshPlanProjection | null;
   onExitPlan: () => void | Promise<unknown>;
+  /** 界面语言：placeholder 与操作按钮按语言渲染。 */
+  locale: UiLocale;
   onComposerChange: (value: string) => void;
   onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
   onAddFiles: (files: FileList | File[]) => void | Promise<unknown>;
@@ -95,6 +98,7 @@ export function ComposerShell({
   dropActive,
   plan,
   onExitPlan,
+  locale,
   onComposerChange,
   onPaste,
   onAddFiles,
@@ -177,7 +181,7 @@ export function ComposerShell({
         onChange={(event) => onComposerChange(event.target.value)}
         onPaste={onPaste}
         onKeyDown={handleKeyDown}
-        placeholder={planEffectiveTarget(plan) ? "描述你的任务以生成计划" : activeRunning ? "输入要排队或插入当前回合的内容" : "输入消息，开始与 DSH 对话"}
+        placeholder={planEffectiveTarget(plan) ? "描述你的任务以生成计划" : activeRunning ? "输入要排队或插入当前回合的内容" : t("composer.placeholder", locale)}
         rows={3}
         disabled={!runtimeAvailable}
         aria-controls={candidates.length > 0 && !candidatesDismissed ? "composer-candidates" : undefined}
@@ -206,7 +210,7 @@ export function ComposerShell({
       />
       <div className="composer-controls">
         <div className="composer-left">
-          <button className="attachment-button" type="button" onClick={() => attachmentInputRef.current?.click()} title="添加图片附件">＋ 图片{attachments.length > 0 ? " " + attachments.length : ""}</button>
+          <button className="attachment-button" type="button" onClick={() => attachmentInputRef.current?.click()} title={t("composer.attach", locale)}>＋ 图片{attachments.length > 0 ? " " + attachments.length : ""}</button>
           {permissions && <PermissionPicker permissions={permissions} onSetPermission={onSetPermission} showLabel />}
           <div className="mode-picker" ref={modeMenuRef}>
             <button
@@ -269,8 +273,8 @@ export function ComposerShell({
             type="button"
             onClick={onAction}
             disabled={(!composer.trim() && attachments.length === 0) || loading || !runtimeAvailable}
-            aria-label="发送消息"
-            title={`发送消息（${sendShortcut}）`}
+            aria-label={t("composer.send", locale)}
+            title={`${t("composer.send", locale)}（${sendShortcut}）`}
           >
             <span aria-hidden="true">↑</span>
           </button>
@@ -279,8 +283,8 @@ export function ComposerShell({
             type="button"
             onClick={onCancel}
             disabled={!activeSessionId}
-            aria-label="取消当前回合"
-            title="取消当前回合"
+            aria-label={t("composer.stop", locale)}
+            title={t("composer.stop", locale)}
           >
             <span aria-hidden="true">×</span>
           </button>}
