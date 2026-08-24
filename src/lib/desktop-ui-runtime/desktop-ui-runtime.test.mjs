@@ -314,6 +314,32 @@ test('runtime dispatches bridge frames only to plugins that declared the event',
   assert.equal(seen.length, 1, 'disposed plugins stop receiving frames')
 })
 
+test('catalog snapshots and change notifications power the settings surface', async () => {
+  const declarative = descriptor({
+    client: undefined,
+    contributions: [
+      { kind: 'action', id: 'pins.toggle', slot: 'session.context-menu', label: '置顶会话', order: 30, invoke: { namespace: 'sessionPins', method: 'toggle' } },
+    ],
+  })
+  const { runtime } = fakeRuntime({ items: [declarative] })
+  const changes = []
+  const unlisten = runtime.onCatalogChange(() => changes.push(runtime.catalogSnapshot()))
+  await runtime.start()
+  const snapshot = runtime.catalogSnapshot()
+  assert.equal(snapshot.status, 'ready')
+  assert.equal(snapshot.plugins.length, 1)
+  const view = snapshot.plugins[0]
+  assert.equal(view.pluginId, 'example.session-pins')
+  assert.deepEqual(view.slots, ['session.context-menu', 'session.row.trailing'])
+  assert.deepEqual(view.remotes, [{ namespace: 'sessionPins', methods: ['list', 'toggle'] }])
+  assert.equal(view.storage, 'session-pins')
+  assert.equal(view.hasClientModule, false)
+  assert.ok(changes.length >= 1, 'refresh notifies catalog listeners')
+  await runtime.stop()
+  assert.equal(runtime.catalogSnapshot().plugins.length, 0)
+  unlisten()
+})
+
 test('slot registry enforces whitelists, uniqueness and stable ordering', () => {
   const registry = new SlotRegistry()
   const allowed = ['session.context-menu']

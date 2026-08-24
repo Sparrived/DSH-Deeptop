@@ -4504,6 +4504,7 @@ function AppContent() {
                   {settingsSection === "plugins" && <SettingsPluginsPanel
                     inventory={pluginInventory}
                      excludedPlugins={excludedPlugins}
+                    uiRuntime={uiRuntime}
                     visiblePlugins={visiblePlugins}
                     search={pluginSearch}
                     expandedPlugin={expandedPlugin}

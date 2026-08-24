@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type {
   DshPluginConfigDescription,
   DshPluginConfigEntry,
@@ -6,6 +7,7 @@ import type {
   DshSettingsDescription,
 } from "../lib/desktop";
 import { pluginDisplayName, pluginPhaseLabel } from "../app/model";
+import type { DesktopUiRuntime, UiRuntimeCatalogSnapshot, UiRuntimeStatus } from "../lib/desktop-ui-runtime/client-runtime";
 
 type SettingsPluginsPanelProps = {
   inventory: DshPluginInventoryEntry[] | null;
@@ -19,6 +21,8 @@ type SettingsPluginsPanelProps = {
   pluginConfigDraft: DshPluginConfigEntry[];
   pluginConfigDirty: boolean;
   pluginConfigSaving: boolean;
+  /** App-scoped UI runtime; null keeps the section silent (e.g. tests). */
+  uiRuntime: DesktopUiRuntime | null;
   onSearchChange: (value: string) => void;
   onTogglePlugin: (entryId: string) => void;
   onOpenNamespace: (namespace: DshSettingsNamespace) => void;
@@ -38,6 +42,41 @@ function pluginStatus(plugin: DshPluginInventoryEntry) {
   return pluginPhaseLabel(plugin.fiberPhase);
 }
 
+const uiRuntimeStatusLabel: Record<UiRuntimeStatus, string> = {
+  disabled: "未启用",
+  loading: "发现中…",
+  ready: "运行中",
+  partial: "部分插件异常",
+  failed: "不可用",
+};
+
+function uiPluginStateLabel(state: UiRuntimeCatalogSnapshot["plugins"][number]["state"]): string {
+  switch (state) {
+    case "active": return "已激活";
+    case "discovered": return "已发现";
+    case "checking": return "兼容性检查中…";
+    case "loading": return "加载中…";
+    case "activating": return "激活中…";
+    case "deactivating": return "停用中…";
+    case "disposed": return "已停用";
+    case "check-failed": return "SDK 不兼容";
+    case "load-failed": return "加载失败";
+    case "activate-failed": return "激活失败";
+    default: return state;
+  }
+}
+
+/** Subscribes to the runtime catalog so the section re-renders on refresh/stop. */
+function useUiRuntimeCatalog(runtime: DesktopUiRuntime | null): UiRuntimeCatalogSnapshot | null {
+  const [snapshot, setSnapshot] = useState<UiRuntimeCatalogSnapshot | null>(() => runtime?.catalogSnapshot() ?? null);
+  useEffect(() => {
+    if (!runtime) return undefined;
+    setSnapshot(runtime.catalogSnapshot());
+    return runtime.onCatalogChange(() => setSnapshot(runtime.catalogSnapshot()));
+  }, [runtime]);
+  return snapshot;
+}
+
 export function SettingsPluginsPanel({
   inventory,
   excludedPlugins,
@@ -50,6 +89,7 @@ export function SettingsPluginsPanel({
   pluginConfigDraft,
   pluginConfigDirty,
   pluginConfigSaving,
+  uiRuntime,
   onSearchChange,
   onTogglePlugin,
   onOpenNamespace,
@@ -64,6 +104,7 @@ export function SettingsPluginsPanel({
 }: SettingsPluginsPanelProps) {
   const writable = Boolean(settings?.writable);
   const enabledCount = pluginConfigDraft.filter((plugin) => plugin.enabled).length;
+  const uiCatalog = useUiRuntimeCatalog(uiRuntime);
 
   return (
     <div className="settings-page settings-plugins-page">
@@ -137,6 +178,29 @@ export function SettingsPluginsPanel({
       {excludedPlugins.length > 0 && <section className="settings-block settings-plugin-excluded-block">
         <div className="settings-block-heading"><div><h3>已排除的插件</h3><p>{excludedPlugins.length} 个插件依赖 WebUI 客户端运行时，Deeptop 不会加载。</p></div></div>
         <div className="settings-excluded-plugin-list">{excludedPlugins.map((plugin) => <div className="settings-excluded-plugin-row" key={plugin.entryId}><span><strong>{pluginDisplayName(plugin.moduleName)}</strong><small>{plugin.moduleName}</small></span><em>{plugin.compatibility?.reason ?? "不兼容 Deeptop"}</em></div>)}</div>
+      </section>}
+
+      {uiCatalog && <section className="settings-block settings-ui-plugins-block">
+        <div className="settings-block-heading">
+          <div><h3>UI 插件</h3><p>通过 deeptop-ui-registry 登记的界面插件：声明式贡献由原生渲染，客户端模块经受控协议加载（路径围栏 + SHA-256 完整性校验）。</p></div>
+          <span className={`settings-plugin-state enabled`}><em className={uiCatalog.status === "ready" ? "enabled" : "disabled"}>{uiRuntimeStatusLabel[uiCatalog.status]}</em></span>
+        </div>
+        {!uiCatalog.enabled ? <p className="settings-empty">UI 插件运行时未启用。</p>
+          : uiCatalog.plugins.length === 0 ? <p className="settings-empty">{uiCatalog.status === "failed" ? "无法读取 UI 插件目录。" : "当前没有已登记的 UI 插件。"}</p>
+            : <div className="settings-excluded-plugin-list">{uiCatalog.plugins.map((plugin) => (
+              <div className="settings-excluded-plugin-row" key={plugin.pluginId}>
+                <span>
+                  <strong>{plugin.displayName ?? plugin.pluginId}</strong>
+                  <small>{plugin.pluginId} · v{plugin.version} · Slot：{plugin.slots.join("、") || "无"} · Remote：{plugin.remotes.map((remote) => remote.namespace).join("、") || "无"}{plugin.storage ? ` · 存储：${plugin.storage}` : ""}{plugin.hasClientModule ? " · 客户端模块" : ""}</small>
+                </span>
+                <em>{uiPluginStateLabel(plugin.state)}</em>
+              </div>
+            ))}</div>}
+        {uiCatalog.diagnostics.length > 0 && <ul className="settings-ui-plugin-diagnostics">
+          {uiCatalog.diagnostics.map((diagnostic, index) => (
+            <li key={`${diagnostic.pluginId}:${index}`}><strong>{diagnostic.pluginId}</strong> {diagnostic.message}</li>
+          ))}
+        </ul>}
       </section>}
 
       <section className="settings-block">

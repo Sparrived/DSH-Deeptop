@@ -1128,6 +1128,8 @@
 .settings-excluded-plugin-row strong { overflow: hidden; color: var(--ink-muted); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .settings-excluded-plugin-row small { overflow: hidden; color: var(--ink-faint); font: 11px/1.4 var(--mono); text-overflow: ellipsis; white-space: nowrap; }
 .settings-excluded-plugin-row em { color: var(--ink-faint); font-size: 12px; font-style: normal; line-height: 1.45; }
+.settings-ui-plugin-diagnostics { display: grid; gap: 6px; margin: 12px 0 0; padding-left: 18px; color: var(--danger, #b45f5f); font-size: 12px; }
+.settings-ui-plugin-diagnostics strong { font-family: var(--mono); font-weight: 600; }
 
 @media (max-width: 640px) {
   .settings-plugin-header-actions,

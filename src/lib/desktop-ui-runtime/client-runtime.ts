@@ -42,6 +42,22 @@ export interface UiRuntimePluginView {
   version: string;
   displayName?: string;
   state: ClientPluginState;
+  /** Declared slots, as registered in the host manifest. */
+  slots: string[];
+  /** Whether a client module is declared (bundled or external bundle). */
+  hasClientModule: boolean;
+  /** Declared remote capabilities (namespace → allowed methods). */
+  remotes: Array<{ namespace: string; methods: string[] }>;
+  /** Declared scoped-storage namespace, when any. */
+  storage?: string;
+}
+
+/** Serializable snapshot of the runtime catalog for settings surfaces. */
+export interface UiRuntimeCatalogSnapshot {
+  status: UiRuntimeStatus;
+  enabled: boolean;
+  plugins: UiRuntimePluginView[];
+  diagnostics: UiRuntimeDiagnostic[];
 }
 
 /** One bridge event frame as forwarded by the Rust side (`{type:'event'}` messages). */
@@ -82,6 +98,7 @@ export class DesktopUiRuntime {
   private readonly options: DesktopUiRuntimeOptions;
   private readonly entries = new Map<string, ActiveEntry>();
   private readonly sessionListeners = new Set<(session: SessionUiContext | null) => void>();
+  private readonly catalogListeners = new Set<() => void>();
   private unlisten: (() => void) | null = null;
   // StrictMode mounts effects twice; every lifecycle call serializes so
   // start→stop→start interleavings settle deterministically.
@@ -101,12 +118,43 @@ export class DesktopUiRuntime {
   }
 
   get pluginViews(): UiRuntimePluginView[] {
-    return [...this.entries.values()].map((entry) => ({
-      pluginId: entry.descriptor.pluginId,
-      version: entry.descriptor.version,
-      ...(entry.descriptor.displayName ? { displayName: entry.descriptor.displayName } : {}),
-      state: entry.runner.state,
-    }));
+    return [...this.entries.values()].map((entry) => this.buildPluginView(entry));
+  }
+
+  private buildPluginView(entry: ActiveEntry): UiRuntimePluginView {
+    const { descriptor, runner } = entry;
+    return {
+      pluginId: descriptor.pluginId,
+      version: descriptor.version,
+      ...(descriptor.displayName ? { displayName: descriptor.displayName } : {}),
+      state: runner.state,
+      slots: [...descriptor.slots],
+      hasClientModule: Boolean(descriptor.client),
+      remotes: descriptor.capabilities.remotes.map((remote) => ({ namespace: remote.namespace, methods: [...remote.methods] })),
+      ...(descriptor.capabilities.storage ? { storage: descriptor.capabilities.storage } : {}),
+    };
+  }
+
+  /** Serializable catalog snapshot; safe to store in React state. */
+  catalogSnapshot(): UiRuntimeCatalogSnapshot {
+    return {
+      status: this.status,
+      enabled: this.enabled,
+      plugins: this.pluginViews,
+      diagnostics: [...this.diagnostics],
+    };
+  }
+
+  /** Subscribe to catalog mutations (refresh/stop/host-restart); returns an unlisten function. */
+  onCatalogChange(listener: () => void): () => void {
+    this.catalogListeners.add(listener);
+    return () => {
+      this.catalogListeners.delete(listener);
+    };
+  }
+
+  private notifyCatalogListeners(): void {
+    for (const listener of [...this.catalogListeners]) listener();
   }
 
   /** Begin listening and discover once. Reusable after stop() (StrictMode-safe). */
@@ -129,6 +177,7 @@ export class DesktopUiRuntime {
       this.unlisten?.();
       this.unlisten = null;
       this.status = this.enabled ? "loading" : "disabled";
+      this.notifyCatalogListeners();
     });
   }
 
@@ -198,6 +247,7 @@ export class DesktopUiRuntime {
 
     this.diagnostics = problems;
     this.status = failures > 0 ? "partial" : "ready";
+    this.notifyCatalogListeners();
   }
 
   /**
@@ -210,6 +260,7 @@ export class DesktopUiRuntime {
       this.sessionGeneration += 1;
       this.sessionContext = null;
       this.status = "loading";
+      this.notifyCatalogListeners();
     });
   }
 
