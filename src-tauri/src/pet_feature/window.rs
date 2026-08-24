@@ -858,7 +858,9 @@ pub async fn set_pet_settings(
     app: AppHandle,
     settings: PetSettings,
 ) -> Result<PetSettings, String> {
-    let previous = pet_store::load_pet_settings(&app).unwrap_or_default();
+    // 设置文件损坏时向上报错而不是静默按默认值覆盖，避免宠物被意外关闭且
+    // 用户配置丢失；首次运行（文件不存在）仍由 load_pet_settings 返回默认值。
+    let previous = pet_store::load_pet_settings(&app)?;
     let settings = pet_store::save_pet_settings(&app, settings)?;
     if let Err(error) =
         pet_care::synchronize_enabled(&app, previous.care_enabled, settings.care_enabled)
