@@ -346,7 +346,9 @@ export function readSessionStats(entries: DshHistoryEntry[], projections?: { val
       llmMs: numberValue(official.llmMs),
       toolMs: numberValue(official.toolMs),
       ttftMs: numberValue(official.ttftMs),
+      ttftSteps: numberValue(official.ttftSteps),
       decodeMs: numberValue(official.decodeMs),
+      decodeTokens: numberValue(official.decodeTokens),
     } : {}),
   };
 }

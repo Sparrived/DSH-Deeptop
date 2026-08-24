@@ -70,6 +70,39 @@ function EmptyChart() {
   return <div className="token-empty-chart"><span className="token-empty-grid" /><strong>等待模型返回 usage 数据</strong><p>完成一轮对话后，这里会显示每次回应的输入、输出与思考 token。</p></div>;
 }
 
+/** 官方 sessionStats 墙钟字段的展示助手：缺失或 0 显示 —。 */
+function durationValue(ms: number | undefined) {
+  if (ms === undefined || !Number.isFinite(ms) || ms <= 0) return "—";
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  const seconds = ms / 1000;
+  return `${seconds >= 60 ? Math.round(seconds / 60) + "m " + String(Math.round(seconds % 60)).padStart(2, "0") + "s" : seconds < 10 ? (Math.round(seconds * 10) / 10).toFixed(1) + "s" : Math.round(seconds) + "s"}`;
+}
+
+function formatDecodeTokens(value: number | undefined) {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) return "—";
+  return formatTokens(value);
+}
+
+function formatTokensPerSecond(value: number) {
+  const speed = Math.max(0, value);
+  return speed >= 10 ? String(Math.round(speed)) : (Math.round(speed * 10) / 10).toFixed(1);
+}
+
+function TimingPanel({ sessionStats }: { sessionStats: SessionStats }) {
+  const totals = [
+    { label: "LLM 耗时", value: durationValue(sessionStats.llmMs), detail: "模型 step/start → 消息完成" },
+    { label: "工具耗时", value: durationValue(sessionStats.toolMs), detail: "工具 call → result" },
+    { label: "首 Token", value: durationValue(sessionStats.ttftMs), detail: `跨 ${formatTokens(sessionStats.ttftSteps ?? 0)} 个已计时步骤` },
+    { label: "解码耗时", value: durationValue(sessionStats.decodeMs), detail: `解码 ${formatDecodeTokens(sessionStats.decodeTokens)} tokens · 约 ${sessionStats.decodeMs && sessionStats.decodeTokens ? formatTokensPerSecond(sessionStats.decodeTokens / (sessionStats.decodeMs / 1000)) : "—"} tok/s` },
+  ];
+  const hasAny = [sessionStats.llmMs, sessionStats.toolMs, sessionStats.ttftMs, sessionStats.decodeMs].some((value) => value !== undefined);
+  if (!hasAny) return null;
+  return <div className="token-panel token-timing-panel">
+    <div className="token-panel-heading"><div><span>OFFICIAL TIMING</span><h3>会话墙钟耗时</h3></div><b>{formatTokens(sessionStats.turns ?? 0)} 轮 · {formatTokens(sessionStats.steps ?? 0)} 步</b></div>
+    <div className="token-timing-grid">{totals.map((item) => <div className="token-timing-cell" key={item.label}><span>{item.label}</span><strong>{item.value}</strong><small>{item.detail}</small></div>)}</div>
+  </div>;
+}
+
 export function TokenUsageDashboard({ entries, sessionStats, active, provider, model, onOpenPricingSource }: TokenUsageDashboardProps) {
   const [range, setRange] = useState<"all" | "recent">("all");
   const data = useMemo(() => tokenUsageDashboard(entries, sessionStats), [entries, sessionStats]);
@@ -96,6 +129,8 @@ export function TokenUsageDashboard({ entries, sessionStats, active, provider, m
       <Metric label="上下文占用" value={sessionStats.contextTokensAvailable ? (sessionStats.contextLimit ? Math.round(contextPercent) + "%" : formatTokens(sessionStats.contextTokens)) : "—"} tone="#4aa98f" detail={sessionStats.contextTokensAvailable ? (sessionStats.contextLimit ? formatTokens(sessionStats.contextTokens) + " / " + formatTokens(sessionStats.contextLimit) : "未提供上限") : "模型未提供上下文使用量"} />
       <Metric label="缓存命中" value={Math.round(totals.cacheHitRate) + "%"} tone={COLORS.cacheRead} detail={formatTokens(totals.cacheReadTokens) + " read · " + formatTokens(totals.cacheWriteTokens) + " write"} />
     </div>
+
+    <TimingPanel sessionStats={sessionStats} />
 
     <div className="token-panel token-pricing-panel">
       <div className="token-pricing-copy"><span className="token-section-label">ESTIMATED SPEND</span><strong>{formatUsd(estimatedCost)}</strong><p>{pricing ? "按当前会话已记录的 token 用量估算，不会调用模型或产生额外请求。" : "当前模型没有匹配到 models.dev 价格，仍会继续显示 token 统计。"}</p></div>

@@ -275,7 +275,11 @@ export type SessionStats = {
   llmMs?: number;
   toolMs?: number;
   ttftMs?: number;
+  /** Steps carrying a recorded first token (official sessionStats field). */
+  ttftSteps?: number;
   decodeMs?: number;
+  /** Provider output tokens over the same decode-timed steps. */
+  decodeTokens?: number;
 };
 
 export type DiffHunk = {

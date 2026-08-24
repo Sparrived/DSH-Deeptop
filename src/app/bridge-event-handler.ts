@@ -278,7 +278,9 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
           llmMs: numberValue(projection.llmMs),
           toolMs: numberValue(projection.toolMs),
           ttftMs: numberValue(projection.ttftMs),
+          ttftSteps: numberValue(projection.ttftSteps),
           decodeMs: numberValue(projection.decodeMs),
+          decodeTokens: numberValue(projection.decodeTokens),
         }));
       }
       return;

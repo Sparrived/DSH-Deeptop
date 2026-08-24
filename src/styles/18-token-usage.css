@@ -86,6 +86,28 @@
 .token-panel-heading { margin-bottom: 16px; }
 .token-panel-heading h3 { margin: 6px 0 0; color: var(--ink); font-size: 16px; letter-spacing: -.025em; }
 .token-panel-heading > b { color: var(--ink); font: 600 12px var(--mono); }
+.token-timing-panel {
+  margin-bottom: 12px;
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+}
+.token-timing-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.token-timing-cell {
+  min-width: 0;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--paper) 66%, transparent);
+}
+.token-timing-cell span { display: block; color: var(--muted); font-size: 10px; }
+.token-timing-cell strong { display: block; margin-top: 8px; color: var(--ink); font: 650 20px/1 var(--mono); letter-spacing: -.05em; }
+.token-timing-cell small { display: block; margin-top: 7px; color: var(--muted); font-size: 9px; line-height: 1.45; }
+@media (max-width: 900px) {
+  .token-timing-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .token-donut-wrap { display: flex; align-items: center; justify-content: center; gap: clamp(22px, 5vw, 56px); min-height: 170px; }
 .token-donut { display: grid; width: 142px; height: 142px; place-items: center; border-radius: 50%; }
 .token-donut > div { display: grid; width: 98px; height: 98px; place-items: center; align-content: center; border-radius: 50%; background: var(--paper); }
