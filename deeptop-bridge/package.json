@@ -1,6 +1,6 @@
 {
   "name": "deeptop-bridge",
-  "version": "0.1.4-dev.7",
+  "version": "0.1.4",
   "private": true,
   "type": "module",
   "main": "./index.mjs",
@@ -10,6 +10,9 @@
     "./message-annotations": "./message-annotations.mjs",
     "./skill-install-plugin": "./skill-install-plugin.mjs",
     "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "undici": "^8.10.0"
   },
   "dsh": {
     "bundle": {

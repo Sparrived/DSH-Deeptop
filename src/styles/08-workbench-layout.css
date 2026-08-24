@@ -764,7 +764,9 @@ textarea:focus-visible {
   margin: 0 0 1px;
   padding: 0;
   border-left: 3px solid transparent;
+  border-right: 3px solid color-mix(in srgb, var(--session-status-color, var(--rail-muted)) 42%, transparent);
   border-radius: var(--radius-control);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .2);
   transition: background 120ms ease, box-shadow 120ms ease, opacity 120ms ease, outline-color 120ms ease;
 }
 
@@ -896,9 +898,10 @@ textarea:focus-visible {
   transform: translateY(-1px);
 }
 
-/* Right status edge: always visible; selection tints it with the theme
-   accent, while running sessions play a light effect on the same edge. */
-.session-row::after,
+/* Right status edge: a real rounded border on the row itself, mirroring
+   the former left accent stroke (same geometry as tool cards). Selection
+   lights it with the theme accent; running sessions play a light effect
+   across it. Archived rows keep their inset status pill. */
 .archived-session-row::after {
   position: absolute;
   top: 7px;
@@ -938,19 +941,39 @@ textarea:focus-visible {
 
 .session-row.session-drag-ghost {
   --session-status-color: var(--accent);
+  border-right: 3px solid var(--accent);
 }
 
-.session-row.session-status-idle.active::after {
-  opacity: 1;
+.session-row.session-status-idle.active,
+.session-row.session-status-running,
+.session-row.session-status-pending {
+  border-right-color: var(--session-status-color);
+}
+
+.session-row.session-status-completed {
+  border-right-color: color-mix(in srgb, var(--session-status-color) 82%, transparent);
+}
+
+.session-row.session-status-error {
+  border-right-color: color-mix(in srgb, var(--session-status-color) 95%, transparent);
+  animation: session-status-error 1.2s ease-in-out 2;
 }
 
 .session-row.session-status-running::after,
-.session-row.session-status-pending::after,
-.archived-session-row.session-status-running::after {
-  opacity: 1;
+.session-row.session-status-pending::after {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: calc(var(--radius-control) + 3px);
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
   background-image: linear-gradient(180deg, transparent 6%, color-mix(in srgb, var(--session-status-color) 32%, white) 42%, #fff 52%, color-mix(in srgb, var(--session-status-color) 32%, white) 62%, transparent 94%);
   background-repeat: no-repeat;
   background-size: 100% 46%;
+  -webkit-mask-image: linear-gradient(90deg, transparent calc(100% - 3px), #000 calc(100% - 3px));
+  mask-image: linear-gradient(90deg, transparent calc(100% - 3px), #000 calc(100% - 3px));
+  content: "";
+  pointer-events: none;
   animation:
     session-status-light-flow 1.7s linear infinite,
     session-status-light-glow 2.4s ease-in-out infinite;
@@ -962,44 +985,35 @@ textarea:focus-visible {
     session-status-light-glow 1.9s ease-in-out infinite;
 }
 
-.session-row.session-status-completed::after {
-  opacity: .82;
-}
-
-.session-row.session-status-error::after {
-  opacity: .95;
-  animation: session-status-error 1.2s ease-in-out 2;
-}
-
-.session-row.session-drag-ghost::after {
-  opacity: 1;
-}
-
 @keyframes session-status-light-flow {
   from { background-position-y: 210%; }
   to { background-position-y: -110%; }
 }
 
+/* Glow via drop-shadow so it follows the masked silhouette (the arc-ended
+   border strip) instead of a rectangular box. */
 @keyframes session-status-light-glow {
   0%, 100% {
-    box-shadow: 0 0 6px color-mix(in srgb, var(--session-status-color, var(--rail-muted)) 30%, transparent);
+    filter: drop-shadow(0 0 1px color-mix(in srgb, var(--session-status-color, var(--rail-muted)) 45%, transparent));
   }
   50% {
-    box-shadow: 0 0 15px color-mix(in srgb, var(--session-status-color, var(--rail-muted)) 80%, transparent);
+    filter: drop-shadow(0 0 6px color-mix(in srgb, var(--session-status-color, var(--rail-muted)) 90%, transparent));
   }
 }
 
 @keyframes session-status-error {
-  0%, 100% { opacity: .72; }
-  50% { opacity: 1; }
+  0%, 100% { border-right-color: color-mix(in srgb, var(--session-status-color) 72%, transparent); }
+  50% { border-right-color: var(--session-status-color); }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .session-row.session-status-running::after,
-  .session-row.session-status-pending::after,
-  .archived-session-row.session-status-running::after {
+  .session-row.session-status-pending::after {
+    display: none;
+  }
+
+  .session-row.session-status-error {
     animation: none;
-    background-image: none;
   }
 }
 

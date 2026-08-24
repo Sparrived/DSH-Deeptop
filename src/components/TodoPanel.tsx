@@ -89,7 +89,6 @@ export function TaskPanel({ jobs, collapsed, now, onToggle }: TaskPanelProps) {
       title="任务"
       kicker="当前会话"
       icon="▦"
-      total={liveCount || jobs.length}
       onToggle={onToggle}
       railClassName="task-panel-rail"
       markClassName="task-panel-mark"

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { getDockSettings, isTauri, setDockSettings, type DockSettings } from "../lib/desktop";
-import { isDockPinned, normalizePinnedDocks, withDockPinned } from "./dock-pin";
+import { clampPinLayerWidth, isDockPinned, normalizePinnedDocks, withDockPinned } from "./dock-pin";
 
 const defaultDockSettings: DockSettings = {
   autoCollapseOnOutsideClick: false,
@@ -19,9 +19,16 @@ type DockSettingsContextValue = {
 const DockSettingsContext = createContext<DockSettingsContextValue | null>(null);
 
 function normalizeSettings(settings: Partial<DockSettings> | null | undefined): DockSettings {
+  const rawColumnWidths = settings?.columnWidths && typeof settings.columnWidths === "object"
+    ? settings.columnWidths
+    : {};
   return {
     autoCollapseOnOutsideClick: settings?.autoCollapseOnOutsideClick === true,
     pinned: normalizePinnedDocks(settings?.pinned),
+    columnWidths: {
+      left: clampPinLayerWidth(rawColumnWidths.left),
+      right: clampPinLayerWidth(rawColumnWidths.right),
+    },
   };
 }
 

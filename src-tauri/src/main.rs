@@ -255,6 +255,7 @@ const BRIDGE_SKILL_INSTALLER: &str = include_str!("../../deeptop-bridge/skill-in
 const BRIDGE_SKILL_INSTALL_PLUGIN: &str =
     include_str!("../../deeptop-bridge/skill-install-plugin.mjs");
 const BRIDGE_PLUGIN_CONFIG: &str = include_str!("../../deeptop-bridge/plugin-config.mjs");
+const BRIDGE_NETWORK_PROXY: &str = include_str!("../../deeptop-bridge/network-proxy.mjs");
 const PROFILE_TEMPLATE: &str = include_str!("../../deeptop-bridge/desktop-profile.json");
 const PROFILE_PATCH_TEMPLATE: &str = include_str!("../../deeptop-bridge/profile.patch.yml");
 const PROFILE_PNPM_WORKSPACE: &str =
@@ -1014,6 +1015,7 @@ fn materialize_desktop_profile() -> Result<(), String> {
         BRIDGE_SKILL_INSTALL_PLUGIN,
     )?;
     write_text(&bridge_dir.join("plugin-config.mjs"), BRIDGE_PLUGIN_CONFIG)?;
+    write_text(&bridge_dir.join("network-proxy.mjs"), BRIDGE_NETWORK_PROXY)?;
     Ok(())
 }
 
@@ -1564,6 +1566,7 @@ fn bundled_dsh_launch(app: &AppHandle) -> Result<DshLaunch, String> {
         .args(["--profile", DSH_PROFILE])
         .current_dir(dsh_home())
         .env("DSH_HOME", dsh_home())
+        .env("DEEPTOP_DSH_RUNTIME_ROOT", &runtime)
         .env_remove("DSH_CWD");
     #[cfg(windows)]
     configure_hidden_process(&mut command);
@@ -1889,10 +1892,18 @@ fn terminate_process_tree(pid: u32) -> Result<(), String> {
     }
 }
 
+/// Encode a structured desktop-bridge error as a JSON string so the frontend
+/// can decode it into a typed DshApiError (code + message + details) instead of
+/// matching on plain text. Keeps the existing `Result<_, String>` surface.
+fn structured_bridge_error(code: &str, message: String) -> String {
+    serde_json::json!({ "code": code, "message": message }).to_string()
+}
+
 fn pending_error(state: &mut BridgeState, message: String) {
+    let structured = structured_bridge_error("bridge-unavailable", message);
     let pending = std::mem::take(&mut state.pending);
     for (_, sender) in pending {
-        let _ = sender.send(Err(message.clone()));
+        let _ = sender.send(Err(structured.clone()));
     }
 }
 
@@ -2310,8 +2321,14 @@ impl BridgeManager {
                     );
                     return;
                 };
-                let response = if let Some(error) = frame.get("error").and_then(Value::as_str) {
-                    Err(error.to_string())
+                let response = if let Some(error) = frame.get("error") {
+                    if let Some(text) = error.as_str() {
+                        Err(text.to_string())
+                    } else {
+                        // Structured bridge error: JSON `{ code, message, details? }`
+                        // serialized into the Err string for the frontend to decode.
+                        Err(error.to_string())
+                    }
                 } else if let Some(response) = frame.get("response") {
                     Ok(response.clone())
                 } else {
@@ -2438,12 +2455,17 @@ impl BridgeManager {
                 .lock()
                 .map_err(|_| "DSH 桌面宿主状态锁已损坏".to_string())?;
             if state.phase != RuntimePhase::Ready {
-                return Err(state.message.clone());
+                return Err(structured_bridge_error(
+                    "bridge-unavailable",
+                    state.message.clone(),
+                ));
             }
-            let stdin = state
-                .stdin
-                .clone()
-                .ok_or_else(|| "DSH 桌面宿主没有可用的输入通道".to_string())?;
+            let stdin = state.stdin.clone().ok_or_else(|| {
+                structured_bridge_error(
+                    "bridge-unavailable",
+                    "DSH 桌面宿主没有可用的输入通道".to_string(),
+                )
+            })?;
             state.pending.insert(request_id.clone(), sender);
             stdin
         };
@@ -2470,7 +2492,10 @@ impl BridgeManager {
             if let Ok(mut state) = self.state.lock() {
                 state.pending.remove(&request_id);
             }
-            return Err(error);
+            return Err(structured_bridge_error(
+                "bridge-unavailable",
+                format!("无法发送 DSH 请求：{error}"),
+            ));
         }
 
         match receiver.recv_timeout(BRIDGE_TIMEOUT) {
@@ -2479,9 +2504,15 @@ impl BridgeManager {
                 if let Ok(mut state) = self.state.lock() {
                     state.pending.remove(&request_id);
                 }
-                Err("等待 DSH 响应超时".to_string())
+                Err(structured_bridge_error(
+                    "bridge-timeout",
+                    "等待 DSH 响应超时".to_string(),
+                ))
             }
-            Err(mpsc::RecvTimeoutError::Disconnected) => Err("DSH 响应通道已关闭".to_string()),
+            Err(mpsc::RecvTimeoutError::Disconnected) => Err(structured_bridge_error(
+                "bridge-disconnected",
+                "DSH 响应通道已关闭".to_string(),
+            )),
         }
     }
 }

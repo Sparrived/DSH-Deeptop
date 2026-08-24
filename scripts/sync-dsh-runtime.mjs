@@ -35,6 +35,9 @@ const OPTIONAL_RUNTIME_PACKAGES = [
 }));
 const DESKTOP_PRESET_SOURCE_ROOT = path.join(root, "deeptop-bridge", "presets");
 const DESKTOP_PRESETS = ["desktop-persistent-pwsh", "desktop-agent-teams"];
+const DESKTOP_RUNTIME_PACKAGES = [
+  { name: "undici", sourcePath: path.join(root, "node_modules", "undici") },
+];
 const force = process.argv.includes("--force");
 
 function run(command, args, cwd, extraEnv = {}) {
@@ -98,7 +101,7 @@ function isRuntimeReady(manifest, packageVersion) {
     !force &&
     manifest?.sourceCommit === gitOutput(["rev-parse", "HEAD"]) &&
     manifest?.packageVersion === packageVersion &&
-    manifest?.runtimeFeatures === 2 &&
+    manifest?.runtimeFeatures === 3 &&
     manifest?.entry === entry &&
     manifest?.platform === process.platform &&
     manifest?.arch === process.arch &&
@@ -264,6 +267,29 @@ function verifyOptionalRuntimeClosure() {
   }
   const names = JSON.stringify(OPTIONAL_RUNTIME_PACKAGES.map(({ name }) => name));
   run(process.execPath, ["--input-type=module", "-e", `for (const name of ${names}) await import(name)`], temporaryRoot);
+  const desktopNames = JSON.stringify(DESKTOP_RUNTIME_PACKAGES.map(({ name }) => name));
+  run(process.execPath, ["--input-type=module", "-e", `for (const name of ${desktopNames}) await import(name)`], temporaryRoot);
+}
+
+function copyDesktopRuntimePackages() {
+  for (const runtimePackage of DESKTOP_RUNTIME_PACKAGES) {
+    const sourceManifest = path.join(runtimePackage.sourcePath, "package.json");
+    if (!fs.existsSync(sourceManifest)) {
+      throw new Error(`缺少桌面运行时依赖：${runtimePackage.name}（${sourceManifest}）`);
+    }
+    const target = packagePathForName(runtimePackage.name);
+    fs.rmSync(target, { recursive: true, force: true });
+    fs.cpSync(runtimePackage.sourcePath, target, { recursive: true, dereference: true, filter(source) {
+      const relative = path.relative(runtimePackage.sourcePath, source);
+      if (!relative) return true;
+      const parts = relative.split(path.sep);
+      return !parts.includes("node_modules") && !parts.includes("test") && !parts.includes("benchmarks") && !parts.includes("docs");
+    }});
+    const manifest = readJson(path.join(target, "package.json"));
+    if (manifest.name !== runtimePackage.name || !fs.existsSync(path.join(target, manifest.main ?? "index.js"))) {
+      throw new Error(`桌面运行时依赖不可执行：${runtimePackage.name}`);
+    }
+  }
 }
 
 function copyDesktopPresets() {
@@ -476,6 +502,7 @@ try {
   // causing profile boot to fail with cascading ERR_MODULE_NOT_FOUND errors.
   copyWorkspacePackages(sourceRoot);
   copyOptionalRuntimePackages();
+  copyDesktopRuntimePackages();
   copyDesktopPresets();
   ensureClientBundleHostEntries();
   verifyOptionalRuntimeClosure();
@@ -501,7 +528,8 @@ try {
 
   const manifest = {
     format: 1,
-    runtimeFeatures: 2,
+    // The bridge loads this explicitly packaged dependency from the runtime root.
+    runtimeFeatures: 3,
     packageName: "@deepseek-ai/dsh",
     packageVersion,
     sourceRepository: "https://github.com/deepseek-ai/deepseek-harness.git",
@@ -512,6 +540,7 @@ try {
     entry,
     treeSha256: treeSha256(temporaryRoot),
     optionalPackages: OPTIONAL_RUNTIME_PACKAGES.map(({ name }) => name),
+    desktopRuntimePackages: DESKTOP_RUNTIME_PACKAGES.map(({ name }) => name),
     optionalPresets: DESKTOP_PRESETS,
   };
   fs.writeFileSync(path.join(temporaryRoot, "runtime-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);

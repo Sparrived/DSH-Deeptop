@@ -6,6 +6,32 @@ use super::dock_position::valid_id;
 
 const SETTINGS_FILE: &str = "dock-settings.json";
 
+/// 钉住分栏层的自定义宽度（px）；缺失表示该侧使用按 Dock 求和的默认宽度。
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PinColumnWidths {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub left: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub right: Option<u32>,
+}
+
+/// 与前端 dock-pin 模型的夹取范围保持一致。
+const PIN_LAYER_MIN_WIDTH: u32 = 220;
+const PIN_LAYER_MAX_WIDTH: u32 = 800;
+
+fn clamp_pin_layer_width(value: Option<u32>) -> Option<u32> {
+    value.map(|width| width.clamp(PIN_LAYER_MIN_WIDTH, PIN_LAYER_MAX_WIDTH))
+}
+
+/// 丢弃越界的分栏宽度，保证配置文件里的 columnWidths 始终可用。
+pub(crate) fn sanitize_column_widths(widths: PinColumnWidths) -> PinColumnWidths {
+    PinColumnWidths {
+        left: clamp_pin_layer_width(widths.left),
+        right: clamp_pin_layer_width(widths.right),
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DockSettings {
@@ -14,6 +40,9 @@ pub struct DockSettings {
     /// 钉住的 Dock id 集合；只保留通过 id 校验的条目。
     #[serde(default)]
     pub pinned: HashMap<String, bool>,
+    /// 用户拖拽调整后的钉住分栏层宽度；按侧记录，缺失表示使用默认宽度。
+    #[serde(default)]
+    pub column_widths: PinColumnWidths,
 }
 
 /// 丢弃非法键并压缩掉 false 值，保证配置文件里的 pinned 始终是精简的 true 映射。
@@ -86,6 +115,7 @@ pub fn get(app: AppHandle) -> Result<DockSettings, String> {
 pub fn set(app: AppHandle, settings: DockSettings) -> Result<DockSettings, String> {
     let settings = DockSettings {
         pinned: sanitize_pinned(settings.pinned),
+        column_widths: sanitize_column_widths(settings.column_widths),
         ..settings
     };
     save(&app, &settings)?;
@@ -96,13 +126,14 @@ pub fn set(app: AppHandle, settings: DockSettings) -> Result<DockSettings, Strin
 mod tests {
     use std::collections::HashMap;
 
-    use super::{sanitize_pinned, DockSettings};
+    use super::{sanitize_column_widths, sanitize_pinned, DockSettings, PinColumnWidths};
 
     #[test]
     fn defaults_to_disabled_outside_click_collapse_and_no_pins() {
         let settings = DockSettings::default();
         assert!(!settings.auto_collapse_on_outside_click);
         assert!(settings.pinned.is_empty());
+        assert_eq!(settings.column_widths, PinColumnWidths::default());
     }
 
     #[test]
@@ -112,18 +143,25 @@ mod tests {
         let value = serde_json::to_value(DockSettings {
             auto_collapse_on_outside_click: true,
             pinned,
+            column_widths: PinColumnWidths {
+                left: Some(420),
+                right: None,
+            },
         })
         .unwrap();
         assert_eq!(value["autoCollapseOnOutsideClick"], true);
         assert_eq!(value["pinned"]["todo-dock"], true);
+        assert_eq!(value["columnWidths"]["left"], 420);
+        assert!(value["columnWidths"].get("right").is_none());
     }
 
     #[test]
-    fn deserializes_legacy_settings_without_pins() {
+    fn deserializes_legacy_settings_without_pins_or_widths() {
         let settings: DockSettings =
             serde_json::from_str("{\"autoCollapseOnOutsideClick\":true}").unwrap();
         assert!(settings.auto_collapse_on_outside_click);
         assert!(settings.pinned.is_empty());
+        assert_eq!(settings.column_widths, PinColumnWidths::default());
     }
 
     #[test]
@@ -136,5 +174,19 @@ mod tests {
         let sanitized = sanitize_pinned(pinned);
         assert_eq!(sanitized.len(), 1);
         assert!(sanitized.contains_key("todo-dock"));
+    }
+
+    #[test]
+    fn clamps_custom_column_widths_into_range() {
+        let widths = sanitize_column_widths(PinColumnWidths {
+            left: Some(80),
+            right: Some(2_000),
+        });
+        assert_eq!(widths.left, Some(220));
+        assert_eq!(widths.right, Some(800));
+        assert_eq!(
+            sanitize_column_widths(PinColumnWidths::default()),
+            PinColumnWidths::default()
+        );
     }
 }

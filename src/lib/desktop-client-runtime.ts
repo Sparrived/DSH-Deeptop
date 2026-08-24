@@ -3,6 +3,7 @@ import {
   bridgeRequest,
   isDshRemoteEvent,
   listenToBridgeEvent,
+  type BridgeRequestOptions,
   type DshBridgeEvent,
   type DshRemoteEvent,
 } from "./desktop";
@@ -11,9 +12,9 @@ export type DesktopRemoteEventHandler = (event: DshRemoteEvent) => void;
 
 export interface DesktopClientRuntime {
   readonly isLoopback: true;
-  request<T>(method: string, payload?: Record<string, unknown>): Promise<T>;
+  request<T>(method: string, payload?: Record<string, unknown>, signal?: AbortSignal, options?: BridgeRequestOptions): Promise<T>;
   remote: {
-    invoke<T>(namespace: string, method: string, args?: Record<string, unknown>): Promise<T>;
+    invoke<T>(namespace: string, method: string, args?: Record<string, unknown>, signal?: AbortSignal, options?: BridgeRequestOptions): Promise<T>;
     on(event: string, handler: DesktopRemoteEventHandler): Promise<UnlistenFn>;
   };
   start(handler: (event: DshBridgeEvent) => void): Promise<UnlistenFn>;
@@ -24,8 +25,8 @@ export function createDesktopClientRuntime(): DesktopClientRuntime {
     isLoopback: true,
     request: bridgeRequest,
     remote: {
-      async invoke<T>(namespace: string, method: string, args: Record<string, unknown> = {}) {
-        const result = await bridgeRequest<{ value: T }>("remote.invoke", { namespace, method, args });
+      async invoke<T>(namespace: string, method: string, args: Record<string, unknown> = {}, signal?: AbortSignal, options?: BridgeRequestOptions) {
+        const result = await bridgeRequest<{ value: T }>("remote.invoke", { namespace, method, args }, signal, options);
         return result.value;
       },
       async on(event, handler) {

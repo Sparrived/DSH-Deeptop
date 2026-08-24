@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { type UnlistenFn } from "@tauri-apps/api/event";
 import { StartupSplash } from "./components/StartupSplash";
 import { ConversationTranscript } from "./components/ConversationTranscript";
@@ -32,7 +32,8 @@ import { GoalSurfacePanel, type GoalAction } from "./components/GoalSurfacePanel
 import { UtilityDockShelf } from "./components/UtilityDockShelf";
 import { WindowChrome } from "./components/WindowChrome";
 import { DockSettingsProvider, useDockSettings } from "./app/dock-settings";
-import { computeConversationPadding, hasConversationPadding } from "./app/dock-pin";
+import { clampPinLayerWidth, computePinLayerWidths, PIN_LAYER_MAX_WIDTH, PIN_LAYER_MIN_WIDTH, resolvePinLayerWidths, type PinLayerWidths } from "./app/dock-pin";
+import { DockPinLayersProvider, type DockPinLayerElements, type DockPinLayerSide } from "./components/DockPinLayers";
 import { PopupDialog } from "./components/PopupDialog";
 import { PluginInstallDialog, type PluginInstallDraft } from "./components/PluginInstallDialog";
 import { useProviderSettings } from "./app/useProviderSettings";
@@ -40,7 +41,6 @@ import { useWindowControls } from "./app/useWindowControls";
 import { normalizeWindowBehavior } from "./app/window-behavior";
 import { routeBridgeEvent } from "./app/bridge-event-handler";
 import {
-  bridgeRequest,
   checkDsh,
   checkForUpdates,
   cancelUpdateCheck,
@@ -68,6 +68,10 @@ import {
   setWindowsContextMenuEnabled,
   getWindowBehaviorSettings,
   setWindowBehaviorSettings,
+  getNetworkProxy,
+  setNetworkProxy,
+  type DshNetworkProxy,
+  type DshEffectiveNetworkProxy,
   resolveWindowClose,
   listPendingWindowClose,
   cancelWindowClose,
@@ -90,12 +94,12 @@ import {
   isSessionLogCorruption,
   repairCorruptSession,
   missingAgentPresetInfo,
+  queryHostCapabilities,
   type DshBridgeEvent,
   type DshGoalProjection,
   type DshHistoryEntry,
   type DshJob,
   type DshCommandDescriptor,
-  type DshCommandExecution,
   type DshMessageAnnotationItem,
   type DshMessageAnnotationResult,
   type DshPluginConfigDescription,
@@ -121,6 +125,7 @@ import {
   type DshSessionSummary,
   type DshStatus,
   type DshRuntimeLog,
+  type DshHostCapabilities,
   type ExternalLaunchRequest,
   type WindowsContextMenuStatus,
   type DshSubagentAddress,
@@ -128,6 +133,10 @@ import {
   type DshWorkspace,
 } from "./lib/desktop";
 import { desktopClientRuntime } from "./lib/desktop-client-runtime";
+import { desktopRequest, desktopRemoteInvoke } from "./lib/desktop-api";
+import { seedBridgeLinkStatus } from "./lib/bridge-link";
+import { overlayProjections, sessionProjectionCache } from "./app/projection-cache";
+import { capabilityNotice, capabilityStatus } from "./app/capability-model";
 import {
   composerReferenceText,
   subagentDisplayName,
@@ -478,10 +487,17 @@ function AppContent() {
   const [subagentSession, setSubagentSession] = useState<SubagentSession | null>(null);
   const [subagentComposer, setSubagentComposer] = useState("");
   const [settings, setSettings] = useState<DshSettingsDescription | null>(null);
+  // 官方插件能力探测结果：null 表示尚未探测（界面不降级，保持旧行为）；
+  // 探测后缺失的能力由 capabilityStatus 映射为功能开关并提示。
+  const [capabilities, setCapabilities] = useState<DshHostCapabilities | null>(null);
+  const capabilityFeatures = capabilityStatus(capabilities).features;
   const [contextMenuStatus, setContextMenuStatus] = useState<WindowsContextMenuStatus | null>(null);
   const [contextMenuUpdating, setContextMenuUpdating] = useState(false);
   const [windowBehavior, setWindowBehavior] = useState<WindowBehaviorSettings>({ minimizeToTray: false, closeBehavior: "ask" });
   const [windowBehaviorUpdating, setWindowBehaviorUpdating] = useState(false);
+  const [networkProxy, setNetworkProxyState] = useState<DshNetworkProxy>({ enabled: false, url: "" });
+  const [networkEffective, setNetworkEffective] = useState<DshEffectiveNetworkProxy>({ source: "none", url: "", noProxy: "" });
+  const [networkProxyUpdating, setNetworkProxyUpdating] = useState(false);
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft | null>(null);
   const [goal, setGoal] = useState<DshGoalProjection | null | undefined>(undefined);
   const [goalDraft, setGoalDraft] = useState("");
@@ -589,7 +605,7 @@ function AppContent() {
     const key = `${sessionId}:${attachmentId}`;
     const cached = imageAttachmentCacheRef.current.get(key);
     if (cached) return cached;
-    const request = bridgeRequest<{ attachment: { mediaType: string }; data: string }>("session.attachment", {
+    const request = desktopRequest("session.attachment", {
       sessionId,
       attachmentId,
     }).then((result) => `data:${result.attachment.mediaType};base64,${result.data}`);
@@ -657,6 +673,21 @@ function AppContent() {
       setErrorNotice(`窗口行为设置保存失败：${errorText(error)}`);
     } finally {
       setWindowBehaviorUpdating(false);
+    }
+  }
+
+  async function updateNetworkProxy(proxy: DshNetworkProxy) {
+    setNetworkProxyUpdating(true);
+    try {
+      const result = await setNetworkProxy(proxy);
+      setNetworkProxyState(result.proxy);
+      setNetworkEffective(result.effective);
+      const label = result.effective.source === "system" ? "（跟随系统代理）" : result.effective.source === "explicit" ? "（显式代理）" : "（直连）";
+      setNotice(result.applied ? `网络代理已保存并即时生效${label}` : `网络代理已保存（等待运行时加载 undici 后生效）${label}`);
+    } catch (error) {
+      setErrorNotice(`网络代理设置失败：${errorText(error)}`);
+    } finally {
+      setNetworkProxyUpdating(false);
     }
   }
 
@@ -943,6 +974,10 @@ function AppContent() {
   useEffect(() => {
     if (!desktop) return;
     void getWindowBehaviorSettings().then(normalizeWindowBehavior).then(setWindowBehavior).catch((error) => setErrorNotice(`读取窗口行为设置失败：${errorText(error)}`));
+    void getNetworkProxy().then((snapshot) => {
+      setNetworkProxyState(snapshot.explicit);
+      setNetworkEffective(snapshot.effective);
+    }).catch(() => { /* 读取失败不阻断启动 */ });
     let disposed = false;
     let unlisten: UnlistenFn | undefined;
     const setupWindowCloseListener = async () => {
@@ -1339,7 +1374,7 @@ function AppContent() {
   }, [activeGoal?.id, activeGoal?.phase]);
   const subagentEntries = subagents?.entries ?? [];
   const childSubagents = subagentEntries.filter((entry): entry is ChildSubagentEntry => entry.kind === "child");
-  // 钉住的 Dock 作为固定分栏占位：把各 Dock 的展开状态交给纯模型计算对话面板让位宽度。
+  // 钉住的 Dock 卡片 portal 进左右两个流内分栏层，对话列由网格布局天然让位。
   const dockExpandedById: Record<string, boolean> = {
     "terminal-dock": terminalOpen,
     "workspace-files-dock": filesOpen,
@@ -1349,13 +1384,82 @@ function AppContent() {
     "subagent-dock": childSubagents.length > 0 && subagentDockOpen,
     "deliverables-dock": deliverablesVisible && !deliverablesCollapsed,
   };
-  const pinPadding = computeConversationPadding({
-    pinned: pinnedDocks,
-    expandedById: dockExpandedById,
-    todoVisible,
-    todoCollapsed,
-  });
-  const pinPadded = hasConversationPadding(pinPadding);
+  const pinLayerWidths = computePinLayerWidths({ pinned: pinnedDocks, expandedById: dockExpandedById });
+  const customPinColumnWidths = dockSettings.columnWidths;
+  const resolvedPinLayerWidths = resolvePinLayerWidths({ computed: pinLayerWidths, custom: customPinColumnWidths });
+  // 分栏宽度拖拽：拖拽期间用本地实时宽度渲染，松手后才持久化到 Dock 设置。
+  const [pinLayerResize, setPinLayerResize] = useState<{ side: DockPinLayerSide; startX: number; startWidth: number; base: PinLayerWidths } | null>(null);
+  const [pinLayerResizeWidths, setPinLayerResizeWidths] = useState<PinLayerWidths | null>(null);
+  const effectivePinLayerWidths = pinLayerResizeWidths ?? resolvedPinLayerWidths;
+  const beginPinLayerResize = useCallback((event: ReactPointerEvent<HTMLDivElement>, side: DockPinLayerSide) => {
+    event.preventDefault();
+    setPinLayerResize({
+      side,
+      startX: event.clientX,
+      startWidth: side === "left" ? effectivePinLayerWidths.left : effectivePinLayerWidths.right,
+      base: effectivePinLayerWidths,
+    });
+    setPinLayerResizeWidths(effectivePinLayerWidths);
+    document.body.classList.add("pin-layer-resizing");
+  }, [effectivePinLayerWidths]);
+  const resetPinLayerWidth = useCallback((side: DockPinLayerSide) => {
+    void updateDockSettings({
+      columnWidths: {
+        left: side === "left" ? undefined : (customPinColumnWidths?.left ?? undefined),
+        right: side === "right" ? undefined : (customPinColumnWidths?.right ?? undefined),
+      },
+    }).catch(() => undefined);
+  }, [customPinColumnWidths, updateDockSettings]);
+  useEffect(() => {
+    if (!pinLayerResize) return;
+    const resizeWidthFor = (clientX: number): { side: DockPinLayerSide; width: number } => {
+      const delta = clientX - pinLayerResize.startX;
+      const raw = pinLayerResize.side === "left" ? pinLayerResize.startWidth + delta : pinLayerResize.startWidth - delta;
+      return { side: pinLayerResize.side, width: clampPinLayerWidth(raw) ?? pinLayerResize.startWidth };
+    };
+    const handlePointerMove = (event: globalThis.PointerEvent) => {
+      setPinLayerResizeWidths((current) => {
+        if (!current) return current;
+        const { side, width } = resizeWidthFor(event.clientX);
+        return { ...current, [side]: width };
+      });
+    };
+    const settle = (persisted: boolean, clientX?: number) => {
+      document.body.classList.remove("pin-layer-resizing");
+      setPinLayerResize(null);
+      setPinLayerResizeWidths(null);
+      if (!persisted || clientX === undefined) return;
+      const { side, width } = resizeWidthFor(clientX);
+      void updateDockSettings({
+        columnWidths: {
+          left: side === "left" ? width : (customPinColumnWidths?.left ?? undefined),
+          right: side === "right" ? width : (customPinColumnWidths?.right ?? undefined),
+        },
+      }).catch(() => undefined);
+    };
+    const handlePointerUp = (event: globalThis.PointerEvent) => settle(true, event.clientX);
+    const handleAbort = () => settle(false);
+    document.addEventListener("pointermove", handlePointerMove);
+    document.addEventListener("pointerup", handlePointerUp);
+    document.addEventListener("pointercancel", handleAbort);
+    window.addEventListener("blur", handleAbort);
+    return () => {
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", handlePointerUp);
+      document.removeEventListener("pointercancel", handleAbort);
+      window.removeEventListener("blur", handleAbort);
+    };
+  }, [pinLayerResize, customPinColumnWidths, updateDockSettings]);
+  const [pinLayerElements, setPinLayerElements] = useState<DockPinLayerElements>({ left: null, right: null });
+  // ref 回调必须保持稳定标识：内联箭头函数每次渲染都是新引用，React 每次提交都会
+  // detach(null)/attach(element) 并触发 setState，形成无限更新循环（React #185，
+  // 主界面首次渲染即整树卸载、窗口黑屏）。
+  const registerLeftPinLayer = useCallback((element: HTMLElement | null) => {
+    setPinLayerElements((current) => (current.left === element ? current : { ...current, left: element }));
+  }, []);
+  const registerRightPinLayer = useCallback((element: HTMLElement | null) => {
+    setPinLayerElements((current) => (current.right === element ? current : { ...current, right: element }));
+  }, []);
   const composerTrigger = useMemo(() => detectComposerTrigger(composer), [composer]);
   const composerCandidates = useMemo<ComposerCandidate[]>(() => {
     if (!composerTrigger) return [];
@@ -1384,23 +1488,24 @@ function AppContent() {
     const trigger = composerTrigger;
     const requestId = ++referenceRequestRef.current;
     const controller = new AbortController();
-    if (!activeSessionId || !trigger || trigger.kind !== "reference") {
+    if (!activeSessionId || !trigger || trigger.kind !== "reference" || !capabilityFeatures.references) {
       setReferenceCandidates([]);
       controller.abort();
       return () => controller.abort();
     }
     const query = trigger.query;
-    const request = <T,>(method: string) => bridgeRequest<{ items: T[] }>(method, { sessionId: activeSessionId, query }, controller.signal);
-    const fileRequest = request<DshFileReferenceCandidate>("reference.files");
-    const sessionRequest = trigger.quoted ? Promise.resolve({ items: [] as DshSessionReferenceCandidate[] }) : request<DshSessionReferenceCandidate>("reference.sessions");
+    const fileRequest = desktopRequest("reference.files", { sessionId: activeSessionId, query }, controller.signal);
+    const sessionRequest = trigger.quoted
+      ? Promise.resolve({ items: [] as DshSessionReferenceCandidate[] })
+      : desktopRequest("reference.sessions", { sessionId: activeSessionId, query }, controller.signal);
     void Promise.allSettled([fileRequest, sessionRequest]).then(([files, sessions]) => {
       if (controller.signal.aborted || requestId !== referenceRequestRef.current) return;
-      const fileItems = files.status === "fulfilled" && Array.isArray(files.value?.items) ? files.value.items : [];
-      const sessionItems = sessions.status === "fulfilled" && Array.isArray(sessions.value?.items) ? sessions.value.items : [];
+      const fileItems = files.status === "fulfilled" ? files.value.items : [];
+      const sessionItems = sessions.status === "fulfilled" ? sessions.value.items : [];
       setReferenceCandidates(referenceComposerCandidates(fileItems, sessionItems, trigger.quoted === true));
     });
     return () => { controller.abort(); };
-  }, [activeSessionId, composerTrigger]);
+  }, [activeSessionId, composerTrigger, capabilityFeatures.references]);
   const activeComposerCandidateIndex = composerCandidates.length === 0
     ? 0
     : Math.min(composerCandidateIndex, composerCandidates.length - 1);
@@ -1422,7 +1527,7 @@ function AppContent() {
 
   async function loadPluginConfig() {
     if (!desktop) return;
-    const result = await bridgeRequest<DshPluginConfigDescription>("plugin.config.describe");
+    const result = await desktopRequest("plugin.config.describe");
     applyPluginConfig(result);
   }
 
@@ -1457,7 +1562,7 @@ function AppContent() {
     if (!pluginConfig || !settings?.writable || pluginConfigSaving) return false;
     setPluginConfigSaving(true);
     try {
-      const result = await bridgeRequest<DshPluginConfigMutation>("plugin.config.mutate", {
+      const result = await desktopRequest("plugin.config.mutate", {
         expectedRevision: pluginConfig.revision,
         plugins: pluginConfigDraft.map(({ id, name, enabled }) => ({ id, name, enabled })),
       });
@@ -1537,8 +1642,8 @@ function AppContent() {
   async function loadSessions(selectFirst = false): Promise<DshSessionSummary[] | undefined> {
     if (!desktop) return undefined;
     const [sessionResult, workspaceResult] = await Promise.allSettled([
-      bridgeRequest<{ items: DshSessionSummary[] }>("session.list"),
-      bridgeRequest<{ archivedSessionIds?: string[] }>("workspace.list"),
+      desktopRequest("session.list"),
+      desktopRequest("workspace.list"),
     ]);
     if (sessionResult.status !== "fulfilled") throw sessionResult.reason;
     const result = sessionResult.value;
@@ -1558,15 +1663,16 @@ function AppContent() {
   async function loadRuntimeDetails(sessionItems = sessions) {
     if (!desktop) return;
     const workspaceVersion = workspaceRequestRef.current;
-    const [hostResult, presetResult, workspaceResult, settingsResult, providerResult, modelResult, pluginResult, pluginConfigResult] = await Promise.allSettled([
-      bridgeRequest<Record<string, unknown>>("host.describe"),
-      bridgeRequest<DshPresetRoster>("agentPreset.list"),
-      bridgeRequest<{ items: DshWorkspace[]; archivedSessionIds?: string[] }>("workspace.list"),
-      bridgeRequest<DshSettingsDescription>("settings.describe"),
-      bridgeRequest<{ providers: DshProvider[] }>("llm.providers"),
-      bridgeRequest<DshHostModelCatalog>("llm.models"),
-      bridgeRequest<DshPluginInventorySnapshot>("plugin.list"),
-      bridgeRequest<DshPluginConfigDescription>("plugin.config.describe"),
+    const [hostResult, presetResult, workspaceResult, settingsResult, providerResult, modelResult, pluginResult, pluginConfigResult, capabilityResult] = await Promise.allSettled([
+      desktopRequest("host.describe"),
+      desktopRequest("agentPreset.list"),
+      desktopRequest("workspace.list"),
+      desktopRequest("settings.describe"),
+      desktopRequest("llm.providers"),
+      desktopRequest("llm.models"),
+      desktopRequest("plugin.list"),
+      desktopRequest("plugin.config.describe"),
+      queryHostCapabilities(),
     ]);
     if (hostResult.status === "fulfilled") setRuntimeDetails(hostResult.value);
     if (presetResult.status === "fulfilled") {
@@ -1580,7 +1686,7 @@ function AppContent() {
       const attachedCount = await repairWorkspaceMembership(workspaceItems, sessionItems);
       if (attachedCount > 0) {
         try {
-          const refreshed = await bridgeRequest<{ items: DshWorkspace[]; archivedSessionIds?: string[] }>("workspace.list");
+          const refreshed = await desktopRequest("workspace.list");
           workspaceItems = refreshed.items;
           archivedIds = new Set((refreshed.archivedSessionIds ?? []).filter((sessionId): sessionId is string => typeof sessionId === "string" && sessionId.length > 0));
         } catch {
@@ -1605,12 +1711,17 @@ function AppContent() {
       setExcludedPlugins(pluginResult.value.excluded ?? []);
     }
     if (pluginConfigResult.status === "fulfilled") applyPluginConfig(pluginConfigResult.value);
+    if (capabilityResult.status === "fulfilled") {
+      setCapabilities(capabilityResult.value);
+      const noticeText = capabilityNotice(capabilityResult.value);
+      if (noticeText) setNotice(noticeText);
+    }
   }
 
   async function loadSubagents(parentSessionId = activeSessionRef.current) {
     if (!desktop || !parentSessionId) return;
     try {
-      setSubagents(await bridgeRequest<DshSubagentCatalog>("subagent.list", { parentSessionId }));
+      setSubagents(await desktopRequest("subagent.list", { parentSessionId }));
     } catch (error) {
       setErrorNotice(errorText(error));
     }
@@ -1621,8 +1732,12 @@ function AppContent() {
       setCommands([]);
       return;
     }
+    if (!capabilityFeatures.commands) {
+      setCommands([]);
+      return;
+    }
     try {
-      const result = await desktopClientRuntime.remote.invoke<DshCommandDescriptor[]>("commands", "list", { agentId: sessionId });
+      const result = await desktopRemoteInvoke("commands/list", { agentId: sessionId });
       if (activeSessionRef.current !== sessionId) return;
       setCommands(Array.isArray(result) ? [...result] : []);
     } catch {
@@ -1636,8 +1751,12 @@ function AppContent() {
       setAnnotations({});
       return;
     }
+    if (!capabilityFeatures.annotations) {
+      setAnnotations({});
+      return;
+    }
     try {
-      const result = await bridgeRequest<DshMessageAnnotationResult<{ items: DshMessageAnnotationItem[] }>>("messageAnnotations.list", { sessionId });
+      const result = await desktopRequest("messageAnnotations.list", { sessionId });
       if (activeSessionRef.current !== sessionId) return;
       if (!result.ok) throw new Error(result.error.code);
       setAnnotations(Object.fromEntries(result.value.items.map((item) => [item.messageId, item])));
@@ -1662,7 +1781,7 @@ function AppContent() {
     if (activeSessionId) {
       void loadCommands(activeSessionId);
       void loadAnnotations(activeSessionId);
-      void bridgeRequest<{ skills: DshSkill[] }>("skill.list", { sessionId: activeSessionId })
+      void desktopRequest("skill.list", { sessionId: activeSessionId })
         .then((result) => setSkills(result.skills))
         .catch(() => undefined);
     }
@@ -1678,24 +1797,24 @@ function AppContent() {
     setSurfaceLoading(true);
     try {
       if (tab === "skills" && activeSessionId) {
-        const result = await bridgeRequest<{ skills: DshSkill[] }>("skill.list", { sessionId: activeSessionId });
+        const result = await desktopRequest("skill.list", { sessionId: activeSessionId });
         setSkills(result.skills);
       }
       if (tab === "subagents" && activeSessionId) {
-        setSubagents(await bridgeRequest<DshSubagentCatalog>("subagent.list", { parentSessionId: activeSessionId }));
+        setSubagents(await desktopRequest("subagent.list", { parentSessionId: activeSessionId }));
       }
       if (tab === "runtime" && activeSessionId) {
         await Promise.all([loadCommands(activeSessionId), loadAnnotations(activeSessionId)]);
       }
       if (tab === "goal" && activeSessionId) {
-        const historyResult = await bridgeRequest<{ events: DshHistoryEntry[]; projections?: { values: Record<string, unknown> } }>("session.history", { sessionId: activeSessionId, maxMessages: 100 });
+        const historyResult = await desktopRequest("session.history", { sessionId: activeSessionId, maxMessages: 100 });
         setGoal((historyResult.projections?.values.goal as DshGoalProjection | null | undefined) ?? null);
       }
       if (tab === "settings") {
         const [settingsResult, pluginResult, pluginConfigResult] = await Promise.allSettled([
-          bridgeRequest<DshSettingsDescription>("settings.describe"),
-          bridgeRequest<DshPluginInventorySnapshot>("plugin.list"),
-          bridgeRequest<DshPluginConfigDescription>("plugin.config.describe"),
+          desktopRequest("settings.describe"),
+          desktopRequest("plugin.list"),
+          desktopRequest("plugin.config.describe"),
         ]);
         if (settingsResult.status === "fulfilled") setSettings(settingsResult.value);
         if (pluginResult.status === "fulfilled") {
@@ -1712,7 +1831,7 @@ function AppContent() {
   }
 
   async function refreshSettings() {
-    const result = await bridgeRequest<DshSettingsDescription>("settings.describe");
+    const result = await desktopRequest("settings.describe");
     setSettings(result);
     return result;
   }
@@ -1729,7 +1848,7 @@ function AppContent() {
     const preset = presets.find((item) => item.id === id && !item.broken);
     if (!preset) return;
     try {
-      await bridgeRequest("settings.update", { ns: "agent-presets", patch: { default: id } });
+      await desktopRequest("settings.update", { ns: "agent-presets", patch: { default: id } });
       setNextPreset("");
       await loadRuntimeDetails();
       setNotice(`${presetDisplayName(id, presets)} 已设为新会话默认值`);
@@ -1740,7 +1859,7 @@ function AppContent() {
 
   async function readPreset(id: string) {
     try {
-      const result = await bridgeRequest<{ agentPreset: string; content: string }>("agentPreset.read", { agentPreset: id });
+      const result = await desktopRequest("agentPreset.read", { agentPreset: id });
       setPresetView({ id: result.agentPreset, content: result.content });
     } catch (error) {
       setErrorNotice(errorText(error));
@@ -1759,7 +1878,7 @@ function AppContent() {
       return;
     }
     try {
-      await bridgeRequest("agentPreset.copy", {
+      await desktopRequest("agentPreset.copy", {
         from: presetCopy.from,
         agentPreset: id,
         ...(presetCopy.name.trim() ? { name: presetCopy.name.trim() } : {}),
@@ -1775,7 +1894,7 @@ function AppContent() {
 
   async function openPresetDocument(id: string) {
     try {
-      const result = await bridgeRequest<{ opened: true } | { opened: false; path: string }>("agentPreset.openDocument", { agentPreset: id });
+      const result = await desktopRequest("agentPreset.openDocument", { agentPreset: id });
       setNotice(result.opened ? "已打开 Preset 文件夹" : `Preset 文件夹：${result.path}`);
     } catch (error) {
       setErrorNotice(errorText(error));
@@ -1789,7 +1908,7 @@ function AppContent() {
     setSubagentLoadError(null);
     setSubagentLoadingId(address.childSessionId);
     try {
-      const result = await bridgeRequest<{ events: DshHistoryEntry[] }>("subagent.history", { ...address });
+      const result = await desktopRequest("subagent.history", { ...address });
       if (requestId !== subagentRequestRef.current) return;
       setSubagentSession({ address, history: result.events });
     } catch (error) {
@@ -1826,7 +1945,7 @@ function AppContent() {
   async function promptSubagent() {
     if (!subagentSession || !subagentComposer.trim() || subagentSession.address.mode !== "continuable") return;
     try {
-      await bridgeRequest("subagent.prompt", {
+      await desktopRequest("subagent.prompt", {
         ...subagentSession.address,
         content: [{ type: "text", text: subagentComposer.trim() }],
         clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -1841,7 +1960,7 @@ function AppContent() {
   async function interruptSubagent(address: DshSubagentAddress) {
     if (address.mode !== "continuable") return;
     try {
-      await bridgeRequest("subagent.interrupt", { ...address });
+      await desktopRequest("subagent.interrupt", { ...address });
       setNotice("已请求停止子 Agent");
     } catch (error) {
       setErrorNotice(errorText(error));
@@ -1868,7 +1987,7 @@ function AppContent() {
     }
     setGoalPanelBusy(true);
     try {
-      await bridgeRequest("goal.create", { sessionId: activeSessionId, objective: goalDraft.trim(), ...(maxGoalRounds === undefined ? {} : { maxGoalRounds }) });
+      await desktopRequest("goal.create", { sessionId: activeSessionId, objective: goalDraft.trim(), ...(maxGoalRounds === undefined ? {} : { maxGoalRounds }) });
       setGoalDraft("");
       setGoalMaxRoundsDraft("");
       await loadSurface("goal");
@@ -1896,9 +2015,9 @@ function AppContent() {
           setErrorNotice("最大回合数必须是大于 0 的整数");
           return;
         }
-        await bridgeRequest("goal.edit", { sessionId: activeSessionId, ref, objective: goalDraft.trim(), maxGoalRounds });
+        await desktopRequest("goal.edit", { sessionId: activeSessionId, ref, objective: goalDraft.trim(), maxGoalRounds });
       } else {
-        await bridgeRequest(`goal.${action}`, { sessionId: activeSessionId, ref });
+        await desktopRequest(`goal.${action}`, { sessionId: activeSessionId, ref });
       }
       await loadSurface("goal");
       if (action === "clear") {
@@ -1925,7 +2044,7 @@ function AppContent() {
         setSettingsDraft(null);
         return;
       }
-      await bridgeRequest("settings.mutate", {
+      await desktopRequest("settings.mutate", {
         ns: settingsDraft.ns,
         ops,
         expectedRevision: settingsDraft.revision,
@@ -1990,11 +2109,11 @@ function AppContent() {
     setLoading(true);
     try {
       const [historyResult, modelsResult] = await Promise.all([
-        bridgeRequest<{ events: DshHistoryEntry[]; hasMore: boolean; projections?: { values: Record<string, unknown> } }>("session.history", {
+        desktopRequest("session.history", {
           sessionId: session.sessionId,
           maxMessages: 100,
-        }),
-        bridgeRequest<DshSessionModels>("session.models", { sessionId: session.sessionId }),
+        }, undefined, { waitForReconnect: true }),
+        desktopRequest("session.models", { sessionId: session.sessionId }, undefined, { waitForReconnect: true }),
       ]);
       if (loadRequest !== sessionLoadRequestRef.current || activeSessionRef.current !== session.sessionId) return false;
       setHistory(historyResult.events);
@@ -2002,7 +2121,15 @@ function AppContent() {
       const loadedStats = readSessionStats(historyResult.events, historyResult.projections);
       contextProjectionRef.current = Boolean(recordValue(historyResult.projections?.values.contextPressure));
       setSessionStats({ ...loadedStats, contextLimit: modelsResult.contextWindow ?? loadedStats.contextLimit });
-      const projectionValues = historyResult.projections?.values;
+      // 会话切换隔离：历史折叠水位（asOfSeq）之上的实时投影由缓存补齐，
+      // 缓存按会话隔离，只允许目标会话自己的条目进入当前视图。
+      const mergedProjections = overlayProjections(
+        historyResult.projections?.values,
+        historyResult.projections?.asOfSeq,
+        sessionProjectionCache.snapshot(session.sessionId),
+      );
+      const projectionValues = mergedProjections.values;
+      if (recordValue(projectionValues?.contextPressure)) contextProjectionRef.current = true;
       const projectedImageLimits = imageLimitsFromProjection(projectionValues?.imageLimits);
       setModels({ ...modelsResult, ...(projectedImageLimits ? { imageLimits: projectedImageLimits } : {}) });
       setGoal((projectionValues?.goal as DshGoalProjection | null | undefined) ?? null);
@@ -2048,7 +2175,7 @@ function AppContent() {
         if (missing) {
           let roster = presets;
           try {
-            const rosterResult = await bridgeRequest<DshPresetRoster>("agentPreset.list");
+            const rosterResult = await desktopRequest("agentPreset.list");
             roster = rosterResult.presets;
             setPresets(rosterResult.presets);
             setPresetAuthorable(rosterResult.authorable);
@@ -2139,10 +2266,10 @@ function AppContent() {
   async function refreshSessionStats(sessionId = activeSessionRef.current) {
     if (!desktop || !sessionId) return;
     try {
-      const result = await bridgeRequest<{ events: DshHistoryEntry[]; projections?: { values: Record<string, unknown> } }>("session.history", {
+      const result = await desktopRequest("session.history", {
         sessionId,
         maxMessages: 100,
-      });
+      }, undefined, { waitForReconnect: true });
       if (activeSessionRef.current !== sessionId) return;
       const projectedImageLimits = imageLimitsFromProjection(result.projections?.values?.imageLimits);
       if (projectedImageLimits) setModels((current) => current ? { ...current, imageLimits: projectedImageLimits } : current);
@@ -2170,7 +2297,7 @@ function AppContent() {
     historyLoadingOlderRef.current = true;
     setHistoryLoadingOlder(true);
     try {
-      const result = await bridgeRequest<{ events: DshHistoryEntry[]; hasMore: boolean }>("session.history", {
+      const result = await desktopRequest("session.history", {
         sessionId,
         beforeSeq,
         maxMessages: 100,
@@ -2200,7 +2327,7 @@ function AppContent() {
     if (known) {
       await chooseWorkspaceRef.current(known.path);
     } else {
-      const result = await bridgeRequest<{ workspace: DshWorkspace }>("workspace.create", { path });
+      const result = await desktopRequest("workspace.create", { path });
       workspaceSelectionInitializedRef.current = true;
       setWorkspace(result.workspace.path);
       setWorkspaces((current) => current.some((item) => item.workspaceId === result.workspace.workspaceId)
@@ -2279,6 +2406,7 @@ function AppContent() {
       setStartupLogs([]);
       const nextStatus = await withTimeout(checkDsh(), 10_000, "DSH 检查超时，请重试");
       runtimeAvailableRef.current = nextStatus.runtimeAvailable;
+      seedBridgeLinkStatus(nextStatus);
       setStatus(nextStatus);
       setNotice(nextStatus.message);
       await loadContextMenuStatus();
@@ -2337,6 +2465,7 @@ function AppContent() {
     void listenToRuntimeStatus((nextStatus) => {
       const wasAvailable = runtimeAvailableRef.current;
       runtimeAvailableRef.current = nextStatus.runtimeAvailable;
+      seedBridgeLinkStatus(nextStatus);
       setStatus(nextStatus);
       setNotice(nextStatus.message);
       if (nextStatus.runtimeAvailable) {
@@ -2431,7 +2560,7 @@ function AppContent() {
     let workspaceItem = workspaces.find((item) => sameWorkspacePath(item.path, workspacePath)) ?? null;
     if (workspacePath) {
       try {
-        const refreshed = await bridgeRequest<{ items: DshWorkspace[] }>("workspace.list");
+        const refreshed = await desktopRequest("workspace.list");
         workspaceItem = refreshed.items.find((item) => sameWorkspacePath(item.path, workspacePath)) ?? workspaceItem;
       } catch {
         // Fall back to the local projection.
@@ -2467,7 +2596,7 @@ function AppContent() {
       setWorkspaceMenuOpen(false);
       setNotice("新会话将使用此工作目录");
       try {
-        const result = await bridgeRequest<{ workspace: DshWorkspace }>("workspace.create", { path: picked });
+        const result = await desktopRequest("workspace.create", { path: picked });
         setWorkspace(result.workspace.path);
         setWorkspaces((current) => current.some((item) => item.workspaceId === result.workspace.workspaceId)
           ? current.map((item) => item.workspaceId === result.workspace.workspaceId ? result.workspace : item)
@@ -2527,7 +2656,7 @@ function AppContent() {
       .map((session) => ({ item, session })));
     if (candidates.length === 0) return 0;
     // The official attach operation performs canonical-path validation; this is only a candidate hint.
-    const results = await Promise.allSettled(candidates.map(({ item, session }) => bridgeRequest("workspace.attachSession", {
+    const results = await Promise.allSettled(candidates.map(({ item, session }) => desktopRequest("workspace.attachSession", {
       workspaceId: item.workspaceId,
       sessionId: session.sessionId,
     })));
@@ -2549,7 +2678,7 @@ function AppContent() {
     const title = await requestPrompt("重命名工作区", item.title, "修改工作区在侧边栏中的显示名称。");
     if (!title?.trim() || title.trim() === item.title) return;
     try {
-      const result = await bridgeRequest<{ workspace: DshWorkspace }>("workspace.rename", {
+      const result = await desktopRequest("workspace.rename", {
         workspaceId: item.workspaceId,
         title: title.trim(),
       });
@@ -2567,7 +2696,7 @@ function AppContent() {
     if (!preset || preset.trust !== "user") return;
     if (!await requestConfirm(`删除 Agent Preset“${presetDisplayName(id, presets)}”？已在其上运行的会话不受影响。`)) return;
     try {
-      await bridgeRequest("agentPreset.remove", { agentPreset: id });
+      await desktopRequest("agentPreset.remove", { agentPreset: id });
       if (nextPreset === id) setNextPreset("");
       setPresetView((current) => current?.id === id ? null : current);
       await loadRuntimeDetails();
@@ -2580,7 +2709,7 @@ function AppContent() {
   async function deleteWorkspace(item: DshWorkspace) {
     if (!await requestConfirm(`删除工作区“${item.title || projectName(item.path)}”？不会删除目录和会话。`)) return;
     try {
-      await bridgeRequest("workspace.delete", { workspaceId: item.workspaceId });
+      await desktopRequest("workspace.delete", { workspaceId: item.workspaceId });
       setWorkspaces((current) => current.filter((workspaceItem) => workspaceItem.workspaceId !== item.workspaceId));
       setPinnedWorkspaceIds((current) => current.filter((workspaceId) => workspaceId !== item.workspaceId));
       if (workspace === item.path) setWorkspace("");
@@ -2602,13 +2731,13 @@ function AppContent() {
       const attachedSessionIds = new Set(targetWorkspace.sessionIds);
       for (const candidateSessionId of [beforeSessionId, sessionId]) {
         if (attachedSessionIds.has(candidateSessionId)) continue;
-        await bridgeRequest("workspace.attachSession", {
+        await desktopRequest("workspace.attachSession", {
           workspaceId: targetWorkspace.workspaceId,
           sessionId: candidateSessionId,
         });
         attachedSessionIds.add(candidateSessionId);
       }
-      await bridgeRequest("workspace.insertSessionBefore", {
+      await desktopRequest("workspace.insertSessionBefore", {
         workspaceId: targetWorkspace.workspaceId,
         sessionId,
         beforeSessionId,
@@ -2628,7 +2757,7 @@ function AppContent() {
 
       // Read back only the authoritative workspace projection. A broad runtime
       // refresh is slower and can briefly restore a stale sessionIds array.
-      const refreshed = await bridgeRequest<{ items: DshWorkspace[]; archivedSessionIds?: string[] }>("workspace.list");
+      const refreshed = await desktopRequest("workspace.list");
       if (workspaceVersion !== workspaceRequestRef.current) return;
       workspacesRef.current = refreshed.items;
       setWorkspaces(refreshed.items);
@@ -2649,7 +2778,7 @@ function AppContent() {
     const pinned = new Set(currentWorkspace.pinnedSessionIds ?? []);
     const nextPinned = !pinned.has(session.sessionId);
     try {
-      const result = await bridgeRequest<{ workspaceId: string; pinnedSessionIds: string[] }>("workspace.setSessionPinned", {
+      const result = await desktopRequest("workspace.setSessionPinned", {
         workspaceId: currentWorkspace.workspaceId,
         sessionId: session.sessionId,
         pinned: nextPinned,
@@ -2738,14 +2867,14 @@ function AppContent() {
     const requestedModel = draftModelSelection ?? defaultModelSelection;
     const requestedPermission = draftPermission ?? defaultPermission;
     const hasHostPermissionNamespace = settings?.namespaces.some((item) => item.ns === "permission") ?? false;
-    const created = await bridgeRequest<{ sessionId: string; agentPreset?: string }>("session.create", {
+    const created = await desktopRequest("session.create", {
       ...(selectedWorkspace ? { workspaceId: selectedWorkspace.workspaceId } : workspace ? { cwd: workspace } : {}),
       ...(presetId ? { agentPreset: presetId } : {}),
     });
     activeSessionRef.current = created.sessionId;
     setActiveSessionId(created.sessionId);
     if (requestedModel) {
-      await bridgeRequest("session.selectModel", {
+      await desktopRequest("session.selectModel", {
         sessionId: created.sessionId,
         provider: requestedModel.provider,
         model: requestedModel.model,
@@ -2765,7 +2894,7 @@ function AppContent() {
     // workspace registry, so make the membership write explicit before loading
     // the projections used by the sidebar.
     if (selectedWorkspace) {
-      const attached = await bridgeRequest<{ workspace: DshWorkspace }>("workspace.attachSession", {
+      const attached = await desktopRequest("workspace.attachSession", {
         workspaceId: selectedWorkspace.workspaceId,
         sessionId: created.sessionId,
       });
@@ -2779,8 +2908,8 @@ function AppContent() {
     setDraftPermission(null);
     setNextPreset("");
     setPresetMenuOpen(false);
-    const nextModels = await bridgeRequest<DshSessionModels>("session.models", { sessionId: created.sessionId });
-    const historyResult = await bridgeRequest<{ projections?: { values: Record<string, unknown> } }>("session.history", {
+    const nextModels = await desktopRequest("session.models", { sessionId: created.sessionId });
+    const historyResult = await desktopRequest("session.history", {
       sessionId: created.sessionId,
       maxMessages: 1,
     });
@@ -2801,7 +2930,7 @@ function AppContent() {
   }
 
   async function executeCommandLine(sessionId: string, line: string) {
-    const execution = await desktopClientRuntime.remote.invoke<DshCommandExecution | undefined>("commands", "execute", {
+    const execution = await desktopRemoteInvoke("commands/execute", {
       agentId: sessionId,
       line,
       images: [],
@@ -2831,7 +2960,7 @@ function AppContent() {
     setNotice(promptMode === "steer" ? "正在插入当前回合" : "正在发送");
     try {
       const sessionId = await ensureSession();
-      const admissionModels = await bridgeRequest<DshSessionModels>("session.models", { sessionId });
+      const admissionModels = await desktopRequest("session.models", { sessionId });
       setModels((current) => current?.imageLimits ? { ...admissionModels, imageLimits: current.imageLimits } : admissionModels);
       if (!admissionModels.routable) {
         setErrorNotice("当前模型路由不可用，请切换模型或检查 Provider 配置");
@@ -2855,7 +2984,7 @@ function AppContent() {
         content: promptContentParts(text, attachments),
         clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       };
-      await bridgeRequest("session.prompt", { ...promptPayload });
+      await desktopRequest("session.prompt", { ...promptPayload });
       setComposer("");
       setAttachments([]);
       void refreshSessionStats(sessionId);
@@ -2871,7 +3000,7 @@ function AppContent() {
     const sessionId = activeSessionRef.current;
     if (!sessionId) return;
     try {
-      await bridgeRequest("session.cancel", { sessionId });
+      await desktopRequest("session.cancel", { sessionId });
       setNotice("已请求停止当前回合");
     } catch (error) {
       setErrorNotice(errorText(error));
@@ -2910,7 +3039,7 @@ function AppContent() {
   async function forkSession(sessionId: string = activeSessionId ?? "", atSeq?: number) {
     if (!sessionId) return;
     try {
-      const result = await bridgeRequest<{ sessionId: string }>("session.fork", {
+      const result = await desktopRequest("session.fork", {
         sessionId,
         ...(atSeq === undefined ? {} : { atSeq }),
       });
@@ -2936,7 +3065,7 @@ function AppContent() {
     if (!confirmed) return;
     setPresetMigrationRunning(true);
     try {
-      const result = await bridgeRequest<{ sessionId: string }>("session.fork", {
+      const result = await desktopRequest("session.fork", {
         sessionId: presetMigration.session.sessionId,
         agentPreset: replacement.id,
       });
@@ -2961,7 +3090,7 @@ function AppContent() {
     let beforeSeq: number | undefined;
     let targetFound = false;
     for (let page = 0; page < 100; page += 1) {
-      const result = await bridgeRequest<{ events: DshHistoryEntry[]; hasMore: boolean }>("session.history", {
+      const result = await desktopRequest("session.history", {
         sessionId,
         ...(beforeSeq === undefined ? {} : { beforeSeq }),
         maxMessages: 100,
@@ -3003,9 +3132,9 @@ function AppContent() {
           data: part.data!,
           ...(part.name ? { name: part.name } : {}),
         } : part;
-        const attachment = await bridgeRequest<{ attachment: { mediaType: string; name?: string }; data: string }>("session.attachment", {
+        const attachment = await desktopRequest("session.attachment", {
           sessionId,
-          attachmentId: part.attachmentId,
+          attachmentId: part.attachmentId!,
         });
         if (attachment.attachment.mediaType !== part.mediaType) throw new Error("历史图片格式与消息记录不一致");
         return {
@@ -3019,7 +3148,7 @@ function AppContent() {
       const boundary = retryBoundarySeq(entries, targetSeq);
       let retrySessionId: string;
       if (boundary !== undefined) {
-        const fork = await bridgeRequest<{ sessionId: string }>("session.fork", {
+        const fork = await desktopRequest("session.fork", {
           sessionId,
           atSeq: boundary,
         });
@@ -3027,19 +3156,19 @@ function AppContent() {
       } else {
         const sourceSession = sessions.find((session) => session.sessionId === sessionId);
         const selectedWorkspace = workspaces.find((item) => item.sessionIds.includes(sessionId));
-        const created = await bridgeRequest<{ sessionId: string }>("session.create", {
+        const created = await desktopRequest("session.create", {
           ...(selectedWorkspace ? { workspaceId: selectedWorkspace.workspaceId } : sourceSession?.cwd ? { cwd: sourceSession.cwd } : workspace ? { cwd: workspace } : {}),
           ...(sourceSession?.agentPreset ? { agentPreset: sourceSession.agentPreset } : {}),
         });
         retrySessionId = created.sessionId;
         if (selectedWorkspace) {
-          await bridgeRequest("workspace.attachSession", {
+          await desktopRequest("workspace.attachSession", {
             workspaceId: selectedWorkspace.workspaceId,
             sessionId: retrySessionId,
           });
         }
         if (models?.current) {
-          await bridgeRequest("session.selectModel", {
+          await desktopRequest("session.selectModel", {
             sessionId: retrySessionId,
             provider: models.current.provider,
             model: models.current.model,
@@ -3061,7 +3190,7 @@ function AppContent() {
       if (activeSessionRef.current !== sessionId) throw new Error("会话已切换，已取消本次重试");
       await openSession(forked);
       if (activeSessionRef.current !== retrySessionId) throw new Error("会话已切换，已取消本次重试");
-      await bridgeRequest("session.prompt", {
+      await desktopRequest("session.prompt", {
         sessionId: retrySessionId,
         mode: "queue",
         content: hydratedContent,
@@ -3093,7 +3222,7 @@ function AppContent() {
 
   async function archiveSession(session: DshSessionSummary) {
     try {
-      await bridgeRequest("workspace.archiveSession", { sessionId: session.sessionId });
+      await desktopRequest("workspace.archiveSession", { sessionId: session.sessionId });
       setConfirmAction(null);
       setArchivedSessionIds((current) => new Set(current).add(session.sessionId));
       await loadSessions();
@@ -3104,7 +3233,7 @@ function AppContent() {
 
   async function restoreSession(session: DshSessionSummary) {
     try {
-      const result = await bridgeRequest<{ archivedSessionIds: string[] }>("workspace.restoreSession", { sessionId: session.sessionId });
+      const result = await desktopRequest("workspace.restoreSession", { sessionId: session.sessionId });
       setArchivedSessionIds(new Set(result.archivedSessionIds));
       await loadSessions();
       setNotice("会话已恢复");
@@ -3115,7 +3244,7 @@ function AppContent() {
     const session = deleteArchivedTarget;
     if (!session) return;
     try {
-      await bridgeRequest("workspace.deleteArchivedSession", { sessionId: session.sessionId });
+      await desktopRequest("workspace.deleteArchivedSession", { sessionId: session.sessionId });
       setDeleteArchivedTarget(null);
       await loadSessions();
       if (session.sessionId === activeSessionRef.current) startNewSession();
@@ -3139,7 +3268,7 @@ function AppContent() {
     const title = renameValue.trim();
     if (!session || !title) return;
     try {
-      await bridgeRequest("session.rename", { sessionId: session.sessionId, title });
+      await desktopRequest("session.rename", { sessionId: session.sessionId, title });
       setRenameTarget(null);
       setRenameValue("");
       await loadSessions();
@@ -3164,7 +3293,7 @@ function AppContent() {
       return;
     }
     try {
-      await bridgeRequest("session.selectModel", {
+      await desktopRequest("session.selectModel", {
         sessionId: activeSessionId,
         provider: models.current.provider,
         model: models.current.model,
@@ -3194,7 +3323,7 @@ function AppContent() {
       return;
     }
     try {
-      await bridgeRequest("session.selectModel", { sessionId: activeSessionId, provider, model });
+      await desktopRequest("session.selectModel", { sessionId: activeSessionId, provider, model });
       const selectedContextWindow = models?.groups.find((group) => group.id === provider)?.models.find((entry) => entry.id === model)?.contextWindow;
       setModels((current) => current ? { ...current, current: { ...current.current, provider, model, reasoningEffort: undefined }, contextWindow: selectedContextWindow } : current);
       contextProjectionRef.current = false;
@@ -3305,7 +3434,7 @@ function AppContent() {
     const sessionId = activeSessionRef.current;
     if (!sessionId) return;
     const current = annotations[messageId];
-    const result = await bridgeRequest<DshMessageAnnotationResult<DshMessageAnnotationItem>>("messageAnnotations.put", {
+    const result = await desktopRequest("messageAnnotations.put", {
       sessionId,
       messageId,
       note,
@@ -3330,7 +3459,7 @@ function AppContent() {
     const sessionId = activeSessionRef.current;
     const current = annotations[messageId];
     if (!sessionId || !current) return;
-    const result = await bridgeRequest<DshMessageAnnotationResult<{ absent: true }>>("messageAnnotations.delete", {
+    const result = await desktopRequest("messageAnnotations.delete", {
       sessionId,
       messageId,
       ifVersion: current.version,
@@ -3416,7 +3545,7 @@ function AppContent() {
             ? { op: "set", path: reasoningPath, value: next.reasoningEffort }
             : { op: "unset", path: reasoningPath });
         }
-        await bridgeRequest("settings.mutate", { ns: namespace.ns, ops, expectedRevision: namespace.revision });
+        await desktopRequest("settings.mutate", { ns: namespace.ns, ops, expectedRevision: namespace.revision });
         await refreshSettings();
       } else {
         writeStoredDefaultModel(next);
@@ -3436,7 +3565,7 @@ function AppContent() {
         writeStoredDefaultPermission(value);
         setStoredDefaultPermission(value);
       } else {
-        await bridgeRequest("settings.update", { ns: "permission", patch: { defaultPreset: value } });
+        await desktopRequest("settings.update", { ns: "permission", patch: { defaultPreset: value } });
         await refreshSettings();
       }
       setNotice("新会话默认权限已更新");
@@ -3508,7 +3637,7 @@ function AppContent() {
       let beforeSeq: number | undefined;
       let hasMore = true;
       while (hasMore) {
-        const result = await bridgeRequest<{ events: DshHistoryEntry[]; hasMore: boolean }>("session.history", {
+        const result = await desktopRequest("session.history", {
           sessionId,
           maxMessages: 100,
           ...(beforeSeq === undefined ? {} : { beforeSeq }),
@@ -3535,12 +3664,16 @@ function AppContent() {
 
   async function exportSessionZip(sessionId = activeSessionRef.current) {
     if (!sessionId) return;
+    if (!capabilityFeatures.sessionExport) {
+      setErrorNotice("会话 ZIP 导出能力未安装或未启用");
+      return;
+    }
     setNotice("正在生成会话 ZIP");
     try {
-      const result = await bridgeRequest<{ base64: string; contentType: string; filename: string; size: number }>("session.exportZip", {
+      const result = await desktopRequest("session.exportZip", {
         sessionId,
         includeDescendants: true,
-      });
+      }, undefined, { timeoutMs: 90_000 });
       const binary = atob(result.base64);
       const bytes = new Uint8Array(binary.length);
       for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
@@ -3559,7 +3692,7 @@ function AppContent() {
     const session = sessionsRef.current.find((item) => item.sessionId === activeSessionRef.current);
     if (!session) return;
     try {
-      await bridgeRequest("host.openPath", { path: sessionPath(session.cwd, path) });
+      await desktopRequest("host.openPath", { path: sessionPath(session.cwd, path) });
       setNotice("已交给系统打开");
     } catch (error) {
       setErrorNotice(`打开失败：${errorText(error)}`);
@@ -3681,7 +3814,7 @@ function AppContent() {
     }
     const requestId = ++searchRequestRef.current;
     try {
-      const result = await bridgeRequest<{ items: Array<{ sessionId: string; snippet?: string }>; hasMore?: boolean }>("session.search", { query });
+      const result = await desktopRequest("session.search", { query });
       if (requestId !== searchRequestRef.current) return;
       setRemoteSearchResults(result.items.map((item) => ({ sessionId: item.sessionId, snippet: item.snippet ?? "" })));
     } catch (error) {
@@ -3693,7 +3826,7 @@ function AppContent() {
     if (!approval) return;
     const request = approval;
     try {
-      await bridgeRequest("respond", {
+      await desktopRequest("respond", {
         type: "client-response",
         rpcId: request.rpcId,
         result: {
@@ -3745,7 +3878,7 @@ function AppContent() {
       answers: questionAnswerItems(request.questions, answers, customAnswers),
     };
     try {
-      await bridgeRequest("respond", {
+      await desktopRequest("respond", {
         type: "client-response",
         rpcId: request.rpcId,
         result: { ok: true, value: { sessionId: request.sessionId, answer } },
@@ -3775,7 +3908,7 @@ function AppContent() {
     if (!question) return;
     const request = question;
     try {
-      await bridgeRequest("respond", {
+      await desktopRequest("respond", {
         type: "client-response",
         rpcId: request.rpcId,
         result: {
@@ -3909,7 +4042,7 @@ function AppContent() {
   async function removeQueueItem(itemId: string) {
     if (!activeSessionId) return;
     try {
-      await bridgeRequest("session.updateQueue", { sessionId: activeSessionId, itemId, action: { kind: "remove" } });
+      await desktopRequest("session.updateQueue", { sessionId: activeSessionId, itemId, action: { kind: "remove" } });
     } catch (error) {
       setErrorNotice(errorText(error));
     }
@@ -3928,7 +4061,7 @@ function AppContent() {
       return;
     }
     try {
-      await bridgeRequest("session.updateQueue", {
+      await desktopRequest("session.updateQueue", {
         sessionId: activeSessionId,
         itemId,
         action: { kind: "edit", content: [{ type: "text", text }] },
@@ -4103,7 +4236,8 @@ function AppContent() {
         onEditCommand={(command) => { if (desktop) document.execCommand(command); }}
       />
 
-      <div className={`workspace-layout ${todoVisible ? "todo-visible" : ""} ${todoVisible && todoCollapsed ? "todo-collapsed" : ""} ${activeJobs.length > 0 ? "tasks-visible" : ""} ${activeJobs.length > 0 && jobsCollapsed ? "tasks-collapsed" : ""} ${deliverablesVisible ? "deliverables-visible" : ""} ${deliverablesVisible && deliverablesCollapsed ? "deliverables-collapsed" : ""} ${pinPadded ? "pin-padded" : ""}`} style={{ "--sidebar-width": `${sidebarWidth}px`, "--pin-reserve-left": `${pinPadding.left}px`, "--pin-reserve-right": `${pinPadding.right}px` } as CSSProperties}>
+      <DockPinLayersProvider value={pinLayerElements}>
+      <div className={`workspace-layout ${todoVisible ? "todo-visible" : ""} ${todoVisible && todoCollapsed ? "todo-collapsed" : ""} ${activeJobs.length > 0 ? "tasks-visible" : ""} ${activeJobs.length > 0 && jobsCollapsed ? "tasks-collapsed" : ""} ${deliverablesVisible ? "deliverables-visible" : ""} ${deliverablesVisible && deliverablesCollapsed ? "deliverables-collapsed" : ""}`} style={{ "--sidebar-width": `${sidebarWidth}px`, "--pin-left-width": `${effectivePinLayerWidths.left}px`, "--pin-right-width": `${effectivePinLayerWidths.right}px` } as CSSProperties}>
         <SessionSidebar
           search={search}
           onSearchChange={setSearch}
@@ -4160,6 +4294,22 @@ function AppContent() {
             document.body.classList.add("sidebar-resizing");
           }}
         />
+
+        <div className={`pin-layer pin-layer-left${pinLayerWidths.left > 0 ? " active" : ""}`} ref={registerLeftPinLayer} aria-hidden={!pinLayerWidths.left}>
+          {pinLayerWidths.left > 0 && (
+            <div
+              className="pin-layer-resizer"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整左分栏宽度"
+              aria-valuemin={PIN_LAYER_MIN_WIDTH}
+              aria-valuemax={PIN_LAYER_MAX_WIDTH}
+              aria-valuenow={effectivePinLayerWidths.left}
+              onPointerDown={(event) => beginPinLayerResize(event, "left")}
+              onDoubleClick={() => resetPinLayerWidth("left")}
+            />
+          )}
+        </div>
 
         <section className="conversation-panel">
           <ConversationHeader
@@ -4393,7 +4543,24 @@ function AppContent() {
             onChangeReasoningEffort={changeReasoningEffort}
           />
            </section>
-         </div>
+
+        <div className={`pin-layer pin-layer-right${pinLayerWidths.right > 0 ? " active" : ""}`} ref={registerRightPinLayer} aria-hidden={!pinLayerWidths.right}>
+          {pinLayerWidths.right > 0 && (
+            <div
+              className="pin-layer-resizer"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整右分栏宽度"
+              aria-valuemin={PIN_LAYER_MIN_WIDTH}
+              aria-valuemax={PIN_LAYER_MAX_WIDTH}
+              aria-valuenow={effectivePinLayerWidths.right}
+              onPointerDown={(event) => beginPinLayerResize(event, "right")}
+              onDoubleClick={() => resetPinLayerWidth("right")}
+            />
+          )}
+        </div>
+      </div>
+      </DockPinLayersProvider>
 
          {showInspector && (
           <div className="inspector-modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="inspector-title">
@@ -4548,13 +4715,17 @@ function AppContent() {
                      windowBehaviorUpdating={windowBehaviorUpdating}
                      onSetContextMenuEnabled={setContextMenuEnabled}
                      onUpdateWindowBehavior={updateWindowBehavior}
-                    onOpenDocument={() => bridgeRequest("settings.openDocument").then(() => setNotice("已打开 DSH 配置文件")).catch((error) => setErrorNotice(errorText(error)))}
+                    onOpenDocument={() => desktopRequest("settings.openDocument").then(() => setNotice("已打开 DSH 配置文件")).catch((error) => setErrorNotice(errorText(error)))}
                     onSetDefaultPreset={setDefaultPreset}
                     onSetDefaultModel={setDefaultModel}
                     onSetDefaultPermission={setDefaultPermission}
                     onAddWorkspace={addWorkspace}
                     onResetSidebar={() => setSidebarWidth(320)}
                     onOpenNamespace={openSettingsNamespace}
+                    networkProxy={networkProxy}
+                    networkEffective={networkEffective}
+                    networkProxyUpdating={networkProxyUpdating}
+                    onUpdateNetworkProxy={updateNetworkProxy}
                   />}
 
                   {settingsSection === "keyboard" && <SettingsKeyboardPanel

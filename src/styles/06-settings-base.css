@@ -131,6 +131,26 @@
   letter-spacing: 0.08em;
 }
 
+.settings-state-tag {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  color: var(--muted);
+  font-size: 9px;
+  font-family: var(--mono);
+}
+
+.settings-state-tag[data-source="system"] {
+  border-color: var(--accent);
+  color: var(--accent-deep);
+}
+
+.settings-state-tag[data-source="explicit"] {
+  border-color: var(--accent);
+  color: var(--accent-deep);
+}
+
 .settings-page-header h2 {
   margin: 4px 0 5px;
   color: var(--ink);

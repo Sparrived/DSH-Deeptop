@@ -54,7 +54,7 @@ export function SettingsDockPanel({ settings, loaded, updating, onUpdate }: Sett
         <div className="settings-block-heading">
           <div>
             <h3>钉住</h3>
-            <p>标题栏的图钉按钮把展开框固定为稳定分栏：对话内容自动让位，不再遮挡消息；钉住期间禁用拖拽与还原位置，点击外部也不会自动收起。再次点击图钉恢复浮动卡片。</p>
+            <p>标题栏的图钉按钮把展开框固定到窗口边缘的常驻分栏：对话内容自动让位，不再遮挡消息，面板高度随窗口拉伸。钉住期间禁用拖拽与还原位置，点击外部也不会自动收起；再次点击图钉恢复浮动卡片。</p>
           </div>
         </div>
       </div>

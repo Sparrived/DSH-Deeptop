@@ -23,6 +23,9 @@ if (!fs.existsSync(archivePath) || !fs.statSync(archivePath).isFile()) {
 const manifest = readJson(manifestPath);
 if (
   manifest.format !== 1 ||
+  manifest.runtimeFeatures !== 3 ||
+  !Array.isArray(manifest.desktopRuntimePackages) ||
+  !manifest.desktopRuntimePackages.includes("undici") ||
   manifest.packageName !== "@deepseek-ai/dsh" ||
   manifest.entry !== entry ||
   manifest.platform !== process.platform ||
@@ -58,10 +61,8 @@ if (manifest.sourceCommit !== pinnedCommit || manifest.packageVersion !== pinned
   );
 }
 
-// The archive is extracted and checked by the Rust bridge. This command only
-// checks the compressed resource can be enumerated on the build host; staging
-// checks in sync-dsh-runtime.mjs cover the required package entries before it is
-// compressed.
+// The archive is extracted and checked by the Rust bridge. Check that it is
+// readable and still includes the dependency the embedded bridge imports by URL.
 const archiveCheck = spawnSync("tar", ["-tzf", archivePath], {
   cwd: root,
   stdio: "ignore",
@@ -69,6 +70,14 @@ const archiveCheck = spawnSync("tar", ["-tzf", archivePath], {
 });
 if (archiveCheck.error || archiveCheck.status !== 0) {
   throw new Error(`内嵌 DSH 运行时归档无法读取：${archivePath}`);
+}
+const undiciCheck = spawnSync("tar", ["-tzf", archivePath, "./node_modules/undici/index.js"], {
+  cwd: root,
+  stdio: "ignore",
+  windowsHide: true,
+});
+if (undiciCheck.error || undiciCheck.status !== 0) {
+  throw new Error(`内嵌 DSH 运行时缺少桌面网络代理依赖：${archivePath}`);
 }
 
 console.log(`✅ 内嵌 DSH 压缩运行时校验通过：${manifest.packageVersion} @ ${manifest.sourceCommit}`);
