@@ -62,7 +62,7 @@
 
 - [~] Provider/模型设置：已有新增/移除、API Key 写入/清除、Base URL/协议、模型发现和模型增删；有 schema 的命名空间（含 Provider 配置）改用官方 Schemastery Schema 驱动表单编辑，凭据仍由 Host 保管、写只输入；自定义 Provider 与本地凭据安全边界保留。
 - [~] Light/Dark/System 主题及持久化：桌面端本地主题及外部 CSS/背景/文字自定义已完成；与 Host `ui-theme` 设置命名空间双向同步（bridge 注册官方同名 ns，mutate 写回 / document-updated 采纳）。
-- [x] 中英文语言切换和本地化资源：zh/en 全量文案本地化（字典约 1700 个 key，组件与模型层统一经 `t()`/`locale` 参数切换），本地持久化 + 官方 `locale` 命名空间双向同步（bridge 注册官方同名 ns，mutate 写回 / document-updated 采纳）；Host/Rust 侧错误文案与诊断日志保持原文。
+- [x] 中英文语言切换和本地化资源：zh/en 全量文案本地化（资源维护于 `src/app/locales/{zh,en}.json` 约 1700 个 key，组件与模型层统一经 `t()`/`locale` 参数取值，`npm run i18n:check` 校验），本地持久化 + 官方 `locale` 命名空间双向同步（bridge 注册官方同名 ns，mutate 写回 / document-updated 采纳）；Host/Rust 侧错误文案与诊断日志保持原文。
 - [~] 插件设置：原生安装流程（来源/名称/Entry 校验、安装与取消）、启停配置、运行时清单与 Schema 表单编辑均已具备，原始 JSON 编辑作为诊断后备。
 - [x] Agent Preset：选择、默认值、新建、复制、删除、查看和打开文件，以及新会话 chip 与缺失 Preset 迁移。
 - [x] 消息 Like/Dislike 及反馈备注：复用官方 `messageFeedback` Remote，使用版本号做并发冲突对账。
