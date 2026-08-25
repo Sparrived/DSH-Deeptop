@@ -1,4 +1,4 @@
-import type { UiLocale } from "./i18n.ts";
+import { t, type UiLocale } from "./i18n.ts";
 
 export type UpdateChannel = "stable" | "development";
 
@@ -77,7 +77,7 @@ export function updateCheckStateFromResult(result: NativeUpdateResult, checkedAt
 
 export function updateCheckErrorMessage(error: unknown, locale: UiLocale = "zh"): string {
   if (error instanceof Error && error.message.trim()) return error.message;
-  return String(error || (locale === "en" ? "Update check failed" : "更新检查失败"));
+  return String(error || t("update.checkFailed", locale));
 }
 
 export function updateDownloadStateFromEvent(event: NativeUpdateDownloadProgress, locale: UiLocale = "zh"): UpdateDownloadState {
@@ -88,6 +88,6 @@ export function updateDownloadStateFromEvent(event: NativeUpdateDownloadProgress
   if (event.phase === "ready" && event.releaseTag && event.assetName && event.path && event.sha256) return { status: "ready", releaseTag: event.releaseTag, assetName: event.assetName, path: event.path, sha256: event.sha256 };
   if (event.phase === "cancelled") return { status: "cancelled" };
   if (event.phase === "launching") return { status: "launching" };
-  if (event.phase === "failed" || event.phase === "error") return { status: "error", message: event.message || (locale === "en" ? "Update download failed" : "更新下载失败") };
-  return { status: "error", message: locale === "en" ? "Invalid update progress event format" : "更新进度事件格式无效" };
+  if (event.phase === "failed" || event.phase === "error") return { status: "error", message: event.message || t("update.downloadFailed", locale) };
+  return { status: "error", message: t("update.eventInvalid", locale) };
 }

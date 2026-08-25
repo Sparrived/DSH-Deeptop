@@ -1,4 +1,4 @@
-import type { UiLocale } from "../app/i18n";
+import { t, type UiLocale } from "../app/i18n.ts";
 
 export type MessageEntityKind = "file" | "connection";
 
@@ -102,7 +102,7 @@ export function decodeFileLink(href: string): string | null {
 export function pathLabel(path: string, locale: UiLocale = "zh"): { name: string; directory: string } {
   const normalized = path.replace(/[\\/]+$/, "");
   const separator = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
-  const directoryFallback = locale === "en" ? "Path" : "路径";
+  const directoryFallback = t("message.path", locale);
   if (separator < 0) return { name: normalized, directory: directoryFallback };
   return { name: normalized.slice(separator + 1) || normalized, directory: normalized.slice(0, separator) || directoryFallback };
 }

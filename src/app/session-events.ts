@@ -1,6 +1,6 @@
 import type { DshHistoryEntry } from "../lib/desktop";
 import type { TranscriptItem } from "./model-types";
-import type { UiLocale } from "./i18n.ts";
+import { t, type UiLocale } from "./i18n.ts";
 
 /**
  * Session-level event timing projections. Pure module: no React, Tauri or
@@ -65,10 +65,8 @@ export function turnTimingItems(entries: DshHistoryEntry[], locale: UiLocale = "
         items.push({
           key: `turn-time-${event.seq}`,
           kind: "system",
-          label: locale === "en" ? "Turn duration" : "回合耗时",
-          text: locale === "en"
-            ? `Turn ${turn} took ${formatSessionElapsed(event.time - startedAt)}`
-            : `第 ${turn} 轮 用时 ${formatSessionElapsed(event.time - startedAt)}`,
+          label: t("session.turnDuration", locale),
+          text: t("session.turnDurationText", locale, { turn, duration: formatSessionElapsed(event.time - startedAt) }),
           seq: event.seq + 0.01,
           time: event.time,
         });

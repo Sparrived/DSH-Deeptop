@@ -20,7 +20,7 @@ import { deliverablesFromHistory, workflowViewsFromHistory } from "./workflow-mo
 import { turnTimingItems } from "./session-events.ts";
 import { toolDomainCard } from "./tool-domain.ts";
 import type { TranscriptItem } from "./model-types";
-import type { UiLocale } from "./i18n.ts";
+import { t, type UiLocale } from "./i18n.ts";
 
 function turnEndText(reason: unknown, kind: string, locale: UiLocale = "zh") {
   if (kind !== "error") return kind;
@@ -30,7 +30,7 @@ function turnEndText(reason: unknown, kind: string, locale: UiLocale = "zh") {
   if (typeof failure?.message === "string" && failure.message.trim()) return failure.message;
   if (typeof error === "string" && error.trim()) return error;
   if (typeof detail?.message === "string" && detail.message.trim()) return detail.message;
-  return locale === "en" ? "Turn execution failed" : "回合执行失败";
+  return t("conversation.turnFailed", locale);
 }
 
 export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLocale = "zh"): TranscriptItem[] {
@@ -66,11 +66,11 @@ export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLoca
         const form = injected ? contextForm(source) : undefined;
         let label: string;
         if (!injected) {
-          label = locale === "en" ? "You" : "你";
+          label = t("conversation.you", locale);
         } else if (provenance?.role === "recall") {
-          label = locale === "en" ? "Recall" : "跨会话召回";
+          label = t("conversation.recall", locale);
         } else {
-          label = locale === "en" ? "Context injected" : "上下文注入";
+          label = t("conversation.inject", locale);
         }
         items.push({
           key: `event-${event.seq}`,
@@ -128,12 +128,12 @@ export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLoca
         ? (reason as Record<string, unknown>).kind
         : undefined;
       if (reasonKind && reasonKind !== "completed") {
-        items.push({ key: `event-${event.seq}`, kind: "system", label: locale === "en" ? "Turn end" : "回合结束", text: turnEndText(reason, String(reasonKind), locale), seq: event.seq, time: event.time });
+        items.push({ key: `event-${event.seq}`, kind: "system", label: t("conversation.turnEnd", locale), text: turnEndText(reason, String(reasonKind), locale), seq: event.seq, time: event.time });
       }
       continue;
     }
     if (event.type === "compaction/summary") {
-      items.push({ key: `event-${event.seq}`, kind: "system", label: locale === "en" ? "Context" : "上下文", text: locale === "en" ? "Organized conversation context" : "已整理对话上下文", seq: event.seq, time: event.time });
+      items.push({ key: `event-${event.seq}`, kind: "system", label: t("conversation.context", locale), text: t("conversation.compactionSummary", locale), seq: event.seq, time: event.time });
     }
   }
   for (const [key, stream] of streams) {
@@ -144,7 +144,7 @@ export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLoca
     items.push({ key: `workflow-${workflow.seq}`, kind: "workflow", label: "Workflow", text: workflow.view.name, seq: workflow.seq, time: workflow.time, workflow: workflow.view });
   }
   for (const deliverable of deliverablesFromHistory(orderedEntries)) {
-    items.push({ key: `deliverables-${deliverable.seq}`, kind: "deliverables", label: locale === "en" ? "Generated files" : "生成文件", text: deliverable.paths.join("\n"), seq: deliverable.seq + 0.1, time: deliverable.time, files: deliverable.paths, fileDiffs: deliverable.fileDiffs });
+    items.push({ key: `deliverables-${deliverable.seq}`, kind: "deliverables", label: t("conversation.generatedFiles", locale), text: deliverable.paths.join("\n"), seq: deliverable.seq + 0.1, time: deliverable.time, files: deliverable.paths, fileDiffs: deliverable.fileDiffs });
   }
   // 轮次时间在轮次结束后直接展示在会话里；final sort 会按 seq 放到本轮内容之后。
   for (const timing of turnTimingItems(orderedEntries, locale)) items.push(timing);

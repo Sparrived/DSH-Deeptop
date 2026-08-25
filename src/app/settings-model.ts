@@ -1,34 +1,32 @@
 import type { DshProvider, DshSettingsNamespace } from "../lib/desktop";
 import type { ProviderSettingsPatch } from "./model-types";
-import type { UiLocale } from "./i18n.ts";
+import { t, type UiLocale } from "./i18n.ts";
 
-/** 面向用户的错误文案，zh/en 双份。 */
-const ERROR_LABELS: Record<string, { zh: string; en: string }> = {
-  "model-unavailable": { zh: "当前模型不可用，请检查 Provider 配置或切换模型", en: "The current model is unavailable. Check the Provider config or switch models." },
-  "invalid-time-zone": { zh: "客户端时区无效，请重试", en: "Invalid client timezone. Please try again." },
-  "attachment-error": { zh: "图片未通过当前部署的限制", en: "The image does not meet this deployment's limits." },
-  IMAGE_DIMENSION_TOO_LARGE: { zh: "图片尺寸超过当前部署限制", en: "Image dimensions exceed this deployment's limits." },
-  IMAGE_TOO_MANY_PIXELS: { zh: "图片像素数超过当前部署限制", en: "Image pixel count exceeds this deployment's limits." },
-  IMAGE_PIXELS_TOO_LARGE: { zh: "图片像素数超过当前部署限制", en: "Image pixel count exceeds this deployment's limits." },
-  IMAGE_TOO_LARGE: { zh: "图片大小超过当前部署限制", en: "Image size exceeds this deployment's limits." },
-  TOO_MANY_IMAGES: { zh: "图片数量超过当前部署限制", en: "Image count exceeds this deployment's limits." },
-  IMAGES_TOO_LARGE: { zh: "本条消息的图片总大小超过当前部署限制", en: "Total image size for this message exceeds this deployment's limits." },
-  MESSAGE_IMAGE_BYTES_TOO_LARGE: { zh: "本条消息的图片总大小超过当前部署限制", en: "Total image size for this message exceeds this deployment's limits." },
-  "reference-unavailable": { zh: "引用服务当前不可用", en: "The reference service is currently unavailable." },
-  "session-not-found": { zh: "目标会话不存在或已关闭", en: "The target session does not exist or has been closed." },
-  "request-timeout": { zh: "DSH 请求超时，请重试", en: "DSH request timed out. Please try again." },
-  "bridge-timeout": { zh: "DSH 响应超时，请重试", en: "DSH response timed out. Please try again." },
-  "bridge-unavailable": { zh: "DSH 运行时未就绪或已退出，请等待恢复或重启 Deeptop", en: "The DSH runtime is not ready or has exited. Wait for it to recover or restart Deeptop." },
-  "bridge-disconnected": { zh: "DSH 响应通道已断开，请重启 Deeptop", en: "The DSH response channel disconnected. Restart Deeptop." },
-  "workspace-unavailable": { zh: "工作区目录当前不可用（磁盘未连接、目录被移动或删除），无法确认会话归属", en: "The workspace directory is currently unavailable (disk disconnected, or the directory was moved or deleted), so session ownership cannot be confirmed." },
+/** 错误 code/reason → 文案 key 映射（文案资源见 locales/zh.json · settings.error.*）。 */
+const ERROR_KEYS: Record<string, string> = {
+  "model-unavailable": "settings.error.modelUnavailable",
+  "invalid-time-zone": "settings.error.invalidTimezone",
+  "attachment-error": "settings.error.imageRejected",
+  IMAGE_DIMENSION_TOO_LARGE: "settings.error.imageDimensionTooLarge",
+  IMAGE_TOO_MANY_PIXELS: "settings.error.imageTooManyPixels",
+  IMAGE_PIXELS_TOO_LARGE: "settings.error.imageTooManyPixels",
+  IMAGE_TOO_LARGE: "settings.error.imageTooLarge",
+  TOO_MANY_IMAGES: "settings.error.tooManyImages",
+  IMAGES_TOO_LARGE: "settings.error.imagesTooLarge",
+  MESSAGE_IMAGE_BYTES_TOO_LARGE: "settings.error.imagesTooLarge",
+  "reference-unavailable": "settings.error.referenceUnavailable",
+  "session-not-found": "settings.error.sessionNotFound",
+  "request-timeout": "settings.error.requestTimeout",
+  "bridge-timeout": "settings.error.bridgeTimeout",
+  "bridge-unavailable": "settings.error.bridgeUnavailable",
+  "bridge-disconnected": "settings.error.bridgeDisconnected",
+  "workspace-unavailable": "settings.error.workspaceUnavailable",
 };
 
 function errorLabel(code: unknown, reason: string | undefined, locale: UiLocale): string | undefined {
-  const key = (reason ? (reason in ERROR_LABELS ? reason : undefined) : undefined)
-    ?? (typeof code === "string" ? (code in ERROR_LABELS ? code : undefined) : undefined);
-  if (key === undefined) return undefined;
-  const pair = ERROR_LABELS[key];
-  return locale === "en" ? pair.en : pair.zh;
+  const key = (reason ? (reason in ERROR_KEYS ? reason : undefined) : undefined)
+    ?? (typeof code === "string" ? (code in ERROR_KEYS ? code : undefined) : undefined);
+  return key === undefined ? undefined : t(ERROR_KEYS[key], locale);
 }
 
 export function errorText(error: unknown, locale: UiLocale = "zh") {
@@ -59,7 +57,7 @@ export function jsonText(value: unknown) {
 export function parseJsonObject(value: string, locale: UiLocale = "zh"): Record<string, unknown> {
   const parsed: unknown = JSON.parse(value);
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error(locale === "en" ? "Settings content must be a JSON object" : "设置内容必须是 JSON 对象");
+    throw new Error(t("settings.error.notJsonObject", locale));
   }
   return parsed as Record<string, unknown>;
 }

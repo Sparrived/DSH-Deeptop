@@ -1,7 +1,7 @@
 import type { DshHistoryEntry } from "../lib/desktop";
 import type { MessageStats, SessionStats, TokenUsageBreakdown, TokenUsageDashboardData, TokenUsagePoint } from "./model-types";
 import { assistantMessageStats, numberValue, recordValue } from "./message-model.ts";
-import type { UiLocale } from "./i18n.ts";
+import { t, type UiLocale } from "./i18n.ts";
 
 const emptyBreakdown = (): TokenUsageBreakdown => ({
   inputTokens: 0,
@@ -94,7 +94,7 @@ export function tokenUsageDashboard(entries: DshHistoryEntry[], stats: SessionSt
     points.push({
       ...breakdown,
       key: String(entry.event.seq),
-      label: turn !== undefined && step !== undefined ? "T" + turn + " · S" + step : (locale === "en" ? "Response " + responseIndex : "回应 " + responseIndex),
+      label: turn !== undefined && step !== undefined ? "T" + turn + " · S" + step : t("token.response", locale, { index: responseIndex }),
       time: entry.event.time,
       turn,
       step,
