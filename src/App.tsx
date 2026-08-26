@@ -922,21 +922,26 @@ function AppContent() {
     updatedAt: session.updatedAt,
   })), [sessions]);
 
-  const petCompletionCandidates = useMemo<PetCompletionSignal[]>(() => sessions
-    .filter((session) => !session.running)
-    .filter((session) => sessionIndicators[session.sessionId] === "completed" || sessionIndicators[session.sessionId] === "error")
-    .map((session) => {
-      const kind = sessionIndicators[session.sessionId] === "error" ? "failed" : "completed";
-      return {
-        id: `${kind}:${session.sessionId}:${session.updatedAt}`,
-        sessionId: session.sessionId,
-        kind,
-        title: displayTitle(session, locale),
-        message: "",
-        updatedAt: session.updatedAt,
-        previewLoaded: false,
-      };
-    }), [sessionIndicators, sessions]);
+  // 桌宠未启用时整个预览链没有消费者：跳过候选生成（以及下方的 history 预取），
+  // 避免每次会话状态变化都为所有已完成会话额外发起一轮 session.history。
+  const petCompletionCandidates = useMemo<PetCompletionSignal[]>(() => {
+    if (!petSystem.settings.enabled) return [];
+    return sessions
+      .filter((session) => !session.running)
+      .filter((session) => sessionIndicators[session.sessionId] === "completed" || sessionIndicators[session.sessionId] === "error")
+      .map((session) => {
+        const kind = sessionIndicators[session.sessionId] === "error" ? "failed" : "completed";
+        return {
+          id: `${kind}:${session.sessionId}:${session.updatedAt}`,
+          sessionId: session.sessionId,
+          kind,
+          title: displayTitle(session, locale),
+          message: "",
+          updatedAt: session.updatedAt,
+          previewLoaded: false,
+        };
+      });
+  }, [petSystem.settings.enabled, sessionIndicators, sessions]);
 
   useEffect(() => {
     setPetCompletions((current) => {
@@ -1239,13 +1244,33 @@ function AppContent() {
     [history, jobNow, activeRunning],
   );
 
+  // 窗口失焦时停摆装饰动画（用户看不到，且让出渲染资源）。
+  useEffect(() => {
+    const handleBlur = () => document.body.classList.add("deeptop-window-blurred");
+    const handleFocus = () => document.body.classList.remove("deeptop-window-blurred");
+    window.addEventListener("blur", handleBlur);
+    window.addEventListener("focus", handleFocus);
+    return () => {
+      window.removeEventListener("blur", handleBlur);
+      window.removeEventListener("focus", handleFocus);
+      document.body.classList.remove("deeptop-window-blurred");
+    };
+  }, []);
+
+  // 空闲降载：把「存在活动回合/任务」反映到 body 类，CSS 据此停摆运行态光带
+  // 等无限动画；否则窗口空闲时合成线程仍为这些装饰动画持续工作。
   useEffect(() => {
     const hasLiveJob = activeJobs.some((job) => job.status === "running" || job.status === "stopping");
     const hasLiveTodo = todos?.some((item) => item.status === "in_progress" && item.startedAt !== undefined) ?? false;
     const hasLiveTurn = turnTiming.startedAt !== undefined && turnTiming.finishedAt === undefined;
-    if (!hasLiveJob && !hasLiveTodo && !hasLiveTurn) return;
+    const hasLiveActivity = hasLiveJob || hasLiveTodo || hasLiveTurn;
+    document.body.classList.toggle("deeptop-activity-live", hasLiveActivity);
+    if (!hasLiveActivity) return;
     const timer = window.setInterval(() => setJobNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearInterval(timer);
+      document.body.classList.remove("deeptop-activity-live");
+    };
   }, [activeJobs, todos, turnTiming]);
 
   const todoCounts = useMemo(() => ({

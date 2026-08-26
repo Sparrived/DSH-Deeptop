@@ -1017,6 +1017,17 @@ textarea:focus-visible {
   }
 }
 
+/* 空闲降载：无活动回合/任务或窗口失焦时停摆运行态光带动画（body 类由 App
+   维护）。光带是 background-position / drop-shadow 无限动画，空闲时持续
+   占用主线程与合成线程，对「窗口开着但没在动」的场景纯属浪费。 */
+body:not(.deeptop-activity-live) .session-row.session-status-running::after,
+body:not(.deeptop-activity-live) .session-row.session-status-pending::after,
+body.deeptop-window-blurred .session-row.session-status-running::after,
+body.deeptop-window-blurred .session-row.session-status-pending::after,
+body.deeptop-window-blurred .agent-working {
+  animation: none;
+}
+
 .session-row-copy {
   min-width: 0;
   display: grid;
