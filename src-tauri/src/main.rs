@@ -1132,6 +1132,35 @@ fn cleanup_runtime_temporary_caches(cache_root: &Path, key: &str) {
     }
 }
 
+/// 每个版本的运行时缓存约 140MB / 2 万+ 文件；连续迭代后旧版本会累积。
+/// 启动成功物化当前缓存后，best-effort 删除更早的完整版本缓存（保留当前
+/// 与最近一个旧版本供回退）。被占用或加载中的目录删除失败会被忽略，
+/// 不影响启动。这同时缩小了安全软件每次启动的扫描面。
+fn prune_old_runtime_caches(cache_root: &Path, active_cache: &Path) {
+    let Ok(entries) = fs::read_dir(cache_root) else {
+        return;
+    };
+    let mut candidates: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir() && path != active_cache)
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| !name.starts_with('.'))
+        })
+        .collect();
+    if candidates.len() <= 1 {
+        return;
+    }
+    candidates.sort_by_key(|path| fs::metadata(path).and_then(|meta| meta.modified()).ok());
+    // 排序后最后一个即最新版本，其余为更早版本，全部删除。
+    let stale = candidates.len() - 1;
+    for path in candidates.into_iter().take(stale) {
+        remove_runtime_path(&path);
+    }
+}
+
 fn remove_runtime_path(path: &Path) {
     let Ok(metadata) = fs::symlink_metadata(path) else {
         return;
@@ -1409,6 +1438,7 @@ fn materialize_bundled_runtime(app: &AppHandle) -> Result<PathBuf, String> {
     let key = runtime_cache_key(&manifest)?;
     let cache = cache_root.join(&key);
     if is_runtime_cache_ready(&cache, &manifest) {
+        prune_old_runtime_caches(&cache_root, &cache);
         return Ok(cache);
     }
     quarantine_invalid_runtime_cache(&cache);
@@ -1473,12 +1503,17 @@ fn materialize_bundled_runtime(app: &AppHandle) -> Result<PathBuf, String> {
     }
     if is_runtime_cache_ready(&cache, &manifest) {
         remove_runtime_path(&temporary);
+        prune_old_runtime_caches(&cache_root, &cache);
         return Ok(cache);
     }
     match fs::rename(&temporary, &cache) {
-        Ok(()) => Ok(cache),
+        Ok(()) => {
+            prune_old_runtime_caches(&cache_root, &cache);
+            Ok(cache)
+        }
         Err(_error) if is_runtime_cache_ready(&cache, &manifest) => {
             remove_runtime_path(&temporary);
+            prune_old_runtime_caches(&cache_root, &cache);
             Ok(cache)
         }
         Err(error) => {
@@ -2006,13 +2041,11 @@ impl BridgeManager {
     }
 
     fn prepare_and_launch(&self, app: AppHandle, generation: u64) {
+        // 进程冲突检查只在真正 spawn 前执行一次（见 launch）：合并检查除了
+        // 省掉一次 powershell 全进程枚举（冷启动数秒级 CPU/IO），还让检查结果
+        // 更贴近 spawn 时刻，避免 prepare（尤其是升级后解压运行时）期间
+        // 的长时间窗口里产生新的占用进程时漏检或误判。
         let result = (|| -> Result<DshLaunch, String> {
-            if let Some(conflict) = current_dsh_process_conflict()? {
-                if let Ok(mut state) = self.state.lock() {
-                    state.process_conflict = Some(conflict);
-                }
-                return Err("检测到同一 DSH_HOME 正被其他 DSH 使用".to_string());
-            }
             // Profile data remains user-owned in DSH_HOME. The DSH executable and
             // all of its dependencies are read exclusively from Tauri resources.
             materialize_desktop_profile()?;
@@ -5008,12 +5041,12 @@ mod tests {
     use super::{
         base64_encode, bound_log_text, dsh_home, dsh_homes_match, extract_runtime_archive,
         format_log_line, format_utc_datetime, is_bundled_runtime_manifest, is_dsh_package_manifest,
-        is_file_path, is_safe_runtime_entry, process_command_line_matches_dsh, runtime_arch,
-        runtime_cache_validation_message, runtime_platform, runtime_tree_sha256,
-        sniff_image_media_type, tray_menu_text, tray_session_label, validate_tray_session_menu,
-        validated_connection_url, DshRuntimeLog, LogStore, TraySessionMenuItem,
-        TraySessionMenuSnapshot, TraySessionStatus, MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES,
-        RUNTIME_CACHE_MARKER,
+        is_file_path, is_safe_runtime_entry, process_command_line_matches_dsh,
+        prune_old_runtime_caches, runtime_arch, runtime_cache_validation_message, runtime_platform,
+        runtime_tree_sha256, sniff_image_media_type, tray_menu_text, tray_session_label,
+        validate_tray_session_menu, validated_connection_url, DshRuntimeLog, LogStore,
+        TraySessionMenuItem, TraySessionMenuSnapshot, TraySessionStatus, MAX_LOG_ENTRIES,
+        MAX_LOG_TEXT_BYTES, RUNTIME_CACHE_MARKER,
     };
 
     /// ACL 防漂移守卫：invoke_handler 注册的每个命令都必须出现在 build.rs 的
@@ -5445,6 +5478,64 @@ mod tests {
             more: vec![],
         };
         assert!(validate_tray_session_menu(&invalid).is_err());
+    }
+
+    #[test]
+    fn prunes_old_runtime_caches_keeping_the_active_and_newest_previous() {
+        let root = std::env::temp_dir().join(format!(
+            "deeptop-prune-runtime-cache-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("create prune test root");
+        std::fs::write(root.join(".lock"), "ignored").expect("write lock file");
+
+        let old = root.join("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-win32-x64-1111111111111111");
+        let mid = root.join("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-win32-x64-2222222222222222");
+        let newest =
+            root.join("cccccccccccccccccccccccccccccccccccccccc-win32-x64-3333333333333333");
+        let active =
+            root.join("dddddddddddddddddddddddddddddddddddddddd-win32-x64-4444444444444444");
+        // 依次写入 marker 会更新对应目录的修改时间；sleep 拉开差距，保证
+        // 排序确定性（NTFS 目录 mtime 由直接子项创建驱动）。
+        for path in [&old, &mid, &newest, &active] {
+            std::fs::create_dir_all(path).expect("create cache dir");
+            std::fs::write(path.join(".complete"), "key").expect("write marker");
+            std::thread::sleep(std::time::Duration::from_millis(15));
+        }
+
+        prune_old_runtime_caches(&root, &active);
+
+        let remaining = std::fs::read_dir(&root)
+            .expect("read prune root")
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.is_dir())
+            .collect::<Vec<_>>();
+        let mut remaining_names = remaining
+            .iter()
+            .map(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("")
+                    .to_string()
+            })
+            .collect::<Vec<_>>();
+        remaining_names.sort();
+        assert_eq!(
+            remaining_names,
+            vec![
+                "cccccccccccccccccccccccccccccccccccccccc-win32-x64-3333333333333333",
+                "dddddddddddddddddddddddddddddddddddddddd-win32-x64-4444444444444444"
+            ]
+        );
+        assert!(!old.exists());
+        assert!(!mid.exists());
+        std::fs::remove_dir_all(&root).expect("remove prune test root");
     }
 
     #[cfg(windows)]
