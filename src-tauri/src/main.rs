@@ -256,6 +256,7 @@ const BRIDGE_SKILL_INSTALL_PLUGIN: &str =
     include_str!("../../deeptop-bridge/skill-install-plugin.mjs");
 const BRIDGE_PLUGIN_CONFIG: &str = include_str!("../../deeptop-bridge/plugin-config.mjs");
 const BRIDGE_NETWORK_PROXY: &str = include_str!("../../deeptop-bridge/network-proxy.mjs");
+const BRIDGE_THEME_SETTINGS: &str = include_str!("../../deeptop-bridge/theme-settings.mjs");
 const PROFILE_TEMPLATE: &str = include_str!("../../deeptop-bridge/desktop-profile.json");
 const PROFILE_PATCH_TEMPLATE: &str = include_str!("../../deeptop-bridge/profile.patch.yml");
 const PROFILE_PNPM_WORKSPACE: &str =
@@ -978,6 +979,23 @@ fn migrate_desktop_profile_patch(path: &Path) -> Result<(), String> {
     write_text(path, &format!("{}{newline}", filtered.join(newline)))
 }
 
+fn bundled_bridge_files() -> [(&'static str, &'static str); 12] {
+    [
+        ("package.json", BRIDGE_PACKAGE_JSON),
+        ("cordis.patch.yml", BRIDGE_PATCH),
+        ("index.mjs", BRIDGE_ENTRY),
+        ("bridge.mjs", BRIDGE_RUNTIME),
+        ("routes.mjs", BRIDGE_ROUTES),
+        ("session-repair.mjs", BRIDGE_SESSION_REPAIR),
+        ("message-annotations.mjs", BRIDGE_MESSAGE_ANNOTATIONS),
+        ("skill-installer.mjs", BRIDGE_SKILL_INSTALLER),
+        ("skill-install-plugin.mjs", BRIDGE_SKILL_INSTALL_PLUGIN),
+        ("plugin-config.mjs", BRIDGE_PLUGIN_CONFIG),
+        ("network-proxy.mjs", BRIDGE_NETWORK_PROXY),
+        ("theme-settings.mjs", BRIDGE_THEME_SETTINGS),
+    ]
+}
+
 fn materialize_desktop_profile() -> Result<(), String> {
     let profiles = dsh_home().join("profiles");
     let profile_dir = profiles.join(DSH_PROFILE);
@@ -993,29 +1011,9 @@ fn materialize_desktop_profile() -> Result<(), String> {
     )?;
 
     let bridge_dir = profiles.join("node_modules").join("deeptop-bridge");
-    write_text(&bridge_dir.join("package.json"), BRIDGE_PACKAGE_JSON)?;
-    write_text(&bridge_dir.join("cordis.patch.yml"), BRIDGE_PATCH)?;
-    write_text(&bridge_dir.join("index.mjs"), BRIDGE_ENTRY)?;
-    write_text(&bridge_dir.join("bridge.mjs"), BRIDGE_RUNTIME)?;
-    write_text(&bridge_dir.join("routes.mjs"), BRIDGE_ROUTES)?;
-    write_text(
-        &bridge_dir.join("session-repair.mjs"),
-        BRIDGE_SESSION_REPAIR,
-    )?;
-    write_text(
-        &bridge_dir.join("message-annotations.mjs"),
-        BRIDGE_MESSAGE_ANNOTATIONS,
-    )?;
-    write_text(
-        &bridge_dir.join("skill-installer.mjs"),
-        BRIDGE_SKILL_INSTALLER,
-    )?;
-    write_text(
-        &bridge_dir.join("skill-install-plugin.mjs"),
-        BRIDGE_SKILL_INSTALL_PLUGIN,
-    )?;
-    write_text(&bridge_dir.join("plugin-config.mjs"), BRIDGE_PLUGIN_CONFIG)?;
-    write_text(&bridge_dir.join("network-proxy.mjs"), BRIDGE_NETWORK_PROXY)?;
+    for (name, content) in bundled_bridge_files() {
+        write_text(&bridge_dir.join(name), content)?;
+    }
     Ok(())
 }
 
@@ -5039,14 +5037,15 @@ fn open_themes_directory() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        base64_encode, bound_log_text, dsh_home, dsh_homes_match, extract_runtime_archive,
-        format_log_line, format_utc_datetime, is_bundled_runtime_manifest, is_dsh_package_manifest,
-        is_file_path, is_safe_runtime_entry, process_command_line_matches_dsh,
-        prune_old_runtime_caches, runtime_arch, runtime_cache_validation_message, runtime_platform,
-        runtime_tree_sha256, sniff_image_media_type, tray_menu_text, tray_session_label,
-        validate_tray_session_menu, validated_connection_url, DshRuntimeLog, LogStore,
-        TraySessionMenuItem, TraySessionMenuSnapshot, TraySessionStatus, MAX_LOG_ENTRIES,
-        MAX_LOG_TEXT_BYTES, RUNTIME_CACHE_MARKER,
+        base64_encode, bound_log_text, bundled_bridge_files, dsh_home, dsh_homes_match,
+        extract_runtime_archive, format_log_line, format_utc_datetime, is_bundled_runtime_manifest,
+        is_dsh_package_manifest, is_file_path, is_safe_runtime_entry,
+        process_command_line_matches_dsh, prune_old_runtime_caches, runtime_arch,
+        runtime_cache_validation_message, runtime_platform, runtime_tree_sha256,
+        sniff_image_media_type, tray_menu_text, tray_session_label, validate_tray_session_menu,
+        validated_connection_url, DshRuntimeLog, LogStore, TraySessionMenuItem,
+        TraySessionMenuSnapshot, TraySessionStatus, MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES,
+        RUNTIME_CACHE_MARKER,
     };
 
     /// ACL 防漂移守卫：invoke_handler 注册的每个命令都必须出现在 build.rs 的
@@ -5088,6 +5087,31 @@ mod tests {
                  启用 App ACL 后该命令将被默认拒绝"
             );
         }
+    }
+
+    #[test]
+    fn materializes_every_local_bridge_export() {
+        let package: serde_json::Value =
+            serde_json::from_str(super::BRIDGE_PACKAGE_JSON).expect("embedded bridge package");
+        let exports = package["exports"].as_object().expect("bridge exports");
+        let files = bundled_bridge_files();
+        for (export, target) in exports {
+            let target = target
+                .as_str()
+                .unwrap_or_else(|| panic!("bridge export {export} is not a file path"));
+            let file = target
+                .strip_prefix("./")
+                .unwrap_or_else(|| panic!("bridge export {export} escapes the package"));
+            assert!(
+                files.iter().any(|(name, _)| *name == file),
+                "bridge export {export} points to {file}, but the file is not materialized"
+            );
+        }
+        assert!(
+            files.iter().any(|(name, _)| *name == "theme-settings.mjs"),
+            "desktop theme settings bridge module must be materialized"
+        );
+        assert!(files.iter().all(|(_, content)| !content.trim().is_empty()));
     }
 
     #[cfg(windows)]
