@@ -207,8 +207,9 @@ export function SessionSidebar({
   return (
     <aside className="session-sidebar">
       <div className="sidebar-actions">
-        <button className="new-session-button" onClick={onNewSession}>
-          <span aria-hidden="true">+</span> {t("sidebar.newSession", locale)}
+        <button className="new-session-button" type="button" onClick={onNewSession} title={t("sidebar.newSession", locale)} aria-label={t("sidebar.newSession", locale)}>
+          <span className="new-session-button-glyph" aria-hidden="true">+</span>
+          <span className="new-session-button-label">{t("sidebar.newSession", locale)}</span>
         </button>
         <button className={`settings-button sidebar-settings-button ${settingsOpen ? "selected" : ""}`} onClick={onOpenSettings} title={t("sidebar.openSettings", locale)} aria-label={t("sidebar.openSettings", locale)}><span className="settings-button-glyph" aria-hidden="true">⚙</span><span className="settings-button-label">{t("settings.title", locale)}</span></button>
         <button className="small-icon-button" onClick={() => void onAddWorkspace()} title={t("sidebar.addWorkspace", locale)} aria-label={t("sidebar.addWorkspace", locale)}>⌂</button>

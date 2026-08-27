@@ -546,36 +546,65 @@ textarea:focus-visible {
 }
 
 .sidebar-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(68px, auto) 42px;
+  display: flex;
+  align-items: stretch;
   gap: 8px;
   padding: 14px var(--sidebar-inline-space) 0;
+  container-type: inline-size;
 }
 
 .new-session-button {
   min-width: 0;
   min-height: 42px;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 0 14px;
+  overflow: hidden;
   background: var(--accent);
   color: var(--on-accent);
   font-size: 14px;
   font-weight: 700;
+  line-height: 1.25;
   text-align: left;
+  white-space: nowrap;
 }
 
 .new-session-button:hover {
   background: var(--accent-deep);
 }
 
-.new-session-button span {
-  margin-right: 7px;
+.new-session-button .new-session-button-glyph {
+  width: auto;
+  flex: 0 0 auto;
+  display: block;
+  margin: 0;
+  color: currentColor;
   font-size: 18px;
   font-weight: 400;
-  vertical-align: -1px;
+  line-height: 1;
+  text-align: center;
+}
+
+.new-session-button .new-session-button-label {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: block;
+  width: auto;
+  margin: 0;
+  overflow: hidden;
+  color: currentColor;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .small-icon-button {
   min-height: 42px;
+  flex: 0 0 42px;
   border-color: var(--rail-line);
   color: var(--rail-text);
   font-size: 17px;
@@ -583,13 +612,35 @@ textarea:focus-visible {
 
 .sidebar-actions .sidebar-settings-button {
   width: auto;
+  max-width: 120px;
   height: 42px;
   min-height: 42px;
-  min-width: 68px;
+  min-width: 42px;
+  flex: 0 1 auto;
   padding: 0 8px;
+  overflow: hidden;
   border-color: var(--rail-line);
   border-radius: var(--radius-control);
   color: var(--rail-text);
+  white-space: nowrap;
+}
+
+.sidebar-actions .sidebar-settings-button .settings-button-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@container (max-width: 245px) {
+  .sidebar-actions .sidebar-settings-button {
+    width: 42px;
+    flex-basis: 42px;
+    padding: 0;
+  }
+
+  .sidebar-actions .sidebar-settings-button .settings-button-label {
+    display: none;
+  }
 }
 
 .small-icon-button:hover {
