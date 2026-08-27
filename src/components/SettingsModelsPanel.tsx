@@ -60,6 +60,9 @@ export function SettingsModelsPanel({ providers, settings, hostModels, providerS
           draft={customProviderDraft}
           open={customProviderOpen}
           busy={customProviderBusy}
+          failure={providerSettings.customProviderFailure}
+          pendingCredential={providerSettings.pendingCustomProviderCredential !== null}
+          modelDiscoveryFeedback={providerSettings.modelDiscoveryFeedback}
           locale={locale}
           onToggle={toggleCustomProvider}
           onDraftChange={updateCustomProviderDraft}
@@ -67,6 +70,7 @@ export function SettingsModelsPanel({ providers, settings, hostModels, providerS
           onDiscover={discoverCustomProviderModels}
           onCancel={closeCustomProvider}
           onCreate={createCustomProvider}
+          onDismissModelDiscoveryFeedback={providerSettings.dismissModelDiscoveryFeedback}
         />
         {providers.length === 0 ? <p className="settings-empty">{t("models.empty", locale)}</p> : <div className="settings-provider-grid">{providers.map((provider) => {
           const namespace = settings?.namespaces.find((item) => item.ns === provider.settingsNs);

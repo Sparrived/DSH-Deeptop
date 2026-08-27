@@ -689,6 +689,18 @@
 .settings-custom-provider-heading small { color: var(--ink-muted); font-size: 12px; }
 .settings-custom-provider-heading button { min-height: 32px; padding: 0 10px; border: 1px solid var(--line-strong); background: transparent; color: var(--ink-muted); font-size: 12px; }
 .settings-custom-provider-form { display: grid; gap: 14px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.settings-custom-provider-status,
+.settings-custom-provider-error {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.settings-custom-provider-status { color: var(--ink-muted); background: var(--surface-soft); }
+.settings-custom-provider-error { border-color: color-mix(in srgb, var(--danger) 52%, var(--line-strong)); color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, transparent); }
+.popup-provider-feedback-dialog .popup-window { width: min(520px, 100%); }
 .settings-custom-provider-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .settings-custom-provider-grid label:last-child { grid-column: 1 / -1; }
 .settings-custom-provider-models { padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--surface-soft); }

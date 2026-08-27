@@ -30,6 +30,11 @@ const emptyCustomProviderDraft: CustomProviderDraft = {
   selectedModels: [],
 };
 
+type PendingCustomProviderCredential = {
+  route: string;
+  keyRef: string;
+};
+
 export function useProviderModelCatalog({ settings, credentials, credentialDrafts, locale, onNotice, onError, onConfirm, loadRuntimeDetails }: UseProviderModelCatalogOptions) {
   const [providerDrafts, setProviderDrafts] = useState<Record<string, { baseURL: string; api: string }>>({});
   const [discoveredModels, setDiscoveredModels] = useState<Record<string, DiscoveredModel[]>>({});
@@ -38,6 +43,9 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
   const [customProviderOpen, setCustomProviderOpen] = useState(false);
   const [customProviderBusy, setCustomProviderBusy] = useState(false);
   const [customProviderDraft, setCustomProviderDraft] = useState<CustomProviderDraft>(emptyCustomProviderDraft);
+  const [customProviderFailure, setCustomProviderFailure] = useState<string | null>(null);
+  const [pendingCustomProviderCredential, setPendingCustomProviderCredential] = useState<PendingCustomProviderCredential | null>(null);
+  const [modelDiscoveryFeedback, setModelDiscoveryFeedback] = useState<{ title: string; description: string } | null>(null);
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
 
   function getProviderDraft(provider: DshProvider) {
@@ -70,6 +78,7 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
 
   function updateCustomProviderDraft(patch: Partial<CustomProviderDraft>) {
     setCustomProviderDraft((current) => ({ ...current, ...patch }));
+    setCustomProviderFailure(null);
   }
 
   function toggleCustomProvider() {
@@ -80,6 +89,26 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
     setCustomProviderOpen(false);
   }
 
+  function dismissModelDiscoveryFeedback() {
+    setModelDiscoveryFeedback(null);
+  }
+
+  function reportModelDiscoveryFailure(error: unknown) {
+    const message = errorText(error, locale);
+    setModelDiscoveryFeedback({
+      title: t("provider.discoveryFeedback.failedTitle", locale),
+      description: t("provider.discoveryFeedback.failedDescription", locale, { error: message }),
+    });
+    onError(t("provider.notice.discoverFailed", locale, { error: message }));
+  }
+
+  function reportEmptyModelDiscovery() {
+    setModelDiscoveryFeedback({
+      title: t("provider.discoveryFeedback.emptyTitle", locale),
+      description: t("provider.discoveryFeedback.emptyDescription", locale),
+    });
+  }
+
   function toggleCustomProviderModel(modelId: string) {
     setCustomProviderDraft((current) => ({
       ...current,
@@ -87,6 +116,7 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
         ? current.selectedModels.filter((id) => id !== modelId)
         : [...current.selectedModels, modelId],
     }));
+    setCustomProviderFailure(null);
   }
 
   async function saveProviderSettings(provider: DshProvider, patch: ProviderSettingsPatch) {
@@ -125,9 +155,10 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
       const namespace = settings?.namespaces.find((item) => item.ns === provider.settingsNs);
       const existing = new Set(providerModels(provider, namespace).map((model) => String(model.id)));
       setDiscoveredSelections((current) => ({ ...current, [provider.provider]: models.filter((model) => !existing.has(model.id)).map((model) => model.id) }));
-      onNotice(models.length > 0 ? t("provider.notice.modelsFound", locale, { count: models.length }) : t("provider.notice.noModels", locale));
+      if (models.length > 0) onNotice(t("provider.notice.modelsFound", locale, { count: models.length }));
+      else reportEmptyModelDiscovery();
     } catch (error) {
-      onError(t("provider.notice.discoverFailed", locale, { error: errorText(error) }));
+      reportModelDiscoveryFailure(error);
     } finally {
       setDiscoveryBusy(null);
     }
@@ -194,7 +225,10 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
   async function discoverCustomProviderModels() {
     const draft = customProviderDraft;
     if (!draft.baseURL.trim()) {
-      onNotice(t("provider.notice.baseUrlRequired", locale));
+      setModelDiscoveryFeedback({
+        title: t("provider.discoveryFeedback.failedTitle", locale),
+        description: t("provider.discoveryFeedback.failedDescription", locale, { error: t("provider.notice.baseUrlRequired", locale) }),
+      });
       return;
     }
     setCustomProviderBusy(true);
@@ -207,30 +241,80 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
       });
       const models = (result.models ?? []).filter((model) => typeof model.id === "string" && model.id.trim());
       setCustomProviderDraft((current) => ({ ...current, models, selectedModels: models.map((model) => model.id) }));
-      onNotice(models.length > 0 ? t("provider.notice.modelsFound", locale, { count: models.length }) : t("provider.notice.noModels", locale));
+      if (models.length > 0) onNotice(t("provider.notice.modelsFound", locale, { count: models.length }));
+      else reportEmptyModelDiscovery();
     } catch (error) {
-      onError(t("provider.notice.discoverFailed", locale, { error: errorText(error) }));
+      reportModelDiscoveryFailure(error);
     } finally {
       setCustomProviderBusy(false);
     }
+  }
+
+  async function refreshAfterCustomProviderSave() {
+    try {
+      await loadRuntimeDetails();
+      return true;
+    } catch (error) {
+      onError(t("provider.notice.providerAddedRefreshFailed", locale, { error: errorText(error, locale) }));
+      return false;
+    }
+  }
+
+  async function finishCustomProviderSave() {
+    const refreshed = await refreshAfterCustomProviderSave();
+    setPendingCustomProviderCredential(null);
+    setCustomProviderFailure(null);
+    setCustomProviderDraft(emptyCustomProviderDraft);
+    setCustomProviderOpen(false);
+    if (refreshed) onNotice(t("provider.notice.providerAdded", locale));
   }
 
   async function createCustomProvider() {
     const draft = customProviderDraft;
     const route = draft.provider.trim();
     if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(route)) {
-      onNotice(t("provider.notice.idInvalid", locale));
+      const message = t("provider.notice.idInvalid", locale);
+      setCustomProviderFailure(message);
+      onError(message);
       return;
     }
     if (!draft.baseURL.trim() || !draft.api.trim()) {
-      onNotice(t("provider.notice.baseUrlProtocolRequired", locale));
+      const message = t("provider.notice.baseUrlProtocolRequired", locale);
+      setCustomProviderFailure(message);
+      onError(message);
       return;
     }
+
+    const pending = pendingCustomProviderCredential;
+    if (pending) {
+      if (pending.route !== route) return;
+      if (!draft.apiKey.trim()) {
+        const message = t("provider.notice.customProviderKeyRequired", locale);
+        setCustomProviderFailure(message);
+        onError(message);
+        return;
+      }
+      setCustomProviderBusy(true);
+      try {
+        await desktopRequest("credentials.set", { ref: pending.keyRef, value: draft.apiKey.trim() });
+        await finishCustomProviderSave();
+      } catch (error) {
+        const message = t("provider.notice.keySaveFailed", locale, { error: errorText(error, locale) });
+        setCustomProviderFailure(message);
+        onError(message);
+      } finally {
+        setCustomProviderBusy(false);
+      }
+      return;
+    }
+
     const namespace = settings?.namespaces.find((item) => item.ns === "llm-pi-ai");
     const exists = valueAtPath(namespace?.value, ["providers", route]) !== undefined
       || valueAtPath(namespace?.user, ["providers", route]) !== undefined;
-    if (!namespace || exists) {
-      onNotice(t("provider.notice.providerExists", locale));
+    if (!namespace || !settings?.writable || exists) {
+      const message = t("provider.notice.providerExists", locale);
+      setCustomProviderFailure(message);
+      onError(message);
       return;
     }
     const selected = new Set(draft.selectedModels);
@@ -241,24 +325,38 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
       ...(model.maxTokens !== undefined ? { maxTokens: model.maxTokens } : {}),
     }));
     if (models.length === 0) {
-      onNotice(t("provider.notice.selectModel", locale));
+      const message = t("provider.notice.selectModel", locale);
+      setCustomProviderFailure(message);
+      onError(message);
       return;
     }
+
+    const key = draft.apiKey.trim();
+    const keyRef = `${route.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_API_KEY`;
     setCustomProviderBusy(true);
     try {
-      const keyRef = `${route.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_API_KEY`;
       await desktopRequest("settings.mutate", {
         ns: "llm-pi-ai",
-        ops: [{ op: "set", path: ["providers", route], value: { ...(draft.displayName.trim() ? { displayName: draft.displayName.trim() } : {}), ...(draft.apiKey.trim() ? { apiKeyEnv: keyRef } : {}), api: draft.api.trim(), baseURL: draft.baseURL.trim(), models } }],
+        ops: [{ op: "set", path: ["providers", route], value: { ...(draft.displayName.trim() ? { displayName: draft.displayName.trim() } : {}), ...(key ? { apiKeyEnv: keyRef } : {}), api: draft.api.trim(), baseURL: draft.baseURL.trim(), models } }],
         expectedRevision: namespace.revision,
       });
-      if (draft.apiKey.trim()) await desktopRequest("credentials.set", { ref: keyRef, value: draft.apiKey.trim() });
-      await loadRuntimeDetails();
-      setCustomProviderDraft(emptyCustomProviderDraft);
-      setCustomProviderOpen(false);
-      onNotice(t("provider.notice.providerAdded", locale));
+      if (key) {
+        setPendingCustomProviderCredential({ route, keyRef });
+        try {
+          await desktopRequest("credentials.set", { ref: keyRef, value: key });
+        } catch (error) {
+          await refreshAfterCustomProviderSave();
+          const message = t("provider.notice.keySaveFailed", locale, { error: errorText(error, locale) });
+          setCustomProviderFailure(message);
+          onError(message);
+          return;
+        }
+      }
+      await finishCustomProviderSave();
     } catch (error) {
-      onError(t("provider.notice.addFailed", locale, { error: errorText(error) }));
+      const message = t("provider.notice.addFailed", locale, { error: errorText(error, locale) });
+      setCustomProviderFailure(message);
+      onError(message);
     } finally {
       setCustomProviderBusy(false);
     }
@@ -272,6 +370,9 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
     customProviderOpen,
     customProviderBusy,
     customProviderDraft,
+    customProviderFailure,
+    pendingCustomProviderCredential,
+    modelDiscoveryFeedback,
     expandedProvider,
     getProviderDraft,
     updateProviderDraft,
@@ -281,6 +382,7 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
     toggleCustomProvider,
     toggleCustomProviderModel,
     closeCustomProvider,
+    dismissModelDiscoveryFeedback,
     saveProviderSettings,
     discoverProviderModels,
     applyDiscoveredModels,
