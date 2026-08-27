@@ -472,7 +472,10 @@
 }
 
 .popup-json-dialog .popup-window { width: min(860px, 100%); }
-.popup-schema-dialog .popup-window { width: min(680px, 100%); }
+/* Schema-driven editor has a two-column row (label + 220px input) plus
+   per-level indent, so it needs a wider canvas than other confirm-style
+   popups; keep it under the JSON dialog width but well above 680px. */
+.popup-schema-dialog .popup-window { width: min(820px, 100%); }
 .popup-preview-dialog .popup-window { width: min(820px, 100%); }
 .popup-form-dialog .popup-window { width: min(500px, 100%); }
 .popup-permission-dialog .popup-window { width: min(560px, 100%); }
@@ -948,7 +951,10 @@
 .schema-form-ns { color: var(--ink-strong); font: 600 12px var(--mono); overflow-wrap: anywhere; }
 .schema-form-head em { color: var(--ink-muted); font-size: 10px; font-style: normal; }
 .schema-field { min-width: 0; display: grid; grid-template-columns: minmax(140px, 1fr) minmax(0, 220px); align-items: center; gap: 12px; }
-.schema-field.nested { margin-left: 8px; }
+/* Indent for nested containers comes from the body's own left padding +
+   border. The previous `margin-left: 8px` on every nested field stacked
+   with the body's 12+2px offset and pushed deep children off the right
+   edge of the dialog, so the form visually "expanded to the right". */
 .schema-field-label { min-width: 0; display: grid; gap: 3px; color: var(--ink-muted); font-size: 12px; line-height: 1.4; }
 .schema-field-label strong { color: var(--ink); font-size: 12px; }
 .schema-field-label small,
@@ -1002,6 +1008,12 @@
 .schema-field-toggle input:checked + span::after { left: 19px; }
 .schema-container { display: grid; gap: 5px; }
 .schema-container-toggle {
+  /* Containers are built on the `.schema-field` two-column grid (label |
+     input) so a primitive can sit next to a container at the same depth.
+     The toggle and the body must both span that grid; otherwise the body
+     falls into the 220px right column and its children overflow off the
+     right edge of the dialog. */
+  grid-column: 1 / -1;
   width: fit-content;
   min-width: 0;
   max-width: 100%;
@@ -1018,7 +1030,10 @@
 .schema-container-toggle:hover { border-color: var(--line); background: var(--surface-soft, var(--paper-deep)); }
 .schema-container-toggle strong { color: var(--ink-strong); font-size: 12px; }
 .schema-container-toggle small { overflow: hidden; color: var(--ink-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.schema-container-body { display: grid; gap: 7px; padding: 8px 0 8px 12px; border-left: 2px solid var(--line); }
+/* Spans the container's two-column grid so the body fills the dialog width
+   instead of being squeezed into the 220px right column; the left padding +
+   border stay as the single visual cue for nesting depth. */
+.schema-container-body { grid-column: 1 / -1; display: grid; gap: 7px; padding: 8px 0 8px 12px; border-left: 2px solid var(--line); }
 .schema-empty { margin: 0; color: var(--ink-muted); font-size: 11px; }
 .schema-add-row {
   width: fit-content;
