@@ -576,13 +576,17 @@ textarea:focus-visible {
 }
 
 .new-session-button .new-session-button-glyph {
-  width: auto;
-  flex: 0 0 auto;
-  display: block;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  display: grid;
+  place-items: center;
   margin: 0;
-  color: currentColor;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--accent-deep) 74%, var(--on-accent));
+  color: var(--on-accent);
   font-size: 18px;
-  font-weight: 400;
+  font-weight: 800;
   line-height: 1;
   text-align: center;
 }
