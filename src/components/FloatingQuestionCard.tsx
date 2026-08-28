@@ -174,7 +174,7 @@ export function FloatingQuestionCard({
   const ariaExpanded = phase === "expanded";
 
   return (
-    <>
+    <div className="floating-question-anchor">
       {phase === "expanded" && (
         <div
           className="floating-question-card"
@@ -238,6 +238,6 @@ export function FloatingQuestionCard({
           <span className="question-pebble-label">{summary}</span>
         </button>
       )}
-    </>
+    </div>
   );
 }

@@ -1886,9 +1886,10 @@ body.pin-layer-resizing * {
 /* ============================================================
  * 浮动提问卡片 + 卵石 (Floating Question Card with Pebble)
  *
- * 把 ask-user 提问从对话列底部搬到右下角的固定层,conversation
- * 不再被提问卡片顶上去;卵石是一颗小药丸,在卡片被收起时留在
- * 同一锚点,显示「待回答 i/N」与柔和的脉动圆点,点击即展开。
+ * ask-user 提问在对话列内、发送框 (composer) 正上方居中。
+ * conversation 不会被提问顶上去,卡片通过列内 flex 布局跟随
+ * composer 同宽;卵石是一颗小药丸,在卡片被收起时留在同一
+ * 锚点,显示「待回答 i/N」与柔和的脉动圆点,点击即展开。
  * 卡片与卵石互斥存在,锚点保持不动。
  *
  * - 视觉沿用现有 token (--surface-raised / --accent / --ink / --line)
@@ -1896,11 +1897,18 @@ body.pin-layer-resizing * {
  * - prefers-reduced-motion 媒体查询关闭 slide+fade 过渡
  * ============================================================ */
 
+/* 锚点 wrapper：跨整个对话列宽,内部卡片 / 卵石居中。 */
+.floating-question-anchor {
+  width: 100%;
+  padding: 8px 28px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
 .floating-question-card {
-  position: fixed;
-  z-index: 50;
-  width: min(420px, calc(100vw - 32px));
-  max-height: min(560px, calc(100vh - 96px));
+  width: min(1040px, 100%);
+  max-height: min(420px, calc(100vh - 220px));
   display: flex;
   flex-direction: column;
   padding: 12px 14px 12px;
@@ -2061,10 +2069,6 @@ body.pin-layer-resizing * {
 
 /* 卵石：卡片收起后留在同一锚点的小药丸。 */
 .question-pebble {
-  position: fixed;
-  z-index: 50;
-  right: calc(max(16px, env(safe-area-inset-right, 0px)) + 16px);
-  bottom: calc(max(16px, env(safe-area-inset-bottom, 0px)) + 56px);
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -2111,13 +2115,8 @@ body.pin-layer-resizing * {
   white-space: nowrap;
 }
 
-/* 窄屏：卡片铺满底部留白,卵石仍是右下角药丸。 */
+/* 窄屏：留出页面 padding,卡片 / 卵石仍居中。 */
 @media (max-width: 720px) {
-  .floating-question-card {
-    width: calc(100vw - 24px);
-    right: 12px;
-    left: 12px;
-    max-height: min(420px, calc(100vh - 96px));
-  }
-  .question-pebble { right: 12px; }
+  .floating-question-anchor { padding-inline: 12px; }
+  .floating-question-card { max-height: min(360px, calc(100vh - 220px)); }
 }

@@ -4873,8 +4873,21 @@ function AppContent() {
             onPlanReview={respondPlanReview}
           />
 
+          <QueueDock
+            locale={locale}
+            items={queue}
+            editingId={queueEditingId}
+            editingText={queueEditingText}
+            onEditingTextChange={setQueueEditingText}
+            onSave={saveQueueEdit}
+            onCancelEdit={() => setQueueEditingId(null)}
+            onBeginEdit={beginQueueEdit}
+            onRemove={removeQueueItem}
+          />
+
           {/* ask-user 浮层：plan-review 走上面的内联,普通 ask-user
-             在右下角浮动,conversation 不会被它顶上去。 */}
+             坐在发送框正上方、居中,conversation 不会被它顶上去;
+             收起时是一颗小药丸,仍在同一锚点。 */}
           {question && !planReviewOf(question.questions) && (
             <FloatingQuestionCard
               locale={locale}
@@ -4894,18 +4907,6 @@ function AppContent() {
               onSubmit={respondToQuestion}
             />
           )}
-
-          <QueueDock
-            locale={locale}
-            items={queue}
-            editingId={queueEditingId}
-            editingText={queueEditingText}
-            onEditingTextChange={setQueueEditingText}
-            onSave={saveQueueEdit}
-            onCancelEdit={() => setQueueEditingId(null)}
-            onBeginEdit={beginQueueEdit}
-            onRemove={removeQueueItem}
-          />
 
           <ComposerShell
             runtimeAvailable={status.runtimeAvailable}
