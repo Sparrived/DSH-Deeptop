@@ -1881,3 +1881,243 @@ body.pin-layer-resizing * {
   .tool-field { grid-template-columns: 1fr; }
   .tool-field-key { padding-bottom: 2px; }
 }
+
+
+/* ============================================================
+ * 浮动提问卡片 + 卵石 (Floating Question Card with Pebble)
+ *
+ * 把 ask-user 提问从对话列底部搬到右下角的固定层,conversation
+ * 不再被提问卡片顶上去;卵石是一颗小药丸,在卡片被收起时留在
+ * 同一锚点,显示「待回答 i/N」与柔和的脉动圆点,点击即展开。
+ * 卡片与卵石互斥存在,锚点保持不动。
+ *
+ * - 视觉沿用现有 token (--surface-raised / --accent / --ink / --line)
+ * - 浅深主题通过既有 token 自动跟随
+ * - prefers-reduced-motion 媒体查询关闭 slide+fade 过渡
+ * ============================================================ */
+
+.floating-question-card {
+  position: fixed;
+  z-index: 50;
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(560px, calc(100vh - 96px));
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-panel);
+  background: var(--surface-raised);
+  box-shadow: 0 14px 40px -10px rgba(0, 0, 0, 0.35);
+  /* 右下角锚点。safe-area-inset 处理 macOS / Windows 任务栏等系统留白。 */
+  right: calc(max(16px, env(safe-area-inset-right, 0px)) + 16px);
+  bottom: calc(max(16px, env(safe-area-inset-bottom, 0px)) + 56px);
+}
+
+.floating-question-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.floating-question-progress {
+  flex: 1 1 auto;
+  color: var(--accent-deep);
+  font: 600 11px/1 var(--mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.floating-question-minimize,
+.floating-question-cancel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  min-width: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink-muted);
+  font: 600 12px/1 var(--mono);
+  cursor: pointer;
+  transition: border-color 160ms ease, color 160ms ease;
+}
+.floating-question-minimize:hover,
+.floating-question-cancel:hover {
+  border-color: var(--accent);
+  color: var(--accent-deep);
+}
+.floating-question-minimize:focus-visible,
+.floating-question-cancel:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.floating-question-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 2px 6px;
+}
+
+/* 切换到下一题时 body 重挂,触发短暂的 slide+fade。 */
+.floating-question-scroll > .floating-question-body {
+  animation: floating-question-body-in 220ms ease both;
+}
+@keyframes floating-question-body-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .floating-question-scroll > .floating-question-body { animation: none; }
+}
+
+.floating-question-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.floating-question-prompt strong {
+  color: var(--ink-strong);
+  font-size: 14px;
+  font-weight: 600;
+}
+.floating-question-prompt p {
+  margin: 4px 0 0;
+  color: var(--ink-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.floating-question-body .question-detail {
+  margin-top: 4px;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.floating-question-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.floating-question-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-muted);
+  font: 600 11px/1 var(--mono);
+}
+.floating-question-nav button {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink-muted);
+  font: 600 13px/1 var(--mono);
+  cursor: pointer;
+}
+.floating-question-nav button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-deep);
+}
+.floating-question-nav button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.floating-question-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+.floating-question-actions button {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--ink-muted);
+  font: 600 12px/1 var(--mono);
+  cursor: pointer;
+}
+.floating-question-actions button.confirm {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent, #fff9f5);
+}
+.floating-question-actions button.confirm:hover {
+  background: var(--accent-deep);
+}
+
+/* 卵石：卡片收起后留在同一锚点的小药丸。 */
+.question-pebble {
+  position: fixed;
+  z-index: 50;
+  right: calc(max(16px, env(safe-area-inset-right, 0px)) + 16px);
+  bottom: calc(max(16px, env(safe-area-inset-bottom, 0px)) + 56px);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--accent-deep);
+  font: 600 12px/1 var(--mono);
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  box-shadow: 0 6px 18px -6px rgba(0, 0, 0, 0.4);
+  transition: transform 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+.question-pebble:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.question-pebble:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.question-pebble-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  /* ambient pulse 让用户看到「还有问题在等」。 */
+  animation: question-pebble-pulse 1.8s ease-in-out infinite;
+}
+@keyframes question-pebble-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(0.92); }
+  50%      { opacity: 1;    transform: scale(1.1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .question-pebble-dot { animation: none; }
+  .question-pebble:hover { transform: none; }
+}
+
+.question-pebble-label {
+  white-space: nowrap;
+}
+
+/* 窄屏：卡片铺满底部留白,卵石仍是右下角药丸。 */
+@media (max-width: 720px) {
+  .floating-question-card {
+    width: calc(100vw - 24px);
+    right: 12px;
+    left: 12px;
+    max-height: min(420px, calc(100vh - 96px));
+  }
+  .question-pebble { right: 12px; }
+}
