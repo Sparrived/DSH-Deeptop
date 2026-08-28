@@ -283,6 +283,7 @@ Bridge 会把 AbortSignal 传给 Gateway/API。新增长任务时，必须确保
 | 新 Remote 能力 | `src/lib/desktop-client-runtime.ts`、`bridge-event-handler.ts` |
 | 新 Projection/UI 状态 | `src/app/`、`src/App.tsx`、相关 component |
 | 子进程或运行时生命周期 | `src-tauri/src/main.rs` |
+| UI 主题文件（内置 / 外部） | `src-tauri/resources/themes/*.css`、`src-tauri/tauri.conf.json` 的 `bundle.resources`、`BUNDLED_THEMES` 清单、`src/app/useAppearanceSettings.ts` |
 | UI 样式或交互 | `src/components/`、`src/styles.css` |
 | 兼容范围变化 | `PLUGIN_COMPATIBILITY.md`、`WEBUI_PARITY.md` |
 

@@ -128,6 +128,7 @@ $DSH_HOME/
 │     └─ deeptop-bridge/        # 应用物化的 Bridge Bundle
 ├─ node_modules/                 # npm prefix 下安装的 DSH 及依赖
 ├─ storages/                     # 默认 JSON storage 配置使用的目录
+├─ themes/                       # 主题 CSS 目录；内置主题随包送达，用户可放入 .css 作为新主题
 └─ ...                           # 其他 DSH 数据
 ```
 
