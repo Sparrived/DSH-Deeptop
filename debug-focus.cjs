@@ -1,0 +1,12 @@
+const { JSDOM } = require('jsdom');
+const dom = new JSDOM('<!DOCTYPE html><html><body><textarea id="t"></textarea><button id="b">click</button></body></html>');
+const document = dom.window.document;
+const window = dom.window;
+const t = document.getElementById('t');
+const b = document.getElementById('b');
+t.focus();
+console.log('after t.focus:', document.activeElement === t);
+b.focus();
+console.log('after b.focus:', document.activeElement === b);
+b.remove();
+console.log('after b.remove active tag:', document.activeElement?.tagName, 'b in DOM:', document.body.contains(b));
