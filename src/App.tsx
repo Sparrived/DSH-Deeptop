@@ -6,6 +6,7 @@ import { ConversationHeader } from "./components/ConversationHeader";
 import { TokenUsageDashboard } from "./components/TokenUsageDashboard";
 import { ComposerShell } from "./components/ComposerShell";
 import { InteractionPanel } from "./components/InteractionPanel";
+import { FloatingQuestionCard } from "./components/FloatingQuestionCard";
 import { SettingsAboutPanel } from "./components/SettingsAboutPanel";
 import { SettingsAppearancePanel } from "./components/SettingsAppearancePanel";
 import { SettingsGeneralPanel } from "./components/SettingsGeneralPanel";
@@ -239,6 +240,7 @@ import { DEFAULT_PERMISSION_OPTIONS, isDefaultPermission, readStoredDefaultModel
 import { isSchemaEnvelope, schemaEnumChoices, schemaNodeAtPath } from "./app/schema-model";
 import { reconcileSessionIndicators } from "./app/session-runtime-state";
 import type { PlanReviewQuestion } from "./app/ui-model";
+import { planReviewOf } from "./app/ui-model";
 import { buildTraySessionMenu } from "./app/tray-model";
 import { updateCheckStateFromResult, updateCheckErrorMessage, updateDownloadStateFromEvent, type UpdateChannel, type UpdateCheckState, type UpdateDownloadState } from "./app/update-model";
 // @deeptop-pets:start app-runtime-imports
@@ -4870,6 +4872,28 @@ function AppContent() {
             onSubmitQuestion={respondToQuestion}
             onPlanReview={respondPlanReview}
           />
+
+          {/* ask-user 浮层：plan-review 走上面的内联,普通 ask-user
+             在右下角浮动,conversation 不会被它顶上去。 */}
+          {question && !planReviewOf(question.questions) && (
+            <FloatingQuestionCard
+              locale={locale}
+              question={question}
+              answers={questionAnswers}
+              customAnswers={questionCustomAnswers}
+              onToggleAnswer={toggleQuestionAnswer}
+              onCustomAnswerChange={(questionId, value) => {
+                const sessionId = activeSessionRef.current;
+                if (!sessionId) return;
+                setQuestionCustomAnswersBySession((current) => ({
+                  ...current,
+                  [sessionId]: { ...current[sessionId], [questionId]: value },
+                }));
+              }}
+              onCancel={cancelQuestion}
+              onSubmit={respondToQuestion}
+            />
+          )}
 
           <QueueDock
             locale={locale}
