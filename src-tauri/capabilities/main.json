@@ -92,6 +92,7 @@
     "allow-reveal-in-explorer",
     "allow-run-tray-popup-action",
     "allow-save-export-file",
+    "allow-scan-themes",
     "allow-send-system-notification",
     "allow-set-dock-position",
     "allow-set-dock-settings",

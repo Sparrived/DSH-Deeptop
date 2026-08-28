@@ -4904,12 +4904,19 @@ fn read_image_attachment(path: String, max_bytes: u64) -> Result<DroppedImageAtt
     })
 }
 
-/// 深色主题的默认外部 CSS（随应用分发，首次启动写入主题目录）。
-const MONOKAI_PRO_THEME_CSS: &str = include_str!("../resources/themes/monokai-pro.css");
-const ONE_DARK_THEME_CSS: &str = include_str!("../resources/themes/one-dark.css");
+/// 内置主题清单：(主题 id，打包资源相对路径)。主题 CSS 不再 `include_str!`
+/// 内嵌进二进制，而是随安装包作为 Tauri bundle 资源送达
+/// `<DSH_HOME>/themes/`。新增内置主题时同时更新本表与 `tauri.conf.json` 的
+/// `bundle.resources` 映射。
+const BUNDLED_THEMES: &[(&str, &str)] = &[
+    ("monokai-pro", "themes/monokai-pro.css"),
+    ("one-dark", "themes/one-dark.css"),
+    ("gov", "themes/gov.css"),
+];
 
-/// 内置主题文件版本：内容变更时递增，已有安装会在下次启动时同步到新版本。
-const THEME_FILES_VERSION: u32 = 2;
+/// 内置主题文件版本：内容变更时递增。已有安装下次启动时整套覆盖到新版本，
+/// 旧文件统一改名为 `*.css.bak`（仅保留最近一份）。
+const THEME_FILES_VERSION: u32 = 3;
 
 const MAX_THEME_CSS_BYTES: u64 = 512 * 1024;
 
@@ -4921,8 +4928,6 @@ fn themes_directory() -> PathBuf {
 #[serde(rename_all = "camelCase")]
 struct ThemeFilesInfo {
     themes_dir: String,
-    monokai_pro: String,
-    one_dark: String,
 }
 
 #[derive(Serialize, Clone)]
@@ -4932,11 +4937,16 @@ struct ThemeCssContent {
     content: String,
 }
 
-/// 确保 <DSH 主目录>/themes 存在并写入默认主题文件。仅在文件缺失或内置版本
-/// 更新（THEME_FILES_VERSION 递增）时覆盖，平时尊重用户对文件的编辑。
-/// 返回各主题文件的完整路径，供前端作为「主题 CSS 路径」的默认值。
+/// 把内置主题的当前版本资源复制到 `<DSH_HOME>/themes/`。
+/// 行为契约：
+/// - 目录缺失则创建；`THEME_FILES_VERSION` 与磁盘 `.version` 一致时**不**触碰任何文件。
+/// - 版本落后时对每个内置主题：
+///   1. 删除可能残留的 `*.css.bak`（保证覆盖前只有一份 .bak）；
+///   2. 把现有 `*.css` 改名为 `*.css.bak`；
+///   3. 从 `app.path().resource_dir()` 下的 bundle 资源复制新内容到 `*.css`。
+/// 不返回具体主题路径给前端；前端按 `<themesDir>/<id>.css` 约定拼接。
 #[tauri::command]
-fn ensure_theme_files() -> Result<ThemeFilesInfo, String> {
+fn ensure_theme_files(app: AppHandle) -> Result<ThemeFilesInfo, String> {
     let directory = themes_directory();
     fs::create_dir_all(&directory)
         .map_err(|error| format!("无法创建主题目录 {}：{error}", directory.display()))?;
@@ -4946,26 +4956,84 @@ fn ensure_theme_files() -> Result<ThemeFilesInfo, String> {
         .and_then(|value| value.trim().parse::<u32>().ok())
         .unwrap_or(0);
     if current_version < THEME_FILES_VERSION {
-        let write = |name: &str, content: &str| -> Result<(), String> {
-            let path = directory.join(name);
-            fs::write(&path, content)
-                .map_err(|error| format!("无法写入 {}：{error}", path.display()))
-        };
-        write("monokai-pro.css", MONOKAI_PRO_THEME_CSS)?;
-        write("one-dark.css", ONE_DARK_THEME_CSS)?;
-        let _ = fs::write(&version_path, THEME_FILES_VERSION.to_string());
+        let resource_dir = runtime_resource_dir(&app)?;
+        for (id, bundled_path) in BUNDLED_THEMES {
+            let file_name = format!("{id}.css");
+            let target = directory.join(&file_name);
+            let backup = directory.join(format!("{file_name}.bak"));
+
+            // 1. 清掉上一轮的 .bak，覆盖前 themes/ 只能存在最多一份 .bak。
+            if backup.is_file() {
+                let _ = fs::remove_file(&backup);
+            }
+
+            // 2. 现有 .css 改名为 .bak；用户改过的内容在升级时进 .bak。
+            if target.is_file() {
+                fs::rename(&target, &backup)
+                    .map_err(|error| format!("无法备份 {} → .bak：{error}", target.display()))?;
+            }
+
+            // 3. 从 bundle 资源复制新内容。
+            let source = resource_dir.join(bundled_path);
+            if !source.is_file() {
+                return Err(format!(
+                    "内置主题资源缺失：{}（请检查打包配置 resources.{}）",
+                    source.display(),
+                    bundled_path
+                ));
+            }
+            fs::copy(&source, &target).map_err(|error| {
+                format!(
+                    "无法复制内置主题 {} → {}：{error}",
+                    source.display(),
+                    target.display()
+                )
+            })?;
+        }
+        fs::write(&version_path, THEME_FILES_VERSION.to_string())
+            .map_err(|error| format!("无法写入主题版本文件：{error}"))?;
     }
     Ok(ThemeFilesInfo {
         themes_dir: directory.to_string_lossy().into_owned(),
-        monokai_pro: directory
-            .join("monokai-pro.css")
-            .to_string_lossy()
-            .into_owned(),
-        one_dark: directory
-            .join("one-dark.css")
-            .to_string_lossy()
-            .into_owned(),
     })
+}
+
+/// 扫描 `<DSH_HOME>/themes/` 下所有 `.css` 文件（排除 `.bak` 与 `.version`），
+/// 返回按字母序排列的主题 id 列表。供前端"重新扫描主题"按钮使用。
+#[tauri::command]
+fn scan_themes() -> Result<Vec<String>, String> {
+    let directory = themes_directory();
+    if !directory.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut ids: Vec<String> = Vec::new();
+    let entries = fs::read_dir(&directory)
+        .map_err(|error| format!("无法读取主题目录 {}：{error}", directory.display()))?;
+    for entry in entries {
+        let entry = match entry {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        if name.starts_with('.') {
+            continue;
+        }
+        let Some(stem) = name.strip_suffix(".css") else {
+            continue;
+        };
+        if stem.ends_with(".bak") {
+            continue;
+        }
+        ids.push(stem.to_string());
+    }
+    ids.sort();
+    Ok(ids)
 }
 
 /// 读取主题 CSS 文件内容（限制为 512 KB 以内的 .css 文本文件）。
@@ -5746,6 +5814,7 @@ fn main() {
             create_workspace_folder,
             read_image_attachment,
             ensure_theme_files,
+            scan_themes,
             read_theme_css,
             pick_theme_css,
             pick_plugin_entry,

@@ -1,0 +1,120 @@
+/* Deeptop 主题 · 政务版
+   本文件是主题的外部 CSS 源文件，同时定义浅色（:root）与深色
+   （[data-theme="dark"]）两套配色。首次启动时由 ensure_theme_files() 从
+   打包资源复制到 <DSH 主目录>/themes/gov.css（并随应用版本同步更新）。
+   如需自定义，请复制本文件并在外观设置 → 主题 → 自定义路径中指向它。
+
+   视觉基线：宣纸米白 + 中国红 + 国徽金；UI 字体用衬线中文（思源宋体回落）；
+   圆角 4–6px，接近公文"硬卡"感。详细规范见 docs/requirements/gov-theme.md。 */
+
+:root {
+  color-scheme: light;
+
+  --chrome: #ebe3d2;
+  --chrome-soft: #e1d6c1;
+  --chrome-line: #c8bba0;
+
+  --rail: #e6ddc9;
+  --rail-surface: #ddd2b9;
+  --rail-line: #c8bba0;
+  --rail-inset: #ddd2b9;
+  --rail-text: #1a1714;
+  --rail-muted: #5a544a;
+
+  --surface: #f4eee3;
+  --surface-raised: #fbf6ec;
+  --surface-soft: #eae2d2;
+  --surface-muted: #ddd2b9;
+
+  --ink: #1a1714;
+  --ink-strong: #0a0806;
+  --ink-muted: #5a544a;
+  --ink-faint: #8a8270;
+
+  --line: #d6cdb8;
+  --line-strong: #b8ac92;
+
+  --accent: #c8161d;
+  --accent-deep: #a01118;
+  --accent-soft: #f3d8d9;
+
+  --good: #5a7d3d;
+  --warning: #b6812a;
+  --danger: #a02a2a;
+  --info: #4a6b7c;
+
+  --on-accent: #ffffff;
+  --on-danger: #ffffff;
+
+  --overlay: rgba(60, 30, 12, 0.36);
+
+  --code-surface: #2a231a;
+  --code-border: #3b3324;
+  --code-ink: #f4eee3;
+  --code-muted: #a89a82;
+
+  --paper: var(--surface);
+  --paper-deep: var(--surface-soft);
+  --muted: var(--ink-muted);
+  --faint: var(--ink-faint);
+
+  --app-font-family: "Source Han Serif SC", "Noto Serif CJK SC", "FangSong", "STFangsong", "FangSong_GB2312", "SimSun", "Songti SC", serif;
+
+  --shadow-panel: 0 12px 32px rgba(60, 30, 12, 0.10);
+  --shadow-soft: 0 6px 18px rgba(60, 30, 12, 0.06);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --chrome: #181410;
+  --chrome-soft: #221c15;
+  --chrome-line: #2f2719;
+
+  --rail: #1f1a14;
+  --rail-surface: #2a231a;
+  --rail-line: #3b3324;
+  --rail-inset: #181410;
+  --rail-text: #f0e6d2;
+  --rail-muted: #a89a82;
+
+  --surface: #1f1a14;
+  --surface-raised: #2a231a;
+  --surface-soft: #2a231a;
+  --surface-muted: #3b3324;
+
+  --ink: #f0e6d2;
+  --ink-strong: #ffffff;
+  --ink-muted: #a89a82;
+  --ink-faint: #7a6f5c;
+
+  --line: #3b3324;
+  --line-strong: #54483a;
+
+  --accent: #e64c50;
+  --accent-deep: #ff7a7d;
+  --accent-soft: #3b1a1c;
+
+  --good: #82ac5c;
+  --warning: #d4a24c;
+  --danger: #e64c50;
+  --info: #7aa0b5;
+
+  --on-accent: #1a1714;
+  --on-danger: #1a1714;
+
+  --overlay: rgba(0, 0, 0, 0.58);
+
+  --code-surface: #181410;
+  --code-border: #2f2719;
+  --code-ink: #f0e6d2;
+  --code-muted: #a89a82;
+
+  --paper: var(--surface);
+  --paper-deep: var(--surface-soft);
+  --muted: var(--ink-muted);
+  --faint: var(--ink-faint);
+
+  --shadow-panel: 0 18px 48px rgba(0, 0, 0, 0.36);
+  --shadow-soft: 0 8px 22px rgba(0, 0, 0, 0.24);
+}

@@ -64,6 +64,7 @@ fn main() {
         "open_project_url",
         "open_themes_directory",
         "open_tray_popup_session",
+        "scan_themes",
         "pick_pet_bundle",
         "pick_plugin_entry",
         "pick_theme_css",
