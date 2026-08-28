@@ -5,6 +5,8 @@ import { MarkdownContent } from "../lib/markdown";
 import { PopupDialog } from "./PopupDialog";
 import { TrajectoryView } from "./TrajectoryView";
 import { toolDomainCard, type ToolDomainCard } from "../app/tool-domain";
+import { ToolArgsView } from "../app/tool-args-render";
+import { ToolResultView } from "../app/tool-result-render";
 import { entityHost } from "../lib/message-entities";
 import { isWithinSelector, TRANSCRIPT_CONTEXT_MENU_SELECTOR, TRANSCRIPT_TEXT_SELECTOR } from "../app/context-menu";
 import { useFloatingMenuPosition } from "../app/useFloatingMenuPosition";
@@ -99,6 +101,88 @@ function formatToolCall(text: string) {
   } catch {
     return text;
   }
+}
+
+/**
+ * 工具行渲染:
+ *   - 默认展示「可视化卡片」:`ToolArgsView` 解析参数,`ToolResultView` 解析结果
+ *   - 每个 part 顶部都有「查看原文」按钮,可独立切换回原始 JSON/文本
+ *   - 保持原 tool-entry / tool-parts / DiffResult 视觉骨架,只在内部替换
+ *     原本的 `<pre>` 内容;DiffResult 始终保留(属于「已有可视化」,按要求
+ *     保留并继续渲染)。
+ */
+function ToolEntryView({
+  item,
+  diff,
+  hasToolResult,
+  toolStatus,
+  locale,
+  onOpenUrl,
+  onOpenPath,
+}: {
+  item: TranscriptItem;
+  diff: DiffSummary | undefined;
+  hasToolResult: boolean;
+  toolStatus: "error" | "returned" | "running";
+  locale: UiLocale;
+  onOpenUrl: (url: string) => void | Promise<void>;
+  onOpenPath: (path: string) => void | Promise<void>;
+}) {
+  const [showRawArgs, setShowRawArgs] = useState(false);
+  const [showRawResult, setShowRawResult] = useState(false);
+  return (
+    <details className={`tool-entry ${hasToolResult ? "tool-paired" : ""} ${item.toolResultError ? "tool-error" : ""}`} open={item.toolResultError || undefined}>
+      <summary>
+        <span className="tool-summary-main"><span className="tool-state" aria-hidden="true" /><span className="tool-name">{item.toolName}</span></span>
+        <span className={`tool-status ${toolStatus}`}><span className="tool-status-dot" aria-hidden="true" />{item.toolResultError ? t("conversation.tool.error", locale) : hasToolResult ? t("conversation.tool.returned", locale) : t("conversation.tool.running", locale)}</span>
+        {diff && <span className="tool-diff-badge" key={`${item.key}-diff-${diff.added}-${diff.removed}`} aria-label={t("conversation.tool.diffAria", locale, { added: diff.added, removed: diff.removed })}><b>+{diff.added}</b><b>-{diff.removed}</b></span>}
+        <span className="tool-toggle" aria-hidden="true" />
+      </summary>
+      <div className="tool-parts">
+        {item.domainCard && <section className="tool-part tool-domain-part"><div className="tool-part-label"><span>{t("conversation.tool.domainView", locale)}</span></div><ToolDomainCardView card={item.domainCard} locale={locale} onOpenUrl={onOpenUrl} /></section>}
+        <section className="tool-part tool-call-part">
+          <div className="tool-part-label">
+            <span>{t("conversation.tool.callArgs", locale)}</span>
+            <div className="tool-part-label-right">
+              <time>{formatClock(item.time)}</time>
+              <button
+                type="button"
+                className={`tool-raw-toggle${showRawArgs ? " is-active" : ""}`}
+                onClick={() => setShowRawArgs((v) => !v)}
+                aria-pressed={showRawArgs}
+              >{showRawArgs ? t("conversation.tool.collapseRaw", locale) : t("conversation.tool.viewRaw", locale)}</button>
+            </div>
+          </div>
+          {showRawArgs
+            ? <pre className="tool-call-arguments">{formatToolCall(item.text)}</pre>
+            : <ToolArgsView text={item.text} locale={locale} onOpenPath={onOpenPath} />}
+          {item.toolDiff && <DiffResult diff={item.toolDiff} locale={locale} />}
+        </section>
+        {hasToolResult && (
+          <section className={`tool-part tool-result-part ${item.toolResultError ? "tool-result-error" : ""}`}>
+            <div className="tool-part-label">
+              <span>{t("conversation.tool.result", locale)}</span>
+              <div className="tool-part-label-right">
+                <time>{formatClock(item.toolResultTime)}</time>
+                <button
+                  type="button"
+                  className={`tool-raw-toggle${showRawResult ? " is-active" : ""}`}
+                  onClick={() => setShowRawResult((v) => !v)}
+                  aria-pressed={showRawResult}
+                >{showRawResult ? t("conversation.tool.collapseRaw", locale) : t("conversation.tool.viewRaw", locale)}</button>
+              </div>
+            </div>
+            {item.toolResultDiff && <DiffResult key={`${item.key}-diff-${item.toolResultTime ?? "result"}`} diff={item.toolResultDiff} locale={locale} />}
+            {item.toolResultText !== undefined && (
+              showRawResult
+                ? <pre>{item.toolResultText}</pre>
+                : <ToolResultView text={item.toolResultText} locale={locale} />
+            )}
+          </section>
+        )}
+      </div>
+    </details>
+  );
 }
 
 function SearchSourcesCard({ card, locale, onOpenUrl }: { card: Extract<ToolDomainCard, { domain: "search" }>; locale: UiLocale; onOpenUrl: (url: string) => void | Promise<void> }) {
@@ -584,19 +668,15 @@ function TranscriptArticleView({
       <div className="message-content">
         {item.images && item.images.length > 0 && <MessageImages images={item.images} locale={locale} onLoadAttachment={onLoadImageAttachment} onOpen={onPreviewImage} />}
         {item.kind === "tool" ? (
-          <details className={`tool-entry ${hasToolResult ? "tool-paired" : ""} ${item.toolResultError ? "tool-error" : ""}`} open={item.toolResultError || undefined}>
-            <summary>
-              <span className="tool-summary-main"><span className="tool-state" aria-hidden="true" /><span className="tool-name">{item.toolName}</span></span>
-              <span className={`tool-status ${toolStatus}`}><span className="tool-status-dot" aria-hidden="true" />{item.toolResultError ? t("conversation.tool.error", locale) : hasToolResult ? t("conversation.tool.returned", locale) : t("conversation.tool.running", locale)}</span>
-              {diff && <span className="tool-diff-badge" key={`${item.key}-diff-${diff.added}-${diff.removed}`} aria-label={t("conversation.tool.diffAria", locale, { added: diff.added, removed: diff.removed })}><b>+{diff.added}</b><b>-{diff.removed}</b></span>}
-              <span className="tool-toggle" aria-hidden="true" />
-            </summary>
-            <div className="tool-parts">
-              {item.domainCard && <section className="tool-part tool-domain-part"><div className="tool-part-label"><span>{t("conversation.tool.domainView", locale)}</span></div><ToolDomainCardView card={item.domainCard} locale={locale} onOpenUrl={onOpenUrl} /></section>}
-              <section className="tool-part tool-call-part"><div className="tool-part-label"><span>{t("conversation.tool.callArgs", locale)}</span><time>{formatClock(item.time)}</time></div><pre className="tool-call-arguments">{formatToolCall(item.text)}</pre>{item.toolDiff && <DiffResult diff={item.toolDiff} locale={locale} />}</section>
-              {hasToolResult && <section className={`tool-part tool-result-part ${item.toolResultError ? "tool-result-error" : ""}`}><div className="tool-part-label"><span>{t("conversation.tool.result", locale)}</span><time>{formatClock(item.toolResultTime)}</time></div>{item.toolResultDiff && <DiffResult key={`${item.key}-diff-${item.toolResultTime ?? "result"}`} diff={item.toolResultDiff} locale={locale} />}{item.toolResultText !== undefined && <pre>{item.toolResultText}</pre>}</section>}
-            </div>
-          </details>
+          <ToolEntryView
+            item={item}
+            diff={diff}
+            hasToolResult={hasToolResult}
+            toolStatus={toolStatus}
+            locale={locale}
+            onOpenUrl={onOpenUrl}
+            onOpenPath={onOpenPath}
+          />
         ) : item.kind === "reasoning" ? (
           <ReasoningEntry text={item.text} streaming={Boolean(item.streaming)} locale={locale} />
         ) : item.kind === "workflow" ? (
