@@ -46,7 +46,24 @@ export function GitTreeGraph({
 }: GitTreeGraphProps) {
   const layout = useMemo(() => gitGraphLayout(lines), [lines]);
   const [hovered, setHovered] = useState<GitLayoutCommit | null>(null);
+  const [labelsHeight, setLabelsHeight] = useState(0);
+  const labelsRef = useRef<HTMLDivElement | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  // 测量泳道标签条的实际高度：用于把绝对定位的提交行整体下移，
+  // 避免行 0 与泳道标签在视觉上重叠。
+  useEffect(() => {
+    const target = labelsRef.current;
+    if (!target) {
+      setLabelsHeight(0);
+      return undefined;
+    }
+    const measure = () => setLabelsHeight(target.offsetHeight);
+    measure();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [layout.segmentLabels.length]);
   // 底部哨兵节点进入视口时触发 onLoadMore：比监听滚动事件更稳，
   // 浏览器/用户缩放时也会自动重算可见性。仅在 hasMore 为 true 时挂载观察器。
   useEffect(() => {
@@ -190,22 +207,48 @@ export function GitTreeGraph({
 
   return (
     <div className="git-graph-list">
-      {laneLabels.length > 0 && <div className="git-graph-lane-labels">{laneLabels}</div>}
-      <div className="git-graph-canvas" style={{ width: graphW, height: graphH }}>
-        <svg className="git-graph-svg" width={graphW} height={graphH} aria-hidden="true">
-          {laneLines}
-          {edges}
-          {nodes}
-        </svg>
+      {laneLabels.length > 0 && <div ref={labelsRef} className="git-graph-lane-labels">{laneLabels}</div>}
+      {/* 把画布与提交行包在同一个 position:relative 容器里，
+          行可以绝对定位在画布右侧的整行宽度内，y 坐标与画布的泳道节点对齐。 */}
+      <div className="git-graph-frame" style={{ height: graphH }}>
+        <div className="git-graph-canvas" style={{ width: graphW, height: graphH }}>
+          <svg className="git-graph-svg" width={graphW} height={graphH} aria-hidden="true">
+            {laneLines}
+            {edges}
+            {nodes}
+          </svg>
+        </div>
+        {rows}
+        {/* 底部哨兵节点：进入视口时由 IntersectionObserver 触发 onLoadMore。
+            放在 frame 内、画布下方 4px，rootMargin 提前 200px 让「将到底」就加载。 */}
+        {onLoadMore && hasMore && (
+          <div
+            ref={loadMoreRef}
+            className="git-graph-loadmore"
+            aria-live="polite"
+            style={{ top: graphH + 4, left: graphW + 10, right: 10 }}
+          >
+            {loadingMore ? t("gitGraph.loadingMore", locale) : t("gitGraph.scrollForMore", locale)}
+          </div>
+        )}
+        {!hasMore && onLoadMore && (
+          <div
+            className="git-graph-loadmore git-graph-loadmore-end"
+            aria-live="polite"
+            style={{ top: graphH + 4, left: graphW + 10, right: 10 }}
+          >
+            {t("gitGraph.endOfHistory", locale)}
+          </div>
+        )}
       </div>
-      {/* 提交行挂在画布外的滚动容器上：left/right 相对整个面板解析，
-          画布只占泳道宽度，避免提交标题被画布宽度挤没。 */}
-      {rows}
+      {/* 留出底部哨兵节点的空间，让滚动容器能把哨兵滚入视口。
+          没有这个 spacer，绝对定位的哨兵虽然出现在视觉上但不算入 scrollHeight。 */}
+      {onLoadMore && <div className="git-graph-tail-spacer" aria-hidden="true" />}
       {hovered && (
         <div
           className="git-graph-tooltip"
           role="tooltip"
-          style={{ top: nodeY(hovered.row), left: graphW + 12, maxWidth: `calc(100% - ${graphW + 22}px)` }}
+          style={{ top: nodeY(hovered.row) + labelsHeight, left: graphW + 12, maxWidth: `calc(100% - ${graphW + 22}px)` }}
         >
           <div className="git-graph-tooltip-subject">{hovered.subject}</div>
           <div className="git-graph-tooltip-row">
@@ -229,27 +272,6 @@ export function GitTreeGraph({
           <div className="git-graph-tooltip-row">
             <span>{t("gitGraph.laneRow", locale, { lane: hovered.lane + 1, row: hovered.row + 1 })}</span>
           </div>
-        </div>
-      )}
-      {/* 底部哨兵节点：进入视口时由 IntersectionObserver 触发 onLoadMore。
-          rootMargin 提前 200px 让「将到底」就自动加载；hasMore 为 false 时收起。 */}
-      {onLoadMore && hasMore && (
-        <div
-          ref={loadMoreRef}
-          className="git-graph-loadmore"
-          aria-live="polite"
-          style={{ top: graphH + 4, left: graphW + 10, right: 10 }}
-        >
-          {loadingMore ? t("gitGraph.loadingMore", locale) : t("gitGraph.scrollForMore", locale)}
-        </div>
-      )}
-      {!hasMore && onLoadMore && (
-        <div
-          className="git-graph-loadmore git-graph-loadmore-end"
-          aria-live="polite"
-          style={{ top: graphH + 4, left: graphW + 10, right: 10 }}
-        >
-          {t("gitGraph.endOfHistory", locale)}
         </div>
       )}
     </div>

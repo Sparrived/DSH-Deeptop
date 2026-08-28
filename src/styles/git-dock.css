@@ -569,7 +569,12 @@
   min-height: 0;
   overflow: auto;
 }
-/* 画布只占泳道宽度；提交行是它的兄弟节点，横向占满整个滚动容器。 */
+/* 画布只占泳道宽度；提交行挂在同一 frame 内的绝对定位元素，
+   这样行可以从 frame 顶部 0 开始计算，y 与泳道节点天然对齐。 */
+.git-graph-frame {
+  position: relative;
+  overflow: visible;
+}
 .git-graph-canvas {
   position: relative;
 }
@@ -584,11 +589,8 @@
   position: absolute;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  column-gap: 6px;
-  row-gap: 4px;
-  min-height: 26px;
-  max-height: 60px;
+  gap: 6px;
+  height: 26px;
   padding: 0 8px;
   border: 0;
   background: transparent;
@@ -596,11 +598,11 @@
   text-align: left;
   font-family: var(--mono);
   font-size: 11px;
+  white-space: nowrap;
   overflow: hidden;
   cursor: pointer;
   border-radius: var(--radius-control);
 }
-.git-graph-row > * { white-space: nowrap; }
 .git-graph-row:hover { background: var(--surface-soft); }
 .git-graph-row.selected { background: color-mix(in srgb, var(--accent) 12%, var(--surface-soft)); }
 .git-graph-hash {
@@ -730,6 +732,7 @@
 .git-graph-tooltip-hash { color: var(--accent-deep); font-weight: 700; }
 
 /* 图谱底部哨兵节点：挂在最后一个 commit 下方，进入视口即触发加载下一页 */
+.git-graph-tail-spacer { height: 40px; }
 .git-graph-loadmore {
   position: absolute;
   z-index: 5;
