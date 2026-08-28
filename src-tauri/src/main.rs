@@ -4166,7 +4166,8 @@ struct WorkspaceGitGraphLine {
 
 /// 读取带图谱前缀的提交树（git log --graph），供历史页渲染真正的树状图谱。
 /// `rev` 为 None 时覆盖全部分支（--all），否则只看该引用/分支；
-/// `simplify` 为 true 时只保留带头部（引用指向）的提交。
+/// `simplify` 为 true 时只保留带头部（引用指向）的提交；
+/// `skip` 用于分页加载：跳过前 N 条提交，返回再往后 limit 条。
 /// 输出按物理行解析：提交行带有 \x1f 分隔字段（含完整哈希与双亲），
 /// 纯连接行（如 “|\\” “| |\\”）只有图谱前缀，用于绘制分支分叉/合并的连线。
 #[tauri::command]
@@ -4175,6 +4176,7 @@ fn git_graph(
     limit: u32,
     rev: Option<String>,
     simplify: bool,
+    skip: u32,
 ) -> Result<Vec<WorkspaceGitGraphLine>, String> {
     let limit = limit.clamp(1, 200);
     let root = git_repository_root(Path::new(&dir))?;
@@ -4183,15 +4185,22 @@ fn git_graph(
         None => None,
     };
     let format = "%H%x1f%h%x1f%an%x1f%ae%x1f%at%x1f%D%x1f%P%x1f%s%x1e";
+    let n_arg = format!("-n{limit}");
+    let format_arg = format!("--format={format}");
+    // 跳过前 N 条历史：与 -n{limit} 配合实现「分页加载更早提交」，
+    // 前端拿到首屏后再次用 skip=loaded.length 拉下一页。
+    // skip_arg 必须在 args 之后才能 drop（args 借用其 &str），故提前绑定。
+    let skip_arg = format!("--skip={skip}");
     let mut args: Vec<&str> = vec!["--no-pager", "log", "--graph", "--no-color"];
     if simplify {
         args.push("--simplify-by-decoration");
     }
     let rev = rev.as_deref();
-    let n_arg = format!("-n{limit}");
-    let format_arg = format!("--format={format}");
     args.push(&n_arg);
     args.push(&format_arg);
+    if skip > 0 {
+        args.push(&skip_arg);
+    }
     if let Some(rev) = rev {
         args.push(rev);
     } else {

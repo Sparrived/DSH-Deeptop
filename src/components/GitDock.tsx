@@ -125,6 +125,9 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   const [graphLoading, setGraphLoading] = useState(false);
   const [graphRev, setGraphRev] = useState<string | null>(null);
   const [graphSimplify, setGraphSimplify] = useState(false);
+  const [graphHasMore, setGraphHasMore] = useState(true);
+  const [graphLoadingMore, setGraphLoadingMore] = useState(false);
+  const graphRequestRef = useRef(0);
   const [commitDiffPath, setCommitDiffPath] = useState<string | null>(null);
   const [commitDiffText, setCommitDiffText] = useState<string | null>(null);
   const [commitDiffLoading, setCommitDiffLoading] = useState(false);
@@ -193,18 +196,50 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   const reloadGraph = useCallback(async () => {
     if (!workspace) {
       setGraph(null);
+      setGraphHasMore(true);
       return;
     }
+    const request = ++graphRequestRef.current;
     setGraphLoading(true);
+    setGraphHasMore(true);
     try {
-      setGraph(await listGitGraph(workspace, 100, graphRevRef.current, graphSimplifyRef.current));
+      const lines = await listGitGraph(workspace, 100, graphRevRef.current, graphSimplifyRef.current, 0);
+      if (request !== graphRequestRef.current) return;
+      setGraph(lines);
+      // 返回条数小于 limit 表示已经拉到仓库历史尽头。
+      setGraphHasMore(lines.length >= 100);
     } catch (error) {
+      if (request !== graphRequestRef.current) return;
       setGraph(null);
       onError(t("git.error.readGraph", locale, { error: errorText(error, locale) }));
     } finally {
-      setGraphLoading(false);
+      if (request === graphRequestRef.current) setGraphLoading(false);
     }
   }, [workspace, onError]);
+
+  // 拉取下一页更早的提交并拼接到已有数据。多次调用由前端 IntersectionObserver
+  // 触发；后端用 `git log --skip=N -n{limit}` 跳过头部 N 条拿到后续 limit 条。
+  // 返回条数不足 limit 时把 graphHasMore 置为 false，避免反复打到空页面。
+  const loadMoreGraph = useCallback(async () => {
+    if (!workspace) return;
+    if (graphLoading || graphLoadingMore) return;
+    if (!graphHasMore) return;
+    const skip = graph?.length ?? 0;
+    if (skip === 0) return;
+    const request = graphRequestRef.current;
+    setGraphLoadingMore(true);
+    try {
+      const lines = await listGitGraph(workspace, 100, graphRevRef.current, graphSimplifyRef.current, skip);
+      if (request !== graphRequestRef.current) return;
+      setGraph((prev) => (prev ? [...prev, ...lines] : lines));
+      setGraphHasMore(lines.length >= 100);
+    } catch (error) {
+      if (request !== graphRequestRef.current) return;
+      onError(t("git.error.readGraph", locale, { error: errorText(error, locale) }));
+    } finally {
+      if (request === graphRequestRef.current) setGraphLoadingMore(false);
+    }
+  }, [workspace, graph, graphLoading, graphLoadingMore, graphHasMore, onError]);
 
   const refreshAll = useCallback(async () => {
     await Promise.all([reloadStatus(), reloadCommits(), reloadBranches(), reloadGraph()]);
@@ -766,6 +801,9 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                     lines={graph}
                     selectedHash={commitDetail?.hash ?? null}
                     onSelect={selectCommitByHash}
+                    onLoadMore={loadMoreGraph}
+                    hasMore={graphHasMore}
+                    loadingMore={graphLoadingMore}
                     locale={locale}
                   />
                   )}

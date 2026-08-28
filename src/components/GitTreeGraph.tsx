@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { WorkspaceGitGraphLine } from "../lib/desktop";
 import { gitGraphLaneColor, gitRefKind, formatRelativeTime } from "../app/git-model";
 import { gitGraphLayout, splitInlineRefs, type GitLayoutCommit } from "../app/git-graph-layout";
@@ -13,6 +13,12 @@ type GitTreeGraphProps = {
   lines: WorkspaceGitGraphLine[];
   selectedHash: string | null;
   onSelect: (hash: string) => void;
+  /** 滚到底部时由 IntersectionObserver 触发，拉取更早一页历史。 */
+  onLoadMore?: () => void;
+  /** 是否还有更早历史可加载；为 false 时隐藏底部占位与触发器。 */
+  hasMore?: boolean;
+  /** 正在加载下一页时显示底部 loading 文案，避免误触。 */
+  loadingMore?: boolean;
   locale?: UiLocale;
 };
 
@@ -29,9 +35,39 @@ function formatCommitTime(timestamp: number | null, locale: UiLocale): string {
   }
 }
 
-export function GitTreeGraph({ lines, selectedHash, onSelect, locale = "zh" }: GitTreeGraphProps) {
+export function GitTreeGraph({
+  lines,
+  selectedHash,
+  onSelect,
+  onLoadMore,
+  hasMore = false,
+  loadingMore = false,
+  locale = "zh",
+}: GitTreeGraphProps) {
   const layout = useMemo(() => gitGraphLayout(lines), [lines]);
   const [hovered, setHovered] = useState<GitLayoutCommit | null>(null);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  // 底部哨兵节点进入视口时触发 onLoadMore：比监听滚动事件更稳，
+  // 浏览器/用户缩放时也会自动重算可见性。仅在 hasMore 为 true 时挂载观察器。
+  useEffect(() => {
+    const target = loadMoreRef.current;
+    if (!target || !onLoadMore || !hasMore) return undefined;
+    if (typeof IntersectionObserver === "undefined") {
+      // 不支持时退回一次性的 setTimeout 占位，触发一次后由 hasMore 决定是否继续。
+      const timer = window.setTimeout(() => onLoadMore(), 0);
+      return () => window.clearTimeout(timer);
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) onLoadMore();
+        }
+      },
+      { root: target.closest(".git-graph-list"), rootMargin: "200px 0px" },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [onLoadMore, hasMore, loadingMore, lines.length]);
   if (layout.commits.length === 0) return null;
 
   const graphW = layout.columnCount * LANE_W;
@@ -193,6 +229,27 @@ export function GitTreeGraph({ lines, selectedHash, onSelect, locale = "zh" }: G
           <div className="git-graph-tooltip-row">
             <span>{t("gitGraph.laneRow", locale, { lane: hovered.lane + 1, row: hovered.row + 1 })}</span>
           </div>
+        </div>
+      )}
+      {/* 底部哨兵节点：进入视口时由 IntersectionObserver 触发 onLoadMore。
+          rootMargin 提前 200px 让「将到底」就自动加载；hasMore 为 false 时收起。 */}
+      {onLoadMore && hasMore && (
+        <div
+          ref={loadMoreRef}
+          className="git-graph-loadmore"
+          aria-live="polite"
+          style={{ top: graphH + 4, left: graphW + 10, right: 10 }}
+        >
+          {loadingMore ? t("gitGraph.loadingMore", locale) : t("gitGraph.scrollForMore", locale)}
+        </div>
+      )}
+      {!hasMore && onLoadMore && (
+        <div
+          className="git-graph-loadmore git-graph-loadmore-end"
+          aria-live="polite"
+          style={{ top: graphH + 4, left: graphW + 10, right: 10 }}
+        >
+          {t("gitGraph.endOfHistory", locale)}
         </div>
       )}
     </div>

@@ -729,6 +729,27 @@
 }
 .git-graph-tooltip-hash { color: var(--accent-deep); font-weight: 700; }
 
+/* 图谱底部哨兵节点：挂在最后一个 commit 下方，进入视口即触发加载下一页 */
+.git-graph-loadmore {
+  position: absolute;
+  z-index: 5;
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface-soft);
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-align: center;
+  pointer-events: none;
+  opacity: .85;
+}
+.git-graph-loadmore-end {
+  border-style: solid;
+  color: var(--ink-faint);
+  opacity: .6;
+}
+
 /* —— 分支标签页 —— */
 .git-branch-row { padding: 4px 0; }
 .git-branch-row.current .git-branch-name { color: var(--accent-deep); font-weight: 600; }

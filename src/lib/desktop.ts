@@ -1513,15 +1513,17 @@ export async function listGitLog(dir: string, limit = 50): Promise<WorkspaceGitC
 }
 
 /** List commit tree lines (graph prefix + hash + refs). `rev` filters to one
- * branch/ref (null = all branches); `simplify` keeps only decorated commits. */
+ * branch/ref (null = all branches); `simplify` keeps only decorated commits;
+ * `skip` skips the first N commits to support paginated loading of older history. */
 export async function listGitGraph(
   dir: string,
   limit = 100,
   rev: string | null = null,
   simplify = false,
+  skip = 0,
 ): Promise<WorkspaceGitGraphLine[]> {
   if (!isTauri()) return [];
-  const result = await invoke<unknown>("git_graph", { dir, limit, rev, simplify });
+  const result = await invoke<unknown>("git_graph", { dir, limit, rev, simplify, skip });
   return Array.isArray(result) ? (result as WorkspaceGitGraphLine[]) : [];
 }
 
