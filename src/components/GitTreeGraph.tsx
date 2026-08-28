@@ -166,7 +166,11 @@ export function GitTreeGraph({ lines, selectedHash, onSelect, locale = "zh" }: G
           画布只占泳道宽度，避免提交标题被画布宽度挤没。 */}
       {rows}
       {hovered && (
-        <div className="git-graph-tooltip" role="tooltip" style={{ top: hovered.row * ROW_H }}>
+        <div
+          className="git-graph-tooltip"
+          role="tooltip"
+          style={{ top: nodeY(hovered.row), left: graphW + 12, maxWidth: `calc(100% - ${graphW + 22}px)` }}
+        >
           <div className="git-graph-tooltip-subject">{hovered.subject}</div>
           <div className="git-graph-tooltip-row">
             <span className="git-graph-tooltip-hash">{hovered.shortHash}</span>

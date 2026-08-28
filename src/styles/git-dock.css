@@ -681,12 +681,12 @@
 .git-lane-label-tag { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 45%, var(--line)); }
 .git-lane-label-branch { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, var(--line)); }
 
-/* 悬浮提交详情提示 */
+/* 悬浮提交详情提示：锚定在泳道节点右侧，垂直居中对齐节点 */
 .git-graph-tooltip {
   position: absolute;
   z-index: 50;
-  left: 0;
-  right: 10px;
+  width: 360px;
+  max-height: calc(100vh - 32px);
   padding: 10px 12px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-panel);
@@ -695,6 +695,21 @@
   pointer-events: none;
   display: grid;
   gap: 5px;
+  transform: translateY(-50%);
+  overflow: auto;
+}
+/* 左侧三角指示：指向泳道节点 */
+.git-graph-tooltip::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -6px;
+  width: 10px;
+  height: 10px;
+  background: var(--surface-raised);
+  border-left: 1px solid var(--line-strong);
+  border-bottom: 1px solid var(--line-strong);
+  transform: translateY(-50%) rotate(45deg);
 }
 .git-graph-tooltip-subject {
   color: var(--ink-strong);
