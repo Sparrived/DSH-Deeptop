@@ -1216,17 +1216,27 @@
 }
 .settings-config-plugin-actions button:hover:not(:disabled),
 .settings-plugin-savebar button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-deep); }
+/* Page-global save bar: stays pinned to the bottom of the settings scroll
+ * container so the cancel / save / save-and-restart buttons are always
+ * reachable without scrolling the long plugin list. */
 .settings-plugin-savebar {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid var(--line);
+  padding: 12px 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  box-shadow: 0 -6px 14px -10px rgba(0, 0, 0, .35);
   color: var(--ink-faint);
   font-size: 12px;
 }
+.settings-plugins-page { padding-bottom: 88px; }
 .settings-plugin-savebar > div { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
 .settings-plugin-savebar button.confirm { border-color: var(--accent); background: var(--accent); color: #fff; }
 .settings-plugin-savebar button.confirm:hover:not(:disabled) { border-color: var(--accent-deep); background: var(--accent-deep); color: #fff; }
@@ -1452,4 +1462,422 @@ body.pin-layer-resizing,
 body.pin-layer-resizing * {
   cursor: col-resize !important;
   user-select: none !important;
+}
+
+
+/* ============================================================
+ * 工具调用/结果可视化卡片（在 09/04 既有 tool-parts 之上扩展）
+ *
+ * 保留原 tool-entry / tool-parts / tool-part / tool-diff-badge
+ * 视觉骨架，仅替换原本的 <pre> 内容。新增：
+ *   - tool-args-grid / tool-field / tool-field-{kind} 字段网格
+ *   - tool-command 命令块（带 $ 提示符与 token 染色）
+ *   - tool-url / tool-path 路径与 URL chip
+ *   - tool-result-tree JSON 树
+ *   - tool-raw-toggle 标题栏的「查看原文」按钮
+ *
+ * 视觉沿用既有 token：1px line/border、--paper-deep / --surface-raised、
+ * --accent 暖陶土、--good/--danger 状态色、--mono 等宽。深浅主题通过
+ * 既有 token 自动跟随，不引入新调色。
+ * ============================================================ */
+
+/* 工具行 part 标题右侧时间 + 切换按钮的容器，与原 label flex 布局保持一致。 */
+.tool-part-label-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.tool-part-label-right time {
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+/* 「查看原文 / 收起原文」按钮。
+   与原 part 标题等高、共线，hover 走 --accent，激活态维持对比。 */
+.tool-raw-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-faint);
+  font: 600 10px/1 var(--mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: border-color 160ms ease, color 160ms ease, background-color 160ms ease;
+}
+.tool-raw-toggle::before {
+  content: "{ }";
+  color: var(--ink-faint);
+  font: 600 10px/1 var(--mono);
+  letter-spacing: 0;
+}
+.tool-raw-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent-deep);
+}
+.tool-raw-toggle:hover::before { color: var(--accent); }
+.tool-raw-toggle.is-active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  color: var(--accent-deep);
+}
+.tool-raw-toggle.is-active::before { content: "↧"; font-size: 12px; }
+.tool-raw-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 字段网格：自适应两列，小屏单列。 */
+.tool-args {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tool-args-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 6px 12px;
+}
+.tool-field {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-soft);
+}
+.tool-field-key {
+  align-self: start;
+  padding-top: 1px;
+  color: var(--ink-faint);
+  font: 600 10px/1.4 var(--mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  word-break: break-all;
+}
+.tool-field-value {
+  min-width: 0;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+/* 字段值类型。 */
+.tool-field-string,
+.tool-field-number {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font: 12px/1.55 var(--mono);
+  white-space: pre-wrap;
+}
+.tool-field-number { color: var(--accent-deep); }
+.tool-field-empty {
+  color: var(--ink-faint);
+  font-style: italic;
+}
+
+/* JSON 子结构 meta（避免直接渲染整棵子树）。 */
+.tool-field-tree { display: inline-flex; align-items: center; }
+.tool-tree-null { color: var(--ink-faint); font-style: italic; }
+.tool-tree-string { color: var(--ink); font: 12px/1.55 var(--mono); }
+.tool-tree-number { color: var(--accent-deep); font: 12px/1.55 var(--mono); }
+.tool-tree-array,
+.tool-tree-object { color: var(--ink-faint); font: 600 11px/1 var(--mono); }
+.tool-tree-meta { color: var(--ink-faint); font: 600 11px/1 var(--mono); }
+.tool-tree-truncated { color: var(--warning); font: 600 11px/1 var(--mono); }
+
+/* 字段值降级回原始 pre。 */
+.tool-args-fallback .tool-args-raw-fallback {
+  max-height: 320px;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--code-surface);
+  color: var(--code-ink);
+  font: 12px/1.6 var(--mono);
+  white-space: pre-wrap;
+}
+.tool-args-empty {
+  padding: 6px 8px;
+  color: var(--ink-faint);
+  font: italic 12px/1.55 var(--mono);
+}
+
+/* 字段「还有 N 项」展开按钮。 */
+.tool-args-more {
+  align-self: flex-start;
+  padding: 4px 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-faint);
+  font: 600 10px/1 var(--mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: border-color 160ms ease, color 160ms ease;
+}
+.tool-args-more:hover {
+  border-color: var(--accent);
+  color: var(--accent-deep);
+}
+
+/* 折叠 / 展开小按钮（命令块、长文本共用）。 */
+.tool-fold-toggle {
+  margin-top: 4px;
+  padding: 2px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-faint);
+  font: 600 10px/1.2 var(--mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.tool-fold-toggle:hover { color: var(--accent-deep); }
+
+/* 命令块：$ 提示符 + shell 标签 + 命令体。 */
+.tool-command {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--accent);
+  border-radius: 6px;
+  background: var(--code-surface);
+}
+.tool-command-prompt {
+  display: inline-block;
+  width: 14px;
+  color: var(--accent);
+  font: 600 11px/1 var(--mono);
+}
+.tool-command-shell {
+  color: var(--ink-faint);
+  font: 600 9px/1 var(--mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.tool-command-body {
+  max-height: 240px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  color: var(--code-ink);
+  font: 12px/1.6 var(--mono);
+  white-space: pre-wrap;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+.tool-command-body .tool-token { white-space: pre; }
+
+/* 命令 token 染色。 */
+.tool-token { font: inherit; }
+.tool-token-gap { white-space: pre; }
+.tool-token-op { color: var(--ink-faint); }
+.tool-token-flag { color: var(--accent-deep); }
+.tool-token-string { color: var(--good); }
+.tool-token-plain { color: inherit; }
+.tool-token-ellipsis { color: var(--ink-faint); }
+
+/* Pattern (glob/regex) 高亮。 */
+.tool-field-pattern {
+  display: inline-block;
+  color: var(--code-ink);
+  font: 12px/1.55 var(--mono);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.tool-pattern-star { color: var(--accent-deep); font-weight: 600; }
+.tool-pattern-class { color: var(--warning); }
+.tool-pattern-anchor { color: var(--good); }
+.tool-pattern-plain { color: var(--code-ink); }
+
+/* 路径 chip：分段 + 可选打开按钮。 */
+.tool-path {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 0;
+  padding: 1px 0;
+  font: 12px/1.55 var(--mono);
+}
+.tool-path-segment {
+  padding: 1px 5px;
+  color: var(--ink-muted);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 4px 0 0 4px;
+  border-right: 0;
+}
+.tool-path-segment + .tool-path-segment { border-radius: 0; }
+.tool-path-segment.is-last {
+  color: var(--accent-deep);
+  font-weight: 600;
+  border-radius: 0 4px 4px 0;
+  border-right: 1px solid var(--line);
+}
+.tool-path-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 6px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--ink-faint);
+  font: 600 12px/1 var(--mono);
+  cursor: pointer;
+  transition: border-color 160ms ease, color 160ms ease, background-color 160ms ease;
+}
+.tool-path-open:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  color: var(--accent-deep);
+}
+
+/* URL chip。 */
+.tool-url {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  text-decoration: none;
+  max-width: 100%;
+}
+.tool-url:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+.tool-url strong {
+  color: var(--accent-deep);
+  font: 600 12px/1.3 var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-url small {
+  color: var(--ink-faint);
+  font: 10px/1.3 var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 列表值。 */
+.tool-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tool-list-item {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--ink);
+  font: 12px/1.4 var(--mono);
+}
+
+/* 长文本字段。 */
+.tool-longtext-wrap { display: flex; flex-direction: column; align-items: flex-start; }
+.tool-longtext {
+  margin: 0;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 工具结果 JSON 树。 */
+.tool-result {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tool-result-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--ink-faint);
+  font: 600 9px/1 var(--mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.tool-result-stats { color: var(--ink-faint); }
+.tool-result-tree {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--code-surface);
+}
+.tool-result-tree-body {
+  max-height: 320px;
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  color: var(--code-ink);
+  font: 12px/1.6 var(--mono);
+}
+.tool-result-tree-line { display: block; }
+.tool-result-text {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--code-surface);
+}
+.tool-result-text-body {
+  max-height: 320px;
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  color: var(--code-ink);
+  font: 12px/1.6 var(--mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.tool-result-html {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tool-result-note {
+  margin: 0;
+  color: var(--ink-faint);
+  font: italic 11px/1.5 var(--mono);
+}
+
+/* 错误结果统一走原 --danger 9% 混合，不重复定义。 */
+
+/* 字段在窄屏单列。 */
+@media (max-width: 640px) {
+  .tool-args-grid { grid-template-columns: minmax(0, 1fr); }
+  .tool-field { grid-template-columns: 1fr; }
+  .tool-field-key { padding-bottom: 2px; }
 }
