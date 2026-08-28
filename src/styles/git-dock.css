@@ -584,7 +584,11 @@
   position: absolute;
   display: flex;
   align-items: center;
-  gap: 6px;
+  flex-wrap: wrap;
+  column-gap: 6px;
+  row-gap: 4px;
+  min-height: 26px;
+  max-height: 60px;
   padding: 0 8px;
   border: 0;
   background: transparent;
@@ -592,10 +596,11 @@
   text-align: left;
   font-family: var(--mono);
   font-size: 11px;
-  white-space: nowrap;
+  overflow: hidden;
   cursor: pointer;
   border-radius: var(--radius-control);
 }
+.git-graph-row > * { white-space: nowrap; }
 .git-graph-row:hover { background: var(--surface-soft); }
 .git-graph-row.selected { background: color-mix(in srgb, var(--accent) 12%, var(--surface-soft)); }
 .git-graph-hash {
@@ -604,8 +609,9 @@
   font-weight: 700;
 }
 .git-graph-ref {
-  flex: 0 0 auto;
-  max-width: 160px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 120px;
   overflow: hidden;
   padding: 1px 5px;
   border: 1px solid var(--line-strong);
@@ -613,6 +619,15 @@
   font-family: var(--mono);
   font-size: 9px;
   text-overflow: ellipsis;
+}
+.git-graph-ref-overflow {
+  flex: 0 0 auto;
+  color: var(--ink-faint);
+  border-style: dashed;
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  font-weight: 600;
+  max-width: 44px;
 }
 .git-ref-head { color: var(--accent-deep); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .git-ref-tag { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 45%, var(--line)); }

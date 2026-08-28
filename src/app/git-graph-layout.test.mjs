@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { deriveLaneLabel, gitGraphLayout } from "./git-graph-layout.ts";
+import { deriveLaneLabel, gitGraphLayout, splitInlineRefs, MAX_INLINE_REFS } from "./git-graph-layout.ts";
 
 function commit(hash, parents, shortHash = hash.slice(0, 7), refs = []) {
   return {
@@ -140,4 +140,35 @@ test("lane segments derive branch labels from refs", () => {
   const joined = deriveLaneLabel(["tag: v1.0", "origin/main"]);
   assert.deepEqual(joined, { label: "origin/main", kind: "remote" });
   assert.equal(deriveLaneLabel([]), null);
+});
+
+test("splitInlineRefs keeps short lists fully visible", () => {
+  const refs = ["HEAD -> main", "tag: v1.0", "feature/x"];
+  const { visible, overflow } = splitInlineRefs(refs);
+  assert.deepEqual(visible, refs);
+  assert.deepEqual(overflow, []);
+});
+
+test("splitInlineRefs collapses overflow refs into a tail", () => {
+  const refs = [
+    "HEAD -> main",
+    "tag: v1.0",
+    "tag: v1.1",
+    "tag: v2.0",
+    "feature/a",
+    "feature/b",
+    "feature/c",
+    "release/2024",
+  ];
+  const { visible, overflow } = splitInlineRefs(refs);
+  assert.equal(visible.length, MAX_INLINE_REFS);
+  assert.equal(overflow.length, refs.length - MAX_INLINE_REFS);
+  assert.deepEqual(visible, refs.slice(0, MAX_INLINE_REFS));
+  assert.deepEqual(overflow, refs.slice(MAX_INLINE_REFS));
+  // 可见+溢出完整覆盖原列表，顺序不被打乱
+  assert.deepEqual([...visible, ...overflow], refs);
+});
+
+test("splitInlineRefs handles empty input", () => {
+  assert.deepEqual(splitInlineRefs([]), { visible: [], overflow: [] });
 });

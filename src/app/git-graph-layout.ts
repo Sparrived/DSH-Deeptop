@@ -62,6 +62,15 @@ export type GitGraphLayout = {
   columnCount: number;
 };
 
+/** 单行可内联的 ref 数量上限：超出部分折叠为「+N」徽标。 */
+export const MAX_INLINE_REFS = 5;
+
+/** 一组 ref 拆分为内联可见部分与折叠溢出部分。空数组或短列表不会产生溢出。 */
+export function splitInlineRefs(refs: string[]): { visible: string[]; overflow: string[] } {
+  if (refs.length <= MAX_INLINE_REFS) return { visible: refs, overflow: [] };
+  return { visible: refs.slice(0, MAX_INLINE_REFS), overflow: refs.slice(MAX_INLINE_REFS) };
+}
+
 /** 从一组引用推导泳道段标签：HEAD 指向 > 本地/远程分支 > 标签 > 其他。 */
 export function deriveLaneLabel(refs: string[]): Omit<GitLaneLabel, "lane" | "fromRow"> | null {
   if (refs.length === 0) return null;

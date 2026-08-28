@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import type { WorkspaceGitGraphLine } from "../lib/desktop";
 import { gitGraphLaneColor, gitRefKind, formatRelativeTime } from "../app/git-model";
-import { gitGraphLayout, type GitLayoutCommit } from "../app/git-graph-layout";
+import { gitGraphLayout, splitInlineRefs, type GitLayoutCommit } from "../app/git-graph-layout";
 import { t, type UiLocale } from "../app/i18n";
 
 // 向量渲染几何：泳道宽、行高，泳道画在列中心，跨泳道边用圆角折线。
@@ -99,21 +99,34 @@ export function GitTreeGraph({ lines, selectedHash, onSelect, locale = "zh" }: G
 
   const rows = layout.commits.map((commit) => {
     const selected = commit.hash === selectedHash;
+    // 折叠溢出 ref：仅展示前若干个，超出合并为「+N」徽标。
+    // 折叠列表放进原生 title 提示（hover 可看），同时和悬浮 tooltip 互补。
+    const { visible: visibleRefs, overflow: overflowRefs } = splitInlineRefs(commit.refs);
+    const overflowTitle = overflowRefs.join("\n");
     return (
       <button
         key={`r${commit.hash}`}
         type="button"
         className={`git-graph-row ${selected ? "selected" : ""}`}
-        style={{ top: commit.row * ROW_H, left: graphW + 10, right: 10, height: ROW_H }}
+        style={{ top: commit.row * ROW_H, left: graphW + 10, right: 10 }}
         onClick={() => onSelect(commit.hash)}
         title={commit.subject}
         onMouseEnter={() => setHovered(commit)}
         onMouseLeave={() => setHovered((current) => (current?.hash === commit.hash ? null : current))}
       >
         <span className="git-graph-hash">{commit.shortHash}</span>
-        {commit.refs.map((ref) => (
+        {visibleRefs.map((ref) => (
           <span key={ref} className={`git-graph-ref git-ref-${gitRefKind(ref)}`} title={ref}>{ref}</span>
         ))}
+        {overflowRefs.length > 0 && (
+          <span
+            key="__overflow"
+            className="git-graph-ref git-graph-ref-overflow"
+            title={overflowTitle}
+          >
+            +{overflowRefs.length}
+          </span>
+        )}
         <span className="git-graph-subject" title={commit.subject}>{commit.subject}</span>
       </button>
     );
