@@ -15,8 +15,8 @@ export type WindowMenu = "project" | "edit";
 export type SessionAction = "rename" | "fork" | "archive" | "export" | "exportZip" | "pin";
 export type WorkspaceViewMode = "grouped" | "flat";
 export type ThemeMode = "system" | "light" | "dark";
-/** 主题选择器：内置 Monokai Pro / One Dark（每个主题文件同时含浅色与深色两套配色），或使用自定义外部 CSS 路径。 */
-export type AppTheme = "monokai-pro" | "one-dark" | "custom";
+/** 主题 id：`monokai-pro` / `one-dark` / `gov` 等内置主题，或 `themesDir/` 下用户放入的自定义文件名（去后缀）。`custom` 表示"使用自定义外部 CSS 路径"。 */
+export type AppTheme = string;
 
 /** 背景图作用区域：全局 / 标题栏 / 侧栏 / 对话栏 / 对话框 / 工具面板。 */
 export type BackgroundZone = "global" | "windowbar" | "sidebar" | "conversation" | "composer" | "dock";

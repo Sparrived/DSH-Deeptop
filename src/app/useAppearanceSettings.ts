@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { t, type UiLocale } from "./i18n.ts";
 import type {
   AppearanceSettings,
@@ -13,8 +13,22 @@ import {
   openThemesDirectory as openThemesDirectoryCommand,
   pickThemeCss,
   readThemeCss,
+  scanThemes as scanThemesCommand,
   type ThemeFilesInfo,
 } from "../lib/desktop";
+
+/** 内置主题按显示顺序排列的固定清单；外部主题（themes/ 下用户放入的）按字母序追加。 */
+export const BUILTIN_THEME_IDS: readonly AppTheme[] = ["monokai-pro", "one-dark", "gov"] as const;
+const DEFAULT_THEME_ID: AppTheme = "monokai-pro";
+const CUSTOM_THEME_ID: AppTheme = "custom";
+
+/** 给定主题 id 与 themesDir，拼接 `<themesDir>/<id>.css` 绝对路径。custom 不走此约定。 */
+export function themeCssPathFor(themesDir: string | null | undefined, id: AppTheme): string {
+  if (id === CUSTOM_THEME_ID) return "";
+  if (!themesDir) return "";
+  const safeId = id.replace(/[\\/:*?"<>|]/g, "_");
+  return `${themesDir.replace(/[\\/]+$/, "")}/${safeId}.css`;
+}
 
 /** 背景图作用区域，顺序即工作台页面的展示顺序。 */
 export const backgroundZones: BackgroundZone[] = ["global", "windowbar", "sidebar", "conversation", "composer", "dock"];
@@ -192,10 +206,13 @@ function readAppearanceSettings(): AppearanceSettings {
 function readAppTheme(): AppTheme {
   try {
     const saved = localStorage.getItem("deeptop.dark-theme");
-    return saved === "one-dark" || saved === "monokai-pro" || saved === "custom" ? saved : "monokai-pro";
+    // 接受任意非空字符串主题 id（用户可能在 themes/ 里放过自定义主题）；
+    // 空字符串或非字符串则回退到默认主题。
+    if (typeof saved === "string" && saved.length > 0 && saved.length <= 200) return saved;
   } catch {
-    return "monokai-pro";
+    // 存储不可用时回退到默认。
   }
+  return DEFAULT_THEME_ID;
 }
 
 type UseAppearanceSettingsOptions = {
@@ -212,6 +229,7 @@ export function useAppearanceSettings({ locale, onNotice, onError }: UseAppearan
   const [themePathError, setThemePathError] = useState("");
   const [themePathLoading, setThemePathLoading] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
+  const [themeIds, setThemeIds] = useState<string[]>([]);
 
   function updateAppearance(patch: Partial<AppearanceSettings>) {
     // Field-level edits may temporarily contain an empty line while the user types;
@@ -287,7 +305,7 @@ export function useAppearanceSettings({ locale, onNotice, onError }: UseAppearan
     reader.readAsText(file);
   }
 
-  /** 首次启动时确保默认主题文件就绪，并把空的主题路径补成默认的 Monokai Pro 外部文件。 */
+  /** 首次启动时确保默认主题文件就绪，并扫描 themes/ 下所有可用主题 id；空的主题路径补成当前 appTheme 对应的外部文件。 */
   useEffect(() => {
     let cancelled = false;
     void ensureThemeFiles()
@@ -296,9 +314,14 @@ export function useAppearanceSettings({ locale, onNotice, onError }: UseAppearan
         setThemeFilesInfo(info);
         setAppearance((current) => {
           if (current.themeCssPath.trim()) return current;
-          const fallback = appTheme === "one-dark" ? info.oneDark : info.monokaiPro;
-          return { ...current, themeCssPath: fallback };
+          if (appTheme === CUSTOM_THEME_ID) return current;
+          return { ...current, themeCssPath: themeCssPathFor(info.themesDir, appTheme) };
         });
+        return scanThemesCommand();
+      })
+      .then((ids) => {
+        if (cancelled || !ids) return;
+        setThemeIds(ids);
       })
       .catch(() => {
         // 浏览器预览等场景没有桌面桥，保持内置兜底配色。
@@ -309,6 +332,17 @@ export function useAppearanceSettings({ locale, onNotice, onError }: UseAppearan
     // 仅在挂载时执行一次：appTheme 取初始值即可。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** 用户主动"重新扫描"：从 themes/ 重新拉取主题 id 列表。 */
+  const rescanThemes = useCallback(async () => {
+    try {
+      const ids = await scanThemesCommand();
+      setThemeIds(ids);
+      onNotice(t("appearance.notice.themesRescanned", locale, { count: ids.length }));
+    } catch (error) {
+      onError(errorText(error));
+    }
+  }, [locale, onNotice, onError]);
 
   /** 按主题路径读取外部 CSS（输入防抖，停顿后读取）；路径为空或读取失败时清空已注入内容。 */
   useEffect(() => {
@@ -389,13 +423,13 @@ export function useAppearanceSettings({ locale, onNotice, onError }: UseAppearan
 
   function setAppTheme(value: AppTheme) {
     setAppThemeState(value);
-    if (value === "custom") return;
+    if (value === CUSTOM_THEME_ID) return;
     if (!themeFilesInfo) {
       onNotice(t("appearance.notice.themeDesktopOnly", locale));
       return;
     }
     updateAppearance({
-      themeCssPath: value === "one-dark" ? themeFilesInfo.oneDark : themeFilesInfo.monokaiPro,
+      themeCssPath: themeCssPathFor(themeFilesInfo.themesDir, value),
     });
   }
 
@@ -428,9 +462,9 @@ export function useAppearanceSettings({ locale, onNotice, onError }: UseAppearan
     setAppearance((current) => ({
       ...defaultAppearance,
       workingIndicator: { ...defaultWorkingIndicator, texts: [...defaultWorkingIndicator.texts] },
-      themeCssPath: themeFilesInfo ? themeFilesInfo.monokaiPro : current.themeCssPath,
+      themeCssPath: themeFilesInfo ? themeCssPathFor(themeFilesInfo.themesDir, DEFAULT_THEME_ID) : current.themeCssPath,
     }));
-    setAppThemeState("monokai-pro");
+    setAppThemeState(DEFAULT_THEME_ID);
     onNotice(t("appearance.notice.resetDefault", locale));
   }
 
@@ -485,6 +519,7 @@ export function useAppearanceSettings({ locale, onNotice, onError }: UseAppearan
     themeFilesInfo,
     themePathError,
     themePathLoading,
+    themeIds,
     updateAppearance,
     updateBackground,
     clearBackground,
@@ -494,6 +529,7 @@ export function useAppearanceSettings({ locale, onNotice, onError }: UseAppearan
     handlePickThemeCss,
     reloadThemeCss,
     openThemesDirectory,
+    rescanThemes,
     resetAppearance,
   };
 }

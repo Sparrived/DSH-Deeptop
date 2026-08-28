@@ -1656,9 +1656,8 @@ export async function listenToWebviewFileDrop(handler: (event: WebviewFileDropEv
 
 /** Locations of the default external dark-theme CSS files (seeded under the DSH home). */
 export interface ThemeFilesInfo {
+  /** Directory where bundled theme CSS files are seeded; also the directory scanned for user-supplied themes. */
   themesDir: string;
-  monokaiPro: string;
-  oneDark: string;
 }
 
 /** Content of a theme CSS file read from disk. */
@@ -1669,12 +1668,23 @@ export interface ThemeCssContent {
 
 /**
  * Ensure the DSH home themes directory exists with the default theme files.
- * Returns the default theme paths (used as the default "theme CSS path");
- * falls back to null in the browser preview where no native layer is available.
+ * Returns the themes directory path; the specific theme CSS paths are derived
+ * by the frontend as `<themesDir>/<id>.css` for each id surfaced by `scanThemes`.
+ * Falls back to null in the browser preview where no native layer is available.
  */
 export async function ensureThemeFiles(): Promise<ThemeFilesInfo | null> {
   if (!isTauri()) return null;
   return invoke<ThemeFilesInfo>("ensure_theme_files");
+}
+
+/**
+ * Scan `<DSH_HOME>/themes/` and return every available theme id (file stem of
+ * each `.css`, excluding `.bak` and dotfiles), sorted alphabetically. Lets the
+ * UI surface user-supplied themes without restarting the app.
+ */
+export async function scanThemes(): Promise<string[]> {
+  if (!isTauri()) return [];
+  return invoke<string[]>("scan_themes");
 }
 
 /** Read a theme CSS file by its absolute path. */

@@ -763,6 +763,7 @@ function AppContent() {
     themeFilesInfo,
     themePathError,
     themePathLoading,
+    themeIds,
     updateAppearance,
     updateBackground,
     clearBackground,
@@ -772,6 +773,7 @@ function AppContent() {
     handlePickThemeCss,
     reloadThemeCss,
     openThemesDirectory,
+    rescanThemes,
     resetAppearance,
   } = useAppearanceSettings({ onNotice: setNotice, onError: setErrorNotice, locale });
   // 本地主题与 Host ui-theme 命名空间双向同步：启动采纳 Host、用户修改回写、
@@ -865,7 +867,8 @@ function AppContent() {
       const data = parsed.data as Record<string, unknown>;
       if (appearanceSection === "theme") {
         const nextMode = data.themeMode === "light" || data.themeMode === "dark" || data.themeMode === "system" ? data.themeMode : null;
-        const nextTheme = data.appTheme === "one-dark" || data.appTheme === "monokai-pro" || data.appTheme === "custom" ? data.appTheme : null;
+        // 接受任意非空字符串主题 id（themes/ 下用户放入的自定义主题也可导入）。
+        const nextTheme = typeof data.appTheme === "string" && data.appTheme.length > 0 && data.appTheme.length <= 200 ? data.appTheme : null;
         const nextPath = typeof data.themeCssPath === "string" && data.themeCssPath.length <= 2000 ? data.themeCssPath : "";
         if (!nextMode || !nextTheme) throw new Error(t("err.themeInvalid", locale));
         changeThemeMode(nextMode);
@@ -890,7 +893,11 @@ function AppContent() {
     if (appearanceSection === "theme") {
       changeThemeMode("system");
       setAppTheme("monokai-pro");
-      updateAppearance({ themeCssPath: themeFilesInfo?.monokaiPro ?? appearance.themeCssPath });
+      // 拼出 monokai-pro 对应的默认主题 CSS 路径；不依赖 themeFilesInfo 字段名。
+      const fallback = themeFilesInfo
+        ? `${themeFilesInfo.themesDir.replace(/[\\/]+$/, "")}/monokai-pro.css`
+        : appearance.themeCssPath;
+      updateAppearance({ themeCssPath: fallback });
     } else if (appearanceSection === "background") {
       updateAppearance({ backgrounds: defaultBackgrounds() });
     } else if (appearanceSection === "typography") {
@@ -5102,6 +5109,7 @@ function AppContent() {
                     themesDir={themeFilesInfo?.themesDir ?? null}
                     themePathError={themePathError}
                     themePathLoading={themePathLoading}
+                    themeIds={themeIds}
                     fontPreset={appearanceFontPreset}
                     codeFontPreset={appearanceCodeFontPreset}
                     fontPresets={appearanceFontPresets}
@@ -5119,6 +5127,7 @@ function AppContent() {
                     onPickThemeCss={handlePickThemeCss}
                     onReloadThemeCss={reloadThemeCss}
                     onOpenThemesDirectory={openThemesDirectory}
+                    onRescanThemes={rescanThemes}
 
                     onThemeFile={handleThemeFile}
                     onResetSection={resetAppearanceSection}

@@ -16,6 +16,8 @@ type SettingsAppearancePanelProps = {
   themesDir: string | null;
   themePathError: string;
   themePathLoading: boolean;
+  /** 主题 id 列表：内置 + themes/ 下用户放入的自定义文件，按目录约定拼接路径。 */
+  themeIds: string[];
   fontPreset: string;
   codeFontPreset: string;
   fontPresets: FontPreset[];
@@ -30,6 +32,7 @@ type SettingsAppearancePanelProps = {
   onPickThemeCss: () => void;
   onReloadThemeCss: () => void;
   onOpenThemesDirectory: () => void;
+  onRescanThemes: () => void;
   onThemeFile: (file: File | undefined) => void;
   onImport: (file: File | undefined) => void;
   onExport: () => void;
@@ -69,6 +72,7 @@ export function SettingsAppearancePanel({
   themesDir,
   themePathError,
   themePathLoading,
+  themeIds,
   fontPreset,
   codeFontPreset,
   fontPresets,
@@ -83,11 +87,25 @@ export function SettingsAppearancePanel({
   onPickThemeCss,
   onReloadThemeCss,
   onOpenThemesDirectory,
+  onRescanThemes,
   onThemeFile,
   onImport,
   onExport,
   onResetSection,
 }: SettingsAppearancePanelProps) {
+  // 下拉项：内置主题（顺序固定） → themes/ 下用户放入的自定义主题（字母序） → custom。
+  // 重复 id 优先取 themeIds 中的扫描结果（说明该主题已被 themes/ 接管）。
+  const builtinIds = ["monokai-pro", "one-dark", "gov"] as const;
+  const builtinOptions = builtinIds
+    .map((id) => ({ value: id, label: id }))
+    .filter((option) => themeIds.includes(option.value));
+  const customOptions = themeIds
+    .filter((id) => !builtinIds.includes(id as (typeof builtinIds)[number]))
+    .map((id) => ({ value: id, label: id }));
+  const themeOptions: Array<{ value: string; label: string }> = [
+    ...builtinOptions,
+    ...customOptions,
+  ];
   const themeFileInputRef = useRef<HTMLInputElement | null>(null);
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const backgroundCount = Object.values(appearance.backgrounds).filter((bg) => Boolean(bg.image)).length;
@@ -147,7 +165,7 @@ export function SettingsAppearancePanel({
           <div className="settings-block-heading"><div><h3>{t("appearance.themeTitle", locale)}</h3><p>{t("appearance.themeHint", locale)}</p></div></div>
           <div className="settings-preference-list">
             <label className="settings-preference-row"><span><strong>{t("appearance.lightDark", locale)}</strong><small>{t("appearance.themeModeHint", locale)}</small></span><select value={themeMode} onChange={(event) => onThemeChange(event.target.value as ThemeMode)}><option value="system">{t("appearance.themeModeSystem", locale)}</option><option value="light">{t("appearance.themeModeLight", locale)}</option><option value="dark">{t("appearance.themeModeDark", locale)}</option></select></label>
-            <label className="settings-preference-row"><span><strong>{t("settings.theme", locale)}</strong><small>{t("appearance.themeSelectHint", locale)}</small></span><select value={appTheme} onChange={(event) => onAppThemeChange(event.target.value as AppTheme)}><option value="monokai-pro">Monokai Pro</option><option value="one-dark">One Dark</option><option value="custom">{t("appearance.themeCustomPath", locale)}</option></select></label>
+            <label className="settings-preference-row"><span><strong>{t("settings.theme", locale)}</strong><small>{t("appearance.themeSelectHint", locale)}</small></span><span className="appearance-theme-picker"><select value={appTheme} onChange={(event) => onAppThemeChange(event.target.value as AppTheme)}>{themeOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}<option value="custom">{t("appearance.themeCustomPath", locale)}</option></select><button type="button" className="settings-header-action" onClick={onRescanThemes} title={t("appearance.rescanThemesTitle", locale)}>{t("appearance.rescanThemes", locale)}</button></span></label>
             {appTheme === "custom" && (
               <label className="settings-preference-row appearance-path-row"><span><strong>{t("appearance.themeCssPathLabel", locale)}</strong><small>{t("appearance.themeCssPathHint", locale)}</small></span><span className="appearance-theme-path-control"><input value={appearance.themeCssPath} onChange={(event) => onUpdate({ themeCssPath: event.target.value })} placeholder="C:\\path\\to\\my-theme.css" spellCheck={false} /><button type="button" className="settings-header-action" onClick={onPickThemeCss}>{t("appearance.browse", locale)}</button></span></label>
             )}
