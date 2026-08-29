@@ -3,7 +3,7 @@ import { type UnlistenFn } from "@tauri-apps/api/event";
 import { StartupSplash } from "./components/StartupSplash";
 import { ConversationTranscript } from "./components/ConversationTranscript";
 import { ConversationHeader } from "./components/ConversationHeader";
-import { TokenUsageDashboard } from "./components/TokenUsageDashboard";
+import { SessionDashboard } from "./components/SessionDashboard";
 import { ComposerShell } from "./components/ComposerShell";
 import { InteractionPanel } from "./components/InteractionPanel";
 import { FloatingQuestionCard } from "./components/FloatingQuestionCard";
@@ -426,7 +426,7 @@ function AppContent() {
   const [historyLoadingOlder, setHistoryLoadingOlder] = useState(false);
   const [todos, setTodos] = useState<TodoItem[] | null>(null);
   const [trajectoryOpen, setTrajectoryOpen] = useState(false);
-  const [tokenUsageOpen, setTokenUsageOpen] = useState(false);
+  const [sessionDashboardOpen, setSessionDashboardOpen] = useState(false);
   const [workspace, setWorkspace] = useState("");
   const [composer, setComposer] = useState("");
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
@@ -2320,7 +2320,7 @@ function AppContent() {
     setTranscriptFollowing(true);
     setTodos(null);
     setTrajectoryOpen(false);
-    setTokenUsageOpen(false);
+    setSessionDashboardOpen(false);
     setQueue([]);
     setQueueEditingId(null);
     setQueueEditingText("");
@@ -3123,7 +3123,7 @@ function AppContent() {
     setTranscriptFollowing(true);
     setTodos(null);
     setTrajectoryOpen(false);
-    setTokenUsageOpen(false);
+    setSessionDashboardOpen(false);
     setComposer("");
     setAttachments([]);
     setModels(null);
@@ -4749,9 +4749,9 @@ function AppContent() {
             noticeIsError={noticeIsError}
             queueCount={queue.length}
             trajectoryOpen={trajectoryOpen}
-            tokenUsageOpen={tokenUsageOpen}
-            onToggleTrajectory={() => { setTokenUsageOpen(false); setTrajectoryOpen((open) => !open); }}
-            onToggleTokenUsage={() => { setTrajectoryOpen(false); setTokenUsageOpen((open) => !open); }}
+            sessionDashboardOpen={sessionDashboardOpen}
+            onToggleTrajectory={() => { setSessionDashboardOpen(false); setTrajectoryOpen((open) => !open); }}
+            onToggleSessionDashboard={() => { setTrajectoryOpen(false); setSessionDashboardOpen((open) => !open); }}
           />
 
           <div className={`conversation-transcript-stage${activeGoal ? " has-current-goal" : ""}${goalBarCollapsed ? " current-goal-collapsed" : ""}`}>
@@ -4773,7 +4773,7 @@ function AppContent() {
                 </button>
               </div>
             )}
-            {!tokenUsageOpen && <ConversationTranscript
+            {!sessionDashboardOpen && <ConversationTranscript
               locale={locale}
               scrollRef={transcriptScroll}
               endRef={transcriptEnd}
@@ -4811,12 +4811,16 @@ function AppContent() {
                onOpenWorkflowMember={openWorkflowChild}
                              onOpenSessionPath={openSessionPath}
             />}
-            <TokenUsageDashboard
+            <SessionDashboard
               entries={history}
               sessionStats={sessionStats}
-              active={tokenUsageOpen}
+              session={activeSession ?? null}
+              active={sessionDashboardOpen}
+              running={activeRunning}
+              elapsedMs={sessionRunningMs}
               provider={models?.current.provider}
               model={models?.current.model}
+              locale={locale}
               onOpenPricingSource={openModelsDevPricing}
             />
 

@@ -153,6 +153,44 @@ export type TokenUsageDashboardData = {
   hasHistoryUsage: boolean;
 };
 
+export type SessionActivitySignal = "user" | "assistant" | "tool" | "error";
+
+export type SessionTurnPoint = {
+  key: string;
+  label: string;
+  time: number;
+  turn?: number;
+  durationMs?: number;
+  userMessages: number;
+  assistantMessages: number;
+  steps: number;
+  toolCalls: number;
+  toolFailures: number;
+  totalTokens: number;
+  signals: SessionActivitySignal[];
+};
+
+export type SessionDashboardSummary = {
+  eventCount: number;
+  userMessages: number;
+  assistantMessages: number;
+  messages: number;
+  turns: number;
+  steps: number;
+  toolCalls: number;
+  toolResults: number;
+  toolFailures: number;
+  firstEventTime?: number;
+  lastEventTime?: number;
+  elapsedMs: number;
+};
+
+export type SessionDashboardData = {
+  summary: SessionDashboardSummary;
+  turns: SessionTurnPoint[];
+  token: TokenUsageDashboardData;
+};
+
 export type SubagentSession = {
   address: DshSubagentAddress;
   history: DshHistoryEntry[];

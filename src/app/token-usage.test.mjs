@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readSessionStats } from "./message-model.ts";
+import { sessionDashboard } from "./session-dashboard.ts";
 import { tokenUsageDashboard, tokenUsageTotals } from "./token-usage.ts";
 
 function entry(seq, type, data, time = 1_700_000_000_000 + seq * 1000) {
@@ -172,4 +173,84 @@ test("recomputes totals for a recent sub-range of response points", () => {
   assert.equal(recent.inputTokens, 210);
   assert.equal(recent.outputTokens, 90);
   assert.equal(recent.totalTokens, 300);
+});
+
+test("aggregates session lifecycle, activity, tools, and tokens by turn", () => {
+  const entries = [
+    entry(1, "turn/start", { turn: 1 }),
+    entry(2, "user/message", { turn: 1, content: "hello", source: { kind: "user" } }),
+    entry(3, "step/start", { turn: 1, step: 1 }),
+    entry(4, "tool/call", { turn: 1, step: 1, callId: "call-1", name: "read" }),
+    entry(5, "tool/result", { turn: 1, step: 1, message: { source: { callId: "call-1" }, content: "done" } }),
+    entry(6, "assistant/message", { turn: 1, step: 1, usage: { input_tokens: 80, output_tokens: 20 } }),
+    entry(7, "step/end", { turn: 1, step: 1 }),
+    entry(8, "turn/end", { turn: 1, reason: { kind: "completed" } }),
+    entry(9, "turn/start", { turn: 2 }),
+    entry(10, "user/message", { turn: 2, content: "retry", source: { kind: "user" } }),
+    entry(11, "tool/call", { turn: 2, step: 1, callId: "call-2", name: "write" }),
+    entry(12, "tool/result", { turn: 2, step: 1, result: { status: "failed", error: "denied" } }),
+    entry(13, "assistant/message", { turn: 2, step: 1, usage: { input_tokens: 120, output_tokens: 30 } }),
+    entry(14, "step/end", { turn: 2, step: 1 }),
+    entry(15, "turn/end", { turn: 2, reason: { kind: "completed" } }),
+  ];
+  const dashboard = sessionDashboard(entries, {
+    ...stats(),
+    tokenUsageAvailable: true,
+    inputTokens: 200,
+    outputTokens: 50,
+    totalTokens: 250,
+    turns: 2,
+    steps: 2,
+  });
+
+  assert.deepEqual(dashboard.summary, {
+    eventCount: 15,
+    userMessages: 2,
+    assistantMessages: 2,
+    messages: 4,
+    turns: 2,
+    steps: 2,
+    toolCalls: 2,
+    toolResults: 2,
+    toolFailures: 1,
+    firstEventTime: 1_700_000_001_000,
+    lastEventTime: 1_700_000_015_000,
+    elapsedMs: 14_000,
+  });
+  assert.equal(dashboard.token.totals.totalTokens, 250);
+  assert.deepEqual(dashboard.turns.map((turn) => ({
+    label: turn.label,
+    durationMs: turn.durationMs,
+    totalTokens: turn.totalTokens,
+    signals: turn.signals,
+  })), [
+    { label: "第 1 轮", durationMs: 7_000, totalTokens: 100, signals: ["user", "tool", "assistant"] },
+    { label: "第 2 轮", durationMs: 6_000, totalTokens: 150, signals: ["user", "tool", "error", "assistant"] },
+  ]);
+});
+
+test("keeps injected context out of human message aggregates", () => {
+  const entries = [
+    entry(1, "turn/start", { turn: 1 }),
+    entry(2, "user/message", { turn: 1, content: "instructions", source: { kind: "plugin" } }),
+    entry(3, "user/message", { turn: 1, content: "hello", source: { kind: "user" } }),
+    entry(4, "assistant/message", { turn: 1, usage: { input_tokens: 5, output_tokens: 2 } }),
+  ];
+  const dashboard = sessionDashboard(entries, stats(), "en", { elapsedMs: 42_000 });
+  assert.equal(dashboard.summary.userMessages, 1);
+  assert.equal(dashboard.summary.messages, 2);
+  assert.equal(dashboard.summary.elapsedMs, 42_000);
+  assert.equal(dashboard.turns[0].label, "Turn 1");
+  assert.deepEqual(dashboard.turns[0].signals, ["user", "assistant"]);
+});
+
+test("extends the current turn duration while the session is running", () => {
+  const entries = [
+    entry(1, "turn/start", { turn: 3 }),
+    entry(2, "user/message", { turn: 3, content: "hello", source: { kind: "user" } }),
+  ];
+  const now = 1_700_000_001_000 + 9_000;
+  const dashboard = sessionDashboard(entries, stats(), "zh", { running: true, now });
+  assert.equal(dashboard.turns[0].durationMs, 9_000);
+  assert.equal(dashboard.summary.elapsedMs, 9_000);
 });
