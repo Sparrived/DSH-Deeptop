@@ -1958,6 +1958,12 @@ body.pin-layer-resizing * {
   font: italic 11px/1.5 var(--mono);
 }
 
+/* 无输入时结果直接占满内容区，不保留空的参数列。 */
+.tool-entry.tool-result-only .tool-parts {
+  grid-template-columns: minmax(0, 1fr);
+}
+.tool-entry.tool-result-only .tool-result-part { grid-column: 1 / -1; }
+
 /* 错误结果统一走原 --danger 9% 混合，不重复定义。 */
 
 /* 窄屏保留逐行结构，字段内的键和值改为上下排列。 */
