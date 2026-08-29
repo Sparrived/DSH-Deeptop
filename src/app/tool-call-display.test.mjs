@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isPrimaryToolArgument, orderedToolArguments, parseToolArgs, toolArgsLayout, toolCallDescription, visibleToolArguments } from "./tool-call-display.ts";
+import { isPrimaryToolArgument, orderedToolArguments, parseToolArgs, toolArgsLayout, toolCallDescription, toolCallSummary, visibleToolArguments } from "./tool-call-display.ts";
 
 test("extracts a durable tool-call description and omits it from parameter rows", () => {
   const args = parseToolArgs(JSON.stringify({ command: "git status", description: "检查工作区状态", workdir: "D:\\Code" }));
@@ -9,6 +9,36 @@ test("extracts a durable tool-call description and omits it from parameter rows"
     ["command", "git status"],
     ["workdir", "D:\\Code"],
   ]);
+});
+
+test("prefers descriptions over tool-specific call-bar fields", () => {
+  assert.equal(toolCallSummary("edit", {
+    description: "修正摘要逻辑",
+    file_path: "src/app/tool-call-display.ts",
+  }), "修正摘要逻辑");
+});
+
+test("uses the edited file as the call-bar summary without a description", () => {
+  assert.equal(toolCallSummary("edit", {
+    file_path: "src/app/tool-call-display.ts",
+    old_string: "before",
+    new_string: "after",
+  }), "src/app/tool-call-display.ts");
+});
+
+test("summarises stable and unknown tools only from meaningful fields", () => {
+  assert.equal(toolCallSummary("pwsh", { command: "git status --short --branch", timeoutMs: 120_000 }), "git status --short --branch");
+  assert.equal(toolCallSummary("web_search", { queries: ["DSH Desktop", "Tauri"] }), "DSH Desktop · Tauri");
+  assert.equal(toolCallSummary("mcp__vendor__unknown", { file_path: "README.md", token: "do-not-display" }), "README.md");
+  assert.equal(toolCallSummary("mcp__vendor__unknown", { token: "do-not-display" }), undefined);
+});
+
+test("summarises common built-in calls without model descriptions", () => {
+  assert.equal(toolCallSummary("skill", { name: "frontend-design" }), "frontend-design");
+  assert.equal(toolCallSummary("job_output", { job_id: "pwsh-19", timeout_ms: 120_000 }), "pwsh-19");
+  assert.equal(toolCallSummary("create_goal", { objective: "发布开发构建", max_goal_rounds: 3 }), "发布开发构建");
+  assert.equal(toolCallSummary("todo_write", { todos: [{ content: "运行验证", status: "in_progress" }] }), "运行验证");
+  assert.equal(toolCallSummary("ask_user_question", { questions: [{ question: "选择发布渠道", options: [{ label: "GitHub" }] }] }), "选择发布渠道");
 });
 
 test("parses the JSON-string argument wrapper used by durable histories", () => {

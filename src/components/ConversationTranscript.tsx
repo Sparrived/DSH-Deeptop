@@ -6,7 +6,7 @@ import { PopupDialog } from "./PopupDialog";
 import { TrajectoryView } from "./TrajectoryView";
 import { toolDomainCard, type ToolDomainCard } from "../app/tool-domain";
 import { ToolArgsView } from "../app/tool-args-render";
-import { parseToolArgs, toolArgsLayout, toolCallDescription } from "../app/tool-call-display";
+import { parseToolArgs, toolArgsLayout, toolCallSummary } from "../app/tool-call-display";
 import { ToolResultView } from "../app/tool-result-render";
 import { entityHost } from "../lib/message-entities";
 import { isWithinSelector, TRANSCRIPT_CONTEXT_MENU_SELECTOR, TRANSCRIPT_TEXT_SELECTOR } from "../app/context-menu";
@@ -132,7 +132,7 @@ function ToolEntryView({
   const [showRawArgs, setShowRawArgs] = useState(false);
   const [showRawResult, setShowRawResult] = useState(false);
   const args = useMemo(() => parseToolArgs(item.text), [item.text]);
-  const description = toolCallDescription(args);
+  const description = toolCallSummary(item.toolName, args);
   const argsLayout = toolArgsLayout(item.toolName, args ?? {});
   return (
     <details className={`tool-entry tool-layout-${argsLayout} ${hasToolResult ? "tool-paired" : ""} ${item.toolResultError ? "tool-error" : ""}`} open={item.toolResultError || undefined}>
