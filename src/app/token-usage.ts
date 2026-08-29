@@ -94,7 +94,7 @@ export function tokenUsageDashboard(entries: DshHistoryEntry[], stats: SessionSt
     points.push({
       ...breakdown,
       key: String(entry.event.seq),
-      label: turn !== undefined && step !== undefined ? "T" + turn + " · S" + step : t("token.response", locale, { index: responseIndex }),
+      label: turn !== undefined && step !== undefined ? t("token.turnStep", locale, { turn, step }) : t("token.response", locale, { index: responseIndex }),
       time: entry.event.time,
       turn,
       step,

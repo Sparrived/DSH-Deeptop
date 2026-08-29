@@ -49,10 +49,13 @@ test("prefers session projection totals while keeping per-response chart points"
   ];
   const result = tokenUsageDashboard(entries, { ...stats(), tokenUsageAvailable: true, inputTokens: 260, outputTokens: 100, totalTokens: 360 });
   assert.equal(result.points.length, 2);
-  assert.deepEqual(result.points.map((point) => point.label), ["T1 · S1", "T1 · S2"]);
+  assert.deepEqual(result.points.map((point) => point.label), ["第 1 轮 · 第 1 步", "第 1 轮 · 第 2 步"]);
   assert.equal(result.totals.inputTokens, 260);
   assert.equal(result.totals.outputTokens, 100);
   assert.equal(result.totals.totalTokens, 360);
+
+  const english = tokenUsageDashboard(entries, { ...stats(), tokenUsageAvailable: true }, "en");
+  assert.deepEqual(english.points.map((point) => point.label), ["T1 · S1", "T1 · S2"]);
 });
 
 test("maps generic cached input to reads without inflating writes", () => {
