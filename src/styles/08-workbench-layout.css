@@ -742,6 +742,13 @@ textarea:focus-visible {
   text-align: right;
 }
 
+.sidebar-heading-actions .sidebar-view-button {
+  width: auto;
+  min-width: 42px;
+  padding-inline: 7px;
+  white-space: nowrap;
+}
+
 .session-list {
   min-height: 0;
   flex: 1;
@@ -759,6 +766,32 @@ textarea:focus-visible {
 
 .workspace-group {
   margin: 0 0 8px;
+}
+
+.active-session-section + .active-session-section {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--rail-text) 10%, transparent);
+}
+
+.active-session-section-heading {
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 6px 3px;
+  color: var(--rail-muted);
+}
+
+.active-session-section-heading strong {
+  color: inherit;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.active-session-section-heading span {
+  font-family: var(--mono);
+  font-size: 10px;
 }
 
 /* 会话区：当前选中工作区的分组头部 */

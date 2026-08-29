@@ -35,6 +35,7 @@ import { UtilityDockShelf } from "./components/UtilityDockShelf";
 import { WindowChrome } from "./components/WindowChrome";
 import { DockSettingsProvider, useDockSettings } from "./app/dock-settings";
 import { clampPinLayerWidth, computePinLayerWidths, PIN_LAYER_MAX_WIDTH, PIN_LAYER_MIN_WIDTH, resolvePinLayerWidths, type PinLayerWidths } from "./app/dock-pin";
+import { buildActiveSessionView } from "./app/active-session-view";
 import { DockPinLayersProvider, type DockPinLayerElements, type DockPinLayerSide } from "./components/DockPinLayers";
 import { PopupDialog } from "./components/PopupDialog";
 import { PluginInstallDialog, type PluginInstallDraft } from "./components/PluginInstallDialog";
@@ -1344,6 +1345,10 @@ function AppContent() {
     workspaces.forEach((item) => item.sessionIds.forEach((sessionId) => result.set(sessionId, item)));
     return result;
   }, [workspaces]);
+  const activeSessionView = useMemo(() => buildActiveSessionView(sessions, workspaces, {
+    archivedSessionIds,
+    indicators: sessionIndicators,
+  }), [archivedSessionIds, sessionIndicators, sessions, workspaces]);
   const trayWorkspaceTitles = useMemo(() => new Map(
     [...workspaceBySessionId].map(([sessionId, workspaceItem]) => [sessionId, workspaceItem.title]),
   ), [workspaceBySessionId]);
@@ -4671,6 +4676,7 @@ function AppContent() {
           onAddWorkspace={() => void addWorkspace()}
           visibleSessions={visibleSessions}
           archivedSessions={archivedSessions}
+          activeSessionView={activeSessionView}
           onRestoreSession={restoreSession}
           onDeleteArchivedSession={setDeleteArchivedTarget}
           selectedWorkspaceGroup={selectedWorkspaceGroup}

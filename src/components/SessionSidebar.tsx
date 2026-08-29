@@ -12,6 +12,7 @@ import {
   type SessionContextMenu,
 } from "../app/model";
 import type { DshSessionSummary, DshWorkspace } from "../lib/desktop";
+import type { ActiveSessionView, ActiveSessionWorkspaceGroup } from "../app/active-session-view";
 import { t, type UiLocale } from "../app/i18n";
 
 export type WorkspaceGroup = {
@@ -19,6 +20,8 @@ export type WorkspaceGroup = {
   workspaceId: string;
   sessions: DshSessionSummary[];
 };
+
+type SidebarView = "sessions" | "active" | "archive";
 
 type DragPreview = {
   order: string[];
@@ -41,6 +44,7 @@ type SessionSidebarProps = {
   onAddWorkspace: () => void | Promise<void>;
   visibleSessions: DshSessionSummary[];
   archivedSessions: DshSessionSummary[];
+  activeSessionView: ActiveSessionView;
   onRestoreSession: (session: DshSessionSummary) => void | Promise<unknown>;
   onDeleteArchivedSession: (session: DshSessionSummary) => void;
   selectedWorkspaceGroup: WorkspaceGroup;
@@ -85,6 +89,7 @@ export function SessionSidebar({
   onAddWorkspace,
   visibleSessions,
   archivedSessions,
+  activeSessionView,
   onRestoreSession,
   onDeleteArchivedSession,
   selectedWorkspaceGroup,
@@ -116,7 +121,9 @@ export function SessionSidebar({
   onSessionDragEnd,
   onSessionContextMenu,
 }: SessionSidebarProps) {
-  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [view, setView] = useState<SidebarView>("sessions");
+  const archiveOpen = view === "archive";
+  const activeOpen = view === "active";
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const [dragCommitPending, setDragCommitPending] = useState(false);
   const { menuRef: sessionMenuRef, menuAt: sessionMenuAt } = useFloatingMenuPosition(sessionContextMenu);
@@ -168,19 +175,19 @@ export function SessionSidebar({
     onSessionDragEnd();
   }
 
-  const renderSessionRow = (session: DshSessionSummary) => <SessionRow
+  const renderSessionRow = (session: DshSessionSummary, crossWorkspace = false) => <SessionRow
     key={session.sessionId}
     locale={locale}
     session={session}
     active={session.sessionId === activeSessionId}
     indicator={sessionIndicators[session.sessionId] ?? "idle"}
     pending={pendingSessionIds.has(session.sessionId)}
-    snippet={searchResultById.get(session.sessionId)}
+    snippet={crossWorkspace ? undefined : searchResultById.get(session.sessionId)}
     pinned={Boolean(workspaceBySessionId.get(session.sessionId)?.pinnedSessionIds?.includes(session.sessionId))}
-    canPin={Boolean(workspaceBySessionId.get(session.sessionId)) && !search.trim()}
-    canDrag={Boolean(workspaceBySessionId.get(session.sessionId))}
+    canPin={Boolean(workspaceBySessionId.get(session.sessionId)) && (crossWorkspace || !search.trim())}
+    canDrag={!crossWorkspace && Boolean(workspaceBySessionId.get(session.sessionId))}
     dragDisabled={Boolean(search.trim()) || dragCommitPending}
-    dragOver={dragOverSessionId === session.sessionId}
+    dragOver={!crossWorkspace && dragOverSessionId === session.sessionId}
     draggedSessionRef={draggedSessionRef}
     onOpen={onOpenSession}
     onTogglePin={onToggleSessionPin}
@@ -189,6 +196,23 @@ export function SessionSidebar({
     onSessionDragEnd={handleSessionDragEnd}
     onContextMenu={onSessionContextMenu}
   />;
+  const renderActiveWorkspaceGroup = (group: ActiveSessionWorkspaceGroup) => <WorkspaceGroupSection
+    key={group.workspaceId}
+    locale={locale}
+    workspace={group.workspace}
+    sessions={group.sessions}
+    onRenameWorkspace={onRenameWorkspace}
+    onDeleteWorkspace={onDeleteWorkspace}
+    renderSession={(session) => renderSessionRow(session, true)}
+  />;
+  const renderActiveSection = (key: "pinned" | "working", groups: ActiveSessionWorkspaceGroup[]) => {
+    if (groups.length === 0) return null;
+    const count = groups.reduce((total, group) => total + group.sessions.length, 0);
+    return <section className="active-session-section" aria-label={t(`sidebar.active.${key}`, locale)}>
+      <div className="active-session-section-heading"><strong>{t(`sidebar.active.${key}`, locale)}</strong><span>{count}</span></div>
+      {groups.map(renderActiveWorkspaceGroup)}
+    </section>;
+  };
   const renderArchivedSession = (session: DshSessionSummary) => (
     <div
       className={`archived-session-row session-status-${session.running ? "running" : "archived"}`}
@@ -214,7 +238,7 @@ export function SessionSidebar({
         <button className={`settings-button sidebar-settings-button ${settingsOpen ? "selected" : ""}`} onClick={onOpenSettings} title={t("sidebar.openSettings", locale)} aria-label={t("sidebar.openSettings", locale)}><span className="settings-button-glyph" aria-hidden="true">⚙</span><span className="settings-button-label">{t("settings.title", locale)}</span></button>
         <button className="small-icon-button" onClick={() => void onAddWorkspace()} title={t("sidebar.addWorkspace", locale)} aria-label={t("sidebar.addWorkspace", locale)}>⌂</button>
       </div>
-      {!archiveOpen && <div className="search-box">
+      {view === "sessions" && <div className="search-box">
         <span aria-hidden="true">/</span>
         <input
           value={search}
@@ -228,28 +252,41 @@ export function SessionSidebar({
 
       <div className="sidebar-heading">
         {archiveOpen ? (
-          <div className="sidebar-heading-title"><button className="sidebar-back-button" type="button" onClick={() => setArchiveOpen(false)} title={t("sidebar.backToSessions", locale)} aria-label={t("sidebar.backToSessions", locale)}>←</button><span>{t("sidebar.archive", locale)}</span></div>
-        ) : <span>{t("sidebar.sessions", locale)}</span>}
+          <div className="sidebar-heading-title"><button className="sidebar-back-button" type="button" onClick={() => setView("sessions")} title={t("sidebar.backToSessions", locale)} aria-label={t("sidebar.backToSessions", locale)}>←</button><span>{t("sidebar.archive", locale)}</span></div>
+        ) : <span>{t(activeOpen ? "sidebar.active" : "sidebar.sessions", locale)}</span>}
         <div className="sidebar-heading-actions">
-          <span>{archiveOpen ? archivedSessions.length : (search.trim() ? visibleSessions.length : (selectedWorkspaceGroup.sessions.length > 0 ? selectedWorkspaceGroup.sessions.length : ""))}</span>
+          <span>{archiveOpen ? archivedSessions.length : activeOpen ? activeSessionView.total : (search.trim() ? visibleSessions.length : (selectedWorkspaceGroup.sessions.length > 0 ? selectedWorkspaceGroup.sessions.length : ""))}</span>
           {!archiveOpen && <>
-            <button type="button" onClick={() => setArchiveOpen(true)} title={t("sidebar.openArchive", locale)}>{t("sidebar.archive", locale)}</button>
+            <button
+              className={`sidebar-view-button${activeOpen ? " selected" : ""}`}
+              type="button"
+              aria-pressed={activeOpen}
+              onClick={() => setView(activeOpen ? "sessions" : "active")}
+              title={t("sidebar.openActive", locale)}
+            >{t("sidebar.active", locale)}</button>
+            <button className="sidebar-view-button" type="button" onClick={() => setView("archive")} title={t("sidebar.openArchive", locale)}>{t("sidebar.archive", locale)}</button>
           </>}
         </div>
       </div>
-      <div className="session-list" aria-label={archiveOpen ? t("sidebar.archiveList", locale) : t("sidebar.sessionList", locale)}>
+      <div className="session-list" aria-label={t(archiveOpen ? "sidebar.archiveList" : activeOpen ? "sidebar.activeList" : "sidebar.sessionList", locale)}>
         {archiveOpen ? (
           archivedSessions.length === 0 ? <div className="sidebar-empty">{t("sidebar.archiveEmpty", locale)}</div> : archivedSessions.map(renderArchivedSession)
+        ) : activeOpen ? (
+          activeSessionView.total === 0 ? <div className="sidebar-empty">{t("sidebar.activeEmpty", locale)}</div> : <>
+            {renderActiveSection("pinned", activeSessionView.pinned)}
+            {renderActiveSection("working", activeSessionView.working)}
+          </>
         ) : search.trim() ? (
-          visibleSessions.length === 0 ? <div className="sidebar-empty">{t("sidebar.searchEmpty", locale)}</div> : visibleSessions.map(renderSessionRow)
+          visibleSessions.length === 0 ? <div className="sidebar-empty">{t("sidebar.searchEmpty", locale)}</div> : visibleSessions.map((session) => renderSessionRow(session))
         ) : <>
           {/* 会话区：当前选中工作区的会话 */}
           <WorkspaceGroupSection
+            locale={locale}
             workspace={selectedWorkspaceGroup.workspace}
             sessions={orderSessions(selectedWorkspaceGroup.sessions)}
             onRenameWorkspace={onRenameWorkspace}
             onDeleteWorkspace={onDeleteWorkspace}
-            renderSession={renderSessionRow}
+            renderSession={(session) => renderSessionRow(session)}
           />
           {selectedWorkspaceGroup.sessions.length === 0 && <div className="sidebar-empty">{t("sidebar.workspaceEmpty", locale)}</div>}
         </>}
@@ -257,7 +294,7 @@ export function SessionSidebar({
 
       {!archiveOpen && sessionContextMenu && createPortal(
         <div ref={sessionMenuRef} className="session-context-menu" style={{ left: sessionMenuAt?.left ?? sessionContextMenu.x, top: sessionMenuAt?.top ?? sessionContextMenu.y }} role="menu" onMouseDown={(event) => event.stopPropagation()}>
-          {workspaceBySessionId.has(sessionContextMenu.session.sessionId) && !search.trim() && <button role="menuitem" onClick={() => onRequestSessionAction("pin", sessionContextMenu.session)}>{workspaceBySessionId.get(sessionContextMenu.session.sessionId)?.pinnedSessionIds?.includes(sessionContextMenu.session.sessionId) ? t("session.unpin", locale) : t("session.pinInWorkspace", locale)}</button>}
+          {workspaceBySessionId.has(sessionContextMenu.session.sessionId) && (activeOpen || !search.trim()) && <button role="menuitem" onClick={() => onRequestSessionAction("pin", sessionContextMenu.session)}>{workspaceBySessionId.get(sessionContextMenu.session.sessionId)?.pinnedSessionIds?.includes(sessionContextMenu.session.sessionId) ? t("session.unpin", locale) : t("session.pinInWorkspace", locale)}</button>}
           <button role="menuitem" onClick={() => onRequestSessionAction("rename", sessionContextMenu.session)}>{t("session.rename", locale)}</button>
           <button role="menuitem" onClick={() => onRequestSessionAction("fork", sessionContextMenu.session)}>{t("session.fork", locale)}</button>
           <button role="menuitem" onClick={() => onRequestSessionAction("export", sessionContextMenu.session)}>{t("session.exportJson", locale)}</button>
