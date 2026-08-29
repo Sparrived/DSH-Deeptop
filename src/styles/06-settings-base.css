@@ -888,6 +888,7 @@
 }
 
 .settings-model-chip.editable button:hover { color: var(--accent-deep); }
+.settings-model-chip.editable button.active { color: var(--accent); }
 .settings-model-chip.editable button:first-of-type { color: var(--accent); }
 .settings-model-chip.editable button:last-of-type:hover { color: var(--danger); }
 

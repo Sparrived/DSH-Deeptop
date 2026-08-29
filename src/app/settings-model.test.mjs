@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { errorText, providerApiKeyEnvOp, providerSettingsOps } from "./settings-model.ts";
+import { errorText, modelHasMaxReasoning, providerApiKeyEnvOp, providerSettingsOps, toggleModelMaxReasoning } from "./settings-model.ts";
 
 test("maps RC8 routing, timezone and image admission errors", () => {
   const modelError = new Error("provider rejected model");
@@ -25,6 +25,23 @@ const stored = {
   baseURL: "http://127.0.0.1:28881/v1",
   models: [{ id: "unified-model", name: "统一模型" }],
 };
+
+test("toggleModelMaxReasoning adds and removes only the canonical max level", () => {
+  const model = { id: "unified-model", name: "统一模型", input: ["text"], reasoningEfforts: { off: "none", high: "high" } };
+  assert.equal(modelHasMaxReasoning(model), false);
+  const enabled = toggleModelMaxReasoning(model);
+  assert.equal(modelHasMaxReasoning(enabled), true);
+  assert.deepEqual(enabled.reasoningEfforts, { off: "none", high: "high", max: "max" });
+  assert.deepEqual(model, { id: "unified-model", name: "统一模型", input: ["text"], reasoningEfforts: { off: "none", high: "high" } });
+  const disabled = toggleModelMaxReasoning(enabled);
+  assert.equal(modelHasMaxReasoning(disabled), false);
+  assert.deepEqual(disabled.reasoningEfforts, { off: "none", high: "high" });
+});
+
+test("toggleModelMaxReasoning removes an off-only declaration instead of creating an invalid profile", () => {
+  const disabled = toggleModelMaxReasoning({ id: "unified-model", reasoningEfforts: { off: null, max: "max" } });
+  assert.deepEqual(disabled, { id: "unified-model" });
+});
 
 test("providerSettingsOps only touches the edited field", () => {
   const ops = providerSettingsOps(settingsPath, stored, {

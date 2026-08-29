@@ -222,6 +222,7 @@
 }
 
 .settings-model-chip button { padding: 0 2px; background: transparent; color: var(--ink-faint); }
+.settings-model-chip button.active { color: var(--accent); }
 .settings-model-chip button:hover { color: var(--danger); }
 
 .settings-provider-draft {

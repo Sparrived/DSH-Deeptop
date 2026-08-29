@@ -44,7 +44,7 @@ It does not put `dsh web` inside a desktop window, nor does it reimplement an ag
 <!-- @deeptop-pets:end readme-feature -->
 | **Continuous conversations** | Stream answers and reasoning as they generate; attach images; queue or steer follow-up prompts while a task is running. |
 | **Agent interaction** | Watch tool calls, Todos, Workflows, Jobs and execution trajectories in one place, and answer approvals plus single-choice, multi-choice or free-form questions. |
-| **Models & providers** | Browse available providers and models, and pick the model and reasoning effort per session; credentials stay managed by the DSH API. |
+| **Models & providers** | Browse available providers and models, pick the model and reasoning effort per session, and declare Max reasoning for custom pi-ai models; credentials stay managed by the DSH API. |
 | **Native runtime console** | Inspect Profiles, plugins, Skills, Agent Presets, Subagents, Goals and runtime state; missing optional capabilities are shown honestly instead of faked. |
 | **Traceable diagnostics** | Aggregate errors from DSH, the Bridge and the frontend; filter them in Settings, open the log directory or export log snapshots. |
 

@@ -5,7 +5,7 @@ import {
   type DshSettingsDescription,
 } from "../lib/desktop";
 import { desktopRequest } from "../lib/desktop-api";
-import { errorText, providerModels, providerProfile, providerSettingsOps, valueAtPath } from "./settings-model";
+import { errorText, providerModels, providerProfile, providerSettingsOps, toggleModelMaxReasoning, valueAtPath } from "./settings-model";
 import type { CustomProviderDraft, DiscoveredModel, ProviderSettingsPatch } from "./model-types";
 import { t, type UiLocale } from "./i18n.ts";
 
@@ -206,6 +206,18 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
     });
   }
 
+  async function toggleProviderModelMaxReasoning(provider: DshProvider, modelId: string) {
+    const namespace = settings?.namespaces.find((item) => item.ns === provider.settingsNs);
+    const current = providerModels(provider, namespace);
+    if (!current.some((model) => String(model.id) === modelId)) {
+      onNotice(t("provider.notice.saveModelFirst", locale));
+      return;
+    }
+    await saveProviderSettings(provider, {
+      models: current.map((model) => String(model.id) === modelId ? toggleModelMaxReasoning(model) : model),
+    });
+  }
+
   async function removeProviderConfiguration(provider: DshProvider) {
     const namespace = settings?.namespaces.find((item) => item.ns === provider.settingsNs);
     if (!namespace || provider.settingsPath.length === 0 || valueAtPath(namespace.user, provider.settingsPath) === undefined) return;
@@ -388,6 +400,7 @@ export function useProviderModelCatalog({ settings, credentials, credentialDraft
     applyDiscoveredModels,
     removeProviderModel,
     toggleProviderModelImages,
+    toggleProviderModelMaxReasoning,
     removeProviderConfiguration,
     discoverCustomProviderModels,
     createCustomProvider,

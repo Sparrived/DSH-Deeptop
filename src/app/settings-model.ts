@@ -91,6 +91,35 @@ export function providerModels(provider: DshProvider, namespace: DshSettingsName
   return value.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item) && typeof (item as Record<string, unknown>).id === "string"));
 }
 
+/** Return whether one provider model declares the canonical Max effort. */
+export function modelHasMaxReasoning(model: Record<string, unknown>): boolean {
+  const efforts = model.reasoningEfforts;
+  return Boolean(efforts && typeof efforts === "object" && !Array.isArray(efforts) && Object.prototype.hasOwnProperty.call(efforts, "max"));
+}
+
+/**
+ * Toggle the canonical Max effort without changing the model's other fields.
+ * Removing the last thinking level removes the declaration entirely because the
+ * DSH profile schema rejects an empty or Off-only reasoning declaration.
+ */
+export function toggleModelMaxReasoning(model: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...model };
+  const efforts = model.reasoningEfforts;
+  if (efforts && typeof efforts === "object" && !Array.isArray(efforts)) {
+    const nextEfforts = { ...(efforts as Record<string, unknown>) };
+    if (Object.prototype.hasOwnProperty.call(nextEfforts, "max")) {
+      delete nextEfforts.max;
+      if (Object.keys(nextEfforts).some((key) => key !== "off")) next.reasoningEfforts = nextEfforts;
+      else delete next.reasoningEfforts;
+    } else {
+      next.reasoningEfforts = { ...nextEfforts, max: "max" };
+    }
+  } else {
+    next.reasoningEfforts = { max: "max" };
+  }
+  return next;
+}
+
 export function sameJson(left: unknown, right: unknown) {
   return JSON.stringify(left) === JSON.stringify(right);
 }

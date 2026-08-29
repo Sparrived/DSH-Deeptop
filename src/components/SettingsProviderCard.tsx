@@ -1,3 +1,4 @@
+import { modelHasMaxReasoning } from "../app/settings-model";
 import type { DiscoveredModel } from "../app/model";
 import type { DshCredential, DshModelGroup, DshProvider } from "../lib/desktop";
 import { PopupDialog } from "./PopupDialog";
@@ -37,6 +38,7 @@ export interface SettingsProviderCardActions {
   onDiscoverModels: ProviderAction;
   onRemoveModel: (modelId: string) => void | Promise<unknown>;
   onToggleModelImages: (modelId: string) => void | Promise<unknown>;
+  onToggleModelMaxReasoning: (modelId: string) => void | Promise<unknown>;
   onToggleCandidate: (modelId: string) => void;
   onApplyCandidates: ProviderAction;
   onCredentialDraftChange: (value: string) => void;
@@ -89,11 +91,14 @@ function ProviderDetails({ view, actions, locale = "zh" }: SettingsProviderCardP
     </div>
     {view.configuredModels.length > 0 && <div className="settings-provider-models configured"><span className="settings-detail-label">{t("provider.configuredModels", locale)}</span>{view.configuredModels.map((model) => {
       const modelId = String(model.id);
+      const modelName = String(model.name || modelId);
       const imageEnabled = Array.isArray(model.input) && model.input.includes("image");
+      const maxReasoningEnabled = modelHasMaxReasoning(model);
       return <span className="settings-model-chip editable" key={`${provider.provider}-configured-${modelId}`}>
-        <span>{String(model.name || modelId)}</span>
-        <button type="button" onClick={() => void actions.onToggleModelImages(modelId)} title={imageEnabled ? t("provider.imageInputOff", locale) : t("provider.imageInputOn", locale)} aria-label={imageEnabled ? t("provider.imageToggleOffAria", locale, { name: String(model.name || modelId) }) : t("provider.imageToggleOnAria", locale, { name: String(model.name || modelId) })}>{imageEnabled ? t("provider.imageGlyph", locale) : t("provider.textGlyph", locale)}</button>
-        <button type="button" onClick={() => void actions.onRemoveModel(modelId)} title={t("provider.removeModel", locale, { name: String(model.name || modelId) })} aria-label={t("provider.removeModel", locale, { name: String(model.name || modelId) })}>×</button>
+        <span>{modelName}</span>
+        <button type="button" onClick={() => void actions.onToggleModelImages(modelId)} title={imageEnabled ? t("provider.imageInputOff", locale) : t("provider.imageInputOn", locale)} aria-label={imageEnabled ? t("provider.imageToggleOffAria", locale, { name: modelName }) : t("provider.imageToggleOnAria", locale, { name: modelName })}>{imageEnabled ? t("provider.imageGlyph", locale) : t("provider.textGlyph", locale)}</button>
+        {provider.settingsNs === "llm-pi-ai" && <button type="button" className={maxReasoningEnabled ? "active" : undefined} disabled={!canEditSettings} onClick={() => void actions.onToggleModelMaxReasoning(modelId)} title={maxReasoningEnabled ? t("provider.reasoningMaxOff", locale) : t("provider.reasoningMaxOn", locale)} aria-label={maxReasoningEnabled ? t("provider.reasoningMaxToggleOffAria", locale, { name: modelName }) : t("provider.reasoningMaxToggleOnAria", locale, { name: modelName })} aria-pressed={maxReasoningEnabled}>MAX</button>}
+         <button type="button" onClick={() => void actions.onRemoveModel(modelId)} title={t("provider.removeModel", locale, { name: modelName })} aria-label={t("provider.removeModel", locale, { name: modelName })}>×</button>
       </span>;
     })}</div>}
     {view.candidates.length > 0 && <div className="settings-provider-candidates"><div className="settings-provider-candidates-heading"><span>{t("provider.discoveryResults", locale)}</span><button type="button" disabled={selectedCandidates.size === 0} onClick={() => void actions.onApplyCandidates()}>{t("provider.applySelected", locale)}</button></div>{view.candidates.map((model) => <label key={`${provider.provider}-candidate-${model.id}`}><input type="checkbox" checked={selectedCandidates.has(model.id)} onChange={() => actions.onToggleCandidate(model.id)} /><span><strong>{model.name || model.id}</strong><small>{model.id}{model.contextWindow ? ` · ${model.contextWindow.toLocaleString()} context` : ""}</small></span></label>)}</div>}
