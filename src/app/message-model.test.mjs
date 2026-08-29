@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { contextProvenance, diffSummaryFromHistoryEntry, contentSegments, formatTokens } from "./message-model.ts";
+import { contextProvenance, diffSummaryFromHistoryEntry, contentSegments, eventToolText, formatTokens } from "./message-model.ts";
 
 test("keeps durable image references for conversation rendering", () => {
   assert.deepEqual(contentSegments([
@@ -17,6 +17,12 @@ test("keeps inline image data for live conversation rendering", () => {
   assert.deepEqual(contentSegments([
     { type: "image", mediaType: "image/png", data: "QUJD", name: "画面.png" },
   ]).images, [{ mediaType: "image/png", data: "QUJD", name: "画面.png" }]);
+});
+
+test("keeps an argument-free tool call empty for result-only rendering", () => {
+  assert.equal(eventToolText({ type: "tool/call", data: {} }), "");
+  assert.equal(eventToolText({ type: "tool/call", data: { arguments: {} } }), "{}");
+  assert.equal(eventToolText({ type: "tool/call", data: { arguments: { job_id: "pwsh-19" } } }), '{\n  "job_id": "pwsh-19"\n}');
 });
 
 test("formats large token counts with readable K/M/B units", () => {

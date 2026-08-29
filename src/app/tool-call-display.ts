@@ -131,6 +131,11 @@ export function toolCallEditDiff(toolName: string | undefined, args: ToolArgsObj
     : undefined;
 }
 
+/** Whether a parsed call still has input worth rendering below its call header. */
+export function hasVisibleToolArguments(toolName: string | undefined, args: ToolArgsObject | undefined): boolean {
+  return args !== undefined && visibleToolArguments(toolName, args).length > 0;
+}
+
 /** Remove summary-only and edit-diff fields from the default parameter rows. */
 export function visibleToolArguments(toolName: string | undefined, args: ToolArgsObject): Array<[string, unknown]> {
   const hidden = toolCallEditDiff(toolName, args)

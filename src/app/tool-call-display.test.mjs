@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isPrimaryToolArgument, orderedToolArguments, parseToolArgs, toolArgsLayout, toolCallDescription, toolCallEditDiff, toolCallSummary, visibleToolArguments } from "./tool-call-display.ts";
+import { hasVisibleToolArguments, isPrimaryToolArgument, orderedToolArguments, parseToolArgs, toolArgsLayout, toolCallDescription, toolCallEditDiff, toolCallSummary, visibleToolArguments } from "./tool-call-display.ts";
 
 test("extracts a durable tool-call description and omits it from parameter rows", () => {
   const args = parseToolArgs(JSON.stringify({ command: "git status", description: "检查工作区状态", workdir: "D:\\Code" }));
@@ -9,6 +9,19 @@ test("extracts a durable tool-call description and omits it from parameter rows"
     ["command", "git status"],
     ["workdir", "D:\\Code"],
   ]);
+});
+
+test("recognizes calls that have no parameter surface", () => {
+  assert.equal(hasVisibleToolArguments("job_list", {}), false);
+  assert.equal(hasVisibleToolArguments("job_list", { description: "列出后台任务" }), false);
+  assert.equal(hasVisibleToolArguments("job_list", { description: 1 }), true);
+  assert.equal(hasVisibleToolArguments("job_list", undefined), false);
+  assert.equal(hasVisibleToolArguments("job_output", { job_id: "pwsh-19" }), true);
+  assert.equal(hasVisibleToolArguments("edit", {
+    file_path: "src/app/tool-call-display.ts",
+    old_string: "before",
+    new_string: "after",
+  }), true);
 });
 
 test("uses the edit diff instead of repeating old and new text in parameter rows", () => {

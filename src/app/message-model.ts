@@ -482,6 +482,9 @@ export function eventToolText(event: DshSessionEvent, locale: UiLocale = "zh") {
     const args = data.arguments;
     if (typeof args === "string") return args;
     if (args !== undefined) return JSON.stringify(args, null, 2);
+    // No arguments is a valid call shape. Keep it empty so the transcript can
+    // render its result directly instead of inventing an input fallback label.
+    return "";
   }
   const fallback = eventContent(event, locale)
     || (data.isError

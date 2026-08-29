@@ -6,7 +6,7 @@ import { PopupDialog } from "./PopupDialog";
 import { TrajectoryView } from "./TrajectoryView";
 import { isResultDomainCard, toolDomainCard, type ToolDomainCard } from "../app/tool-domain";
 import { ToolArgsView } from "../app/tool-args-render";
-import { parseToolArgs, toolArgsLayout, toolCallEditDiff, toolCallSummary } from "../app/tool-call-display";
+import { hasVisibleToolArguments, parseToolArgs, toolArgsLayout, toolCallEditDiff, toolCallSummary } from "../app/tool-call-display";
 import { ToolResultView } from "../app/tool-result-render";
 import { entityHost } from "../lib/message-entities";
 import { isWithinSelector, TRANSCRIPT_CONTEXT_MENU_SELECTOR, TRANSCRIPT_TEXT_SELECTOR } from "../app/context-menu";
@@ -134,9 +134,10 @@ function ToolEntryView({
   const args = useMemo(() => parseToolArgs(item.text), [item.text]);
   const description = toolCallSummary(item.toolName, args);
   const argsLayout = toolArgsLayout(item.toolName, args ?? {});
+  const hasVisibleArgs = hasVisibleToolArguments(item.toolName, args) || (args === undefined && Boolean(item.text.trim()));
   const editDiff = args ? toolCallEditDiff(item.toolName, args) : undefined;
   return (
-    <details className={`tool-entry tool-layout-${argsLayout} ${hasToolResult ? "tool-paired" : ""} ${item.toolResultError ? "tool-error" : ""}`} open={item.toolResultError || undefined}>
+    <details className={`tool-entry tool-layout-${argsLayout} ${hasToolResult && hasVisibleArgs ? "tool-paired" : ""} ${!hasVisibleArgs ? "tool-result-only" : ""} ${item.toolResultError ? "tool-error" : ""}`} open={item.toolResultError || undefined}>
       <summary>
         <span className="tool-summary-main"><span className="tool-state" aria-hidden="true" /><span className="tool-name">{item.toolName}</span></span>
         {description && <span className="tool-description">{description}</span>}
@@ -146,7 +147,7 @@ function ToolEntryView({
       </summary>
       <div className="tool-parts">
         {item.domainCard && !isResultDomainCard(item.domainCard) && <section className="tool-part tool-domain-part"><div className="tool-part-label"><span>{t("conversation.tool.domainView", locale)}</span></div><ToolDomainCardView card={item.domainCard} locale={locale} onOpenUrl={onOpenUrl} /></section>}
-        <section className="tool-part tool-call-part">
+        {hasVisibleArgs && <section className="tool-part tool-call-part">
           <div className="tool-part-label">
             <span>{t("conversation.tool.callArgs", locale)}</span>
             <div className="tool-part-label-right">
@@ -165,7 +166,7 @@ function ToolEntryView({
           {item.toolDiff
             ? <DiffResult diff={item.toolDiff} locale={locale} />
             : editDiff && <EditCallDiff {...editDiff} locale={locale} />}
-        </section>
+        </section>}
         {hasToolResult && (
           <section className={`tool-part tool-result-part ${item.toolResultError ? "tool-result-error" : ""}`}>
             <div className="tool-part-label">

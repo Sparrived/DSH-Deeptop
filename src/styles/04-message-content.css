@@ -323,6 +323,14 @@
   box-shadow: 0 1px 0 rgba(80, 91, 79, 0.08);
 }
 
+/* 无调用参数时不建立左右输入/输出分栏，结果占据完整工具卡片宽度。 */
+.tool-entry.tool-result-only > summary {
+  border-bottom: 1px solid #c8d0c5;
+}
+.tool-entry.tool-result-only .tool-result-part {
+  border-top: 0;
+}
+
 .tool-entry.tool-error {
   border-color: #dfb6a9;
   border-left-color: #c65a46;
