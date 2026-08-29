@@ -1055,17 +1055,24 @@ async function invokeBridge<T>(method: string, payload: Record<string, unknown>,
   if (signal?.aborted) throw signal.reason ?? new DOMException("请求已取消", "AbortError");
   try {
     const request = invoke<DshRpcResponse<T> | T>("bridge_request", { method, payload });
-    const response = signal
-      ? await Promise.race([request, new Promise<never>((_, reject) => {
-        signal.addEventListener("abort", () => reject(signal.reason ?? new DOMException("请求已取消", "AbortError")), { once: true });
-      })])
-      : await request;
-    if (!response || typeof response !== "object") return response as T;
-    if (!("result" in response)) return response as T;
-    const rpcResponse = response as DshRpcResponse<T>;
-    if (!rpcResponse.result) throw new Error("DSH 返回了空响应");
-    if (!rpcResponse.result.ok) throw new DshApiError(rpcResponse.result.error);
-    return rpcResponse.result.value;
+    let abortListener: (() => void) | undefined;
+    try {
+      const response = signal
+        ? await Promise.race([request, new Promise<never>((_, reject) => {
+          abortListener = () => reject(signal.reason ?? new DOMException("请求已取消", "AbortError"));
+          signal.addEventListener("abort", abortListener, { once: true });
+          if (signal.aborted) abortListener();
+        })])
+        : await request;
+      if (!response || typeof response !== "object") return response as T;
+      if (!("result" in response)) return response as T;
+      const rpcResponse = response as DshRpcResponse<T>;
+      if (!rpcResponse.result) throw new Error("DSH 返回了空响应");
+      if (!rpcResponse.result.ok) throw new DshApiError(rpcResponse.result.error);
+      return rpcResponse.result.value;
+    } finally {
+      if (abortListener) signal?.removeEventListener("abort", abortListener);
+    }
   } catch (error) {
     throw decodeBridgeError(error);
   }
@@ -1083,15 +1090,19 @@ export async function bridgeRequest<T>(
   const timer = setTimeout(() => {
     controller.abort(new DshRequestTimeoutError(`DSH 请求超时（${timeoutMs}ms）：${method}`));
   }, timeoutMs);
-  const linkExternalSignal = () => {
-    if (signal?.aborted) controller.abort(signal.reason ?? new DOMException("请求已取消", "AbortError"));
-    else signal?.addEventListener("abort", () => controller.abort(signal.reason ?? new DOMException("请求已取消", "AbortError")), { once: true });
-  };
-  linkExternalSignal();
+  const externalAbortListener = signal
+    ? () => controller.abort(signal.reason ?? new DOMException("请求已取消", "AbortError"))
+    : undefined;
+  if (signal?.aborted) {
+    controller.abort(signal.reason ?? new DOMException("请求已取消", "AbortError"));
+  } else if (signal && externalAbortListener) {
+    signal.addEventListener("abort", externalAbortListener, { once: true });
+  }
   try {
     return await invokeBridge<T>(method, payload, controller.signal);
   } finally {
     clearTimeout(timer);
+    if (externalAbortListener) signal?.removeEventListener("abort", externalAbortListener);
   }
 }
 

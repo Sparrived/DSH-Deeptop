@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { desktopRequest } from "../lib/desktop-api";
 import { desktopClientRuntime } from "../lib/desktop-client-runtime";
+import { trackAsyncCleanup } from "../lib/async-cleanup";
 import {
   isUiThemeDocumentUpdated,
   isUiThemePreference,
@@ -72,9 +73,9 @@ export function useThemeHostSync(options: {
   // 外部修改：settings/document-updated（ui-theme）→ 重新 describe 并采纳。
   useEffect(() => {
     if (!desktop) return;
-    let unlisten: (() => void) | undefined;
+    const cleanups: Array<() => void> = [];
     let cancelled = false;
-    void desktopClientRuntime.remote.on("settings/document-updated", (event) => {
+    trackAsyncCleanup(cleanups, desktopClientRuntime.remote.on("settings/document-updated", (event) => {
       if (cancelled || !isUiThemeDocumentUpdated(event.args)) return;
       void (async () => {
         try {
@@ -89,10 +90,10 @@ export function useThemeHostSync(options: {
           // describe 失败保持现状。
         }
       })();
-    }).then((stop) => { unlisten = stop; }).catch(() => undefined);
+    }), () => cancelled);
     return () => {
       cancelled = true;
-      unlisten?.();
+      cleanups.splice(0).forEach((cleanup) => cleanup());
     };
   }, [desktop, onUserChange, themeMode]);
 

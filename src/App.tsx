@@ -41,7 +41,10 @@ import { PluginInstallDialog, type PluginInstallDraft } from "./components/Plugi
 import { useProviderSettings } from "./app/useProviderSettings";
 import { useWindowControls } from "./app/useWindowControls";
 import { normalizeWindowBehavior } from "./app/window-behavior";
-import { routeBridgeEvent } from "./app/bridge-event-handler";
+import { clearQueuedSessionEvents, routeBridgeEvent } from "./app/bridge-event-handler";
+import { trackAsyncCleanup } from "./lib/async-cleanup";
+import { ImageAttachmentCache } from "./app/image-attachment-cache";
+import { BoundedClaimSet } from "./app/bounded-claim-set";
 import {
   checkDsh,
   checkForUpdates,
@@ -635,7 +638,7 @@ function AppContent() {
   const sessionLoadRequestRef = useRef(0);
   const retryingMessageRef = useRef<number | null>(null);
   const retryingSessionRef = useRef<string | null>(null);
-  const imageAttachmentCacheRef = useRef(new Map<string, Promise<string>>());
+  const imageAttachmentCacheRef = useRef(new ImageAttachmentCache());
   const externalLaunchQueueRef = useRef<ExternalLaunchRequest[]>([]);
   const externalLaunchFlushRef = useRef<Promise<void> | null>(null);
   const externalLaunchBootedRef = useRef(false);
@@ -651,8 +654,10 @@ function AppContent() {
       attachmentId,
     }).then((result) => `data:${result.attachment.mediaType};base64,${result.data}`);
     imageAttachmentCacheRef.current.set(key, request);
-    void request.catch(() => {
-      if (imageAttachmentCacheRef.current.get(key) === request) imageAttachmentCacheRef.current.delete(key);
+    void request.then((value) => {
+      imageAttachmentCacheRef.current.updateSize(key, request, value.length);
+    }).catch(() => {
+      imageAttachmentCacheRef.current.delete(key, request);
     });
     return request;
   }, []);
@@ -1021,16 +1026,13 @@ function AppContent() {
   useEffect(() => {
     if (!desktop) return;
     let active = true;
-    let unlisten: UnlistenFn | undefined;
-    void listenToPetActionRequests((action) => {
+    const cleanups: Array<UnlistenFn> = [];
+    trackAsyncCleanup(cleanups, listenToPetActionRequests((action) => {
       if (active) petActionHandlerRef.current(action);
-    }).then((nextUnlisten) => {
-      if (active) unlisten = nextUnlisten;
-      else nextUnlisten();
-    }).catch((error) => console.error("监听桌宠快捷动作失败", error));
+    }), () => !active, undefined, (error) => console.error("监听桌宠快捷动作失败", error));
     return () => {
       active = false;
-      unlisten?.();
+      cleanups.splice(0).forEach((cleanup) => cleanup());
     };
   }, [desktop]);
   // @deeptop-pets:end app-activity-projection
@@ -1083,24 +1085,31 @@ function AppContent() {
 
   useEffect(() => {
     if (!desktop) return;
-    let unlisten: UnlistenFn | undefined;
-    void listenToUpdateProgress((progress) => {
+    const cleanups: Array<UnlistenFn> = [];
+    let disposed = false;
+    trackAsyncCleanup(cleanups, listenToUpdateProgress((progress) => {
+      if (disposed) return;
       const expectedRelease = updateDownloadReleaseRef.current;
       if (progress.releaseTag && (!expectedRelease || progress.releaseTag !== expectedRelease)) return;
       if (!progress.releaseTag && (progress.phase === "failed" || progress.phase === "cancelled") && !expectedRelease) return;
       setUpdateDownloadState(updateDownloadStateFromEvent(progress, locale));
-    }).then((cleanup) => { unlisten = cleanup; });
-    return () => { unlisten?.(); };
+    }), () => disposed);
+    return () => {
+      disposed = true;
+      cleanups.splice(0).forEach((cleanup) => cleanup());
+    };
   }, [desktop]);
 
   // 系统级文件拖放：Tauri 默认拦截原生拖放，WebView2 不会向页面派发携带
   // OS 文件的 HTML5 drop 事件，因此通过原生事件按落点是否在输入框内分发。
   useEffect(() => {
     if (!desktop) return;
-    let unlisten: UnlistenFn | undefined;
+    const cleanups: Array<UnlistenFn> = [];
+    let disposed = false;
     const overComposer = (x: number, y: number) =>
       document.elementFromPoint(x, y)?.closest(".composer-shell") != null;
-    void listenToWebviewFileDrop((event) => {
+    trackAsyncCleanup(cleanups, listenToWebviewFileDrop((event) => {
+      if (disposed) return;
       if (event.type === "leave") {
         setComposerDropActive(false);
         return;
@@ -1112,9 +1121,10 @@ function AppContent() {
         return;
       }
       setComposerDropActive(hit);
-    }).then((cleanup) => { unlisten = cleanup; });
+    }), () => disposed);
     return () => {
-      unlisten?.();
+      disposed = true;
+      cleanups.splice(0).forEach((cleanup) => cleanup());
       setComposerDropActive(false);
     };
   }, [desktop]);
@@ -2281,6 +2291,8 @@ function AppContent() {
   async function openSession(session: DshSessionSummary, allowAutoRepair = true): Promise<boolean> {
     if (!desktop) return false;
     const loadRequest = ++sessionLoadRequestRef.current;
+    const previousSessionId = activeSessionRef.current;
+    if (previousSessionId && previousSessionId !== session.sessionId) imageAttachmentCacheRef.current.removeSession(previousSessionId);
     activeSessionRef.current = session.sessionId;
     contextProjectionRef.current = false;
     setCorruptSession(null);
@@ -2680,6 +2692,7 @@ function AppContent() {
     setPlan,
     setPendingApprovals,
     setPendingQuestions,
+    setPetCompletions,
     setQuestionAnswersBySession,
     setQuestionCustomAnswersBySession,
     setSessionIndicators,
@@ -2695,13 +2708,21 @@ function AppContent() {
     loadSubagents,
     refreshSessionStats,
     startNewSession,
+    onSessionRemoved: (sessionId) => {
+      imageAttachmentCacheRef.current.removeSession(sessionId);
+      for (const requestId of [...petCompletionPreviewRequestsRef.current]) {
+        if (requestId.includes(`:${sessionId}:`)) petCompletionPreviewRequestsRef.current.delete(requestId);
+      }
+    },
     promoteSessionOnMessage,
   });
 
   useEffect(() => {
     if (!desktop) return;
-    const cleanups: Array<UnlistenFn | undefined> = [];
-    void listenToRuntimeStatus((nextStatus) => {
+    const cleanups: Array<UnlistenFn> = [];
+    let disposed = false;
+    trackAsyncCleanup(cleanups, listenToRuntimeStatus((nextStatus) => {
+      if (disposed) return;
       const wasAvailable = runtimeAvailableRef.current;
       runtimeAvailableRef.current = nextStatus.runtimeAvailable;
       seedBridgeLinkStatus(nextStatus);
@@ -2739,34 +2760,49 @@ function AppContent() {
         runtimeDownRef.current = true;
         downActiveSessionRef.current = activeSessionRef.current;
       }
-    }).then((unlisten) => { cleanups.push(unlisten); });
-    void listenToDiagnostic((message) => {
+    }), () => disposed);
+    trackAsyncCleanup(cleanups, listenToDiagnostic((message) => {
+      if (disposed) return;
       setErrorNotice(message);
       setStatus((current) => current.runtimeAvailable ? current : { ...current, message });
-    }).then((unlisten) => { cleanups.push(unlisten); });
-    void listenToRuntimeLog((log) => {
+    }), () => disposed);
+    trackAsyncCleanup(cleanups, listenToRuntimeLog((log) => {
+      if (disposed) return;
       setStartupLogs((current) => [...current, log].slice(-160));
       setAppLogs((current) => [...current, log].slice(-2000));
-    }).then((unlisten) => { cleanups.push(unlisten); });
-    void listenToNotificationClick((sessionId) => {
+    }), () => disposed);
+    trackAsyncCleanup(cleanups, listenToNotificationClick((sessionId) => {
+      if (disposed) return;
       void openNotificationSession(sessionId).catch((error) => setErrorNotice(errorText(error, locale)));
-    }).then((unlisten) => { cleanups.push(unlisten); });
-    void listenToTraySessionOpen((sessionId) => {
+    }), () => disposed);
+    trackAsyncCleanup(cleanups, listenToTraySessionOpen((sessionId) => {
+      if (disposed) return;
       void openNotificationSession(sessionId).catch((error) => setErrorNotice(errorText(error, locale)));
-    }).then((unlisten) => { cleanups.push(unlisten); });
-    void listenToTrayNewChat(() => {
+    }), () => disposed);
+    trackAsyncCleanup(cleanups, listenToTrayNewChat(() => {
+      if (disposed) return;
       startNewSession();
-    }).then((unlisten) => { cleanups.push(unlisten); });
-    void listenToSingleInstance(() => {
+    }), () => disposed);
+    trackAsyncCleanup(cleanups, listenToSingleInstance(() => {
+      if (disposed) return;
       setNotice(t("notice.switchedRunning", locale));
-    }).then((unlisten) => { cleanups.push(unlisten); });
-    void listenToExternalLaunch((request) => {
+    }), () => disposed);
+    trackAsyncCleanup(cleanups, listenToExternalLaunch((request) => {
+      if (disposed) return;
       queueExternalLaunch(request);
-    }).then((unlisten) => { cleanups.push(unlisten); });
-    void desktopClientRuntime.remote.on("commands/change", () => { void loadCommands(); }).then((unlisten) => { cleanups.push(unlisten); });
-    void desktopClientRuntime.start(routedBridgeEvent).then((unlisten) => { cleanups.push(unlisten); });
+    }), () => disposed);
+    trackAsyncCleanup(cleanups, desktopClientRuntime.remote.on("commands/change", () => {
+      if (!disposed) void loadCommands();
+    }), () => disposed);
+    trackAsyncCleanup(cleanups, desktopClientRuntime.start((event) => {
+      if (!disposed) routedBridgeEvent(event);
+    }), () => disposed);
     void boot();
-    return () => { cleanups.forEach((cleanup) => cleanup?.()); };
+    return () => {
+      disposed = true;
+      cleanups.splice(0).forEach((cleanup) => cleanup());
+      clearQueuedSessionEvents();
+    };
   }, [desktop]);
 
   useEffect(() => {
@@ -3071,6 +3107,8 @@ function AppContent() {
   }
 
   function startNewSession() {
+    const previousSessionId = activeSessionRef.current;
+    if (previousSessionId) imageAttachmentCacheRef.current.removeSession(previousSessionId);
     activeSessionRef.current = null;
     contextProjectionRef.current = false;
     setActiveSessionId(null);
@@ -4173,14 +4211,12 @@ function AppContent() {
   // 同一 rpcId 只允许发出一次 client-response：主窗口弹窗与桌宠快捷卡
   // 都可能对同一审批/问题作答，先同步认领再发送，避免双窗口竞态下
   // 同一 rpcId 收到两个响应（甚至 allow 与 reject 并存）。失败时释放认领以便重试。
-  const respondedRpcIdsRef = useRef(new Set<string>());
+  const respondedRpcIdsRef = useRef(new BoundedClaimSet());
   function claimRespond(rpcId: string) {
-    if (respondedRpcIdsRef.current.has(rpcId)) return false;
-    respondedRpcIdsRef.current.add(rpcId);
-    return true;
+    return respondedRpcIdsRef.current.claim(rpcId);
   }
   function releaseRespondClaim(rpcId: string) {
-    respondedRpcIdsRef.current.delete(rpcId);
+    respondedRpcIdsRef.current.release(rpcId);
   }
 
   async function respondToApproval(outcome: "allowed-once" | "rejected") {

@@ -34,6 +34,7 @@ import type {
   SubagentSession,
   TodoItem,
 } from "./model-types";
+import type { PetCompletionSignal } from "./pet-attention-model";
 
 type BridgeEventHandlerContext = {
   activeSessionRef: MutableRefObject<string | null>;
@@ -52,6 +53,7 @@ type BridgeEventHandlerContext = {
   setPlan: Dispatch<SetStateAction<DshPlanProjection | null>>;
   setPendingApprovals: Dispatch<SetStateAction<Record<string, PendingApproval>>>;
   setPendingQuestions: Dispatch<SetStateAction<Record<string, PendingQuestion>>>;
+  setPetCompletions: Dispatch<SetStateAction<Record<string, PetCompletionSignal>>>;
   setQuestionAnswersBySession: Dispatch<SetStateAction<Record<string, Record<string, string[]>>>>;
   setQuestionCustomAnswersBySession: Dispatch<SetStateAction<Record<string, Record<string, string>>>>;
   setSessionIndicators: Dispatch<SetStateAction<Record<string, SessionIndicator>>>;
@@ -67,6 +69,7 @@ type BridgeEventHandlerContext = {
   loadSubagents: () => void | Promise<void>;
   refreshSessionStats: (sessionId?: string) => void | Promise<void>;
   startNewSession: () => void;
+  onSessionRemoved: (sessionId: string) => void;
   promoteSessionOnMessage: (sessionId: string) => void | Promise<void>;
 };
 
@@ -145,6 +148,15 @@ function queueSessionEvent(event: DshSessionEvent, view: unknown, sessionId: str
   if (queuedSessionFlushTimer === undefined) {
     queuedSessionFlushTimer = setTimeout(() => flushQueuedSessionEvents(context), HISTORY_FLUSH_WINDOW_MS);
   }
+}
+
+/** Drop pending stream events when the owning App instance is unmounted. */
+export function clearQueuedSessionEvents(): void {
+  if (queuedSessionFlushTimer !== undefined) {
+    clearTimeout(queuedSessionFlushTimer);
+    queuedSessionFlushTimer = undefined;
+  }
+  queuedSessionEvents = null;
 }
 
 export function routeBridgeEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext) {
@@ -403,6 +415,7 @@ function routeHostEvent(event: DshBridgeEvent, context: BridgeEventHandlerContex
     subagentRequestRef,
     setSessions,
     setSessionIndicators,
+    setSessionJobs,
     setLoading,
     setSubagents,
     setArchivedSessionIds,
@@ -412,6 +425,7 @@ function routeHostEvent(event: DshBridgeEvent, context: BridgeEventHandlerContex
     setSubagentPanelOpen,
     setPendingApprovals,
     setPendingQuestions,
+    setPetCompletions,
     setQuestionAnswersBySession,
     setQuestionCustomAnswersBySession,
     setNotice,
@@ -419,6 +433,7 @@ function routeHostEvent(event: DshBridgeEvent, context: BridgeEventHandlerContex
     loadSubagents,
     refreshSessionStats,
     startNewSession,
+    onSessionRemoved,
   } = context;
   const payload = event.frame.payload;
   const type = payload.type;
@@ -464,7 +479,15 @@ function routeHostEvent(event: DshBridgeEvent, context: BridgeEventHandlerContex
     const sessionId = String(payload.sessionId ?? "");
     sessionProjectionCache.removeSession(sessionId);
     historyPageCache.removeSession(sessionId);
+    onSessionRemoved(sessionId);
     setSessions((current) => current.filter((session) => session.sessionId !== sessionId));
+    setSessionIndicators((current) => removeSessionRecordEntry(current, sessionId));
+    setSessionJobs((current) => removeSessionRecordEntry(current, sessionId));
+    setPendingApprovals((current) => removeSessionRecordEntry(current, sessionId));
+    setPendingQuestions((current) => removeSessionRecordEntry(current, sessionId));
+    setQuestionAnswersBySession((current) => removeSessionRecordEntry(current, sessionId));
+    setQuestionCustomAnswersBySession((current) => removeSessionRecordEntry(current, sessionId));
+    setPetCompletions((current) => removeSessionRecordEntry(current, sessionId));
     setSubagents((current) => current ? { ...current, entries: current.entries.filter((entry) => entry.id !== sessionId) } : current);
     if (sessionId === selectedSubagentRef.current) {
       subagentRequestRef.current += 1;

@@ -44,6 +44,7 @@ import { DockFrame } from "./DockFrame";
 import { PopupDialog } from "./PopupDialog";
 import { GitTreeGraph } from "./GitTreeGraph";
 import { t, type UiLocale } from "../app/i18n";
+import { trackAsyncCleanup } from "../lib/async-cleanup";
 
 type GitDockTab = "changes" | "history" | "branches";
 
@@ -333,22 +334,20 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   // 窗口重新聚焦时立即刷新（切回应用后马上看到最新状态）。
   useEffect(() => {
     if (collapsed || !workspace || !isTauri()) return;
-    let unlisten: (() => void) | undefined;
-    void getCurrentWindow()
+    const cleanups: Array<() => void> = [];
+    let disposed = false;
+    trackAsyncCleanup(cleanups, getCurrentWindow()
       .onFocusChanged(({ payload: focused }) => {
-        if (!focused) return;
+        if (disposed || !focused) return;
         if (refreshingRef.current) return;
         refreshingRef.current = true;
         void refreshAll().finally(() => {
           refreshingRef.current = false;
         });
-      })
-      .then((fn) => {
-        unlisten = fn;
-      })
-      .catch(() => undefined);
+      }), () => disposed);
     return () => {
-      unlisten?.();
+      disposed = true;
+      cleanups.splice(0).forEach((cleanup) => cleanup());
     };
   }, [collapsed, workspace, refreshAll]);
 

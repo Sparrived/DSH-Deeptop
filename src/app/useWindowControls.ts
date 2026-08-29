@@ -2,6 +2,7 @@ import { useEffect, useState, type MouseEvent } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isWindowChromeControl } from "./ui-model";
 import { errorText } from "./settings-model";
+import { trackAsyncCleanup } from "../lib/async-cleanup";
 
 type UseWindowControlsOptions = {
   desktop: boolean;
@@ -16,12 +17,21 @@ export function useWindowControls({ desktop, minimizeToTray, onCloseRequested, o
   useEffect(() => {
     if (!desktop) return;
     const appWindow = getCurrentWindow();
-    let unlisten: (() => void) | undefined;
-    void appWindow.isMaximized().then(setWindowMaximized).catch(() => undefined);
-    void appWindow.onResized(() => {
-      void appWindow.isMaximized().then(setWindowMaximized).catch(() => undefined);
-    }).then((cleanup) => { unlisten = cleanup; });
-    return () => { unlisten?.(); };
+    const cleanups: Array<() => void> = [];
+    let disposed = false;
+    void appWindow.isMaximized().then((maximized) => {
+      if (!disposed) setWindowMaximized(maximized);
+    }).catch(() => undefined);
+    trackAsyncCleanup(cleanups, appWindow.onResized(() => {
+      if (disposed) return;
+      void appWindow.isMaximized().then((maximized) => {
+        if (!disposed) setWindowMaximized(maximized);
+      }).catch(() => undefined);
+    }), () => disposed);
+    return () => {
+      disposed = true;
+      cleanups.splice(0).forEach((cleanup) => cleanup());
+    };
   }, [desktop]);
 
   async function startWindowDrag(event: MouseEvent<HTMLElement>) {

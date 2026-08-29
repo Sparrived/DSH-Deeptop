@@ -51,6 +51,17 @@ test("evicts the oldest page per session beyond the cap", () => {
   assert.equal(cache.stats().pages, 2);
 });
 
+test("evicts the oldest page across sessions at the global bound", () => {
+  const cache = createHistoryPageCache({ maxPagesPerSession: 10, maxTotalPages: 2 });
+  cache.put("s1", 100, [entry(90)], true);
+  cache.put("s2", 100, [entry(91)], true);
+  cache.put("s1", 50, [entry(40)], true);
+  assert.equal(cache.get("s1", 100), undefined, "oldest global page should be evicted");
+  assert.equal(cache.get("s2", 100).entries[0].event.seq, 91);
+  assert.equal(cache.get("s1", 50).entries[0].event.seq, 40);
+  assert.deepEqual(cache.stats(), { sessions: 2, pages: 2 });
+});
+
 test("key format round-trips", () => {
   assert.equal(historyPageKey("s1", 42), "s1\u000042");
 });

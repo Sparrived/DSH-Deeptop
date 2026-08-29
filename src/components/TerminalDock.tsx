@@ -14,6 +14,7 @@ import {
   type TerminalOption,
 } from "../lib/desktop";
 import { DockFrame } from "./DockFrame";
+import { trackAsyncCleanup } from "../lib/async-cleanup";
 
 type TerminalDockProps = {
   workspace: string;
@@ -164,7 +165,7 @@ export function TerminalDock({ workspace, collapsed, locale = "zh", onToggle, on
       return;
     }
     let cancelled = false;
-    let unlisten: (() => void) | undefined;
+    const cleanups: Array<() => void> = [];
     const renderEvent = (event: { text: string; exited: boolean }) => {
       const terminal = terminalRef.current;
       if (event.exited) {
@@ -176,7 +177,8 @@ export function TerminalDock({ workspace, collapsed, locale = "zh", onToggle, on
         terminal?.write(event.text);
       }
     };
-    void listenToTerminalOutput((event) => {
+    trackAsyncCleanup(cleanups, listenToTerminalOutput((event) => {
+      if (cancelled) return;
       if (event.sessionId !== sessionRef.current) {
         const pending = pendingEventsRef.current.get(event.sessionId) ?? { text: "", exited: false };
         pending.text = `${pending.text}${event.text}`.slice(-64_000);
@@ -190,16 +192,13 @@ export function TerminalDock({ workspace, collapsed, locale = "zh", onToggle, on
         return;
       }
       renderEvent(event);
-    }).then((stop) => {
-      if (cancelled) stop();
-      else {
-        unlisten = stop;
-        setListenerReady(true);
-      }
-    }).catch((error) => onError(t("terminal.errConnect", locale, { detail: errorText(error) })));
+    }), () => cancelled, () => {
+      setListenerReady(true);
+    }, (error) => onError(t("terminal.errConnect", locale, { detail: errorText(error) })));
     return () => {
       cancelled = true;
-      unlisten?.();
+      cleanups.splice(0).forEach((cleanup) => cleanup());
+      pendingEventsRef.current.clear();
       setListenerReady(false);
     };
   }, [locale, onError]);

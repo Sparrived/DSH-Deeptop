@@ -24,6 +24,7 @@ import {
   trayPopupSnapshotsEqual,
 } from "../app/tray-popup-model";
 import { t, type UiLocale } from "../app/i18n";
+import { trackAsyncCleanup } from "../lib/async-cleanup";
 
 const emptySnapshot: TraySessionMenuSnapshot = { unread: [], recent: [], more: [] };
 
@@ -174,7 +175,7 @@ export default function TrayPopup({ locale = "zh" }: { locale?: UiLocale }) {
 
   useEffect(() => {
     let cancelled = false;
-    let unlisten: () => void = () => undefined;
+    const cleanups: Array<() => void> = [];
     void getTrayPopupSnapshot()
       .then((next) => {
         if (!cancelled) setSnapshot((current) => (
@@ -184,14 +185,12 @@ export default function TrayPopup({ locale = "zh" }: { locale?: UiLocale }) {
       .catch((reason) => {
         if (!cancelled) setError(String(reason));
       });
-    void listenToTrayPopupUpdates((next) => {
+    trackAsyncCleanup(cleanups, listenToTrayPopupUpdates((next) => {
+      if (cancelled) return;
       setSnapshot((current) => (
         trayPopupSnapshotsEqual(current, next) ? current : next
       ));
-    }).then((dispose) => {
-      if (cancelled) dispose();
-      else unlisten = dispose;
-    });
+    }), () => cancelled);
     const handleFocus = () => {
       setView("root");
       setError("");
@@ -200,7 +199,7 @@ export default function TrayPopup({ locale = "zh" }: { locale?: UiLocale }) {
     window.addEventListener("focus", handleFocus);
     return () => {
       cancelled = true;
-      unlisten();
+      cleanups.splice(0).forEach((cleanup) => cleanup());
       window.removeEventListener("focus", handleFocus);
     };
   }, []);
