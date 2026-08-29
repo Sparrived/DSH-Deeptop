@@ -144,6 +144,10 @@ textarea {
 .conversation-transcript-stage .transcript-inner .message-text,
 .conversation-transcript-stage .transcript-inner .message-text *,
 .conversation-transcript-stage .transcript-inner .tool-call-arguments,
+.conversation-transcript-stage .transcript-inner .tool-field-value,
+.conversation-transcript-stage .transcript-inner .tool-command-body,
+.conversation-transcript-stage .transcript-inner .tool-longtext,
+.conversation-transcript-stage .transcript-inner .tool-list,
 .conversation-transcript-stage .transcript-inner .tool-result-part pre,
 .conversation-transcript-stage .transcript-inner .reasoning-body pre {
   user-select: text !important;

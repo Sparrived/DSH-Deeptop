@@ -6,6 +6,7 @@ import { PopupDialog } from "./PopupDialog";
 import { TrajectoryView } from "./TrajectoryView";
 import { toolDomainCard, type ToolDomainCard } from "../app/tool-domain";
 import { ToolArgsView } from "../app/tool-args-render";
+import { parseToolArgs, toolArgsLayout, toolCallDescription } from "../app/tool-call-display";
 import { ToolResultView } from "../app/tool-result-render";
 import { entityHost } from "../lib/message-entities";
 import { isWithinSelector, TRANSCRIPT_CONTEXT_MENU_SELECTOR, TRANSCRIPT_TEXT_SELECTOR } from "../app/context-menu";
@@ -130,10 +131,14 @@ function ToolEntryView({
 }) {
   const [showRawArgs, setShowRawArgs] = useState(false);
   const [showRawResult, setShowRawResult] = useState(false);
+  const args = useMemo(() => parseToolArgs(item.text), [item.text]);
+  const description = toolCallDescription(args);
+  const argsLayout = toolArgsLayout(item.toolName, args ?? {});
   return (
-    <details className={`tool-entry ${hasToolResult ? "tool-paired" : ""} ${item.toolResultError ? "tool-error" : ""}`} open={item.toolResultError || undefined}>
+    <details className={`tool-entry tool-layout-${argsLayout} ${hasToolResult ? "tool-paired" : ""} ${item.toolResultError ? "tool-error" : ""}`} open={item.toolResultError || undefined}>
       <summary>
         <span className="tool-summary-main"><span className="tool-state" aria-hidden="true" /><span className="tool-name">{item.toolName}</span></span>
+        {description && <span className="tool-description">{description}</span>}
         <span className={`tool-status ${toolStatus}`}><span className="tool-status-dot" aria-hidden="true" />{item.toolResultError ? t("conversation.tool.error", locale) : hasToolResult ? t("conversation.tool.returned", locale) : t("conversation.tool.running", locale)}</span>
         {diff && <span className="tool-diff-badge" key={`${item.key}-diff-${diff.added}-${diff.removed}`} aria-label={t("conversation.tool.diffAria", locale, { added: diff.added, removed: diff.removed })}><b>+{diff.added}</b><b>-{diff.removed}</b></span>}
         <span className="tool-toggle" aria-hidden="true" />
@@ -155,7 +160,7 @@ function ToolEntryView({
           </div>
           {showRawArgs
             ? <pre className="tool-call-arguments">{formatToolCall(item.text)}</pre>
-            : <ToolArgsView text={item.text} locale={locale} onOpenPath={onOpenPath} />}
+            : <ToolArgsView text={item.text} toolName={item.toolName} args={args} locale={locale} onOpenPath={onOpenPath} onOpenUrl={onOpenUrl} />}
           {item.toolDiff && <DiffResult diff={item.toolDiff} locale={locale} />}
         </section>
         {hasToolResult && (
@@ -659,6 +664,7 @@ function TranscriptArticleView({
     <article
       className={`message-row ${item.kind}${item.injected ? " context-row" : ""}${item.kind === "tool" ? " tool-row" : ""}${annotation ? " has-annotation" : ""}`}
       onContextMenu={(event) => {
+        if (event.target instanceof Element && event.target.closest("button, a, input, select, textarea")) return;
         if (!isWithinSelector(event.target, TRANSCRIPT_TEXT_SELECTOR)) return;
         event.preventDefault();
         onRequestCopyMenu(item, event.clientX, event.clientY, event.target);

@@ -34,6 +34,10 @@ test("recognizes every floating right-click menu the dock must not treat as outs
 test("transcript text selector covers every selectable conversation surface", () => {
   assert.equal(isWithinSelector(targetMatching(".message-text"), TRANSCRIPT_TEXT_SELECTOR), true);
   assert.equal(isWithinSelector(targetMatching(".tool-call-arguments"), TRANSCRIPT_TEXT_SELECTOR), true);
+  assert.equal(isWithinSelector(targetMatching(".tool-field-value"), TRANSCRIPT_TEXT_SELECTOR), true);
+  assert.equal(isWithinSelector(targetMatching(".tool-command-body"), TRANSCRIPT_TEXT_SELECTOR), true);
+  assert.equal(isWithinSelector(targetMatching(".tool-longtext"), TRANSCRIPT_TEXT_SELECTOR), true);
+  assert.equal(isWithinSelector(targetMatching(".tool-list"), TRANSCRIPT_TEXT_SELECTOR), true);
   assert.equal(isWithinSelector(targetMatching(".tool-result-part pre"), TRANSCRIPT_TEXT_SELECTOR), true);
   assert.equal(isWithinSelector(targetMatching(".reasoning-body pre"), TRANSCRIPT_TEXT_SELECTOR), true);
   assert.equal(isWithinSelector(targetMatching(".message-actions"), TRANSCRIPT_TEXT_SELECTOR), false);

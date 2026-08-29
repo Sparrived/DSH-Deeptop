@@ -6,6 +6,10 @@ export const TASK_CONTEXT_MENU_SELECTOR = ".task-context-menu";
 export const TRANSCRIPT_TEXT_SELECTOR = [
   ".message-text",
   ".tool-call-arguments",
+  ".tool-field-value",
+  ".tool-command-body",
+  ".tool-longtext",
+  ".tool-list",
   ".tool-result-part pre",
   ".reasoning-body pre",
 ].join(", ");

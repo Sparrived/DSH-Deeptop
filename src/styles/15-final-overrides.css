@@ -1470,7 +1470,7 @@ body.pin-layer-resizing * {
  *
  * 保留原 tool-entry / tool-parts / tool-part / tool-diff-badge
  * 视觉骨架，仅替换原本的 <pre> 内容。新增：
- *   - tool-args-grid / tool-field / tool-field-{kind} 字段网格
+ *   - tool-args-rows / tool-field / tool-field-{kind} 逐行字段
  *   - tool-command 命令块（带 $ 提示符与 token 染色）
  *   - tool-url / tool-path 路径与 URL chip
  *   - tool-result-tree JSON 树
@@ -1533,44 +1533,57 @@ body.pin-layer-resizing * {
   outline-offset: 2px;
 }
 
-/* 字段网格：自适应两列，小屏单列。 */
+/* 参数按一组纵向信息行读取。键列固定，值列始终对齐，不把无关 KV
+   压进棋盘式双列。固定工具只突出它的主输入，其他字段保持同一读序。 */
 .tool-args {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-.tool-args-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 6px 12px;
+.tool-args-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
 }
 .tool-field {
   display: grid;
-  grid-template-columns: 88px minmax(0, 1fr);
+  grid-template-columns: minmax(92px, 148px) minmax(0, 1fr);
   align-items: start;
-  gap: 8px;
+  gap: 14px;
   min-width: 0;
-  padding: 6px 8px;
+  padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface-soft);
 }
 .tool-field-key {
   align-self: start;
-  padding-top: 1px;
+  padding-top: 3px;
   color: var(--ink-faint);
   font: 600 10px/1.4 var(--mono);
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 .tool-field-value {
   min-width: 0;
   color: var(--ink);
   font-size: 12px;
   line-height: 1.55;
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
+.tool-field.is-prominent {
+  grid-template-columns: 1fr;
+  gap: 6px;
+  padding: 10px;
+  background: color-mix(in srgb, var(--surface) 82%, var(--accent) 4%);
+  border-color: color-mix(in srgb, var(--line-strong) 80%, var(--accent));
+}
+.tool-field.is-prominent .tool-field-key { padding-top: 0; }
+.tool-args-terminal .tool-field-command,
+.tool-args-file .tool-field-path,
+.tool-args-web .tool-field-url,
+.tool-args-delegation .tool-field-longtext { border-left: 2px solid var(--accent); }
 
 /* 字段值类型。 */
 .tool-field-string,
@@ -1709,6 +1722,7 @@ body.pin-layer-resizing * {
 .tool-pattern-plain { color: var(--code-ink); }
 
 /* 路径 chip：分段 + 可选打开按钮。 */
+.tool-path-wrap { display: inline-flex; min-width: 0; flex-direction: column; gap: 4px; }
 .tool-path {
   display: inline-flex;
   flex-wrap: wrap;
@@ -1754,8 +1768,10 @@ body.pin-layer-resizing * {
   color: var(--accent-deep);
 }
 
-/* URL chip。 */
+/* URL chip。使用桌面桥接打开，不把工具参数交给浏览器默认导航。 */
+.tool-url-wrap { display: inline-flex; min-width: 0; flex-direction: column; gap: 4px; }
 .tool-url {
+  max-width: 100%;
   display: inline-flex;
   flex-direction: column;
   gap: 1px;
@@ -1764,13 +1780,14 @@ body.pin-layer-resizing * {
   border-radius: 6px;
   background: var(--surface);
   color: var(--ink);
-  text-decoration: none;
-  max-width: 100%;
+  text-align: left;
 }
-.tool-url:hover {
+.tool-url:hover:not(:disabled) {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 8%, var(--surface));
 }
+.tool-url:disabled { cursor: default; opacity: 0.72; }
+.tool-field-open-error { color: var(--danger); font: 11px/1.4 var(--mono); }
 .tool-url strong {
   color: var(--accent-deep);
   font: 600 12px/1.3 var(--mono);
@@ -1875,13 +1892,56 @@ body.pin-layer-resizing * {
 
 /* 错误结果统一走原 --danger 9% 混合，不重复定义。 */
 
-/* 字段在窄屏单列。 */
+/* 窄屏保留逐行结构，字段内的键和值改为上下排列。 */
 @media (max-width: 640px) {
-  .tool-args-grid { grid-template-columns: minmax(0, 1fr); }
-  .tool-field { grid-template-columns: 1fr; }
-  .tool-field-key { padding-bottom: 2px; }
+  .tool-field { grid-template-columns: 1fr; gap: 4px; }
+  .tool-field-key { padding-top: 0; padding-bottom: 2px; }
 }
 
+
+/* 工具条把“做什么”置于名称之后；状态使用行尾，不再与主信息抢中线。 */
+.tool-entry > summary {
+  grid-template-columns: auto minmax(0, 1fr) auto auto 16px;
+  gap: 10px;
+}
+.tool-summary-main { grid-column: 1; }
+.tool-description {
+  min-width: 0;
+  grid-column: 2;
+  overflow: hidden;
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-status {
+  min-width: 0;
+  grid-column: 4;
+  justify-self: end;
+  font-size: 11px;
+}
+.tool-entry .tool-diff-badge {
+  grid-column: 3;
+  margin-right: 0;
+}
+.tool-toggle { grid-column: 5; }
+.tool-command { gap: 7px; }
+.tool-command-meta { display: flex; align-items: center; gap: 6px; }
+.tool-command-prompt { width: auto; }
+.tool-command-body { max-height: 260px; }
+
+@media (max-width: 720px) {
+  .tool-entry > summary {
+    grid-template-columns: auto minmax(0, 1fr) auto 16px;
+    gap: 8px;
+  }
+  .tool-description { grid-column: 2; font-size: 11px; }
+  .tool-status { grid-column: 3; }
+  .tool-entry .tool-diff-badge { display: none; }
+  .tool-toggle { grid-column: 4; }
+}
 
 /* ============================================================
  * 浮动提问卡片 + 卵石 (Floating Question Card with Pebble)
