@@ -2540,10 +2540,15 @@ impl BridgeManager {
                     "等待 DSH 响应超时".to_string(),
                 ))
             }
-            Err(mpsc::RecvTimeoutError::Disconnected) => Err(structured_bridge_error(
-                "bridge-disconnected",
-                "DSH 响应通道已关闭".to_string(),
-            )),
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                if let Ok(mut state) = self.state.lock() {
+                    state.pending.remove(&request_id);
+                }
+                Err(structured_bridge_error(
+                    "bridge-disconnected",
+                    "DSH 响应通道已关闭".to_string(),
+                ))
+            }
         }
     }
 }
