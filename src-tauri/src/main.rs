@@ -5148,10 +5148,16 @@ mod tests {
             .expect("generate_handler block terminator")
             + list_start;
         let registered: Vec<String> = main_rs[list_start..block_end]
-            .split(',')
-            .map(|entry| entry.trim())
-            .filter(|entry| !entry.is_empty() && !entry.starts_with("//"))
-            .map(|entry| entry.rsplit("::").next().unwrap_or("").to_string())
+            .lines()
+            .filter_map(|line| {
+                let entry = line
+                    .split_once("//")
+                    .map_or(line, |(code, _)| code)
+                    .trim()
+                    .trim_end_matches(',')
+                    .trim();
+                (!entry.is_empty()).then(|| entry.rsplit("::").next().unwrap_or("").to_string())
+            })
             .filter(|name| !name.is_empty())
             .collect();
         assert!(
