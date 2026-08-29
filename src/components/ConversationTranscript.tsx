@@ -396,10 +396,16 @@ function MessageStatsLine({ stats, locale }: { stats?: MessageStats; locale: UiL
 // rewriting the whole accumulated text), so a long reasoning block streams
 // without janking the window. The entry is memoized so an unrelated transcript
 // rebuild (e.g. a tool event) does not re-scan the whole text.
-const ReasoningEntry = memo(function ReasoningEntry({ text, streaming, locale }: { text: string; streaming: boolean; locale: UiLocale }) {
+export const ReasoningEntry = memo(function ReasoningEntry({ text, streaming, locale }: { text: string; streaming: boolean; locale: UiLocale }) {
   const [open, setOpen] = useState(false);
   const bodyRef = useRef<HTMLPreElement | null>(null);
   const renderedLengthRef = useRef(0);
+  // Closing unmounts the <pre>. Reset the incremental-render cursor whenever a
+  // fresh body mounts so reopening the same Think row renders its full content.
+  const setBodyRef = useCallback((pre: HTMLPreElement | null) => {
+    bodyRef.current = pre;
+    if (pre) renderedLengthRef.current = 0;
+  }, []);
   const summary = useMemo(() => {
     const lines = text.split("\n").filter(Boolean);
     const line = streaming ? lines.at(-1) : lines[0];
@@ -430,7 +436,7 @@ const ReasoningEntry = memo(function ReasoningEntry({ text, streaming, locale }:
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
       <summary><span className="reasoning-marker">Think</span><em>{summary}</em></summary>
-      {open && <div className="reasoning-body"><pre ref={bodyRef} /></div>}
+      {open && <div className="reasoning-body"><pre ref={setBodyRef} /></div>}
     </details>
   );
 }, (prev, next) => prev.text === next.text && prev.streaming === next.streaming && prev.locale === next.locale);
