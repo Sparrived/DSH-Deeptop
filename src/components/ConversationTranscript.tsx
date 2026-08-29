@@ -6,7 +6,7 @@ import { PopupDialog } from "./PopupDialog";
 import { TrajectoryView } from "./TrajectoryView";
 import { isResultDomainCard, toolDomainCard, type ToolDomainCard } from "../app/tool-domain";
 import { ToolArgsView } from "../app/tool-args-render";
-import { parseToolArgs, toolArgsLayout, toolCallSummary } from "../app/tool-call-display";
+import { parseToolArgs, toolArgsLayout, toolCallEditDiff, toolCallSummary } from "../app/tool-call-display";
 import { ToolResultView } from "../app/tool-result-render";
 import { entityHost } from "../lib/message-entities";
 import { isWithinSelector, TRANSCRIPT_CONTEXT_MENU_SELECTOR, TRANSCRIPT_TEXT_SELECTOR } from "../app/context-menu";
@@ -134,6 +134,7 @@ function ToolEntryView({
   const args = useMemo(() => parseToolArgs(item.text), [item.text]);
   const description = toolCallSummary(item.toolName, args);
   const argsLayout = toolArgsLayout(item.toolName, args ?? {});
+  const editDiff = args ? toolCallEditDiff(item.toolName, args) : undefined;
   return (
     <details className={`tool-entry tool-layout-${argsLayout} ${hasToolResult ? "tool-paired" : ""} ${item.toolResultError ? "tool-error" : ""}`} open={item.toolResultError || undefined}>
       <summary>
@@ -161,7 +162,9 @@ function ToolEntryView({
           {showRawArgs
             ? <pre className="tool-call-arguments">{formatToolCall(item.text)}</pre>
             : <ToolArgsView text={item.text} toolName={item.toolName} args={args} locale={locale} onOpenPath={onOpenPath} onOpenUrl={onOpenUrl} />}
-          {item.toolDiff && <DiffResult diff={item.toolDiff} locale={locale} />}
+          {item.toolDiff
+            ? <DiffResult diff={item.toolDiff} locale={locale} />
+            : editDiff && <EditCallDiff {...editDiff} locale={locale} />}
         </section>
         {hasToolResult && (
           <section className={`tool-part tool-result-part ${item.toolResultError ? "tool-result-error" : ""}`}>
@@ -309,6 +312,22 @@ function sameItemFields(left: TranscriptItem, right: TranscriptItem) {
     && sameImages(left.images, right.images)
     && sameStats(left.stats, right.stats)
     && sameDomainCard(left.domainCard, right.domainCard);
+}
+
+function diffLineCount(text: string) {
+  if (!text) return 0;
+  const body = text.endsWith("\n") ? text.slice(0, -1) : text;
+  return body ? body.split("\n").length : 0;
+}
+
+function EditCallDiff({ path, oldText, newText, locale }: { path: string; oldText: string; newText: string; locale: UiLocale }) {
+  const diff: DiffSummary = {
+    diffs: [{ path, oldText, newText }],
+    added: diffLineCount(newText),
+    removed: diffLineCount(oldText),
+    files: 1,
+  };
+  return <DiffResult diff={diff} locale={locale} />;
 }
 
 function DiffResult({ diff, locale }: { diff: DiffSummary; locale: UiLocale }) {

@@ -3,6 +3,13 @@ export type ToolArgsObject = Record<string, unknown>;
 
 export type ToolArgsLayout = "terminal" | "file" | "web" | "delegation" | "generic";
 
+/** Minimal call-side diff rendered for an edit before its result metadata arrives. */
+export type ToolCallEditDiff = {
+  path: string;
+  oldText: string;
+  newText: string;
+};
+
 type ToolArgsProfile = {
   layout: ToolArgsLayout;
   /** Fields users identify first for this stable tool family. */
@@ -112,9 +119,24 @@ export function toolCallSummary(toolName: string | undefined, args: ToolArgsObje
   return undefined;
 }
 
-/** Remove the summary-only description from the expanded parameter rows. */
-export function visibleToolArguments(args: ToolArgsObject): Array<[string, unknown]> {
-  return Object.entries(args).filter(([key, value]) => key !== "description" || typeof value !== "string");
+/**
+ * Construct the call-side edit hunk from durable arguments. The result-side
+ * diff still takes precedence once the tool persists its applied metadata.
+ */
+export function toolCallEditDiff(toolName: string | undefined, args: ToolArgsObject): ToolCallEditDiff | undefined {
+  if (normalizedToolName(toolName) !== "edit") return undefined;
+  const { file_path: path, old_string: oldText, new_string: newText } = args;
+  return typeof path === "string" && path.trim() && typeof oldText === "string" && typeof newText === "string"
+    ? { path, oldText, newText }
+    : undefined;
+}
+
+/** Remove summary-only and edit-diff fields from the default parameter rows. */
+export function visibleToolArguments(toolName: string | undefined, args: ToolArgsObject): Array<[string, unknown]> {
+  const hidden = toolCallEditDiff(toolName, args)
+    ? new Set(["description", "old_string", "new_string"])
+    : new Set(["description"]);
+  return Object.entries(args).filter(([key, value]) => !hidden.has(key) || (key === "description" && typeof value !== "string"));
 }
 
 /**
@@ -147,7 +169,7 @@ export function isPrimaryToolArgument(toolName: string | undefined, key: string)
 
 /** Order stable tool arguments without dropping unrecognised extension fields. */
 export function orderedToolArguments(toolName: string | undefined, args: ToolArgsObject): Array<[string, unknown]> {
-  const entries = visibleToolArguments(args);
+  const entries = visibleToolArguments(toolName, args);
   const profile = TOOL_ARG_PROFILES[normalizedToolName(toolName)];
   if (!profile) return entries;
   const rank = new Map(profile.order.map((key, index) => [key, index]));
