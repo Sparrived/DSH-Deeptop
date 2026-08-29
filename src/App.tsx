@@ -4818,6 +4818,7 @@ function AppContent() {
                /> : null}
                 subagent={<SubagentDock
                   locale={locale}
+                  rootSessionId={activeSessionId ?? ""}
                   entries={childSubagents}
                   dockOpen={subagentDockOpen}
                   selectedId={selectedSubagentId}

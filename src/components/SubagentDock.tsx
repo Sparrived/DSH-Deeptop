@@ -6,6 +6,8 @@ import { subagentTreeKey } from "../app/ui-model";
 import type { DshSubagentCatalog } from "../lib/desktop";
 
 type SubagentDockProps = {
+  /** Session that directly owns the top-level catalog entries. */
+  rootSessionId: string;
   entries: ChildSubagentEntry[];
   dockOpen: boolean;
   selectedId: string | null;
@@ -20,8 +22,8 @@ type SubagentDockProps = {
   onToggleBranch: (treeKey: string) => void;
 };
 
-export function SubagentDock({ entries, dockOpen, selectedId, catalogs, expandedBranches, loadingErrors, locale = "zh", onToggleDock, onOpen, onToggleBranch }: SubagentDockProps) {
-  if (entries.length === 0) return null;
+export function SubagentDock({ rootSessionId, entries, dockOpen, selectedId, catalogs, expandedBranches, loadingErrors, locale = "zh", onToggleDock, onOpen, onToggleBranch }: SubagentDockProps) {
+  if (!rootSessionId || entries.length === 0) return null;
   const runningCount = entries.filter((entry) => entry.activity === "running").length;
 
   return (
@@ -50,7 +52,7 @@ export function SubagentDock({ entries, dockOpen, selectedId, catalogs, expanded
     >
       <SubagentTree
         entries={entries}
-        rootSessionId="."
+        rootSessionId={rootSessionId}
         selectedId={selectedId}
         catalogs={catalogs}
         expanded={expandedBranches}
