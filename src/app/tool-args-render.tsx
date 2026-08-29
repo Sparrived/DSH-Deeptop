@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import type { UiLocale } from "./i18n";
 import { t } from "./i18n";
-import { isPrimaryToolArgument, orderedToolArguments, parseToolArgs, toolArgsLayout, type ToolArgsLayout, type ToolArgsObject } from "./tool-call-display";
+import { isPrimaryToolArgument, orderedToolArguments, parseToolArgs, toolArgsLayout, toolTodoItems, type ToolArgsLayout, type ToolArgsObject, type ToolTodoItem } from "./tool-call-display";
 
 /**
  * Render durable tool arguments as task-oriented rows. Every call keeps a
@@ -174,7 +174,25 @@ function ListField({ value, locale }: { value: unknown[]; locale: UiLocale }) {
   return <ul className="tool-list">{value.map((item, index) => <li className="tool-list-item" key={index}><FieldValue value={item} locale={locale} /></li>)}</ul>;
 }
 
-function FieldRow({ keyName, kind, value, locale, onOpenPath, onOpenUrl, layout, primary }: {
+function TodoListField({ todos, locale }: { todos: ToolTodoItem[]; locale: UiLocale }) {
+  if (todos.length === 0) return <span className="tool-field-empty">[]</span>;
+  const labels: Record<ToolTodoItem["status"], string> = {
+    pending: t("todo.pending", locale),
+    in_progress: t("todo.inProgress", locale),
+    completed: t("todo.completed", locale),
+  };
+  return <ol className="tool-todo-list" aria-label={t("todo.listLabel", locale)}>
+    {todos.map((todo, index) => <li className={`tool-todo-item ${todo.status}`} key={`${todo.status}-${todo.content}-${index}`}>
+      <span className="tool-todo-index" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
+      <span className="tool-todo-status" aria-hidden="true">{todo.status === "completed" ? "✓" : todo.status === "in_progress" ? "•" : ""}</span>
+      <span className="tool-todo-content">{todo.content}</span>
+      <span className="tool-todo-label">{labels[todo.status]}</span>
+    </li>)}
+  </ol>;
+}
+
+function FieldRow({ toolName, keyName, kind, value, locale, onOpenPath, onOpenUrl, layout, primary }: {
+  toolName?: string;
   keyName: string;
   kind: FieldKind;
   value: unknown;
@@ -184,11 +202,13 @@ function FieldRow({ keyName, kind, value, locale, onOpenPath, onOpenUrl, layout,
   layout: ToolArgsLayout;
   primary: boolean;
 }) {
+  const todos = (toolName?.toLowerCase() === "todo_write" || toolName?.toLowerCase() === "write_todo") && keyName === "todos" ? toolTodoItems(value) : undefined;
   const prominent = primary || (layout === "terminal" && kind === "command") || (layout === "web" && kind === "url") || (layout === "delegation" && kind === "longtext");
-  return <div className={`tool-field tool-field-${kind}${prominent ? " is-prominent" : ""}`}>
+  return <div className={`tool-field tool-field-${todos ? "todos" : kind}${prominent ? " is-prominent" : ""}`}>
     <span className="tool-field-key">{keyName}</span>
     <div className="tool-field-value">
-      {kind === "path" && typeof value === "string" ? <PathField value={value} locale={locale} onOpenPath={onOpenPath} />
+      {todos ? <TodoListField todos={todos} locale={locale} />
+        : kind === "path" && typeof value === "string" ? <PathField value={value} locale={locale} onOpenPath={onOpenPath} />
         : kind === "command" && typeof value === "string" ? <CommandField value={value} locale={locale} />
           : kind === "longtext" && typeof value === "string" ? <LongTextField value={value} locale={locale} />
             : kind === "url" && typeof value === "string" ? <UrlField value={value} onOpenUrl={onOpenUrl} />
@@ -223,7 +243,7 @@ export function ToolArgsView({ text, toolName, args, locale, onOpenPath, onOpenU
 
   return <div className={`tool-args tool-args-${layout}`}>
     <div className="tool-args-rows">
-      {visible.map((entry) => <FieldRow key={entry.key} keyName={entry.key} kind={entry.kind} value={entry.value} locale={locale} onOpenPath={onOpenPath} onOpenUrl={onOpenUrl} layout={layout} primary={isPrimaryToolArgument(toolName, entry.key)} />)}
+      {visible.map((entry) => <FieldRow key={entry.key} toolName={toolName} keyName={entry.key} kind={entry.kind} value={entry.value} locale={locale} onOpenPath={onOpenPath} onOpenUrl={onOpenUrl} layout={layout} primary={isPrimaryToolArgument(toolName, entry.key)} />)}
     </div>
     {hidden > 0 && <button type="button" className="tool-args-more" onClick={() => setExpanded(true)}>{t("conversation.tool.moreFields", locale, { count: hidden })}</button>}
   </div>;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { hasVisibleToolArguments, isPrimaryToolArgument, orderedToolArguments, parseToolArgs, toolArgsLayout, toolCallDescription, toolCallEditDiff, toolCallSummary, visibleToolArguments } from "./tool-call-display.ts";
+import { hasVisibleToolArguments, isPrimaryToolArgument, orderedToolArguments, parseToolArgs, toolArgsLayout, toolCallDescription, toolCallEditDiff, toolCallSummary, toolTodoItems, visibleToolArguments } from "./tool-call-display.ts";
 
 test("extracts a durable tool-call description and omits it from parameter rows", () => {
   const args = parseToolArgs(JSON.stringify({ command: "git status", description: "检查工作区状态", workdir: "D:\\Code" }));
@@ -22,6 +22,21 @@ test("recognizes calls that have no parameter surface", () => {
     old_string: "before",
     new_string: "after",
   }), true);
+});
+
+test("narrows todo_write arguments into visible task rows", () => {
+  assert.deepEqual(toolTodoItems([
+    { content: "运行验证", status: "in_progress" },
+    { content: "提交改动", status: "pending" },
+    { content: "  完成设计  ", status: "completed" },
+  ]), [
+    { content: "运行验证", status: "in_progress" },
+    { content: "提交改动", status: "pending" },
+    { content: "完成设计", status: "completed" },
+  ]);
+  assert.equal(toolTodoItems({ content: "not-a-list", status: "pending" }), undefined);
+  assert.equal(toolTodoItems([{ content: "缺少状态" }]), undefined);
+  assert.equal(toolTodoItems([{ content: "未知状态", status: "blocked" }]), undefined);
 });
 
 test("uses the edit diff instead of repeating old and new text in parameter rows", () => {
@@ -76,6 +91,7 @@ test("summarises common built-in calls without model descriptions", () => {
   assert.equal(toolCallSummary("job_output", { job_id: "pwsh-19", timeout_ms: 120_000 }), "pwsh-19");
   assert.equal(toolCallSummary("create_goal", { objective: "发布开发构建", max_goal_rounds: 3 }), "发布开发构建");
   assert.equal(toolCallSummary("todo_write", { todos: [{ content: "运行验证", status: "in_progress" }] }), "运行验证");
+  assert.equal(toolCallSummary("write_todo", { todos: [{ content: "运行验证", status: "in_progress" }] }), "运行验证");
   assert.equal(toolCallSummary("ask_user_question", { questions: [{ question: "选择发布渠道", options: [{ label: "GitHub" }] }] }), "选择发布渠道");
 });
 

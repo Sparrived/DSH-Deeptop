@@ -141,8 +141,8 @@ function ToolEntryView({
       <summary>
         <span className="tool-summary-main"><span className="tool-state" aria-hidden="true" /><span className="tool-name">{item.toolName}</span></span>
         {description && <span className="tool-description">{description}</span>}
-        <span className={`tool-status ${toolStatus}`}><span className="tool-status-dot" aria-hidden="true" />{item.toolResultError ? t("conversation.tool.error", locale) : hasToolResult ? t("conversation.tool.returned", locale) : t("conversation.tool.running", locale)}</span>
         {diff && <span className="tool-diff-badge" key={`${item.key}-diff-${diff.added}-${diff.removed}`} aria-label={t("conversation.tool.diffAria", locale, { added: diff.added, removed: diff.removed })}><b>+{diff.added}</b><b>-{diff.removed}</b></span>}
+        <span className={`tool-status ${toolStatus}`}><span className="tool-status-dot" aria-hidden="true" />{item.toolResultError ? t("conversation.tool.error", locale) : hasToolResult ? t("conversation.tool.returned", locale) : t("conversation.tool.running", locale)}</span>
         <span className="tool-toggle" aria-hidden="true" />
       </summary>
       <div className="tool-parts">

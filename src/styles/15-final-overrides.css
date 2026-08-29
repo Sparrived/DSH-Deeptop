@@ -1580,6 +1580,74 @@ body.pin-layer-resizing * {
   border-color: color-mix(in srgb, var(--line-strong) 80%, var(--accent));
 }
 .tool-field.is-prominent .tool-field-key { padding-top: 0; }
+
+/* todo_write 是完整任务快照：沿用右侧待办的语义状态，但压缩为调用参数内的清单。 */
+.tool-field-todos {
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+.tool-field-todos .tool-field-key { padding-top: 0; }
+.tool-todo-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tool-todo-item {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 24px 16px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 7px;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+}
+.tool-todo-index,
+.tool-todo-label {
+  padding-top: 2px;
+  color: var(--ink-faint);
+  font: 10px/1.35 var(--mono);
+  white-space: nowrap;
+}
+.tool-todo-status {
+  width: 15px;
+  height: 15px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--line-strong);
+  border-radius: 50%;
+  color: transparent;
+  font: 700 11px/1 var(--mono);
+}
+.tool-todo-content {
+  min-width: 0;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.tool-todo-item.in_progress .tool-todo-status {
+  border-style: solid;
+  border-color: var(--warning);
+  color: var(--warning);
+  font-size: 16px;
+  line-height: 9px;
+}
+.tool-todo-item.in_progress .tool-todo-label { color: var(--warning); }
+.tool-todo-item.completed .tool-todo-status {
+  border-color: var(--good);
+  background: var(--good);
+  color: var(--on-accent);
+}
+.tool-todo-item.completed .tool-todo-content {
+  color: var(--ink-faint);
+  text-decoration: line-through;
+}
+.tool-todo-item.completed .tool-todo-label { color: var(--good); }
+
 .tool-args-terminal .tool-field-command,
 .tool-args-file .tool-field-path,
 .tool-args-web .tool-field-url,
@@ -1901,13 +1969,17 @@ body.pin-layer-resizing * {
 
 /* 工具条把“做什么”置于名称之后；状态使用行尾，不再与主信息抢中线。 */
 .tool-entry > summary {
+  min-width: 0;
+  display: grid;
+  align-items: center;
   grid-template-columns: auto minmax(0, 1fr) auto auto 16px;
   gap: 10px;
 }
-.tool-summary-main { grid-column: 1; }
+.tool-summary-main { grid-column: 1; grid-row: 1; }
 .tool-description {
   min-width: 0;
   grid-column: 2;
+  grid-row: 1;
   overflow: hidden;
   color: var(--ink-muted);
   font-size: 12px;
@@ -1919,14 +1991,16 @@ body.pin-layer-resizing * {
 .tool-status {
   min-width: 0;
   grid-column: 4;
+  grid-row: 1;
   justify-self: end;
   font-size: 11px;
 }
 .tool-entry .tool-diff-badge {
   grid-column: 3;
+  grid-row: 1;
   margin-right: 0;
 }
-.tool-toggle { grid-column: 5; }
+.tool-toggle { grid-column: 5; grid-row: 1; }
 .tool-command { gap: 7px; }
 .tool-command-meta { display: flex; align-items: center; gap: 6px; }
 .tool-command-prompt { width: auto; }

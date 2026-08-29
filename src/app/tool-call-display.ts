@@ -10,6 +10,11 @@ export type ToolCallEditDiff = {
   newText: string;
 };
 
+export type ToolTodoItem = {
+  content: string;
+  status: "pending" | "in_progress" | "completed";
+};
+
 type ToolArgsProfile = {
   layout: ToolArgsLayout;
   /** Fields users identify first for this stable tool family. */
@@ -48,11 +53,26 @@ const TOOL_ARG_PROFILES: Record<string, ToolArgsProfile> = {
   create_goal: { layout: "delegation", order: ["objective", "max_goal_rounds"], primary: ["objective"], summary: ["objective"] },
   update_goal: { layout: "generic", order: ["action", "goal_id", "objective"], primary: ["action"], summary: ["objective", "action", "goal_id"] },
   todo_write: { layout: "generic", order: ["todos"], primary: ["todos"], summary: ["todos"] },
+  write_todo: { layout: "generic", order: ["todos"], primary: ["todos"], summary: ["todos"] },
   ask_user_question: { layout: "generic", order: ["questions"], primary: ["questions"], summary: ["questions"] },
 };
 
 function isPlainObject(value: unknown): value is ToolArgsObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Narrow a todo_write value to the status-and-content rows its schema guarantees. */
+export function toolTodoItems(value: unknown): ToolTodoItem[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const todos = value.map((item) => {
+    if (!isPlainObject(item) || typeof item.content !== "string") return undefined;
+    const content = item.content.trim();
+    const status = item.status;
+    return content && (status === "pending" || status === "in_progress" || status === "completed")
+      ? { content, status }
+      : undefined;
+  });
+  return todos.every((item): item is ToolTodoItem => item !== undefined) ? todos : undefined;
 }
 
 /** Parse the durable JSON argument string, including one JSON-string wrapper. */
