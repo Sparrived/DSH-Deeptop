@@ -47,11 +47,11 @@ test("projects unread, recent and more sessions without duplicates", () => {
   assert.equal(new Set(ids).size, ids.length);
 });
 
-test("filters archived, blank and child sessions from the tray", () => {
+test("filters archived, blank and subagent sessions but keeps forks in the tray", () => {
   const sessions = [
     session(1),
     session(2, { blank: true }),
-    session(3, { origin: "subagent" }),
+    session(3, { origin: "subagent", parentSessionId: "session-1" }),
     session(4, { parentSessionId: "session-1" }),
     session(5),
   ];
@@ -62,7 +62,10 @@ test("filters archived, blank and child sessions from the tray", () => {
 
   assert.deepEqual(result, {
     unread: [],
-    recent: [{ sessionId: "session-1", title: "会话 1", context: "project-1", status: "idle" }],
+    recent: [
+      { sessionId: "session-4", title: "会话 4", context: "project-4", status: "idle" },
+      { sessionId: "session-1", title: "会话 1", context: "project-1", status: "idle" },
+    ],
     more: [],
   });
 });

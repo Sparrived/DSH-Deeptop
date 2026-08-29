@@ -23,8 +23,8 @@ interface TrayMenuOptions {
 function isEligibleSession(session: DshSessionSummary, archivedSessionIds: ReadonlySet<string>) {
   return !archivedSessionIds.has(session.sessionId)
     && !session.blank
-    && session.origin !== "subagent"
-    && !session.parentSessionId;
+    // Forks preserve parentSessionId; only explicit subagents are ineligible.
+    && session.origin !== "subagent";
 }
 
 function traySessionItem(

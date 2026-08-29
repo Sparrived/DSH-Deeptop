@@ -488,8 +488,9 @@ export function isWindowChromeControl(target: EventTarget | null) {
 }
 
 export function sessionIsVisible(session: DshSessionSummary, workspace: string, query: string) {
-  // Subagent sessions are shown through the Subagent surface instead.
-  if (session.blank || session.origin === "subagent" || session.parentSessionId) return false;
+  // Only sessions explicitly marked as subagents belong on the Subagent surface.
+  // Ordinary fork sessions also have parentSessionId and remain visible here.
+  if (session.blank || session.origin === "subagent") return false;
   if (workspace && session.cwd !== workspace) return false;
   if (!query) return true;
   const haystack = `${displayTitle(session)} ${session.cwd ?? ""}`.toLowerCase();
