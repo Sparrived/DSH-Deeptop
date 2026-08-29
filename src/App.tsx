@@ -145,6 +145,14 @@ import { desktopRequest, desktopRemoteInvoke } from "./lib/desktop-api";
 import { seedBridgeLinkStatus } from "./lib/bridge-link";
 import { overlayProjections, sessionProjectionCache } from "./app/projection-cache";
 import { historyPageCache, HISTORY_PAGE_SIZE_DEFAULT } from "./app/history-page-cache";
+import {
+  indexWorkspacesBySessionId,
+  reorderWorkspaceProjections,
+  sessionsForWorkspace,
+  upsertWorkspaceProjection,
+  workspaceFromHostEvent,
+  workspacePathForSession,
+} from "./app/workspace-session-model";
 
 /** 历史向前分页的页大小：更细粒度缓存，避免一次拉取过多造成长页渲染卡顿。 */
 const HISTORY_PAGE_SIZE = HISTORY_PAGE_SIZE_DEFAULT;
@@ -226,6 +234,7 @@ import {
   readWorkspaceViewPreferences,
   writeWorkspaceViewPreferences,
 } from "./app/workspace-view";
+import { firstSessionForWorkspace } from "./app/workspace-session-selection";
 import {
   backgroundZones,
   defaultAppearance,
@@ -616,7 +625,7 @@ function AppContent() {
   const [composerDropActive, setComposerDropActive] = useState(false);
   const openSessionRef = useRef<(session: DshSessionSummary) => Promise<boolean>>(() => Promise.resolve(false));
   const chooseWorkspaceRef = useRef<(path: string) => Promise<void>>(() => Promise.resolve());
-  const syncConversationToWorkspaceRef = useRef<(path: string) => Promise<void>>(() => Promise.resolve());
+  const syncConversationToWorkspaceRef = useRef<(path: string, knownWorkspace?: DshWorkspace | null) => Promise<void>>(() => Promise.resolve());
   const openingNotificationSessionsRef = useRef(new Set<string>());
   const runtimeAvailableRef = useRef(desktop && status.runtimeAvailable);
   // DSH crash recovery tracking: remembers that we observed a down period and
@@ -632,9 +641,17 @@ function AppContent() {
   const subagentRequestRef = useRef(0);
   const searchRequestRef = useRef(0);
   const workspaceRequestRef = useRef(0);
+  const workspaceSelectionRequestRef = useRef(0);
   const workspaceMutationQueueRef = useRef(Promise.resolve());
   const workspacesRef = useRef<DshWorkspace[]>(workspaces);
   workspacesRef.current = workspaces;
+  function commitWorkspaces(next: DshWorkspace[]) {
+    workspacesRef.current = next;
+    setWorkspaces(next);
+  }
+  function updateWorkspaces(project: (current: DshWorkspace[]) => DshWorkspace[]) {
+    commitWorkspaces(project(workspacesRef.current));
+  }
   const creatingSessionRef = useRef<Promise<string> | null>(null);
   const sessionLoadRequestRef = useRef(0);
   const retryingMessageRef = useRef<number | null>(null);
@@ -1340,11 +1357,7 @@ function AppContent() {
     () => [...archivedSessionIds].map((sessionId) => sessionById.get(sessionId)).filter((session): session is DshSessionSummary => session !== undefined),
     [archivedSessionIds, sessionById],
   );
-  const workspaceBySessionId = useMemo(() => {
-    const result = new Map<string, DshWorkspace>();
-    workspaces.forEach((item) => item.sessionIds.forEach((sessionId) => result.set(sessionId, item)));
-    return result;
-  }, [workspaces]);
+  const workspaceBySessionId = useMemo(() => indexWorkspacesBySessionId(workspaces), [workspaces]);
   const activeSessionView = useMemo(() => buildActiveSessionView(sessions, workspaces, {
     archivedSessionIds,
     indicators: sessionIndicators,
@@ -1371,19 +1384,12 @@ function AppContent() {
     () => workspaces.find((item) => sameWorkspacePath(item.path, workspace)) ?? null,
     [workspace, workspaces],
   );
-  // 会话区：当前选中工作区的会话（工作区内置顶会话优先）；未选择工作区时显示未分组会话。
-  const selectedWorkspaceGroup = useMemo<WorkspaceGroup>(() => {
-    const visibleById = new Map(visibleSessions.map((session) => [session.sessionId, session]));
-    if (selectedWorkspace) {
-      const pinned = new Set(selectedWorkspace.pinnedSessionIds ?? []);
-      const sessions = selectedWorkspace.sessionIds
-        .map((sessionId) => visibleById.get(sessionId))
-        .filter((session): session is DshSessionSummary => session !== undefined)
-        .sort((left, right) => Number(pinned.has(right.sessionId)) - Number(pinned.has(left.sessionId)));
-      return { workspace: selectedWorkspace, workspaceId: selectedWorkspace.workspaceId, sessions };
-    }
-    return { workspace: null, workspaceId: "__ungrouped__", sessions: visibleSessions.filter((session) => !workspaceBySessionId.has(session.sessionId)) };
-  }, [selectedWorkspace, visibleSessions, workspaceBySessionId]);
+  // 会话区：当前选中工作区的会话（工作区内置顶会话优先）；未选择工作区时显示 Host 未登记的会话。
+  const selectedWorkspaceGroup = useMemo<WorkspaceGroup>(() => ({
+    workspace: selectedWorkspace,
+    workspaceId: selectedWorkspace?.workspaceId ?? "__ungrouped__",
+    sessions: sessionsForWorkspace(visibleSessions, workspaces, selectedWorkspace),
+  }), [selectedWorkspace, visibleSessions, workspaces]);
   const defaultModelSelection = useMemo<ModelSelection | null>(() => {
     const configured = settings?.namespaces.find((namespace) => namespace.ns === "agent-default-model")?.value;
     const configuredModel = valueAtPath(configured, ["model"]);
@@ -1773,17 +1779,20 @@ function AppContent() {
 
   async function loadSessions(selectFirst = false): Promise<DshSessionSummary[] | undefined> {
     if (!desktop) return undefined;
+    const workspaceVersion = workspaceRequestRef.current;
     const [sessionResult, workspaceResult] = await Promise.allSettled([
       desktopRequest("session.list"),
       desktopRequest("workspace.list"),
     ]);
     if (sessionResult.status !== "fulfilled") throw sessionResult.reason;
     const result = sessionResult.value;
-    const archivedIds = workspaceResult.status === "fulfilled"
-      ? new Set((workspaceResult.value.archivedSessionIds ?? []).filter((sessionId): sessionId is string => typeof sessionId === "string" && sessionId.length > 0))
-      : archivedSessionIds;
+    let archivedIds = archivedSessionIds;
+    if (workspaceResult.status === "fulfilled" && workspaceVersion === workspaceRequestRef.current) {
+      archivedIds = new Set((workspaceResult.value.archivedSessionIds ?? []).filter((sessionId): sessionId is string => typeof sessionId === "string" && sessionId.length > 0));
+      commitWorkspaces(workspaceResult.value.items);
+      setArchivedSessionIds(archivedIds);
+    }
     const unique = [...new Map(result.items.filter((session) => session.sessionId).map((session) => [session.sessionId, session])).values()];
-    setArchivedSessionIds(archivedIds);
     setSessions(unique);
     if (selectFirst && !activeSessionRef.current) {
       const next = unique.find((session) => !archivedIds.has(session.sessionId) && !session.blank);
@@ -1838,10 +1847,10 @@ function AppContent() {
         } else {
           workspaceRepairNoticeRef.current = "";
         }
-        setWorkspaces(workspaceItems);
+        commitWorkspaces(workspaceItems);
         setArchivedSessionIds(archivedIds);
         if (!workspaceSelectionInitializedRef.current && activeSessionRef.current) {
-          setWorkspace(workspaceItems.find((item) => item.sessionIds.includes(activeSessionRef.current!))?.path ?? "");
+          setWorkspace(workspacePathForSession(activeSessionRef.current, workspaceItems));
           workspaceSelectionInitializedRef.current = true;
         }
       }
@@ -2305,15 +2314,9 @@ function AppContent() {
     setPresetMigrationSelection("");
     setSessionIndicators((current) => ({ ...current, [session.sessionId]: "idle" }));
     setActiveSessionId(session.sessionId);
-    // [ws-diag 临时] openSession 对工作区状态的计算（侧栏跟随的关键）
-    const workspaceForSession = workspaces.find((item) => item.sessionIds.includes(session.sessionId))?.path ?? session.cwd ?? "";
-    console.error("[ws-diag] openSession", JSON.stringify({
-      sessionId: session.sessionId,
-      sessionCwd: session.cwd ?? null,
-      workspaceForSession,
-      workspaceState: workspace,
-    }));
-    setWorkspace(workspaceForSession);
+    // Existing sessions follow the Host workspace account. cwd only chooses the
+    // working directory when creating a session; it does not imply membership.
+    setWorkspace(workspacePathForSession(session.sessionId, workspacesRef.current));
     setHistory([]);
     setHistoryHasMore(false);
     setHistoryLoadingOlder(false);
@@ -2352,7 +2355,7 @@ function AppContent() {
       const [historyResult, modelsResult] = await Promise.all([
         desktopRequest("session.history", {
           sessionId: session.sessionId,
-          maxMessages: 100,
+          maxMessages: HISTORY_PAGE_SIZE,
         }, undefined, { waitForReconnect: true }),
         desktopRequest("session.models", { sessionId: session.sessionId }, undefined, { waitForReconnect: true }),
       ]);
@@ -2585,10 +2588,10 @@ function AppContent() {
       const result = await desktopRequest("workspace.create", { path });
       workspaceSelectionInitializedRef.current = true;
       setWorkspace(result.workspace.path);
-      setWorkspaces((current) => current.some((item) => item.workspaceId === result.workspace.workspaceId)
+      updateWorkspaces((current) => current.some((item) => item.workspaceId === result.workspace.workspaceId)
         ? current.map((item) => item.workspaceId === result.workspace.workspaceId ? result.workspace : item)
         : [result.workspace, ...current]);
-      await syncConversationToWorkspaceRef.current(result.workspace.path);
+      await syncConversationToWorkspaceRef.current(result.workspace.path, result.workspace);
     }
     setNotice(t("notice.launchedFromPath", locale, { path: path }));
   }
@@ -2680,7 +2683,47 @@ function AppContent() {
     }
   }
 
-  const routedBridgeEvent = (event: DshBridgeEvent) => routeBridgeEvent(event, {
+  function routeWorkspaceBridgeEvent(event: DshBridgeEvent): boolean {
+    if (event.channel !== "host") return false;
+    const payload = event.frame.payload;
+    if (payload.type === "host/workspace-changed") {
+      const changed = workspaceFromHostEvent(payload.workspace);
+      if (!changed) return true;
+      workspaceRequestRef.current += 1;
+      const current = workspacesRef.current;
+      const next = upsertWorkspaceProjection(current, changed);
+      const activeSessionId = activeSessionRef.current;
+      const previousActivePath = activeSessionId ? workspacePathForSession(activeSessionId, current) : "";
+      const nextActivePath = activeSessionId ? workspacePathForSession(activeSessionId, next) : "";
+      commitWorkspaces(next);
+      if (activeSessionId && previousActivePath !== nextActivePath) setWorkspace(nextActivePath);
+      return true;
+    }
+    if (payload.type === "host/workspace-removed") {
+      if (typeof payload.workspaceId !== "string") return true;
+      workspaceRequestRef.current += 1;
+      const current = workspacesRef.current;
+      const next = current.filter((workspaceItem) => workspaceItem.workspaceId !== payload.workspaceId);
+      const activeSessionId = activeSessionRef.current;
+      const previousActivePath = activeSessionId ? workspacePathForSession(activeSessionId, current) : "";
+      const nextActivePath = activeSessionId ? workspacePathForSession(activeSessionId, next) : "";
+      commitWorkspaces(next);
+      setPinnedWorkspaceIds((pinnedIds) => pinnedIds.filter((workspaceId) => workspaceId !== payload.workspaceId));
+      if (activeSessionId && previousActivePath !== nextActivePath) setWorkspace(nextActivePath);
+      return true;
+    }
+    if (payload.type === "host/workspace-order-changed") {
+      if (!Array.isArray(payload.workspaceIds) || !payload.workspaceIds.every((workspaceId) => typeof workspaceId === "string")) return true;
+      workspaceRequestRef.current += 1;
+      commitWorkspaces(reorderWorkspaceProjections(workspacesRef.current, payload.workspaceIds));
+      return true;
+    }
+    return false;
+  }
+
+  const routedBridgeEvent = (event: DshBridgeEvent) => {
+    if (routeWorkspaceBridgeEvent(event)) return;
+    routeBridgeEvent(event, {
     activeSessionRef,
     contextProjectionRef,
     selectedSubagentRef,
@@ -2720,7 +2763,8 @@ function AppContent() {
       }
     },
     promoteSessionOnMessage,
-  });
+    });
+  };
 
   useEffect(() => {
     if (!desktop) return;
@@ -2815,47 +2859,37 @@ function AppContent() {
     transcriptEnd.current?.scrollIntoView({ behavior: "auto" });
   }, [history, loading, transcriptFollowing]);
 
-  function firstConversationForWorkspace(workspacePath: string, workspaceItem: DshWorkspace | null): DshSessionSummary | null {
-    // Mirrors the sidebar workspace grouping so the conversation page always opens a
-    // session that the sidebar can highlight for the newly selected workspace.
-    const visibleById = new Map(visibleSessions.map((session) => [session.sessionId, session]));
-    if (workspaceItem) {
-      for (const sessionId of workspaceItem.sessionIds) {
-        const session = visibleById.get(sessionId);
-        if (session) return session;
-      }
-      return null;
-    }
-    if (!workspacePath) {
-      // 未分组：不属于任何工作区的第一个会话。
-      return visibleSessions.find((session) => !workspaceBySessionId.has(session.sessionId)) ?? null;
-    }
-    return null;
-  }
-
-  async function syncConversationToWorkspace(workspacePath: string) {
+  async function syncConversationToWorkspace(
+    workspacePath: string,
+    knownWorkspace?: DshWorkspace | null,
+    selectionRequest?: number,
+  ) {
     if (!desktop) return;
-    // Read the authoritative workspace projection so sessions attached during
-    // add/choose are included when selecting the first conversation.
-    let workspaceItem = workspaces.find((item) => sameWorkspacePath(item.path, workspacePath)) ?? null;
-    if (workspacePath) {
+    let workspaceItem = knownWorkspace;
+    // Registered menu items carry their authoritative snapshot. Ungrouped is an
+    // absence claim, so refresh it before choosing a conversation; new/external
+    // workspace flows also omit a snapshot and use this baseline read.
+    if (workspaceItem === undefined || (!workspacePath && workspaceItem === null)) {
+      workspaceItem = workspacesRef.current.find((item) => sameWorkspacePath(item.path, workspacePath)) ?? null;
       try {
         const refreshed = await desktopRequest("workspace.list");
-        workspaceItem = refreshed.items.find((item) => sameWorkspacePath(item.path, workspacePath)) ?? workspaceItem;
+        if (selectionRequest !== undefined && selectionRequest !== workspaceSelectionRequestRef.current) return;
+        commitWorkspaces(refreshed.items);
+        if (refreshed.archivedSessionIds) setArchivedSessionIds(new Set(refreshed.archivedSessionIds));
+        workspaceItem = workspacePath
+          ? refreshed.items.find((item) => sameWorkspacePath(item.path, workspacePath)) ?? workspaceItem
+          : null;
       } catch {
-        // Fall back to the local projection.
+        // Keep the current projection when the Host baseline is temporarily unavailable.
       }
     }
-    const first = firstConversationForWorkspace(workspacePath, workspaceItem);
-    // [ws-diag 临时] 同步决策输入输出
-    console.error("[ws-diag] syncConversationToWorkspace", JSON.stringify({
+    if (selectionRequest !== undefined && selectionRequest !== workspaceSelectionRequestRef.current) return;
+    const first = firstSessionForWorkspace(
       workspacePath,
-      workspaceItem: workspaceItem ? { workspaceId: workspaceItem.workspaceId, path: workspaceItem.path, sessionIds: workspaceItem.sessionIds.length } : null,
-      first: first?.sessionId ?? null,
-      visibleSessions: visibleSessions.length,
-      activeSessionId: activeSessionRef.current,
-      localWorkspaces: workspaces.length,
-    }));
+      workspaceItem,
+      visibleSessions,
+      indexWorkspacesBySessionId(workspacesRef.current),
+    );
     if (first) {
       if (activeSessionRef.current !== first.sessionId) await openSession(first);
     } else {
@@ -2878,11 +2912,17 @@ function AppContent() {
       try {
         const result = await desktopRequest("workspace.create", { path: picked });
         setWorkspace(result.workspace.path);
-        setWorkspaces((current) => current.some((item) => item.workspaceId === result.workspace.workspaceId)
+        updateWorkspaces((current) => current.some((item) => item.workspaceId === result.workspace.workspaceId)
           ? current.map((item) => item.workspaceId === result.workspace.workspaceId ? result.workspace : item)
           : [result.workspace, ...current]);
         const repair = await attachUnregisteredSessions(result.workspace);
-        await loadRuntimeDetails();
+        let selected = result.workspace;
+        if (repair.attached > 0) {
+          const refreshed = await desktopRequest("workspace.list");
+          commitWorkspaces(refreshed.items);
+          if (refreshed.archivedSessionIds) setArchivedSessionIds(new Set(refreshed.archivedSessionIds));
+          selected = refreshed.items.find((item) => item.workspaceId === result.workspace.workspaceId) ?? selected;
+        }
         if (repair.rejected > 0) {
           // 目录刚经原生对话框选择并创建成功，拒绝说明既有会话的 cwd 归属无法确认。
           setErrorNotice(repair.attached > 0
@@ -2890,7 +2930,7 @@ function AppContent() {
             : t("notice.repairUnconfirmed", locale, { rejected: repair.rejected, reason: repair.reason ?? "" }));
         } else if (repair.attached > 0) setNotice(t("notice.repairAttachedSameDir", locale, { count: repair.attached }));
         // 保持对话页面与工作区选择同步：打开新工作区的第一个会话，没有会话则显示新会话页面。
-        await syncConversationToWorkspace(result.workspace.path);
+        await syncConversationToWorkspace(result.workspace.path, selected);
       } catch {
         // A session can use a directory even when workspace registration is unavailable.
       }
@@ -2903,35 +2943,37 @@ function AppContent() {
   syncConversationToWorkspaceRef.current = syncConversationToWorkspace;
 
   async function chooseWorkspace(path: string) {
+    const selectionRequest = ++workspaceSelectionRequestRef.current;
     workspaceSelectionInitializedRef.current = true;
     setWorkspace(path);
     setWorkspaceMenuOpen(false);
     setNotice(path ? t("notice.workspaceApplied", locale) : t("notice.workspaceRuntimeDir", locale));
-    const selected = workspaces.find((item) => item.path === path);
+    let selected = workspacesRef.current.find((item) => sameWorkspacePath(item.path, path)) ?? null;
     if (selected) {
       try {
         const repair = await attachUnregisteredSessions(selected);
+        if (selectionRequest !== workspaceSelectionRequestRef.current) return;
         if (repair.rejected > 0) {
           setErrorNotice(repair.attached > 0
             ? t("notice.repairFailedPartial", locale, { attached: repair.attached, rejected: repair.rejected, reason: repair.reason ?? "" })
             : t("notice.repairFailed", locale, { rejected: repair.rejected, reason: repair.reason ?? "" }));
-        } else if (repair.attached > 0) {
-          await loadRuntimeDetails();
-          setNotice(t("notice.repairAttachedSameDir", locale, { count: repair.attached }));
+        }
+        if (repair.attached > 0) {
+          const refreshed = await desktopRequest("workspace.list");
+          if (selectionRequest !== workspaceSelectionRequestRef.current) return;
+          commitWorkspaces(refreshed.items);
+          if (refreshed.archivedSessionIds) setArchivedSessionIds(new Set(refreshed.archivedSessionIds));
+          selected = refreshed.items.find((item) => item.workspaceId === selected?.workspaceId) ?? selected;
+          if (repair.rejected === 0) setNotice(t("notice.repairAttachedSameDir", locale, { count: repair.attached }));
         }
       } catch (error) {
+        if (selectionRequest !== workspaceSelectionRequestRef.current) return;
         setErrorNotice(errorText(error, locale));
       }
     }
-    // 保持对话页面与工作区选择同步：打开新工作区的第一个会话，没有会话则显示新会话页面。
-    await syncConversationToWorkspace(path);
-    // [ws-diag 临时] 点击后的最终状态
-    console.error("[ws-diag] chooseWorkspace 完成", JSON.stringify({
-      path,
-      workspaceState: workspace,
-      workspaceMenuOpen,
-      activeSessionId: activeSessionRef.current,
-    }));
+    // Common path: use the already-loaded workspace projection, so history and
+    // model requests start without waiting for another workspace.list roundtrip.
+    await syncConversationToWorkspace(path, selected, selectionRequest);
   }
 
   async function repairWorkspaceMembership(
@@ -2958,7 +3000,11 @@ function AppContent() {
   }
 
   async function attachUnregisteredSessions(item: DshWorkspace): Promise<WorkspaceRepairResult> {
-    return repairWorkspaceMembership([item], sessions, [...workspaces, item]);
+    const current = workspacesRef.current;
+    const allWorkspaceItems = current.some((workspaceItem) => workspaceItem.workspaceId === item.workspaceId)
+      ? current
+      : [...current, item];
+    return repairWorkspaceMembership([item], sessionsRef.current, allWorkspaceItems);
   }
 
   // 置顶工作区：置顶后固定显示在侧栏工作区列表最上方，保持置顶顺序。
@@ -2976,7 +3022,7 @@ function AppContent() {
         workspaceId: item.workspaceId,
         title: title.trim(),
       });
-      setWorkspaces((current) => current.map((workspaceItem) => workspaceItem.workspaceId === item.workspaceId
+      updateWorkspaces((current) => current.map((workspaceItem) => workspaceItem.workspaceId === item.workspaceId
         ? { ...result.workspace, pinnedSessionIds: result.workspace.pinnedSessionIds ?? workspaceItem.pinnedSessionIds }
         : workspaceItem));
       setNotice(t("notice.workspaceRenamed", locale));
@@ -3004,7 +3050,7 @@ function AppContent() {
     if (!await requestConfirm(t("dialog.deleteWorkspace", locale, { workspace: item.title || projectName(item.path, locale) }))) return;
     try {
       await desktopRequest("workspace.delete", { workspaceId: item.workspaceId });
-      setWorkspaces((current) => current.filter((workspaceItem) => workspaceItem.workspaceId !== item.workspaceId));
+      updateWorkspaces((current) => current.filter((workspaceItem) => workspaceItem.workspaceId !== item.workspaceId));
       setPinnedWorkspaceIds((current) => current.filter((workspaceId) => workspaceId !== item.workspaceId));
       if (workspace === item.path) setWorkspace("");
       setNotice(t("notice.workspaceRemoved", locale));
@@ -3046,15 +3092,13 @@ function AppContent() {
       const nextWorkspaces = workspacesRef.current.map((item) => item.workspaceId === targetWorkspace.workspaceId
         ? { ...item, sessionIds: nextSessionIds }
         : { ...item, sessionIds: item.sessionIds.filter((candidate) => candidate !== sessionId) });
-      workspacesRef.current = nextWorkspaces;
-      setWorkspaces(nextWorkspaces);
+      commitWorkspaces(nextWorkspaces);
 
       // Read back only the authoritative workspace projection. A broad runtime
       // refresh is slower and can briefly restore a stale sessionIds array.
       const refreshed = await desktopRequest("workspace.list");
       if (workspaceVersion !== workspaceRequestRef.current) return;
-      workspacesRef.current = refreshed.items;
-      setWorkspaces(refreshed.items);
+      commitWorkspaces(refreshed.items);
       if (refreshed.archivedSessionIds) setArchivedSessionIds(new Set(refreshed.archivedSessionIds));
       if (announce) setNotice(t("notice.sessionOrderUpdated", locale));
     } catch (error) {
@@ -3080,8 +3124,7 @@ function AppContent() {
       const nextWorkspaces = workspacesRef.current.map((item) => item.workspaceId === result.workspaceId
         ? { ...item, pinnedSessionIds: result.pinnedSessionIds }
         : item);
-      workspacesRef.current = nextWorkspaces;
-      setWorkspaces(nextWorkspaces);
+      commitWorkspaces(nextWorkspaces);
       setNotice(nextPinned ? t("notice.sessionPinned", locale) : t("notice.sessionUnpinned", locale));
     } catch (error) {
       setErrorNotice(errorText(error, locale));
@@ -3197,7 +3240,7 @@ function AppContent() {
         workspaceId: selectedWorkspace.workspaceId,
         sessionId: created.sessionId,
       });
-      setWorkspaces((current) => current.map((item) =>
+      updateWorkspaces((current) => current.map((item) =>
         item.workspaceId === attached.workspace.workspaceId ? attached.workspace : item,
       ));
     }
