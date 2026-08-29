@@ -4,7 +4,7 @@ import { isFilePath, type DshHistoryEntry, type DshMessageAnnotationItem, type D
 import { MarkdownContent } from "../lib/markdown";
 import { PopupDialog } from "./PopupDialog";
 import { TrajectoryView } from "./TrajectoryView";
-import { toolDomainCard, type ToolDomainCard } from "../app/tool-domain";
+import { isResultDomainCard, toolDomainCard, type ToolDomainCard } from "../app/tool-domain";
 import { ToolArgsView } from "../app/tool-args-render";
 import { parseToolArgs, toolArgsLayout, toolCallSummary } from "../app/tool-call-display";
 import { ToolResultView } from "../app/tool-result-render";
@@ -144,7 +144,7 @@ function ToolEntryView({
         <span className="tool-toggle" aria-hidden="true" />
       </summary>
       <div className="tool-parts">
-        {item.domainCard && <section className="tool-part tool-domain-part"><div className="tool-part-label"><span>{t("conversation.tool.domainView", locale)}</span></div><ToolDomainCardView card={item.domainCard} locale={locale} onOpenUrl={onOpenUrl} /></section>}
+        {item.domainCard && !isResultDomainCard(item.domainCard) && <section className="tool-part tool-domain-part"><div className="tool-part-label"><span>{t("conversation.tool.domainView", locale)}</span></div><ToolDomainCardView card={item.domainCard} locale={locale} onOpenUrl={onOpenUrl} /></section>}
         <section className="tool-part tool-call-part">
           <div className="tool-part-label">
             <span>{t("conversation.tool.callArgs", locale)}</span>
@@ -177,6 +177,7 @@ function ToolEntryView({
                 >{showRawResult ? t("conversation.tool.collapseRaw", locale) : t("conversation.tool.viewRaw", locale)}</button>
               </div>
             </div>
+            {isResultDomainCard(item.domainCard) && <ToolDomainCardView card={item.domainCard} locale={locale} onOpenUrl={onOpenUrl} />}
             {item.toolResultDiff && <DiffResult key={`${item.key}-diff-${item.toolResultTime ?? "result"}`} diff={item.toolResultDiff} locale={locale} />}
             {item.toolResultText !== undefined && (
               showRawResult
@@ -656,7 +657,7 @@ function TranscriptArticleView({
   onOpenWorkflowMember,
 }: TranscriptArticleProps) {
   const diff = activeDiff(item);
-  const hasToolResult = item.toolResultText !== undefined || item.toolResultDiff !== undefined || item.toolState === "result";
+  const hasToolResult = item.toolResultText !== undefined || item.toolResultDiff !== undefined || isResultDomainCard(item.domainCard) || item.toolState === "result";
   const toolStatus = item.toolResultError ? "error" : hasToolResult ? "returned" : "running";
   const streamingAssistant = item.kind === "assistant" && item.key.startsWith("stream-");
   const annotation = note;

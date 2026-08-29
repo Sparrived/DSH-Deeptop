@@ -431,7 +431,7 @@
   border-top: 1px solid var(--line);
 }
 
-/* 官方工具领域卡片（search / fetch / skill）：在通用 call/result 之上的结构化视图。 */
+/* 官方工具领域卡片（search / fetch / skill）。Web 成果放在结果分区，skill 保留调用侧。 */
 .tool-domain-part { padding-bottom: 10px; }
 .tool-domain-card {
   margin: 8px 11px 4px 25px;
@@ -439,6 +439,10 @@
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   background: var(--paper);
+}
+.tool-result-part > .tool-domain-card {
+  margin-top: 8px;
+  margin-bottom: 10px;
 }
 .tool-domain-head {
   display: flex;

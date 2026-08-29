@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { toolDomainCard } from "./tool-domain.ts";
+import { isResultDomainCard, toolDomainCard } from "./tool-domain.ts";
 
 function entryFor(view) {
   return { event: { seq: 1, time: 1, type: "tool/result", data: {} }, view };
@@ -60,6 +60,13 @@ test("projects the skill load card from the pending call view", () => {
     view: { card: "generic", kind: "read", title: "Load skill frontend-design", rawInput: "frontend-design" },
   }));
   assert.deepEqual(card, { domain: "skill", name: "frontend-design" });
+});
+
+test("classifies web domain cards as result content and skills as call context", () => {
+  assert.equal(isResultDomainCard({ domain: "search", query: "q", sources: [] }), true);
+  assert.equal(isResultDomainCard({ domain: "fetch", title: "https://example.com" }), true);
+  assert.equal(isResultDomainCard({ domain: "skill", name: "frontend-design" }), false);
+  assert.equal(isResultDomainCard(undefined), false);
 });
 
 test("returns undefined for absent or non-domain views", () => {

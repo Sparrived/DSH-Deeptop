@@ -31,6 +31,11 @@ export type ToolDomainCard =
     name: string;
   };
 
+/** Search and fetch cards are completed tool output; skill cards explain call input. */
+export function isResultDomainCard(card: ToolDomainCard | undefined): card is Exclude<ToolDomainCard, { domain: "skill" }> {
+  return card?.domain === "search" || card?.domain === "fetch";
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
