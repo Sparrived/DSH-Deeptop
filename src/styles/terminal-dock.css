@@ -66,11 +66,15 @@
 
 .terminal-panel-card {
   width: var(--terminal-panel-width);
-  max-height: min(78svh, 680px);
+  height: min(78svh, 680px);
+  max-height: calc(100svh - 20px);
 }
 
 .terminal-panel-body {
   min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 
@@ -144,8 +148,20 @@
 .terminal-panel-tab-close:focus-visible,
 .terminal-panel-new:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-.terminal-panel-views,
-.terminal-panel-views > [role="tabpanel"] { min-height: 0; }
+.terminal-panel-views {
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.terminal-panel-views > [role="tabpanel"] {
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+
 .terminal-panel-views > [role="tabpanel"][aria-hidden="true"] { display: none; }
 
 .terminal-panel-path {
@@ -158,8 +174,9 @@
 }
 
 .terminal-panel-terminal {
-  height: min(58svh, 540px);
-  min-height: 360px;
+  height: auto;
+  min-height: 0;
+  flex: 1 1 auto;
   padding: 10px 12px 12px;
   overflow: hidden;
   background: #111815;
@@ -260,9 +277,13 @@
     width: min(360px, calc(100vw - 16px));
   }
 
+  .terminal-panel-card {
+    height: min(78svh, 680px);
+    max-height: calc(100svh - var(--window-bar-height) - var(--conversation-header-height) - 20px);
+  }
+
   .terminal-panel-terminal {
-    height: min(48svh, 360px);
-    min-height: 240px;
+    min-height: 0;
   }
 
   .left-dock-shelf > .dock-frame:not(.collapsed) .dock-frame-card,
