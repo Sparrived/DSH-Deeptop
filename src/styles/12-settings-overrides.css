@@ -27,6 +27,12 @@
   font-size: 12px;
 }
 
+/* 主题选择器与同组的重新扫描操作对齐，避免继承通用选择器的窄宽度。 */
+.appearance-theme-picker select {
+  width: 100%;
+  min-width: 0;
+}
+
 .keyboard-shortcut-row { align-items: start; }
 .settings-hint { margin: 14px 0 0; color: var(--ink-faint); font-size: 12px; line-height: 1.5; }
 .keyboard-tips-block { margin-top: 14px; }
