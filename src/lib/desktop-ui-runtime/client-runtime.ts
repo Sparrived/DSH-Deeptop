@@ -267,15 +267,15 @@ export class DesktopUiRuntime {
   }
 
   /**
-   * DSH restarted: drop every old-generation client state first, then let the
-   * caller refresh once the host reports ready again (docs §11.2).
+   * DSH restarted: drop every old-generation client state and invalidate its
+   * Session generation. The latest App-owned Session projection stays available
+   * so freshly discovered plugins receive it immediately after the Host returns.
    */
   async handleHostRestart(): Promise<void> {
     return this.enqueue(async () => {
       await this.removeAll("host-restarted");
       this.sessionGeneration += 1;
-      this.sessionInitialized = false;
-       this.sessionContext = null;
+      this.sessionInitialized = true;
       this.status = "loading";
       this.notifyCatalogListeners();
     });

@@ -369,14 +369,17 @@ test('slot registry enforces whitelists, uniqueness and stable ordering', () => 
   registry.unregisterPlugin('plugin.f')
 })
 
-test('DSH restart clears old generation state and re-discovers fresh descriptors', async () => {
+test('DSH restart clears old plugin state and restores the active Session to fresh descriptors', async () => {
   const moduleInstances = []
   const makeModule = () => {
     const instance = {
+      sessions: [],
       activate(context) {
+        this.disposeSession = context.session.onChange(session => this.sessions.push(session?.sessionId ?? null))
         this.disposeMenu = context.ui.register('session.context-menu', { kind: 'action', id: 'pins.toggle', render: () => null })
       },
       deactivate() {
+        this.disposeSession?.()
         this.disposeMenu?.()
       },
     }
@@ -403,12 +406,13 @@ test('DSH restart clears old generation state and re-discovers fresh descriptors
 
   await runtime.handleHostRestart()
   assert.equal(runtime.slots.snapshot('session.context-menu').length, 0, 'old contributions are gone immediately')
-  assert.equal(runtime.sessionContext, null)
+  assert.equal(runtime.sessionContext?.sessionId, 's-1', 'the App-owned projection survives Host teardown')
   assert.equal(runtime.sessionGeneration, 2)
 
   source.items = [{ ...first, version: '0.2.0' }]
   await runtime.refresh()
   assert.equal(moduleInstances.length, 2, 'a fresh activation runs after the restart')
+  assert.deepEqual(moduleInstances[1].sessions, ['s-1'], 'fresh plugins immediately reload the active Session')
   assert.equal(runtime.status, 'ready')
   assert.equal(runtime.slots.snapshot('session.context-menu').length, 1)
 })
