@@ -1,4 +1,61 @@
-export type SessionIndicator = "idle" | "running" | "completed" | "error";
+import type { DshHistoryEntry } from "../lib/desktop";
+
+export type SessionIndicator =
+  | "idle"
+  | "running"
+  | "completed"
+  | "error"
+  | "cancelled"
+  | "max-tokens"
+  | "blocked"
+  | "interrupted";
+
+const terminalIndicators = new Set<SessionIndicator>([
+  "completed",
+  "error",
+  "cancelled",
+  "max-tokens",
+  "blocked",
+  "interrupted",
+]);
+
+/** Map the durable turn-end reason to the sidebar's terminal indicator. */
+export function sessionIndicatorForTurnEnd(reason: unknown): SessionIndicator {
+  const kind = reason && typeof reason === "object" && "kind" in reason
+    ? (reason as { kind?: unknown }).kind
+    : undefined;
+  switch (kind) {
+    case "error": return "error";
+    case "aborted": return "cancelled";
+    case "max-tokens": return "max-tokens";
+    case "blocked": return "blocked";
+    case "interrupted": return "interrupted";
+    case "completed": return "completed";
+    default: return "completed";
+  }
+}
+
+/** Read the latest durable turn ending for a cold session sidebar row. */
+export function sessionIndicatorForHistory(entries: readonly DshHistoryEntry[]): SessionIndicator | undefined {
+  let latest: DshHistoryEntry | undefined;
+  for (const entry of entries) {
+    if (entry.event.type !== "turn/end" || (latest && entry.event.seq <= latest.event.seq)) continue;
+    latest = entry;
+  }
+  return latest ? sessionIndicatorForTurnEnd(latest.event.data.reason) : undefined;
+}
+
+/** Apply a recorded turn ending without allowing the later idle event to erase it. */
+export function updateSessionIndicatorForTurnEnd(
+  indicators: Record<string, SessionIndicator>,
+  sessionId: string,
+  reason: unknown,
+): Record<string, SessionIndicator> {
+  if (!sessionId) return indicators;
+  const indicator = sessionIndicatorForTurnEnd(reason);
+  if (indicators[sessionId] === indicator) return indicators;
+  return { ...indicators, [sessionId]: indicator };
+}
 
 type SessionRuntimeState = {
   sessionId: string;
@@ -26,10 +83,11 @@ export function updateSessionIndicator(
   running: boolean,
 ): Record<string, SessionIndicator> {
   if (!sessionId) return indicators;
+  const current = indicators[sessionId];
   const indicator = running
     ? "running"
-    : indicators[sessionId] === "error" ? "error" : "completed";
-  if (indicators[sessionId] === indicator) return indicators;
+    : current !== undefined && terminalIndicators.has(current) ? current : "completed";
+  if (current === indicator) return indicators;
   return { ...indicators, [sessionId]: indicator };
 }
 
@@ -42,11 +100,8 @@ export function markSessionError(
 }
 
 /**
- * Reconcile indicators after DSH restarts: any session the runtime reports as
- * NOT running but that we still show as "running" is stale (the crash never
- * delivered the running=false flip). Reset those to "idle" so the sidebar does
- * not look stuck on a crashed session. Leaves "error"/"completed" and any
- * genuinely running session untouched.
+ * Reconcile indicators after DSH restarts: a running row without a closing
+ * turn/end event was interrupted while the runtime was unavailable.
  */
 export function reconcileSessionIndicators(
   indicators: Record<string, SessionIndicator>,
@@ -56,7 +111,7 @@ export function reconcileSessionIndicators(
   for (const session of sessions) {
     if (session.running) continue;
     if (next[session.sessionId] === "running") {
-      next = { ...next, [session.sessionId]: "idle" };
+      next = { ...next, [session.sessionId]: "interrupted" };
     }
   }
   return next;

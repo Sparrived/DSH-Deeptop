@@ -1027,6 +1027,22 @@ textarea:focus-visible {
   --session-status-color: var(--danger);
 }
 
+.session-row.session-status-cancelled {
+  --session-status-color: #7193a8;
+}
+
+.session-row.session-status-max-tokens {
+  --session-status-color: #c49a55;
+}
+
+.session-row.session-status-blocked {
+  --session-status-color: #a17bb5;
+}
+
+.session-row.session-status-interrupted {
+  --session-status-color: #89918b;
+}
+
 .session-row.session-drag-ghost {
   --session-status-color: var(--accent);
   border-right: 3px solid var(--accent);
@@ -1042,9 +1058,39 @@ textarea:focus-visible {
   border-right-color: color-mix(in srgb, var(--session-status-color) 82%, transparent);
 }
 
+.session-row.session-status-error,
+.session-row.session-status-cancelled,
+.session-row.session-status-max-tokens,
+.session-row.session-status-blocked,
+.session-row.session-status-interrupted {
+  border-right-color: color-mix(in srgb, var(--session-status-color) 92%, transparent);
+}
+
 .session-row.session-status-error {
-  border-right-color: color-mix(in srgb, var(--session-status-color) 95%, transparent);
   animation: session-status-error 1.2s ease-in-out 2;
+}
+
+.session-row.session-status-completed {
+  animation: session-status-completed .9s ease-out 1;
+}
+
+.session-row.session-status-cancelled {
+  border-right-style: dashed;
+  animation: session-status-cancelled 1.8s ease-in-out 2;
+}
+
+.session-row.session-status-max-tokens {
+  animation: session-status-max-tokens .8s steps(2, end) 2;
+}
+
+.session-row.session-status-blocked {
+  border-right-style: dashed;
+  animation: session-status-blocked 1.6s ease-in-out 2;
+}
+
+.session-row.session-status-interrupted {
+  border-right-style: dotted;
+  animation: session-status-interrupted 1.1s steps(3, end) 2;
 }
 
 .session-row.session-status-running::after,
@@ -1094,13 +1140,45 @@ textarea:focus-visible {
   50% { border-right-color: var(--session-status-color); }
 }
 
+@keyframes session-status-completed {
+  0% { box-shadow: 0 1px 3px rgba(0, 0, 0, .2), 0 0 0 0 color-mix(in srgb, var(--session-status-color) 0%, transparent); }
+  45% { box-shadow: 0 1px 3px rgba(0, 0, 0, .2), 0 0 0 3px color-mix(in srgb, var(--session-status-color) 30%, transparent); }
+  100% { box-shadow: 0 1px 3px rgba(0, 0, 0, .2), 0 0 0 7px transparent; }
+}
+
+@keyframes session-status-cancelled {
+  0%, 100% { border-right-color: color-mix(in srgb, var(--session-status-color) 45%, transparent); }
+  35%, 65% { border-right-color: var(--session-status-color); }
+}
+
+@keyframes session-status-max-tokens {
+  0%, 100% { border-right-color: color-mix(in srgb, var(--session-status-color) 58%, transparent); }
+  50% { border-right-color: var(--session-status-color); }
+}
+
+@keyframes session-status-blocked {
+  0%, 100% { border-right-color: color-mix(in srgb, var(--session-status-color) 48%, transparent); }
+  50% { border-right-color: var(--session-status-color); }
+}
+
+@keyframes session-status-interrupted {
+  0%, 100% { border-right-color: color-mix(in srgb, var(--session-status-color) 35%, transparent); }
+  34% { border-right-color: var(--session-status-color); }
+  67% { border-right-color: color-mix(in srgb, var(--session-status-color) 58%, transparent); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .session-row.session-status-running::after,
   .session-row.session-status-pending::after {
     display: none;
   }
 
-  .session-row.session-status-error {
+  .session-row.session-status-error,
+  .session-row.session-status-completed,
+  .session-row.session-status-cancelled,
+  .session-row.session-status-max-tokens,
+  .session-row.session-status-blocked,
+  .session-row.session-status-interrupted {
     animation: none;
   }
 }

@@ -251,7 +251,11 @@ import { defaultWorkingIndicator, normalizeWorkingIndicator } from "./app/workin
 import { externalLaunchKey } from "./lib/external-launch";
 import { DEFAULT_PERMISSION_OPTIONS, isDefaultPermission, readStoredDefaultModel, readStoredDefaultPermission, writeStoredDefaultModel, writeStoredDefaultPermission, type DefaultPermission } from "./app/session-defaults";
 import { isSchemaEnvelope, schemaEnumChoices, schemaNodeAtPath } from "./app/schema-model";
-import { reconcileSessionIndicators } from "./app/session-runtime-state";
+import {
+  reconcileSessionIndicators,
+  sessionIndicatorForHistory,
+  type SessionIndicator,
+} from "./app/session-runtime-state";
 import type { PlanReviewQuestion } from "./app/ui-model";
 import { planReviewOf } from "./app/ui-model";
 import { buildTraySessionMenu } from "./app/tray-model";
@@ -428,7 +432,7 @@ function AppContent() {
     : demoStatus);
   const [sessions, setSessions] = useState<DshSessionSummary[]>([]);
   const [archivedSessionIds, setArchivedSessionIds] = useState<Set<string>>(new Set());
-  const [sessionIndicators, setSessionIndicators] = useState<Record<string, "idle" | "running" | "completed" | "error">>({});
+  const [sessionIndicators, setSessionIndicators] = useState<Record<string, SessionIndicator>>({});
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [history, setHistory] = useState<DshHistoryEntry[]>([]);
   const [historyHasMore, setHistoryHasMore] = useState(false);
@@ -2364,6 +2368,10 @@ function AppContent() {
       ]);
       if (loadRequest !== sessionLoadRequestRef.current || activeSessionRef.current !== session.sessionId) return false;
       setHistory(historyResult.events);
+      setSessionIndicators((current) => ({
+        ...current,
+        [session.sessionId]: sessionIndicatorForHistory(historyResult.events) ?? "idle",
+      }));
       setHistoryHasMore(historyResult.hasMore);
       const loadedStats = readSessionStats(historyResult.events, historyResult.projections);
       contextProjectionRef.current = Boolean(recordValue(historyResult.projections?.values.contextPressure));

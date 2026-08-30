@@ -13,6 +13,7 @@ import {
 } from "../app/model";
 import type { DshSessionSummary, DshWorkspace } from "../lib/desktop";
 import type { ActiveSessionView, ActiveSessionWorkspaceGroup } from "../app/active-session-view";
+import type { SessionIndicator } from "../app/session-runtime-state";
 import { t, type UiLocale } from "../app/i18n";
 
 export type WorkspaceGroup = {
@@ -63,7 +64,7 @@ type SessionSidebarProps = {
   onChooseWorkspace: (path: string) => void;
   workspacePickerMenuRef: RefObject<HTMLDivElement | null>;
   activeSessionId: string | null;
-  sessionIndicators: Record<string, "idle" | "running" | "completed" | "error">;
+  sessionIndicators: Record<string, SessionIndicator>;
   pendingSessionIds: ReadonlySet<string>;
   searchResultById: Map<string, string>;
   workspaceBySessionId: Map<string, DshWorkspace>;

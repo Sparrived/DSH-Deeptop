@@ -21,6 +21,7 @@ import { usageTokenBuckets } from "./message-model";
 import { markSessionError,
   removeSessionRecordEntry,
   updateSessionIndicator,
+  updateSessionIndicatorForTurnEnd,
   updateSessionRunning,
   type SessionIndicator,
 } from "./session-runtime-state";
@@ -178,6 +179,7 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
     setSessionStats,
     setModels,
     setSessions,
+    setSessionIndicators,
     setSubagentSession,
     setQueue,
     setSessionJobs,
@@ -198,6 +200,12 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
     const sessionId = String(payload.sessionId ?? "");
     const nextEvent = payload.event as DshSessionEvent | undefined;
     if (!nextEvent) return;
+    if (nextEvent.type === "turn/start") {
+      setSessionIndicators((current) => updateSessionIndicator(current, sessionId, true));
+    }
+    if (nextEvent.type === "turn/end") {
+      setSessionIndicators((current) => updateSessionIndicatorForTurnEnd(current, sessionId, nextEvent.data.reason));
+    }
     if (sessionId === activeSessionRef.current) {
       if (nextEvent.type === "turn/start") setTodos(null);
       if (nextEvent.type === "todo/write") {

@@ -4,6 +4,8 @@ import {
   markSessionError,
   reconcileSessionIndicators,
   removeSessionRecordEntry,
+  sessionIndicatorForHistory,
+  sessionIndicatorForTurnEnd,
   updateSessionIndicator,
   updateSessionRunning,
 } from "./session-runtime-state.ts";
@@ -41,7 +43,33 @@ test("removes only stale interaction state for the failed session", () => {
   assert.equal(removeSessionRecordEntry(current, "missing"), current);
 });
 
-test("resets stale running indicators after DSH restarts", () => {
+test("keeps every terminal indicator when the runtime becomes idle", () => {
+  for (const indicator of ["completed", "error", "cancelled", "max-tokens", "blocked", "interrupted"]) {
+    assert.deepEqual(updateSessionIndicator({ "session-1": indicator }, "session-1", false), { "session-1": indicator });
+  }
+});
+
+test("maps turn endings to distinct sidebar indicators", () => {
+  assert.equal(sessionIndicatorForTurnEnd({ kind: "completed" }), "completed");
+  assert.equal(sessionIndicatorForTurnEnd({ kind: "error" }), "error");
+  assert.equal(sessionIndicatorForTurnEnd({ kind: "aborted", reason: { kind: "user" } }), "cancelled");
+  assert.equal(sessionIndicatorForTurnEnd({ kind: "max-tokens" }), "max-tokens");
+  assert.equal(sessionIndicatorForTurnEnd({ kind: "blocked" }), "blocked");
+  assert.equal(sessionIndicatorForTurnEnd({ kind: "interrupted" }), "interrupted");
+  assert.equal(sessionIndicatorForTurnEnd({ kind: "unknown" }), "completed");
+});
+
+test("reads the latest turn ending from a session history", () => {
+  const event = (seq, type, data = {}) => ({ event: { seq, time: seq, type, data } });
+  assert.equal(sessionIndicatorForHistory([
+    event(1, "turn/end", { reason: { kind: "error" } }),
+    event(2, "assistant/message"),
+    event(3, "turn/end", { reason: { kind: "aborted", reason: { kind: "user" } } }),
+  ]), "cancelled");
+  assert.equal(sessionIndicatorForHistory([event(1, "assistant/message")]), undefined);
+});
+
+test("resets stale running indicators to interrupted after DSH restarts", () => {
   const indicators = {
     "session-1": "running", // crashed mid-turn, never received running=false
     "session-2": "running", // still genuinely running
@@ -58,7 +86,7 @@ test("resets stale running indicators after DSH restarts", () => {
   const reconciled = reconcileSessionIndicators(indicators, sessions);
 
   assert.deepEqual(reconciled, {
-    "session-1": "idle",
+    "session-1": "interrupted",
     "session-2": "running",
     "session-3": "error",
     "session-4": "completed",

@@ -3,8 +3,8 @@ import { createPortal } from "react-dom";
 import { displayTitle, formatDate, projectName } from "../app/model";
 import type { DshSessionSummary } from "../lib/desktop";
 import { t, type UiLocale } from "../app/i18n";
+import type { SessionIndicator } from "../app/session-runtime-state";
 
-export type SessionIndicator = "idle" | "running" | "completed" | "error";
 export type SessionStatus = SessionIndicator | "pending" | "archived";
 
 /** 状态展示文案的翻译 key；展示时用 t(sessionStatusLabels[status], locale)。 */
@@ -13,6 +13,10 @@ export const sessionStatusLabels: Record<SessionStatus, string> = {
   running: "session.status.running",
   completed: "session.status.completed",
   error: "session.status.error",
+  cancelled: "session.status.cancelled",
+  "max-tokens": "session.status.maxTokens",
+  blocked: "session.status.blocked",
+  interrupted: "session.status.interrupted",
   pending: "session.status.pending",
   archived: "session.status.archived",
 };
