@@ -10,8 +10,8 @@
 - 最近合并提交：`a9177bd53a`，合并 `feature/desktop-ui-runtime`。
 - 会话置顶 Host Plugin 提交：`d94c1e8739`。
 - 消息注记 UI Consumer 提交：`ac3be1b564`。
-- 当前 HEAD：`8a6a423818`（消息注记组件与生命周期测试）。
-- 当前分支相对 `origin/master`：本地领先 21 个提交。
+- 本轮 UI Runtime 代码提交：`8a6a423818`（消息注记组件与生命周期测试）。
+- 本轮交接文档与代码均已提交；最新提交和分支领先数量以 `git log -3 --oneline`、`git status --short --branch` 为准。
 - 当前工作区只保留本轮开始前已有的四个未提交文件：`src/App.tsx`、`src/app/tool-args-render.tsx`、`src/styles/15-final-overrides.css`、`src/styles/18-session-dashboard.css`。
 - 上一轮 UI Runtime 提交 `8a6a423818` 涉及 `package.json`、`src/lib/desktop-ui-runtime/message-annotation-store.ts`、`src/lib/desktop-ui-runtime/message-annotation-store.test.mjs`、`src/lib/desktop-ui-runtime/message-annotations-client.tsx` 和 `src/lib/desktop-ui-runtime/message-annotations-client.test.mjs`；本次文档快照更新不应再次触碰那四个用户文件。
 
@@ -180,5 +180,5 @@ cargo test --locked tests::materializes_every_local_bridge_export
 3. 阅读 `src/lib/desktop-ui-runtime/*`、`deeptop-bridge/ui-registry.mjs`、`ui-routes.mjs`、`message-annotations-ui.mjs` 和 `ConversationTranscript.tsx`。
 4. 运行 `npm run test:ui-runtime`、`npm run test:bridge` 和 `npm run build`，确认新会话环境没有额外回归。
 5. 消息注记的组件、冲突、取消和本地生命周期专项已完成；下一步先做真实宿主集成验收（快速切换 Session、Bridge 重启、空 Session），再决定下一个 Slot。不要直接开始多个领域的并行迁移。
-6. 本轮提交为 `8a6a423818 test(ui-runtime): 补齐消息注记组件与生命周期测试`；提交只包含 UI Runtime、测试、package script 与重构文档，四个用户文件仍保持 unstaged。
+6. 本轮提交为 `8a6a423818 test(ui-runtime): 补齐消息注记组件与生命周期测试` 与 `360afcd8b9 docs(ui-runtime): 更新消息注记重构交接状态`；提交只包含 UI Runtime、测试、package script 与重构文档，四个用户文件仍保持 unstaged。
 7. 每个独立模块完成后先运行专项检查、审阅 diff，再创建一个 Conventional Commit；如果 `App.tsx` 同时包含用户改动，必须选择性暂存并在提交后再次确认工作区状态。
