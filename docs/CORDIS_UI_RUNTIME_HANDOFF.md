@@ -10,10 +10,10 @@
 - 最近合并提交：`a9177bd53a`，合并 `feature/desktop-ui-runtime`。
 - 会话置顶 Host Plugin 提交：`d94c1e8739`。
 - 消息注记 UI Consumer 提交：`ac3be1b564`。
-- 当前 HEAD：`976a635ec4`。
-- 当前分支相对 `origin/master`：本地领先 20 个提交。
-- 工作区开始本轮任务时已有四个未提交文件：`src/App.tsx`、`src/app/tool-args-render.tsx`、`src/styles/15-final-overrides.css`、`src/styles/18-session-dashboard.css`。
-- 本轮 UI Runtime 变更另涉及 `package.json`、`src/lib/desktop-ui-runtime/message-annotation-store.ts`、`src/lib/desktop-ui-runtime/message-annotation-store.test.mjs`、`src/lib/desktop-ui-runtime/message-annotations-client.tsx`、`src/lib/desktop-ui-runtime/message-annotations-client.test.mjs` 和本文档。
+- 当前 HEAD：`8a6a423818`（消息注记组件与生命周期测试）。
+- 当前分支相对 `origin/master`：本地领先 21 个提交。
+- 当前工作区只保留本轮开始前已有的四个未提交文件：`src/App.tsx`、`src/app/tool-args-render.tsx`、`src/styles/15-final-overrides.css`、`src/styles/18-session-dashboard.css`。
+- 上一轮 UI Runtime 提交 `8a6a423818` 涉及 `package.json`、`src/lib/desktop-ui-runtime/message-annotation-store.ts`、`src/lib/desktop-ui-runtime/message-annotation-store.test.mjs`、`src/lib/desktop-ui-runtime/message-annotations-client.tsx` 和 `src/lib/desktop-ui-runtime/message-annotations-client.test.mjs`；本次文档快照更新不应再次触碰那四个用户文件。
 
 前四个文件包含用户已有的会话看板、工具参数渲染和样式改动；后续操作不得重置、覆盖、丢弃、rebase、squash 或把这些改动错误地带入无关提交。涉及 `src/App.tsx` 时必须使用选择性暂存，并在提交前分别检查 `git diff` 和 `git diff --cached`。本轮新增文件和 UI Runtime 文件也必须按模块选择性暂存，不要用全量 `git add .`。
 
@@ -171,7 +171,7 @@ cargo test --locked tests::every_registered_command_is_acl_listed_in_build_scrip
 cargo test --locked tests::materializes_every_local_bridge_export
 ```
 
-当前已验证的基线结果：完整 JavaScript 测试 374/374 通过；UI Runtime 与注记存储专项 24/24 通过；Bridge 专项 69/69 通过；前端 `npm run build` 通过；i18n 和版本检查通过；Rust 格式、编译、ACL 测试和 Bridge 物化测试通过。Vite 构建可能报告大于 500 kB 的 chunk 警告，Rust Windows linker 可能输出 linker stdout warning；这些是警告，不要把它们当作通过失败的替代解释。
+当前已验证的基线结果：完整 JavaScript 测试 378/378 通过；UI Runtime 与注记存储/组件专项 28/28 通过；Bridge 专项 69/69 通过；前端 `npm run build` 通过；i18n 和版本检查通过；本轮未修改 Rust/Tauri，因此沿用上一轮 Rust 格式、编译、ACL 测试和 Bridge 物化测试通过的基线。Vite 构建可能报告大于 500 kB 的 chunk 警告，Rust Windows linker 可能输出 linker stdout warning；这些是警告，不要把它们当作通过失败的替代解释。
 
 ## 新会话接手流程
 
@@ -179,5 +179,6 @@ cargo test --locked tests::materializes_every_local_bridge_export
 2. 执行 `git status --short --branch`，确认四个用户文件仍未被覆盖。
 3. 阅读 `src/lib/desktop-ui-runtime/*`、`deeptop-bridge/ui-registry.mjs`、`ui-routes.mjs`、`message-annotations-ui.mjs` 和 `ConversationTranscript.tsx`。
 4. 运行 `npm run test:ui-runtime`、`npm run test:bridge` 和 `npm run build`，确认新会话环境没有额外回归。
-5. 先完成消息注记组件级测试，再决定下一个 Slot；不要直接开始多个领域的并行迁移。
-6. 每个独立模块完成后先运行专项检查、审阅 diff，再创建一个 Conventional Commit；如果 `App.tsx` 同时包含用户改动，必须选择性暂存并在提交后再次确认工作区状态。
+5. 消息注记的组件、冲突、取消和本地生命周期专项已完成；下一步先做真实宿主集成验收（快速切换 Session、Bridge 重启、空 Session），再决定下一个 Slot。不要直接开始多个领域的并行迁移。
+6. 本轮提交为 `8a6a423818 test(ui-runtime): 补齐消息注记组件与生命周期测试`；提交只包含 UI Runtime、测试、package script 与重构文档，四个用户文件仍保持 unstaged。
+7. 每个独立模块完成后先运行专项检查、审阅 diff，再创建一个 Conventional Commit；如果 `App.tsx` 同时包含用户改动，必须选择性暂存并在提交后再次确认工作区状态。
