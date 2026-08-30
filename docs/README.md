@@ -8,8 +8,9 @@
 2. [DSH 原生协调关系](DSH_NATIVE_COORDINATION.md)：适合开发 Bridge、接入 DSH 插件或判断代码应该放在哪一层。
 3. [架构说明](../ARCHITECTURE.md)：查看 React、Tauri、Bridge、Profile 和纯模型层的依赖方向。
 4. [Deeptop UI Runtime 实现设计](DEEPTOP_UI_RUNTIME.md)：设计 Client Module、Client Plugin、Slot、Bridge 能力和动态 UI 插件路线。
-5. [官方插件兼容策略](../PLUGIN_COMPATIBILITY.md)：查看兼容分层、已接入能力和后续清单。
-6. [WebUI 对齐清单](../WEBUI_PARITY.md)：查看当前桌面端与 WebUI 的功能对齐状态。
+5. [Cordis/UI Runtime 重构计划](REFACTORING_CORDIS_UI_RUNTIME.md)：查看合并后的重构基线、会话置顶迁移和后续拆分顺序。
+6. [官方插件兼容策略](../PLUGIN_COMPATIBILITY.md)：查看兼容分层、已接入能力和后续清单。
+7. [WebUI 对齐清单](../WEBUI_PARITY.md)：查看当前桌面端与 WebUI 的功能对齐状态。
 
 ## 文档原则
 

@@ -192,6 +192,7 @@
   "capability.skills": "Skill installation",
   "capability.subagents": "Subagents",
   "capability.workspace": "Workspace",
+  "capability.uiPlugins": "UI plugin runtime",
   "common.cancel": "Cancel",
   "common.close": "Close",
   "common.confirm": "Confirm",

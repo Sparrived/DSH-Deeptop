@@ -113,6 +113,7 @@ After launch, wait for the embedded DSH runtime to become ready, pick or create 
 | [DSH native coordination](docs/DSH_NATIVE_COORDINATION.md) | Deciding whether a feature belongs in Tauri, the Bridge, the Profile or React. |
 | [Architecture](ARCHITECTURE.md) | Dependency directions, the pure model layer and plugin boundaries. |
 | [Plugin compatibility](PLUGIN_COMPATIBILITY.md) | Host/Cordis versus WebUI Client compatibility layers. |
+| [Cordis/UI Runtime refactoring](docs/REFACTORING_CORDIS_UI_RUNTIME.md) | Post-merge migration order and ownership of the first refactored feature. |
 | [WebUI parity checklist](WEBUI_PARITY.md) | Covered capabilities, work in progress and explicit exclusions. |
 <!-- @deeptop-pets:start readme-doc-link -->
 | [Pet pack authoring](docs/PET_PACKS.md) | Build, validate, import and share declarative `.deeptop-pet` bundles. |

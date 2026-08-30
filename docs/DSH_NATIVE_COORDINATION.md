@@ -234,7 +234,7 @@ Deeptop 的桌面运行时使用 Vite 打包的 React、Tauri event 和自己的
 
 只有未来明确需要“无改动运行 WebUI Client bundle”时，才应另行设计 WebUI compatibility mode，而不是逐步把 ModuleLoader、slot 和 client lifecycle 混入纯桌面层。
 
-如果需要让受信任的 Cordis 插件向 Deeptop 增加桌面 React 组件，应采用独立的 Deeptop Client Runtime：复用同一棵 Cordis 树的 Host、Remote、Projection 和事件，但通过受控 Client Module、Slot Registry 和插件生命周期加载桌面组件。完整的拟议协议、权限、资源加载和分阶段实施方案见 [Deeptop UI Runtime 实现设计](DEEPTOP_UI_RUNTIME.md)。
+如果需要让受信任的 Cordis 插件向 Deeptop 增加桌面 React 组件，应采用独立的 Deeptop Client Runtime：复用同一棵 Cordis 树的 Host、Remote、Projection 和事件，但通过受控 Client Module、Slot Registry 和插件生命周期加载桌面组件。当前第一批重构已将会话置顶持久化移入 `deeptop-bridge/session-pins.mjs`；后续拆分顺序和验收要求见 [Cordis/UI Runtime 重构计划](REFACTORING_CORDIS_UI_RUNTIME.md)。完整的 UI Runtime 协议、权限、资源加载和分阶段实施方案见 [Deeptop UI Runtime 实现设计](DEEPTOP_UI_RUNTIME.md)。
 
 ## 8. 插件接入决策表
 

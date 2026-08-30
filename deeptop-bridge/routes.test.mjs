@@ -379,54 +379,73 @@ test('propagates non-validation attach failures unchanged', async () => {
   )
 })
 
-test('persists workspace-scoped session pins and decorates workspace listings', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'deeptop-session-pins-'))
+test('delegates workspace pins to the Cordis service and decorates listings', async () => {
   const workspace = {
     id: 'workspace-pins',
     path: 'D:/repo',
     title: 'repo',
     sessionIds: ['session-1', 'session-2'],
   }
+  const pinned = new Map()
+  const sessionPins = {
+    forWorkspace: target => pinned.get(target.id ?? target.workspaceId) ?? [],
+    setSessionPinned: async (workspaceId, sessionId, enabled) => {
+      if (!workspace.sessionIds.includes(sessionId)) throw new Error(`session "${sessionId}" is not accounted by workspace "${workspaceId}"`)
+      const current = pinned.get(workspaceId) ?? []
+      const next = enabled ? [...current.filter(id => id !== sessionId), sessionId] : current.filter(id => id !== sessionId)
+      pinned.set(workspaceId, next)
+      return { workspaceId, pinnedSessionIds: next }
+    },
+    clearWorkspace: async workspaceId => { pinned.delete(workspaceId) },
+    clearSession: async sessionId => {
+      for (const [workspaceId, ids] of pinned) pinned.set(workspaceId, ids.filter(id => id !== sessionId))
+    },
+  }
+  const registry = { get: id => id === workspace.id ? workspace : undefined }
   const ctx = {
-    get: key => key === 'dshHome' ? root : key === 'workspaceRegistry' ? { get: id => id === workspace.id ? workspace : undefined } : undefined,
+    get: key => key === 'workspaceRegistry' ? registry : key === 'sessionPins' ? sessionPins : undefined,
     apiProxy: {
       workspace: {
         list: async () => ({ result: { ok: true, value: { items: [{ workspaceId: workspace.id, sessionIds: [...workspace.sessionIds] }], archivedSessionIds: [] } } }),
       },
     },
   }
-  try {
-    assert.deepEqual(
-      await routeDesktopRequest(ctx, 'workspace.setSessionPinned', { workspaceId: workspace.id, sessionId: 'session-2', pinned: true }, signal),
-      { workspaceId: workspace.id, pinnedSessionIds: ['session-2'] },
-    )
-    const listed = await routeDesktopRequest(ctx, 'workspace.list', {}, signal)
-    assert.deepEqual(listed.result.value.items[0].pinnedSessionIds, ['session-2'])
-    assert.deepEqual(
-      await routeDesktopRequest(ctx, 'workspace.setSessionPinned', { workspaceId: workspace.id, sessionId: 'session-2', pinned: false }, signal),
-      { workspaceId: workspace.id, pinnedSessionIds: [] },
-    )
-    const unlisted = await routeDesktopRequest(ctx, 'workspace.list', {}, signal)
-    assert.deepEqual(unlisted.result.value.items[0].pinnedSessionIds, [])
-    await assert.rejects(
-      routeDesktopRequest(ctx, 'workspace.setSessionPinned', { workspaceId: workspace.id, sessionId: 'session-unknown', pinned: true }, signal),
-      /not accounted/,
-    )
-    await routeDesktopRequest(ctx, 'workspace.setSessionPinned', { workspaceId: workspace.id, sessionId: 'session-1', pinned: true }, signal)
-    const movedWorkspace = { ...workspace, id: 'workspace-moved', sessionIds: [], attachSession: async sessionId => movedWorkspace.sessionIds.unshift(sessionId) }
-    const moveContext = {
-      ...ctx,
-      get: key => key === 'dshHome' ? root : key === 'workspaceRegistry' ? {
-        list: () => [workspace, movedWorkspace],
-        get: id => id === movedWorkspace.id ? movedWorkspace : id === workspace.id ? workspace : undefined,
-      } : undefined,
-    }
-    await routeDesktopRequest(moveContext, 'workspace.attachSession', { workspaceId: movedWorkspace.id, sessionId: 'session-1' }, signal)
-    const afterMove = await routeDesktopRequest(ctx, 'workspace.list', {}, signal)
-    assert.deepEqual(afterMove.result.value.items[0].pinnedSessionIds, [])
-  } finally {
-    await removePath(root, { recursive: true, force: true })
+  assert.deepEqual(
+    await routeDesktopRequest(ctx, 'workspace.setSessionPinned', { workspaceId: workspace.id, sessionId: 'session-2', pinned: true }, signal),
+    { workspaceId: workspace.id, pinnedSessionIds: ['session-2'] },
+  )
+  const listed = await routeDesktopRequest(ctx, 'workspace.list', {}, signal)
+  assert.deepEqual(listed.result.value.items[0].pinnedSessionIds, ['session-2'])
+  assert.deepEqual(
+    await routeDesktopRequest(ctx, 'workspace.setSessionPinned', { workspaceId: workspace.id, sessionId: 'session-2', pinned: false }, signal),
+    { workspaceId: workspace.id, pinnedSessionIds: [] },
+  )
+  await assert.rejects(
+    routeDesktopRequest(ctx, 'workspace.setSessionPinned', { workspaceId: workspace.id, sessionId: 'session-unknown', pinned: true }, signal),
+    /not accounted/,
+  )
+  await sessionPins.setSessionPinned(workspace.id, 'session-1', true)
+  const movedWorkspace = { ...workspace, id: 'workspace-moved', sessionIds: [], attachSession: async sessionId => movedWorkspace.sessionIds.unshift(sessionId) }
+  const moveContext = {
+    ...ctx,
+    get: key => key === 'workspaceRegistry' ? {
+      list: () => [workspace, movedWorkspace],
+      get: id => id === movedWorkspace.id ? movedWorkspace : id === workspace.id ? workspace : undefined,
+    } : key === 'sessionPins' ? sessionPins : undefined,
   }
+  await routeDesktopRequest(moveContext, 'workspace.attachSession', { workspaceId: movedWorkspace.id, sessionId: 'session-1' }, signal)
+  const afterMove = await routeDesktopRequest(ctx, 'workspace.list', {}, signal)
+  assert.deepEqual(afterMove.result.value.items[0].pinnedSessionIds, [])
+})
+
+test('rejects pin writes when the Cordis pin service is not mounted', async () => {
+  const workspace = { id: 'workspace-without-pins', sessionIds: ['session-1'] }
+  await assert.rejects(
+    routeDesktopRequest({
+      get: key => key === 'workspaceRegistry' ? { get: () => workspace } : undefined,
+    }, 'workspace.setSessionPinned', { workspaceId: workspace.id, sessionId: 'session-1', pinned: true }, signal),
+    /deeptop-bridge\/session-pins Cordis plugin/,
+  )
 })
 
 test('restores an archived session through the workspace registry state', async () => {

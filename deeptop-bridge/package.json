@@ -8,6 +8,7 @@
     ".": "./index.mjs",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./message-annotations": "./message-annotations.mjs",
+    "./session-pins": "./session-pins.mjs",
     "./skill-install-plugin": "./skill-install-plugin.mjs",
     "./theme-settings": "./theme-settings.mjs",
     "./package.json": "./package.json",

@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, open, readFile, rename, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, isAbsolute, join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { installSkillFromSource } from './skill-installer.mjs'
 import { repairCorruptLog } from './session-repair.mjs'
 import { describePluginConfig, filterInventory, mutatePluginConfig } from './plugin-config.mjs'
@@ -123,89 +123,22 @@ async function exportSessionZip(ctx, payload, signal) {
   }
 }
 
-const SESSION_PIN_STORE_VERSION = 1
-let sessionPinMutationTail = Promise.resolve()
-
-function sessionPinStorePath(ctx) {
-  const home = ctx.get?.('dshHome') || process.env.DSH_HOME
-  if (typeof home !== 'string' || !home.trim()) throw new Error('session pinning requires DSH_HOME')
-  return join(home, 'profiles', 'desktop', 'session-pins.json')
+function optionalSessionPins(ctx) {
+  const service = ctx.get?.('sessionPins')
+  if (!service
+    || typeof service.forWorkspace !== 'function'
+    || typeof service.setSessionPinned !== 'function'
+    || typeof service.clearWorkspace !== 'function'
+    || typeof service.clearSession !== 'function') return undefined
+  return service
 }
 
-function normalizeSessionPinIds(value) {
-  if (!Array.isArray(value)) return []
-  return [...new Set(value.filter(item => typeof item === 'string' && item.trim() !== ''))]
-}
-
-async function readSessionPinStore(ctx) {
-  let path
-  try {
-    path = sessionPinStorePath(ctx)
-  } catch {
-    return {}
+function sessionPins(ctx) {
+  const service = optionalSessionPins(ctx)
+  if (service === undefined) {
+    throw new Error('session pinning requires the deeptop-bridge/session-pins Cordis plugin')
   }
-  try {
-    const parsed = JSON.parse(await readFile(path, 'utf8'))
-    if (!isRecord(parsed) || parsed.version !== SESSION_PIN_STORE_VERSION || !isRecord(parsed.workspaces)) return {}
-    return Object.fromEntries(Object.entries(parsed.workspaces).map(([workspaceId, sessionIds]) => [
-      workspaceId,
-      normalizeSessionPinIds(sessionIds),
-    ]))
-  } catch (error) {
-    if (error?.code === 'ENOENT') return {}
-    throw new Error(`无法读取会话置顶配置：${error.message}`)
-  }
-}
-
-async function writeSessionPinStore(ctx, workspaces) {
-  const path = sessionPinStorePath(ctx)
-  const tempPath = `${path}.tmp-${process.pid}-${Date.now()}`
-  await mkdir(dirname(path), { recursive: true })
-  await writeFile(tempPath, `${JSON.stringify({ version: SESSION_PIN_STORE_VERSION, workspaces }, null, 2)}\n`, 'utf8')
-  await rename(tempPath, path)
-}
-
-function enqueueSessionPinMutation(operation) {
-  const result = sessionPinMutationTail.then(operation)
-  sessionPinMutationTail = result.then(() => undefined, () => undefined)
-  return result
-}
-
-function pinnedForWorkspace(workspace, pinnedSessionIds = []) {
-  const accounted = new Set(workspace.sessionIds)
-  return normalizeSessionPinIds(pinnedSessionIds).filter(sessionId => accounted.has(sessionId))
-}
-
-async function clearWorkspacePins(ctx, workspaceId) {
-  try {
-    sessionPinStorePath(ctx)
-  } catch {
-    return
-  }
-  return enqueueSessionPinMutation(async () => {
-    const pins = await readSessionPinStore(ctx)
-    if (!(workspaceId in pins)) return
-    const nextStore = { ...pins }
-    delete nextStore[workspaceId]
-    await writeSessionPinStore(ctx, nextStore)
-  })
-}
-
-async function clearSessionPins(ctx, sessionId) {
-  try {
-    sessionPinStorePath(ctx)
-  } catch {
-    return
-  }
-  return enqueueSessionPinMutation(async () => {
-    const pins = await readSessionPinStore(ctx)
-    const nextStore = Object.fromEntries(Object.entries(pins).map(([workspaceId, sessionIds]) => [
-      workspaceId,
-      sessionIds.filter(item => item !== sessionId),
-    ]).filter(([, sessionIds]) => sessionIds.length > 0))
-    if (JSON.stringify(nextStore) === JSON.stringify(pins)) return
-    await writeSessionPinStore(ctx, nextStore)
-  })
+  return service
 }
 
 function workspaceSnapshot(workspace, pinnedSessionIds = []) {
@@ -214,7 +147,7 @@ function workspaceSnapshot(workspace, pinnedSessionIds = []) {
     path: workspace.path,
     title: workspace.title,
     sessionIds: [...workspace.sessionIds],
-    pinnedSessionIds: pinnedForWorkspace(workspace, pinnedSessionIds),
+    pinnedSessionIds,
     createdAt: workspace.createdAt,
     updatedAt: workspace.updatedAt,
   }
@@ -255,9 +188,9 @@ async function attachWorkspaceSession(ctx, payload) {
     }
     throw error
   }
-  if (previousWorkspace !== undefined) await clearSessionPins(ctx, payload.sessionId)
-  const pins = await readSessionPinStore(ctx)
-  return { workspace: workspaceSnapshot(workspace, pins[workspace.id]) }
+  const service = optionalSessionPins(ctx)
+  if (previousWorkspace !== undefined && service !== undefined) await service.clearSession(payload.sessionId)
+  return { workspace: workspaceSnapshot(workspace, service?.forWorkspace(workspace) ?? []) }
 }
 
 async function setSessionPinned(ctx, payload) {
@@ -269,33 +202,13 @@ async function setSessionPinned(ctx, payload) {
     || typeof payload.pinned !== 'boolean') {
     throw new Error('workspace.setSessionPinned requires workspaceId, sessionId and pinned')
   }
-  const registry = ctx.get?.('workspaceRegistry')
-  if (!registry || typeof registry.get !== 'function') {
-    throw new Error('workspace.setSessionPinned requires @deepseek-ai/dsh-workspace')
-  }
-  const workspace = registry.get(payload.workspaceId)
-  if (!workspace) throw new Error(`workspace "${payload.workspaceId}" not found`)
-  if (!workspace.sessionIds.includes(payload.sessionId)) {
-    throw new Error(`session "${payload.sessionId}" is not accounted by workspace "${payload.workspaceId}"`)
-  }
-  return enqueueSessionPinMutation(async () => {
-    const pins = await readSessionPinStore(ctx)
-    const current = pinnedForWorkspace(workspace, pins[workspace.id])
-    const next = payload.pinned
-      ? [...current.filter(sessionId => sessionId !== payload.sessionId), payload.sessionId]
-      : current.filter(sessionId => sessionId !== payload.sessionId)
-    const nextStore = { ...pins }
-    if (next.length === 0) delete nextStore[workspace.id]
-    else nextStore[workspace.id] = next
-    await writeSessionPinStore(ctx, nextStore)
-    return { workspaceId: workspace.id, pinnedSessionIds: next }
-  })
+  return sessionPins(ctx).setSessionPinned(payload.workspaceId, payload.sessionId, payload.pinned)
 }
 
 async function decorateWorkspaceListResponse(ctx, response) {
   if (!isRecord(response) || !isRecord(response.result) || response.result.ok !== true || !isRecord(response.result.value)) return response
-  const pins = await readSessionPinStore(ctx)
   const value = response.result.value
+  const service = optionalSessionPins(ctx)
   return {
     ...response,
     result: {
@@ -304,7 +217,7 @@ async function decorateWorkspaceListResponse(ctx, response) {
         ...value,
         items: Array.isArray(value.items) ? value.items.map(workspace => ({
           ...workspace,
-          pinnedSessionIds: pinnedForWorkspace(workspace, pins[workspace.workspaceId]),
+          pinnedSessionIds: service?.forWorkspace(workspace) ?? [],
         })) : value.items,
       },
     },
@@ -315,7 +228,7 @@ async function decorateWorkspaceMutationResponse(ctx, response) {
   if (!isRecord(response) || !isRecord(response.result) || response.result.ok !== true || !isRecord(response.result.value)) return response
   const value = response.result.value
   if (!isRecord(value.workspace)) return response
-  const pins = await readSessionPinStore(ctx)
+  const service = optionalSessionPins(ctx)
   return {
     ...response,
     result: {
@@ -324,7 +237,7 @@ async function decorateWorkspaceMutationResponse(ctx, response) {
         ...value,
         workspace: {
           ...value.workspace,
-          pinnedSessionIds: pinnedForWorkspace(value.workspace, pins[value.workspace.workspaceId]),
+          pinnedSessionIds: service?.forWorkspace(value.workspace) ?? [],
         },
       },
     },
@@ -334,7 +247,7 @@ async function decorateWorkspaceMutationResponse(ctx, response) {
 async function deleteWorkspace(ctx, request, payload) {
   const response = await ctx.apiProxy.workspace.delete(request)
   if (isRecord(response) && isRecord(response.result) && response.result.ok === true) {
-    await clearWorkspacePins(ctx, payload.workspaceId)
+    await optionalSessionPins(ctx)?.clearWorkspace(payload.workspaceId)
   }
   return response
 }
@@ -469,7 +382,7 @@ async function deleteArchivedSession(ctx, payload, signal) {
     registry.headers?.delete(sessionId)
     registry.sessionPaths?.delete(sessionId)
     registry.invalidSessionPaths?.delete(sessionId)
-    await clearSessionPins(ctx, sessionId)
+    await optionalSessionPins(ctx)?.clearSession(sessionId)
     return { deleted: true, archivedSessionIds: nextArchivedSessionIds }
   })
 }

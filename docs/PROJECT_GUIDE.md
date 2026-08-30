@@ -84,6 +84,7 @@ npm run version:check
 | `deeptop-bridge/desktop-profile.json` | desktop Profile 的基础 Bundle 清单 |
 | `PLUGIN_COMPATIBILITY.md` | 插件兼容分层和未完成事项 |
 | `DEEPTOP_UI_RUNTIME.md` | Client Module、Slot、Bridge 能力和桌面 UI 插件的实施设计 |
+| `REFACTORING_CORDIS_UI_RUNTIME.md` | 合并 UI Runtime 后的重构基线、功能归属和实施顺序 |
 | `WEBUI_PARITY.md` | 功能对齐清单和 WebUI 明确排除项 |
 
 ## 4. 启动生命周期
@@ -162,7 +163,7 @@ $DSH_HOME/profiles/desktop/cordis.patch.yml
 内置 `deeptop-bridge/cordis.patch.yml` 当前组合了以下类型的服务：
 
 - storage、JSON storage、storage domain；
-- message feedback、message annotations；
+- message feedback、message annotations、session pins；
 - session log export、session stats、projection cache；
 - workspace、native directory picker、plugin inventory；
 - Host ApiProxy 和 Cordis Host runner；

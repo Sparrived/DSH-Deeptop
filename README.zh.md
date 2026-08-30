@@ -15,6 +15,7 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 - [DSH 原生协调关系](docs/DSH_NATIVE_COORDINATION.md)：说明 Tauri、Bridge、Cordis Profile、ApiProxy、Remote、Projection 和 React 的边界与调用链。
 - [架构说明](ARCHITECTURE.md)：说明依赖方向、纯前端模型层和插件化规则。
 - [官方插件兼容策略](PLUGIN_COMPATIBILITY.md)：Host/Cordis 与 WebUI Client 的兼容分层、当前状态和后续工作。
+- [Cordis/UI Runtime 重构计划](docs/REFACTORING_CORDIS_UI_RUNTIME.md)：合并 UI Runtime 后的功能归属、会话置顶迁移和后续拆分顺序。
 - [WebUI 对齐清单](WEBUI_PARITY.md)：当前功能覆盖、缺口和明确排除的 WebUI 基础设施。
 <!-- @deeptop-pets:start readme-zh-doc-link -->
 - [宠物包开发指南](docs/PET_PACKS.zh.md)：制作、校验、导入和分享声明式 `.deeptop-pet` 宠物包。
@@ -28,7 +29,7 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 | --- | --- | --- |
 | 会话 | 已支持 | 持久化列表、历史恢复、历史向前分页、实时事件、重命名、搜索、分叉、归档、恢复和删除归档会话。 |
 | 对话 | 已支持 | assistant/reasoning 流式拼装、Markdown/GFM、图片附件、排队/steering（引导）提示、队列编辑/移除、停止和消息重试。重试会创建可恢复的前缀分支，不回滚原会话。 |
-| 工作区 | 已支持 | 原生目录选择、创建/重命名/删除、会话归属、分组和排序。选定路径会作为会话 `cwd` 传入 DSH。 |
+| 工作区 | 已支持 | 原生目录选择、创建/重命名/删除、会话归属、分组和排序；会话置顶状态由 desktop Profile 的 `session-pins` Host Plugin 持久化。选定路径会作为会话 `cwd` 传入 DSH。 |
 | 系统托盘 | 已支持 | 显示未读、最近与更多会话并可直接跳转；Windows 使用固定宽度的 Deeptop 弹窗，跟随应用的 Light、Dark、System 与自定义 CSS 主题。 |
 <!-- @deeptop-pets:start readme-zh-feature -->
 | 互动宠物 | 已支持 | 独立透明置顶窗口可跨应用和显示器拖动，并响应点击、长按和任务状态；共享养成层保存饱食、心情和亲密度，支持喂食、摸摸和陪玩，换皮不会重置状态且可单独暂停。活动列表按 Deeptop 的“需要输入、阻塞、已完成未读、运行中”顺序显示多个会话，卡片可处理会话并切换到照顾面板。第三方宠物使用不含脚本的 `.deeptop-pet` 精灵包导入、导出和分享，总开关会直接销毁窗口。需要完全移除源码时执行 `npm run pets:remove`。 |

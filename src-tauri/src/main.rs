@@ -252,6 +252,10 @@ const BRIDGE_ROUTES: &str = include_str!("../../deeptop-bridge/routes.mjs");
 const BRIDGE_SESSION_REPAIR: &str = include_str!("../../deeptop-bridge/session-repair.mjs");
 const BRIDGE_MESSAGE_ANNOTATIONS: &str =
     include_str!("../../deeptop-bridge/message-annotations.mjs");
+const BRIDGE_SESSION_PINS: &str = include_str!("../../deeptop-bridge/session-pins.mjs");
+const BRIDGE_SESSION_PINS_MODEL: &str = include_str!("../../deeptop-bridge/session-pins-model.mjs");
+const BRIDGE_UI_PLUGIN_MANIFEST: &str = include_str!("../../deeptop-bridge/ui-plugin-manifest.mjs");
+const BRIDGE_UI_REGISTRY: &str = include_str!("../../deeptop-bridge/ui-registry.mjs");
 const BRIDGE_SKILL_INSTALLER: &str = include_str!("../../deeptop-bridge/skill-installer.mjs");
 const BRIDGE_SKILL_INSTALL_PLUGIN: &str =
     include_str!("../../deeptop-bridge/skill-install-plugin.mjs");
@@ -980,7 +984,7 @@ fn migrate_desktop_profile_patch(path: &Path) -> Result<(), String> {
     write_text(path, &format!("{}{newline}", filtered.join(newline)))
 }
 
-fn bundled_bridge_files() -> [(&'static str, &'static str); 12] {
+fn bundled_bridge_files() -> [(&'static str, &'static str); 16] {
     [
         ("package.json", BRIDGE_PACKAGE_JSON),
         ("cordis.patch.yml", BRIDGE_PATCH),
@@ -989,6 +993,10 @@ fn bundled_bridge_files() -> [(&'static str, &'static str); 12] {
         ("routes.mjs", BRIDGE_ROUTES),
         ("session-repair.mjs", BRIDGE_SESSION_REPAIR),
         ("message-annotations.mjs", BRIDGE_MESSAGE_ANNOTATIONS),
+        ("session-pins.mjs", BRIDGE_SESSION_PINS),
+        ("session-pins-model.mjs", BRIDGE_SESSION_PINS_MODEL),
+        ("ui-plugin-manifest.mjs", BRIDGE_UI_PLUGIN_MANIFEST),
+        ("ui-registry.mjs", BRIDGE_UI_REGISTRY),
         ("skill-installer.mjs", BRIDGE_SKILL_INSTALLER),
         ("skill-install-plugin.mjs", BRIDGE_SKILL_INSTALL_PLUGIN),
         ("plugin-config.mjs", BRIDGE_PLUGIN_CONFIG),
@@ -5225,6 +5233,12 @@ mod tests {
         assert!(
             files.iter().any(|(name, _)| *name == "theme-settings.mjs"),
             "desktop theme settings bridge module must be materialized"
+        );
+        assert!(
+            files
+                .iter()
+                .any(|(name, _)| *name == "ui-plugin-manifest.mjs"),
+            "UI plugin manifest must be materialized for the registry module"
         );
         assert!(files.iter().all(|(_, content)| !content.trim().is_empty()));
     }

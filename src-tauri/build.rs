@@ -76,6 +76,7 @@ fn main() {
         "remove_pet_bundle",
         "reset_dock_position",
         "resize_terminal",
+        "resolve_ui_plugin_bundle",
         "resolve_window_close",
         "reveal_in_explorer",
         "run_tray_popup_action",

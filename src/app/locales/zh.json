@@ -192,6 +192,7 @@
   "capability.skills": "技能安装",
   "capability.subagents": "子 Agent",
   "capability.workspace": "工作区",
+  "capability.uiPlugins": "UI 插件运行时",
   "common.cancel": "取消",
   "common.close": "关闭",
   "common.confirm": "确认",
