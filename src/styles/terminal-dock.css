@@ -82,6 +82,72 @@
   background: var(--surface-soft);
 }
 
+.terminal-panel-tabs {
+  display: flex;
+  min-width: 0;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.terminal-panel-tab {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: stretch;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--surface) 76%, var(--surface-soft));
+}
+
+.terminal-panel-tab.active {
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--line-strong));
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+}
+
+.terminal-panel-tab > button:first-child {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 7px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+.terminal-panel-tab.active > button:first-child { color: var(--ink); }
+.terminal-panel-tab-index { color: var(--ink-faint); font-family: var(--mono); font-size: 10px; }
+.terminal-panel-tab-name { max-width: 112px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.terminal-panel-tab-status { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent); }
+.terminal-panel-tab.exited .terminal-panel-tab-status { background: var(--ink-faint); box-shadow: none; }
+
+.terminal-panel-tab-close,
+.terminal-panel-new {
+  display: grid;
+  width: 28px;
+  min-height: 30px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-faint);
+  font-size: 16px;
+}
+
+.terminal-panel-tab-close:hover,
+.terminal-panel-new:hover:not(:disabled) { color: var(--accent-deep); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.terminal-panel-new { flex: 0 0 auto; border: 1px dashed var(--line-strong); border-radius: var(--radius-control); font-size: 19px; }
+.terminal-panel-new:disabled { cursor: default; opacity: .45; }
+.terminal-panel-tab > button:focus-visible,
+.terminal-panel-tab-close:focus-visible,
+.terminal-panel-new:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.terminal-panel-views,
+.terminal-panel-views > [role="tabpanel"] { min-height: 0; }
+.terminal-panel-views > [role="tabpanel"][aria-hidden="true"] { display: none; }
+
 .terminal-panel-path {
   overflow: hidden;
   color: var(--ink-faint);

@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     env,
     io::{Read, Write},
     path::{Path, PathBuf},
@@ -51,7 +52,6 @@ pub struct TerminalOutput {
 }
 
 struct TerminalSession {
-    id: String,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     master: Arc<Mutex<PtyMasterHandle>>,
     child: Arc<Mutex<PtyChildHandle>>,
@@ -59,7 +59,7 @@ struct TerminalSession {
 
 #[derive(Clone, Default)]
 pub struct TerminalManager {
-    session: Arc<Mutex<Option<TerminalSession>>>,
+    sessions: Arc<Mutex<HashMap<String, TerminalSession>>>,
 }
 
 fn terminal_option(id: &str, name: &str, description: &str) -> TerminalOption {
@@ -254,13 +254,13 @@ fn terminal_size(cols: u16, rows: u16) -> PtySize {
 }
 
 impl TerminalManager {
-    fn stop_current(&self) {
-        let current = self
-            .session
+    fn stop_session(&self, session_id: &str) {
+        let session = self
+            .sessions
             .lock()
             .ok()
-            .and_then(|mut session| session.take());
-        if let Some(session) = current {
+            .and_then(|mut sessions| sessions.remove(session_id));
+        if let Some(session) = session {
             if let Ok(mut child) = session.child.lock() {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -289,7 +289,6 @@ impl TerminalManager {
             return Err("所选终端当前不可用，请刷新终端列表".to_string());
         }
 
-        self.stop_current();
         let mut command = shell_command(&directory, &terminal_id)?;
         configure_shell_process(&mut command);
         let pty_system = native_pty_system();
@@ -316,13 +315,15 @@ impl TerminalManager {
         let writer = Arc::new(Mutex::new(writer));
         let master = Arc::new(Mutex::new(master));
         let child = Arc::new(Mutex::new(child));
-        if let Ok(mut current) = self.session.lock() {
-            *current = Some(TerminalSession {
-                id: session_id.clone(),
-                writer: Arc::clone(&writer),
-                master: Arc::clone(&master),
-                child: Arc::clone(&child),
-            });
+        if let Ok(mut sessions) = self.sessions.lock() {
+            sessions.insert(
+                session_id.clone(),
+                TerminalSession {
+                    writer: Arc::clone(&writer),
+                    master: Arc::clone(&master),
+                    child: Arc::clone(&child),
+                },
+            );
         }
 
         let manager = self.clone();
@@ -349,11 +350,8 @@ impl TerminalManager {
                     exit_code: status.map(|status| status.exit_code() as i32),
                 },
             );
-            if let Ok(mut current) = manager.session.lock() {
-                if current.as_ref().map(|session| session.id.as_str()) == Some(monitor_id.as_str())
-                {
-                    *current = None;
-                }
+            if let Ok(mut sessions) = manager.sessions.lock() {
+                sessions.remove(&monitor_id);
             }
         });
         read_stream(app, session_id.clone(), reader);
@@ -368,13 +366,12 @@ impl TerminalManager {
             return Err("终端输入过长，请分段发送".to_string());
         }
         let writer = self
-            .session
+            .sessions
             .lock()
             .ok()
-            .and_then(|current| {
-                current
-                    .as_ref()
-                    .filter(|session| session.id == session_id)
+            .and_then(|sessions| {
+                sessions
+                    .get(session_id)
                     .map(|session| Arc::clone(&session.writer))
             })
             .ok_or_else(|| "内嵌终端会话已结束".to_string())?;
@@ -391,13 +388,12 @@ impl TerminalManager {
 
     fn resize(&self, session_id: &str, cols: u16, rows: u16) -> Result<(), String> {
         let master = self
-            .session
+            .sessions
             .lock()
             .ok()
-            .and_then(|current| {
-                current
-                    .as_ref()
-                    .filter(|session| session.id == session_id)
+            .and_then(|sessions| {
+                sessions
+                    .get(session_id)
                     .map(|session| Arc::clone(&session.master))
             })
             .ok_or_else(|| "内嵌终端会话已结束".to_string())?;
@@ -410,19 +406,7 @@ impl TerminalManager {
     }
 
     fn close(&self, session_id: &str) {
-        let current = self.session.lock().ok().and_then(|mut session| {
-            if session.as_ref().map(|current| current.id.as_str()) == Some(session_id) {
-                session.take()
-            } else {
-                None
-            }
-        });
-        if let Some(session) = current {
-            if let Ok(mut child) = session.child.lock() {
-                let _ = child.kill();
-                let _ = child.wait();
-            }
-        }
+        self.stop_session(session_id);
     }
 }
 
