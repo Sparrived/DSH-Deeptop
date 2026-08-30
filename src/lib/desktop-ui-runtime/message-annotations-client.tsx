@@ -98,6 +98,7 @@ function MessageAnnotation({
 
 export function activate(context: DeeptopClientContext): void {
   const store = createMessageAnnotationStore(context);
+  context.signal.addEventListener("abort", () => store.dispose(), { once: true });
   context.ui.register("conversation.message.actions", {
     kind: "action",
     id: "message-annotations.edit",

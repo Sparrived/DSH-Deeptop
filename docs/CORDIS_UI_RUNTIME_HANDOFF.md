@@ -10,11 +10,12 @@
 - 最近合并提交：`a9177bd53a`，合并 `feature/desktop-ui-runtime`。
 - 会话置顶 Host Plugin 提交：`d94c1e8739`。
 - 消息注记 UI Consumer 提交：`ac3be1b564`。
-- 当前 HEAD：`ac3be1b564`。
-- 当前分支相对 `origin/master`：本地领先 19 个提交。
-- 当前工作区有四个未提交文件：`src/App.tsx`、`src/app/tool-args-render.tsx`、`src/styles/15-final-overrides.css`、`src/styles/18-session-dashboard.css`。
+- 当前 HEAD：`976a635ec4`。
+- 当前分支相对 `origin/master`：本地领先 20 个提交。
+- 工作区开始本轮任务时已有四个未提交文件：`src/App.tsx`、`src/app/tool-args-render.tsx`、`src/styles/15-final-overrides.css`、`src/styles/18-session-dashboard.css`。
+- 本轮 UI Runtime 变更另涉及 `package.json`、`src/lib/desktop-ui-runtime/message-annotation-store.ts`、`src/lib/desktop-ui-runtime/message-annotation-store.test.mjs`、`src/lib/desktop-ui-runtime/message-annotations-client.tsx`、`src/lib/desktop-ui-runtime/message-annotations-client.test.mjs` 和本文档。
 
-这四个文件包含用户已有的会话看板、工具参数渲染和样式改动。后续操作不得重置、覆盖、丢弃、rebase、squash 或把这些改动错误地带入无关提交。涉及 `src/App.tsx` 时必须使用选择性暂存，并在提交前分别检查 `git diff` 和 `git diff --cached`。
+前四个文件包含用户已有的会话看板、工具参数渲染和样式改动；后续操作不得重置、覆盖、丢弃、rebase、squash 或把这些改动错误地带入无关提交。涉及 `src/App.tsx` 时必须使用选择性暂存，并在提交前分别检查 `git diff` 和 `git diff --cached`。本轮新增文件和 UI Runtime 文件也必须按模块选择性暂存，不要用全量 `git add .`。
 
 ## 已完成的迁移
 
@@ -131,12 +132,12 @@ Host function plugin 使用命名导出 `name`、`inject`、`apply`，不要添�
 
 ## 推荐的下一步
 
-### P0：完成消息注记迁移
+### P0：完成消息注记迁移（组件与存储专项已补齐，仍需宿主集成验收）
 
-1. 增加组件级测试，验证 `conversation.message.actions` 的 Action 和 Badge 在 Client Module 激活后出现，插件停用后消失。
-2. 增加版本冲突的可见测试，验证 Host 返回当前注记后，旧编辑不会覆盖新内容。
-3. 增加插件缺失、Bridge 重启、空 Session、快速切换 Session 和 Popup 取消路径的测试。
-4. 视实际 UI 体验决定是否把当前消息行内置注记样式调整为独立的稳定 contribution CSS，不改变 Host 数据结构。
+1. ✅ `message-annotations-client.test.mjs` 覆盖 Client Module 激活后 `conversation.message.actions` 的 Action、Badge 渲染，以及插件停用后两个 contribution 消失。
+2. ✅ `message-annotation-store.test.mjs` 覆盖 Host 返回当前注记后的版本冲突：旧编辑以稳定错误码失败，当前注记进入 Client cache，Badge 不被旧内容覆盖。
+3. ✅ 已覆盖 Popup 取消：取消输入不调用 Host Remote，也不显示保存成功/保存中通知；已有 UI Runtime 测试覆盖插件缺失、Bridge 重启、空 Session/会话代际保护。Store 现在通过 `dispose()` 和 Client `AbortSignal` 清理 Session listener、cache 与订阅。
+4. ⏳ 仍需在真实宿主集成测试中补充快速切换 Session、Bridge 重启后消息注记重新加载，以及空 Session 的浏览器可见验收；行内注记 CSS 暂不单独拆分，继续复用主应用样式。
 
 ### P1：按 Slot 扩展官方领域 UI
 

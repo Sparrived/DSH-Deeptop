@@ -52,7 +52,7 @@ session-pins.mjs
 
 Host Service `message-annotations.mjs` 保持注记的 compare-and-set、Session identity 检查和持久化顺序。内置 `message-annotations-ui` Host Plugin 已登记 `conversation.message.actions`，内置 Client Module 通过受限 `messageAnnotations` Remote 读取和修改注记；`ConversationTranscript` 只提供最小消息 context 与 App-owned Popup/notice facade。
 
-当前实现还需继续补齐 UI 组件测试和更细的冲突状态提示。外部 UI Plugin 不能通过该 facade 访问 Tauri、Node 或任意 App 状态。
+组件级专项测试已补齐：`message-annotations-client.test.mjs` 验证 Action/Badge 的激活、渲染、停用清理和 Popup 取消；`message-annotation-store.test.mjs` 验证 Session 代际保护、Host 版本冲突回填和 store dispose。Store 的 Session listener、cache 与订阅由 `dispose()` 清理，并绑定 Client Module 的 `AbortSignal`。仍需在真实宿主集成测试中覆盖快速切换 Session、Bridge 重启后的重新加载和空 Session 可见状态。外部 UI Plugin 不能通过该 facade 访问 Tauri、Node 或任意 App 状态。
 
 ## 第三批：官方领域 UI Consumer
 

@@ -29,6 +29,7 @@ export interface AnnotationStore {
   load(sessionId: string, generation: number): Promise<void>;
   put(sessionId: string, messageId: string, note: string, generation: number): Promise<AnnotationMutation<DshMessageAnnotationItem>>;
   remove(sessionId: string, messageId: string, version: string, generation: number): Promise<AnnotationMutation<void>>;
+  dispose(): void;
 }
 
 function errorForResult<T>(result: DshMessageAnnotationResult<T>, action: "save" | "delete", locale: DeeptopClientContext["locale"]): T {
@@ -52,6 +53,7 @@ export function createMessageAnnotationStore(context: Pick<DeeptopClientContext,
   };
   let currentSessionId: string | null = null;
   let currentGeneration = -1;
+  let disposed = false;
   const values = new Map<string, AnnotationMap>();
   const listeners = new Set<() => void>();
   const notify = () => {
@@ -59,25 +61,29 @@ export function createMessageAnnotationStore(context: Pick<DeeptopClientContext,
   };
   const isCurrent = (sessionId: string, generation: number) => currentSessionId === sessionId && currentGeneration === generation;
 
+  let sessionUnsubscribe: (() => void) | null = null;
   const store: AnnotationStore = {
     get: (sessionId) => values.get(sessionId) ?? {},
     subscribe: (listener) => {
+      if (disposed) return () => undefined;
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
     async load(sessionId, generation) {
+      if (disposed) return;
       currentSessionId = sessionId;
       currentGeneration = generation;
       const result = await remote.list({ sessionId });
-      if (!isCurrent(sessionId, generation)) return;
+      if (disposed || !isCurrent(sessionId, generation)) return;
       if (!result.ok) throw new Error(`annotation list failed: ${result.error.code}`);
       values.set(sessionId, Object.fromEntries(result.value.items.map((item) => [item.messageId, item])));
       notify();
     },
     async put(sessionId, messageId, note, generation) {
+      if (disposed) throw new Error("message annotation store is disposed");
       const current = store.get(sessionId)[messageId];
       const result = await remote.put({ sessionId, messageId, note, ifVersion: current?.version ?? null });
-      const switched = !isCurrent(sessionId, generation);
+      const switched = disposed || !isCurrent(sessionId, generation);
       if (!switched && !result.ok && result.error.code === "version-conflict") {
         const next = { ...store.get(sessionId) };
         if (result.error.current) next[messageId] = result.error.current;
@@ -93,8 +99,9 @@ export function createMessageAnnotationStore(context: Pick<DeeptopClientContext,
       return { value: item, switched };
     },
     async remove(sessionId, messageId, version, generation) {
+      if (disposed) throw new Error("message annotation store is disposed");
       const result = await remote.delete({ sessionId, messageId, ifVersion: version });
-      const switched = !isCurrent(sessionId, generation);
+      const switched = disposed || !isCurrent(sessionId, generation);
       if (!switched && !result.ok && result.error.code === "version-conflict") {
         const next = { ...store.get(sessionId) };
         if (result.error.current) next[messageId] = result.error.current;
@@ -111,9 +118,20 @@ export function createMessageAnnotationStore(context: Pick<DeeptopClientContext,
       }
       return { value: undefined, switched };
     },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      sessionUnsubscribe?.();
+      sessionUnsubscribe = null;
+      listeners.clear();
+      values.clear();
+      currentSessionId = null;
+      currentGeneration = -1;
+    },
   };
 
-  context.session.onChange((session) => {
+  sessionUnsubscribe = context.session.onChange((session) => {
+    if (disposed) return;
     if (!session) {
       currentSessionId = null;
       currentGeneration = context.session.generation;
