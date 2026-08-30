@@ -5,6 +5,15 @@ import { dirname, isAbsolute, join } from 'node:path'
 import { installSkillFromSource } from './skill-installer.mjs'
 import { repairCorruptLog } from './session-repair.mjs'
 import { describePluginConfig, filterInventory, mutatePluginConfig } from './plugin-config.mjs'
+import {
+  deleteUiPluginStorage,
+  getUiPluginBundle,
+  getUiPluginModule,
+  getUiPluginStorage,
+  invokeUiPluginRemote,
+  listUiPlugins,
+  setUiPluginStorage,
+} from './ui-routes.mjs'
 import { loadProxySetting, resolveEffectiveProxy, setProxySetting } from './network-proxy.mjs'
 
 function isRecord(value) {
@@ -609,6 +618,7 @@ function probeDesktopCapabilities(ctx) {
     plugins: has(ctx.pluginInventory, 'list'),
     sessionExport: has(api?.downloads, 'sessionLog'),
     commands: has(get('typertGateway'), 'invoke'),
+    uiPlugins: has(get('deeptopUiRegistry'), 'list'),
   }
   return { probedAt: Date.now(), services }
 }
@@ -682,6 +692,13 @@ export async function routeDesktopRequest(ctx, method, payload, signal) {
     case 'llm.discoverModels': return api.llm.discoverModels(request, signal)
     case 'remote.invoke': return invokeRemote(ctx, payload, signal)
     case 'desktop.capabilities': return probeDesktopCapabilities(ctx)
+    case 'ui.plugin.list': return listUiPlugins(ctx)
+    case 'ui.plugin.module': return getUiPluginModule(ctx, payload)
+    case 'ui.plugin.bundle': return getUiPluginBundle(ctx, payload)
+    case 'ui.plugin.invoke': return invokeUiPluginRemote(ctx, payload, signal)
+    case 'ui.plugin.storage.get': return getUiPluginStorage(ctx, payload)
+    case 'ui.plugin.storage.set': return setUiPluginStorage(ctx, payload)
+    case 'ui.plugin.storage.delete': return deleteUiPluginStorage(ctx, payload)
     case 'plugin.list': return filterInventory(await ctx.pluginInventory.list())
     case 'plugin.config.describe': return describePluginConfig(ctx)
     case 'plugin.config.mutate': return mutatePluginConfig(ctx, payload)

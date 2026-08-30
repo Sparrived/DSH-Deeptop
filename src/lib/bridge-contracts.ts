@@ -27,6 +27,7 @@ import type {
   DshWorkspace,
 } from "./desktop";
 import type { DiscoveredModel, DshHostModelCatalog } from "../app/model-types";
+import type { DshUiPluginDescriptor } from "../app/ui-plugin-model";
 
 /** 每个契约条目：载荷/返回值形状 + 依赖的能力键。 */
 export interface BridgeMethodContract {
@@ -445,8 +446,7 @@ const plugins = {
     requires: "plugins",
     payload: {} as Record<string, never>,
     value: {} as DshPluginInventorySnapshot,
-  },
-  "plugin.config.describe": {
+  },  "plugin.config.describe": {
     requires: "plugins",
     payload: {} as Record<string, never>,
     value: {} as DshPluginConfigDescription,
@@ -455,6 +455,55 @@ const plugins = {
     requires: "plugins",
     payload: {} as { expectedRevision: number; plugins: Array<{ id: string; name: string; enabled: boolean }> },
     value: {} as DshPluginConfigMutation,
+  },
+} as const satisfies Record<string, BridgeMethodContract>;
+
+/**
+ * UI 插件运行时（docs/DEEPTOP_UI_RUNTIME.md）受限路由契约。
+ * `ui.plugin.bundle` 是宿主专用：仅 Tauri 进程解析受控资源时调用，
+ * 返回本地 bundle 路径，绝不转发给 WebView。
+ */
+const ui = {
+  "ui.plugin.list": {
+    requires: "uiPlugins",
+    payload: {} as Record<string, never>,
+    value: {} as { items: DshUiPluginDescriptor[] },
+  },
+  "ui.plugin.module": {
+    requires: "uiPlugins",
+    payload: {} as { pluginId: string },
+    value: {} as {
+      pluginId: string;
+      entryId: string;
+      format: "esm";
+      sdkVersion: string;
+      integrity?: string;
+    },
+  },
+  "ui.plugin.bundle": {
+    requires: "uiPlugins",
+    payload: {} as { pluginId: string },
+    value: {} as { pluginId: string; entryPath: string; format: "esm"; integrity?: string },
+  },
+  "ui.plugin.invoke": {
+    requires: "uiPlugins",
+    payload: {} as { pluginId: string; namespace: string; method: string; args: unknown },
+    value: {} as { value: unknown },
+  },
+  "ui.plugin.storage.get": {
+    requires: "uiPlugins",
+    payload: {} as { pluginId: string; key: string },
+    value: {} as { value: unknown },
+  },
+  "ui.plugin.storage.set": {
+    requires: "uiPlugins",
+    payload: {} as { pluginId: string; key: string; value: unknown },
+    value: {} as { stored: boolean },
+  },
+  "ui.plugin.storage.delete": {
+    requires: "uiPlugins",
+    payload: {} as { pluginId: string; key: string },
+    value: {} as { deleted: boolean },
   },
 } as const satisfies Record<string, BridgeMethodContract>;
 
@@ -472,6 +521,7 @@ export const bridgeContracts = {
   ...host,
   ...desktop,
   ...plugins,
+  ...ui,
 } as const;
 
 export type BridgeMethodName = keyof typeof bridgeContracts;

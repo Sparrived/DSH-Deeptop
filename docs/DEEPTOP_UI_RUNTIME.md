@@ -1,8 +1,10 @@
 # Deeptop UI Runtime 实现设计
 
-> 状态：提案 / 实施蓝图
+> 状态：提案 / 实施蓝图（第一阶段核心与第二阶段受控资源协议已落地）
 >
 > 本文定义如何在 Deeptop 中实现一套类似 DSH WebUI 原生 Client Runtime 的桌面 UI 插件运行时，使插件可以复用同一棵 DSH Cordis 树，并通过 Host/Cordis 插件为 Deeptop 添加 React 组件、菜单项、Badge、设置页和 Inspector 面板。
+>
+> 当前实现进度：Cordis 宿主 `deeptop-ui-registry` 服务（`deeptop-bridge/ui-registry.mjs`）、受限路由 `ui.plugin.list/module/bundle/invoke/storage.*`（`deeptop-bridge/ui-routes.mjs`）、客户端运行时（`src/lib/desktop-ui-runtime/`）、纯协议模型（`src/app/ui-plugin-model.ts`）、会话右键菜单的 `SlotOutlet` 接入以及设置页「UI 插件」状态区块已完成并有测试覆盖。宿主-only 插件可通过声明式 contributions 直接提供菜单项和徽标；外部 Client Bundle 经 Tauri 受控资源协议 `deeptop-plugin://`（`src-tauri/src/ui_plugin_bundle.rs`）加载：路径围栏、SHA-256 完整性、大小与装载时限在桌面进程强制执行。第三阶段隔离模式仍未实现。
 >
 > 本文不是对当前仓库已有能力的描述。当前 Deeptop 已有 DSH Host/Cordis、Bridge、Remote、Projection、事件和 React 原生 UI，但还没有动态 Client Module、Slot Registry 或客户端插件生命周期。本文中的接口、路由和目录是拟议实现，落地时必须以锁定的 DSH 版本、Tauri 版本和实际 Cordis API 重新核对。
 
@@ -384,7 +386,7 @@ my-plugin/
 | `capabilities.remotes` | 允许访问的 namespace/method 白名单 |
 | `capabilities.events` | 允许订阅的事件白名单 |
 | `capabilities.storage` | Host 或 Client 的命名空间标识 |
-| `integrity` | 可选但推荐，用于校验外部 Bundle 未被替换 |
+| `client.integrity` | 可选但推荐，格式 `sha256-<64 位小写十六进制>`；受控协议装载前强制校验外部 Bundle 未被替换 |
 
 Manifest 是声明，不是授权本身。Bridge 仍需根据插件来源和 Profile 重新验证；Client Runtime 也需要在注册 Slot 时再次检查。
 
@@ -916,23 +918,26 @@ Cordis Registry 返回 `entryId`，Client Runtime 使用本地 registry 找到�
 
 而不同时引入动态模块安全问题。
 
-### 9.3 第二阶段：Tauri 受控插件资源协议
+### 9.3 第二阶段：Tauri 受控插件资源协议（已实现）
 
-如果需要用户在 `$DSH_HOME` 下安装第三方 UI 插件，建议新增受控资源协议，例如：
+外部 UI 插件 bundle 经受控资源协议进入 WebView：
 
 ```text
-deeptop-plugin://example.session-pins/client.mjs
+deeptop-plugin://localhost/<pluginId>/client.mjs        # macOS / Linux
+http://deeptop-plugin.localhost/<pluginId>/client.mjs   # Windows（WebView2 形态）
 ```
 
-Rust/Tauri 只服务：
+实现要点（`src-tauri/src/ui_plugin_bundle.rs`）：
 
-- 已被当前 DSH Profile 注册的 `pluginId`；
-- manifest 中声明的 entry；
-- manifest integrity 校验通过的文件；
-- 允许的静态资源目录；
-- 单文件 ESM 或明确的相对模块依赖。
+- 前端调用 Tauri 命令 `resolve_ui_plugin_bundle(pluginId)`；该命令经桌面桥宿主专用路由 `ui.plugin.bundle` 读取 registry 记录的私有入口路径，路径绝不进入 WebView；
+- 入口必须位于 `<DSH_HOME>/plugins` 围栏内（两侧规范化后前缀比对），且为单文件 `.mjs`；
+- manifest 声明 `client.integrity`（`sha256-<64 位小写十六进制>`）时按 SHA-256 校验，不匹配即拒绝装载（错误码 `ui-integrity-mismatch`）；
+- bundle 不超过 16 MiB（超限错误码 `ui-module-unavailable`/`ui-module-too-large` 语义族）；
+- 校验通过后字节缓存于 `UiPluginBundleStore` 并绑定 BridgeManager generation：DSH 重启后旧代资源立即 404；
+- 协议处理器只从缓存回放字节，不做文件 IO、不访问 Bridge；
+- 客户端 `loadProtocolClientModule` 在解析前检查 SDK 范围，并对动态 `import()` 施加 30 秒装载上限。
 
-WebView 的 CSP、URL 解析和 Tauri 协议 API 必须以实际 Tauri 版本验证。不能把 `file://` 绝对路径直接拼进 `import()`，也不能假设浏览器会安全地加载任意 Windows 路径。
+WebView 的 CSP 当前为关闭状态（`tauri.conf.json` 中 `"csp": null`），协议访问由处理器自身的缓存与围栏规则约束；若未来启用 CSP，需把该 scheme 加入 `script-src`。不能把 `file://` 绝对路径直接拼进 `import()`。
 
 第二阶段建议的 Bundle 约束：
 
@@ -1428,28 +1433,28 @@ App 只需要提供：
 - 插件异常不影响 Session 对话；
 - `npm run build`、Bridge tests 和 UI runtime tests 通过。
 
-### Phase 2：动态受控 Client Bundle
+### Phase 2：动态受控 Client Bundle（已实现）
 
 目标：允许受信任用户插件无需重建 Deeptop。
 
 任务：
 
-- 设计 `deeptop-plugin://` 受控资源协议；
-- 设计 Bundle 目录、entry、integrity 和版本校验；
-- 配置 WebView CSP；
-- 限制单文件 ESM 和依赖范围；
-- 增加安装/启用/禁用/卸载状态；
-- 在设置页展示来源和权限；
-- 对加载失败和恶意路径做测试。
+- [x] 设计 `deeptop-plugin://` 受控资源协议（`ui_plugin_bundle.rs` + `ui.plugin.bundle` 宿主路由）；
+- [x] 设计 Bundle 目录、entry、integrity 和版本校验（SDK 范围在装载前检查）；
+- [x] 配置 WebView CSP（当前 CSP 关闭；协议由缓存围栏约束，启用时需加白）；
+- [x] 限制单文件 ESM 和依赖范围；
+- [x] 增加安装/启用/禁用/卸载状态（宿主插件启停经既有 plugin.config 机制，registry 随 Profile 刷新）；
+- [x] 在设置页展示来源和权限（「UI 插件」区块：Slot/Remote/存储/客户端模块与逐插件状态、诊断）；
+- [x] 对加载失败和恶意路径做测试（桥侧 bundle 路由用例 + Rust 单元测试：pluginId 约束、越界拒绝、完整性不匹配拒载、超时）。
 
 验收：
 
-- 不能加载未注册 pluginId；
-- 不能穿越插件目录；
-- integrity 不匹配时拒绝加载；
-- 插件禁用后资源和 Slot 都不可用；
-- 不依赖 `file://` 绝对路径；
-- Windows 和 Unix-like 路径行为一致。
+- [x] 不能加载未注册 pluginId；
+- [x] 不能穿越插件目录；
+- [x] integrity 不匹配时拒绝加载；
+- [x] 插件禁用后资源和 Slot 都不可用；
+- [x] 不依赖 `file://` 绝对路径；
+- [x] Windows 和 Unix-like 路径行为一致（URL 形态差异由桌面进程返回，前端不自行拼装）。
 
 ### Phase 3：生态和隔离
 
@@ -1712,6 +1717,42 @@ export const manifest = {
 };
 ```
 
+### 18.4 外部 Host-only 插件的声明式接入（当前已实现）
+
+不发布 Client Bundle 的外部 Cordis 插件可以直接在 `apply(ctx)` 中向 `deeptop-ui-registry` 注册声明式贡献。桌面端会用原生控件渲染它们，点击动作经 `ui.plugin.invoke` 白名单校验后调用该插件自己声明的 Remote：
+
+```js
+// cordis.patch.yml: - id: my-notes, name: 'dsh-community-my-notes'
+export const inject = ['deeptopUiRegistry', 'typertGateway'];
+
+export function apply(ctx) {
+  const dispose = ctx.get('deeptopUiRegistry').registerUiPlugin({
+    schemaVersion: 1,
+    pluginId: 'community.my-notes',
+    version: '0.1.0',
+    displayName: 'My Notes',
+    ui: {
+      slots: ['session.context-menu'],
+      contributions: [{
+        kind: 'action',
+        id: 'notes.append',
+        slot: 'session.context-menu',
+        label: '追加笔记',
+        order: 40,
+        invoke: { namespace: 'notesTools', method: 'append' },
+      }],
+    },
+    capabilities: {
+      remotes: [{ namespace: 'notesTools', methods: ['append'] }],
+      storage: 'my_notes',
+    },
+  });
+  return () => dispose();
+}
+```
+
+声明式贡献在宿主注册即可用，不依赖任何客户端模块；带 `client.entryId` 的插件才会进入客户端模块加载流程，且 entryId 必须出现在 Deeptop 内置模块表中（第二阶段起改为受控资源协议）。
+
 ---
 
 ## 19. 完成标准
@@ -1743,11 +1784,11 @@ export const manifest = {
 
 ### 安全
 
-- [ ] 第一阶段明确采用受信任内置 Bundle；
-- [ ] 动态加载前有来源、路径、格式和 integrity 规则；
+- [x] 第一阶段明确采用受信任内置 Bundle；
+- [x] 动态加载前有来源、路径、格式和 integrity 规则；
 - [ ] UI 插件没有任意 Tauri、Node 或文件系统权限；
-- [ ] Storage 和 Remote 都是 scoped；
-- [ ] 未声明能力调用会失败。
+- [x] Storage 和 Remote 都是 scoped；
+- [x] 未声明能力调用会失败。
 
 ### 工程
 

@@ -75,6 +75,7 @@ export const CAPABILITY_LABELS: Record<DshCapabilityKey, string> = {
   plugins: "capability.plugins",
   sessionExport: "capability.sessionExport",
   commands: "capability.commands",
+  uiPlugins: "capability.uiPlugins",
 };
 
 /** 把探测结果压缩为一条面向用户的降级提示；无缺失返回 null。 */

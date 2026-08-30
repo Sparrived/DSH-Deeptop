@@ -10,7 +10,8 @@
     "./message-annotations": "./message-annotations.mjs",
     "./skill-install-plugin": "./skill-install-plugin.mjs",
     "./theme-settings": "./theme-settings.mjs",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./ui-registry": "./ui-registry.mjs"
   },
   "dependencies": {
     "undici": "^8.10.0"

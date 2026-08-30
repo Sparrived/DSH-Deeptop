@@ -76,6 +76,9 @@
     - id: session-reference
       name: '@deepseek-ai/dsh-session-reference'
 
+    - id: deeptop-ui-registry
+      name: 'deeptop-bridge/ui-registry'
+
     - id: desktop-bridge
       name: 'deeptop-bridge'
 
