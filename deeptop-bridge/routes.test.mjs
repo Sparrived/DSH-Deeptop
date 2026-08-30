@@ -504,13 +504,13 @@ test('deletes an archived session artifact and removes its workspace membership'
   }
 })
 
-test('stops a running archived session before deleting its artifact', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'deeptop-archive-running-'))
+test('refuses an attached archived session without treating turn cancellation as lifecycle disposal', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-archive-attached-'))
   const artifact = join(root, 'session.jsonl.zstd')
   await writeFile(artifact, 'session')
-  let state = { initialized: true, workspaceIds: [], archivedSessionIds: ['session-running'] }
-  let live = true
-  let cancelPayload
+  let state = { initialized: true, workspaceIds: [], archivedSessionIds: ['session-attached'] }
+  let cancels = 0
+  let detaches = 0
   const registry = {
     state,
     global: {
@@ -518,82 +518,186 @@ test('stops a running archived session before deleting its artifact', async () =
       set: async next => { state = next },
     },
     enqueueOperation: operation => operation(),
-    list: () => [{ detachSession: async () => {} }],
-  }
-  const persistence = {
-    list: async () => [{ id: 'session-running' }],
-    locate: () => ({ path: artifact }),
-  }
-
-  try {
-    const context = new Proxy({
-      apiProxy: {
-        sessions: {
-          cancel: async request => {
-            cancelPayload = request.payload
-            live = false
-            return { ok: true, value: { accepted: true } }
-          },
-        },
-      },
-      get: key => ({
-        workspaceRegistry: registry,
-        sessionPersistence: persistence,
-        sessions: { get: () => live ? {} : undefined },
-      })[key],
-    }, {
-      get(target, property, receiver) {
-        if (property === 'sessionStopTimeoutMs') throw new Error('cannot get property "sessionStopTimeoutMs" without inject')
-        return Reflect.get(target, property, receiver)
-      },
-    })
-    const result = await routeDesktopRequest(context, 'workspace.deleteArchivedSession', { sessionId: 'session-running' }, signal)
-
-    assert.deepEqual(result, { deleted: true, archivedSessionIds: [] })
-    assert.deepEqual(cancelPayload, { sessionId: 'session-running' })
-    await assert.rejects(stat(artifact), { code: 'ENOENT' })
-  } finally {
-    await removePath(root, { recursive: true, force: true })
-  }
-})
-
-test('does not delete a running archived session when cancellation cannot stop it', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'deeptop-archive-timeout-'))
-  const artifact = join(root, 'session.jsonl.zstd')
-  await writeFile(artifact, 'session')
-  let state = { initialized: true, workspaceIds: [], archivedSessionIds: ['session-stuck'] }
-  const registry = {
-    state,
-    global: {
-      get: () => state,
-      set: async next => { state = next },
-    },
-    enqueueOperation: operation => operation(),
-    list: () => [{ detachSession: async () => {} }],
-  }
-  const persistence = {
-    list: async () => [{ id: 'session-stuck' }],
-    locate: () => ({ path: artifact }),
+    list: () => [{ detachSession: async () => { detaches += 1 } }],
   }
 
   try {
     await assert.rejects(
       routeDesktopRequest({
-        apiProxy: { sessions: { cancel: async () => ({ ok: true }) } },
+        apiProxy: { sessions: { cancel: async () => { cancels += 1 } } },
         get: key => ({
           workspaceRegistry: registry,
-          sessionPersistence: persistence,
-          sessionStopTimeoutMs: 0,
-          sessions: { get: () => ({}) },
+          sessionPersistence: {
+            list: async () => [{ id: 'session-attached' }],
+            locate: () => ({ path: artifact }),
+          },
+          sessions: { get: () => ({ id: 'session-attached' }) },
         })[key],
-      }, 'workspace.deleteArchivedSession', { sessionId: 'session-stuck' }, signal),
-      /did not stop after the cancellation request/,
+      }, 'workspace.deleteArchivedSession', { sessionId: 'session-attached' }, signal),
+      error => error.code === 'session-attached'
+        && error.details?.sessionId === 'session-attached'
+        && /不代表仍在运行/.test(error.message),
     )
+    assert.equal(cancels, 0)
+    assert.equal(detaches, 0)
     await stat(artifact)
-    assert.deepEqual(state.archivedSessionIds, ['session-stuck'])
+    assert.deepEqual(state.archivedSessionIds, ['session-attached'])
   } finally {
     await removePath(root, { recursive: true, force: true })
   }
+})
+
+test('keeps a stale archive tombstone while attached and reconciles it after runtime restart', async () => {
+  let state = { initialized: true, workspaceIds: [], archivedSessionIds: ['session-agent-only'] }
+  let attached = true
+  const registry = {
+    state,
+    global: {
+      get: () => state,
+      set: async next => { state = next },
+    },
+    enqueueOperation: operation => operation(),
+    list: () => [],
+  }
+  const context = {
+    get: key => ({
+      workspaceRegistry: registry,
+      sessionPersistence: { list: async () => [] },
+      agents: { get: () => attached ? { id: 'session-agent-only' } : undefined },
+    })[key],
+  }
+
+  await assert.rejects(
+    routeDesktopRequest(context, 'workspace.deleteArchivedSession', { sessionId: 'session-agent-only' }, signal),
+    error => error.code === 'session-attached' && /重启 DSH 运行时/.test(error.message),
+  )
+  assert.deepEqual(state.archivedSessionIds, ['session-agent-only'])
+
+  attached = false
+  const result = await routeDesktopRequest(
+    context,
+    'workspace.deleteArchivedSession',
+    { sessionId: 'session-agent-only' },
+    signal,
+  )
+  assert.deepEqual(result, { deleted: true, archivedSessionIds: [] })
+  assert.deepEqual(state.archivedSessionIds, [])
+})
+
+test('reconciles an archived session whose persisted artifact is already absent', async () => {
+  let state = { initialized: true, workspaceIds: [], archivedSessionIds: ['session-missing'] }
+  let detached = 0
+  let listed = 0
+  let cancels = 0
+  const registry = {
+    state,
+    global: {
+      get: () => state,
+      set: async next => { state = next },
+    },
+    enqueueOperation: operation => operation(),
+    list: () => [{ detachSession: async () => { detached += 1 } }],
+  }
+  const context = {
+    apiProxy: { sessions: { cancel: async () => { cancels += 1 } } },
+    get: key => ({
+      workspaceRegistry: registry,
+      sessionPersistence: { list: async () => { listed += 1; return [] } },
+    })[key],
+  }
+
+  const first = await routeDesktopRequest(context, 'workspace.deleteArchivedSession', { sessionId: 'session-missing' }, signal)
+  const second = await routeDesktopRequest(context, 'workspace.deleteArchivedSession', { sessionId: 'session-missing' }, signal)
+
+  assert.deepEqual(first, { deleted: true, archivedSessionIds: [] })
+  assert.deepEqual(second, { deleted: false, archivedSessionIds: [] })
+  assert.equal(listed, 1)
+  assert.equal(detached, 1)
+  assert.equal(cancels, 0)
+  assert.deepEqual(state.archivedSessionIds, [])
+})
+
+test('retries metadata cleanup when the artifact was deleted before workspace cleanup failed', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-archive-retry-'))
+  const artifact = join(root, 'session.jsonl.zstd')
+  await writeFile(artifact, 'session')
+  let state = { initialized: true, workspaceIds: [], archivedSessionIds: ['session-retry'] }
+  let detachAttempts = 0
+  let listAttempts = 0
+  const registry = {
+    state,
+    global: {
+      get: () => state,
+      set: async next => { state = next },
+    },
+    enqueueOperation: operation => operation(),
+    list: () => [{
+      detachSession: async () => {
+        detachAttempts += 1
+        if (detachAttempts === 1) throw new Error('simulated workspace cleanup failure')
+      },
+    }],
+  }
+  const context = {
+    get: key => ({
+      workspaceRegistry: registry,
+      sessionPersistence: {
+        list: async () => {
+          listAttempts += 1
+          return listAttempts === 1 ? [{ id: 'session-retry' }] : []
+        },
+        locate: () => ({ path: artifact }),
+      },
+    })[key],
+  }
+
+  try {
+    await assert.rejects(
+      routeDesktopRequest(context, 'workspace.deleteArchivedSession', { sessionId: 'session-retry' }, signal),
+      /simulated workspace cleanup failure/,
+    )
+    await assert.rejects(stat(artifact), { code: 'ENOENT' })
+    assert.deepEqual(state.archivedSessionIds, ['session-retry'])
+
+    const result = await routeDesktopRequest(
+      context,
+      'workspace.deleteArchivedSession',
+      { sessionId: 'session-retry' },
+      signal,
+    )
+    assert.deepEqual(result, { deleted: true, archivedSessionIds: [] })
+    assert.equal(listAttempts, 2)
+    assert.equal(detachAttempts, 2)
+  } finally {
+    await removePath(root, { recursive: true, force: true })
+  }
+})
+
+test('validates artifact deletion support before inspecting attached lifecycle state', async () => {
+  let state = { initialized: true, workspaceIds: [], archivedSessionIds: ['session-locationless'] }
+  let sessionReads = 0
+  const registry = {
+    state,
+    global: {
+      get: () => state,
+      set: async next => { state = next },
+    },
+    enqueueOperation: operation => operation(),
+    list: () => [],
+  }
+
+  await assert.rejects(
+    routeDesktopRequest({
+      get: key => ({
+        workspaceRegistry: registry,
+        sessionPersistence: { list: async () => [{ id: 'session-locationless' }], locate: () => undefined },
+        sessions: { get: () => { sessionReads += 1; return {} } },
+      })[key],
+    }, 'workspace.deleteArchivedSession', { sessionId: 'session-locationless' }, signal),
+    /does not expose a deletable session artifact/,
+  )
+  assert.equal(sessionReads, 0)
+  assert.deepEqual(state.archivedSessionIds, ['session-locationless'])
 })
 
 test('adds model context windows and input modalities without changing the API response shape', async () => {

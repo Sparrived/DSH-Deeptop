@@ -302,88 +302,66 @@ async function restoreWorkspaceSession(ctx, payload) {
   })
 }
 
-function liveSession(ctx, sessionId) {
+function attachedSession(ctx, sessionId) {
   const session = ctx.get?.('sessions')?.get?.(sessionId)
   const agent = ctx.get?.('agents')?.get?.(sessionId)
   return { session, agent }
 }
 
-function parentSessionIdFromAgent(agent) {
-  const candidates = [
-    agent?.parentSessionId,
-    agent?.header?.parentSessionId,
-    agent?.session?.parentSessionId,
-    agent?.address?.parentSessionId,
-  ]
-  return candidates.find((value) => typeof value === 'string' && value.trim() !== '')
+function assertSessionDetachedForDelete(ctx, sessionId) {
+  const attached = attachedSession(ctx, sessionId)
+  if (attached.session === undefined && attached.agent === undefined) return
+  const error = new Error(
+    `会话 "${sessionId}" 仍附着在当前 Deeptop Host（不代表仍在运行）；请重启 DSH 运行时后再永久删除`,
+  )
+  error.code = 'session-attached'
+  error.details = { sessionId }
+  throw error
 }
 
-async function waitForSessionStopped(ctx, sessionId, signal) {
-  const configuredTimeout = Number(ctx.get?.('sessionStopTimeoutMs'))
-  const timeoutMs = Number.isFinite(configuredTimeout) ? Math.max(0, configuredTimeout) : 5000
-  const deadline = Date.now() + timeoutMs
-  for (;;) {
-    signal?.throwIfAborted()
-    const live = liveSession(ctx, sessionId)
-    if (live.session === undefined && live.agent === undefined) return
-    if (Date.now() >= deadline) {
-      throw new Error(`session "${sessionId}" did not stop after the cancellation request`)
-    }
-    await new Promise((resolve) => setTimeout(resolve, Math.min(50, Math.max(1, deadline - Date.now()))))
-  }
-}
-
-async function stopSessionBeforeDelete(ctx, sessionId, signal) {
-  const live = liveSession(ctx, sessionId)
-  if (live.session === undefined && live.agent === undefined) return
-  signal?.throwIfAborted()
-
-  const parentSessionId = parentSessionIdFromAgent(live.agent)
-  if (live.agent !== undefined && parentSessionId && typeof ctx.apiProxy?.subagents?.interrupt === 'function') {
-    await ctx.apiProxy.subagents.interrupt({
-      rpcId: randomUUID(),
-      payload: { parentSessionId, childSessionId: sessionId, mode: 'continuable' },
-    })
-  } else if (typeof ctx.apiProxy?.sessions?.cancel === 'function') {
-    await ctx.apiProxy.sessions.cancel({ rpcId: randomUUID(), payload: { sessionId } })
-  } else {
-    throw new Error(`session "${sessionId}" is still running and the host cannot cancel it`)
-  }
-  await waitForSessionStopped(ctx, sessionId, signal)
+async function finalizeArchivedSessionDeletion(ctx, registry, state, sessionId) {
+  await optionalSessionPins(ctx)?.clearSession(sessionId)
+  for (const workspace of registry.list()) await workspace.detachSession(sessionId)
+  const nextArchivedSessionIds = state.archivedSessionIds.filter((id) => id !== sessionId)
+  await persistArchivedSessionIds(registry, state, nextArchivedSessionIds)
+  registry.headers?.delete(sessionId)
+  registry.sessionPaths?.delete(sessionId)
+  registry.invalidSessionPaths?.delete(sessionId)
+  return { deleted: true, archivedSessionIds: nextArchivedSessionIds }
 }
 
 async function deleteArchivedSession(ctx, payload, signal) {
   const sessionId = sessionIdFromPayload(payload, 'workspace.deleteArchivedSession')
   const registry = archiveRegistry(ctx)
-  const persistence = ctx.get?.('sessionPersistence')
-  if (!persistence || typeof persistence.list !== 'function' || typeof persistence.locate !== 'function') {
-    throw new Error('session deletion requires a persistence backend with artifact locations')
-  }
   return registry.enqueueOperation(async () => {
     signal?.throwIfAborted()
     const state = archiveState(registry)
     if (!state.archivedSessionIds.includes(sessionId)) {
-      throw new Error(`session "${sessionId}" is not archived`)
+      return { deleted: false, archivedSessionIds: [...state.archivedSessionIds] }
     }
-    await stopSessionBeforeDelete(ctx, sessionId, signal)
 
+    const persistence = ctx.get?.('sessionPersistence')
+    if (!persistence || typeof persistence.list !== 'function') {
+      throw new Error('session deletion requires a persistence backend')
+    }
     const header = (await persistence.list(signal)).find((item) => item?.id === sessionId)
     signal?.throwIfAborted()
-    if (!header) throw new Error(`session "${sessionId}" was not found in persistence`)
-    const location = persistence.locate(header)
-    if (!location || typeof location.path !== 'string' || !isAbsolute(location.path)) {
-      throw new Error('the current persistence backend does not expose a deletable session artifact')
+    let artifactPath
+    if (header !== undefined) {
+      if (typeof persistence.locate !== 'function') {
+        throw new Error('the current persistence backend does not expose a deletable session artifact')
+      }
+      const location = persistence.locate(header)
+      if (!location || typeof location.path !== 'string' || !isAbsolute(location.path)) {
+        throw new Error('the current persistence backend does not expose a deletable session artifact')
+      }
+      artifactPath = location.path
     }
 
-    await rm(location.path, { force: true })
-    for (const workspace of registry.list()) await workspace.detachSession(sessionId)
-    const nextArchivedSessionIds = state.archivedSessionIds.filter((id) => id !== sessionId)
-    await persistArchivedSessionIds(registry, state, nextArchivedSessionIds)
-    registry.headers?.delete(sessionId)
-    registry.sessionPaths?.delete(sessionId)
-    registry.invalidSessionPaths?.delete(sessionId)
-    await optionalSessionPins(ctx)?.clearSession(sessionId)
-    return { deleted: true, archivedSessionIds: nextArchivedSessionIds }
+    assertSessionDetachedForDelete(ctx, sessionId)
+    signal?.throwIfAborted()
+    if (artifactPath !== undefined) await rm(artifactPath, { force: true })
+    return finalizeArchivedSessionDeletion(ctx, registry, state, sessionId)
   })
 }
 
