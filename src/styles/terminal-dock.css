@@ -262,6 +262,24 @@
   opacity: .5;
 }
 
+/* Desktop expanded cards use the transcript stage as their containing block. The
+   stage ends above the composer, so the terminal can consume that exact height
+   instead of extending underneath the composer and hiding its last rows. */
+@media (min-width: 761px) {
+  .left-dock-shelf > .terminal-panel {
+    position: static;
+  }
+
+  .left-dock-shelf > .terminal-panel .terminal-panel-card {
+    top: 0;
+    right: auto;
+    bottom: 10px;
+    left: calc(var(--dock-collapsed-width, 44px) + var(--right-surface-gap, 12px));
+    height: auto;
+    max-height: none;
+  }
+}
+
 @media (max-width: 760px) {
   .left-dock-shelf {
     position: fixed;
