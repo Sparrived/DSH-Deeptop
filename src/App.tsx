@@ -1296,11 +1296,14 @@ function AppContent() {
 
   // 空闲降载：把「存在活动回合/任务」反映到 body 类，CSS 据此停摆运行态光带
   // 等无限动画；否则窗口空闲时合成线程仍为这些装饰动画持续工作。
+  // 运行态可能属于侧栏里的其它会话，不能只看当前会话；同时只依赖布尔值，
+  // 避免流式历史每帧生成新的 turnTiming 对象，反复重置 CSS 动画。
+  const hasLiveJob = activeJobs.some((job) => job.status === "running" || job.status === "stopping");
+  const hasLiveTodo = todos?.some((item) => item.status === "in_progress" && item.startedAt !== undefined) ?? false;
+  const hasLiveTurn = turnTiming.startedAt !== undefined && turnTiming.finishedAt === undefined;
+  const hasLiveSession = sessions.some((session) => session.running) || pendingSessionIds.size > 0;
+  const hasLiveActivity = hasLiveSession || hasLiveJob || hasLiveTodo || hasLiveTurn;
   useEffect(() => {
-    const hasLiveJob = activeJobs.some((job) => job.status === "running" || job.status === "stopping");
-    const hasLiveTodo = todos?.some((item) => item.status === "in_progress" && item.startedAt !== undefined) ?? false;
-    const hasLiveTurn = turnTiming.startedAt !== undefined && turnTiming.finishedAt === undefined;
-    const hasLiveActivity = hasLiveJob || hasLiveTodo || hasLiveTurn;
     document.body.classList.toggle("deeptop-activity-live", hasLiveActivity);
     if (!hasLiveActivity) return;
     const timer = window.setInterval(() => setJobNow(Date.now()), 1000);
@@ -1308,7 +1311,7 @@ function AppContent() {
       window.clearInterval(timer);
       document.body.classList.remove("deeptop-activity-live");
     };
-  }, [activeJobs, todos, turnTiming]);
+  }, [hasLiveActivity]);
 
   const todoCounts = useMemo(() => ({
     completed: todos?.filter((item) => item.status === "completed").length ?? 0,
