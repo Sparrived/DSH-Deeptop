@@ -16,6 +16,7 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 - [架构说明](ARCHITECTURE.md)：说明依赖方向、纯前端模型层和插件化规则。
 - [官方插件兼容策略](PLUGIN_COMPATIBILITY.md)：Host/Cordis 与 WebUI Client 的兼容分层、当前状态和后续工作。
 - [Cordis/UI Runtime 重构计划](docs/REFACTORING_CORDIS_UI_RUNTIME.md)：合并 UI Runtime 后的功能归属、会话置顶迁移和后续拆分顺序。
+- [Cordis/UI Runtime 重构交接文档](docs/CORDIS_UI_RUNTIME_HANDOFF.md)：新会话接手迁移、测试、风险和工作区保护事项。
 - [WebUI 对齐清单](WEBUI_PARITY.md)：当前功能覆盖、缺口和明确排除的 WebUI 基础设施。
 <!-- @deeptop-pets:start readme-zh-doc-link -->
 - [宠物包开发指南](docs/PET_PACKS.zh.md)：制作、校验、导入和分享声明式 `.deeptop-pet` 宠物包。
