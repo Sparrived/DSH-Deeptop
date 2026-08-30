@@ -585,6 +585,8 @@
   display: block;
   overflow: visible;
 }
+.git-graph-node { cursor: pointer; }
+.git-graph-node-hit { pointer-events: all; }
 .git-graph-row {
   position: absolute;
   display: flex;

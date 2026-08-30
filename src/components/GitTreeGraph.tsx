@@ -140,7 +140,14 @@ export function GitTreeGraph({
     const color = gitGraphLaneColor(commit.lane);
     const selected = commit.hash === selectedHash;
     return (
-      <g key={commit.hash}>
+      <g
+        key={commit.hash}
+        className="git-graph-node"
+        onMouseEnter={() => setHovered(commit)}
+        onMouseLeave={() => setHovered((current) => (current?.hash === commit.hash ? null : current))}
+      >
+        {/* 扩大命中区域，仍保持泳道节点的视觉尺寸不变。 */}
+        <circle className="git-graph-node-hit" cx={x} cy={y} r={NODE_R + 3} fill="transparent" />
         <circle cx={x} cy={y} r={NODE_R + (selected || commit.isHead ? 1.5 : 0)} fill={color} />
         <circle cx={x} cy={y} r={1.6} fill="var(--surface-raised)" />
         {(selected || commit.isHead) && (
@@ -163,9 +170,7 @@ export function GitTreeGraph({
         className={`git-graph-row ${selected ? "selected" : ""}`}
         style={{ top: commit.row * ROW_H, left: graphW + 10, right: 10 }}
         onClick={() => onSelect(commit.hash)}
-        title={commit.subject}
-        onMouseEnter={() => setHovered(commit)}
-        onMouseLeave={() => setHovered((current) => (current?.hash === commit.hash ? null : current))}
+        aria-label={commit.subject}
       >
         <span className="git-graph-hash">{commit.shortHash}</span>
         {visibleRefs.map((ref) => (
@@ -180,7 +185,7 @@ export function GitTreeGraph({
             +{overflowRefs.length}
           </span>
         )}
-        <span className="git-graph-subject" title={commit.subject}>{commit.subject}</span>
+        <span className="git-graph-subject">{commit.subject}</span>
       </button>
     );
   });
