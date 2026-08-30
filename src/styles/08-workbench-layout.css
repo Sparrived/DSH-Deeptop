@@ -1075,7 +1075,6 @@ textarea:focus-visible {
 }
 
 .session-row.session-status-cancelled {
-  border-right-style: dashed;
   animation: session-status-cancelled 1.8s ease-in-out 2;
 }
 
@@ -1084,12 +1083,10 @@ textarea:focus-visible {
 }
 
 .session-row.session-status-blocked {
-  border-right-style: dashed;
   animation: session-status-blocked 1.6s ease-in-out 2;
 }
 
 .session-row.session-status-interrupted {
-  border-right-style: dotted;
   animation: session-status-interrupted 1.1s steps(3, end) 2;
 }
 
