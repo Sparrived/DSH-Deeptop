@@ -101,6 +101,7 @@ ask_user_question、todo_write、web 搜索/抓取、workflow、plan 与 compact
 - [x] 展示 `sessionStats` 的 LLM 时间、工具时间、TTFT、Decode 等完整字段：每消息统计条展示 TTFT、Decode 速度、输入/输出/缓存与 tokens/s，token 仪表盘新增会话墙钟耗时面板（LLM/工具/首 Token/解码 + decode tok/s），turns/steps 同步展示。
 - [x] 将 Session ZIP 下载从 Base64 缓冲改为原生文件流或临时文件转移：Bridge 把官方 Host 的 ZIP 流式写入临时文件（保留 AbortSignal 取消与失败清理），Tauri `move_export_temp_file` 原生另存为对话框把临时文件转移到用户选择的位置；JSON 导出与注记写入补齐取消与 Session 切换后的可见状态。
 - [x] 对 `/export`、命令执行、反馈写入等功能补充成功、失败、取消和 Session 切换后的可见状态：导出/命令/注记三类操作均有进行中、成功、失败与取消文案，保存期间会话切换时会明确提示文件位置或成功落点。
+- [~] 消息注记 UI Consumer 接入 `conversation.message.actions`：Host 的 `messageAnnotations` Service 通过 `message-annotations-ui` 登记受限 handler，内置 Client Module 负责按 Session generation 加载、显示和编辑注记；输入与通知复用桌面宿主的受限 UI facade。缓存、路由和会话切换已有测试，组件级渲染测试仍待补齐。
 
 ### P1：已有桌面功能的官方契约深化
 

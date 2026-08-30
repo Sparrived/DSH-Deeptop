@@ -29,6 +29,32 @@ const uiPluginStorageSpec = defineDomain({
   tables: { entries: domainTable(storageRecordSchema) },
 })
 
+function normalizeRemoteHandlers(input, record) {
+  if (input === undefined) return undefined
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    throw uiPluginError(UI_PLUGIN_ERROR_CODES.manifestInvalid, 'remoteHandlers must be an object')
+  }
+  const handlers = {}
+  for (const [namespace, methods] of Object.entries(input)) {
+    const declared = record.capabilities.remotes.find(remote => remote.namespace === namespace)
+    if (!declared) {
+      throw uiPluginError(UI_PLUGIN_ERROR_CODES.manifestInvalid, `remoteHandlers namespace "${namespace}" is not declared`)
+    }
+    if (typeof methods !== 'object' || methods === null || Array.isArray(methods)) {
+      throw uiPluginError(UI_PLUGIN_ERROR_CODES.manifestInvalid, `remoteHandlers namespace "${namespace}" must be an object`)
+    }
+    const normalizedMethods = {}
+    for (const [method, handler] of Object.entries(methods)) {
+      if (!declared.methods.includes(method) || typeof handler !== 'function') {
+        throw uiPluginError(UI_PLUGIN_ERROR_CODES.manifestInvalid, `remoteHandlers method "${namespace}.${method}" must be a declared function`)
+      }
+      normalizedMethods[method] = handler
+    }
+    handlers[namespace] = normalizedMethods
+  }
+  return handlers
+}
+
 /**
  * Durable, namespace-scoped JSON KV for UI plugins. One table row per
  * `<storage namespace>/<key>`; values are stored as serialized JSON strings so
@@ -62,16 +88,35 @@ export class DeeptopUiRegistryService extends Service {
    */
   registerUiPlugin(input) {
     const record = normalizeUiPluginRegistration(input)
-    if (this.records.has(record.pluginId)) {
+    const remoteHandlers = normalizeRemoteHandlers(input.remoteHandlers, record)
+    const ownedRecord = remoteHandlers === undefined ? record : { ...record, remoteHandlers }
+    if (this.records.has(ownedRecord.pluginId)) {
       throw uiPluginError(
         UI_PLUGIN_ERROR_CODES.manifestInvalid,
-        `ui plugin ${record.pluginId} is already registered by another host plugin`,
+        `ui plugin ${ownedRecord.pluginId} is already registered by another host plugin`,
       )
     }
-    this.records.set(record.pluginId, record)
+    this.records.set(ownedRecord.pluginId, ownedRecord)
     return () => {
-      if (this.records.get(record.pluginId) === record) this.records.delete(record.pluginId)
+      if (this.records.get(ownedRecord.pluginId) === ownedRecord) this.records.delete(ownedRecord.pluginId)
     }
+  }
+
+  /** Return whether a validated manifest call has a host-owned handler. */
+  hasRemoteHandler(pluginId, namespace, method) {
+    return typeof this.records.get(pluginId)?.remoteHandlers?.[namespace]?.[method] === 'function'
+  }
+
+  /** Invoke one host-owned handler after the UI route has validated its manifest call. */
+  async invokeRemote(call, signal) {
+    const handler = this.records.get(call.pluginId)?.remoteHandlers?.[call.namespace]?.[call.method]
+    if (typeof handler !== 'function') {
+      throw uiPluginError(
+        UI_PLUGIN_ERROR_CODES.hostUnavailable,
+        `ui plugin ${call.pluginId} has no host handler for ${call.namespace}.${call.method}`,
+      )
+    }
+    return handler(call.args, signal)
   }
 
   /** Snapshot of every registration in list-response shape. */

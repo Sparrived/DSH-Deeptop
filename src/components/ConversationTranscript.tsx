@@ -1,8 +1,10 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject, type UIEvent } from "react";
 import { createPortal } from "react-dom";
-import { isFilePath, type DshHistoryEntry, type DshMessageAnnotationItem, type DshPreset, type DshSessionSummary } from "../lib/desktop";
+import { isFilePath, type DshHistoryEntry, type DshPreset, type DshSessionSummary } from "../lib/desktop";
+import type { DesktopUiRuntime } from "../lib/desktop-ui-runtime/client-runtime";
+import type { UiHostActions } from "../lib/desktop-ui-runtime/types";
+import { SlotOutlet } from "./SlotOutlet";
 import { MarkdownContent } from "../lib/markdown";
-import { PopupDialog } from "./PopupDialog";
 import { TrajectoryView } from "./TrajectoryView";
 import { isResultDomainCard, toolDomainCard, type ToolDomainCard } from "../app/tool-domain";
 import { ToolArgsView } from "../app/tool-args-render";
@@ -45,7 +47,8 @@ type ConversationTranscriptProps = {
   runtimeDirectory: string;
   modelName: string;
   presets: DshPreset[];
-  annotations: Record<string, DshMessageAnnotationItem>;
+  uiRuntime: DesktopUiRuntime;
+  uiHost: UiHostActions;
   nextPreset: string | null;
   presetMenuOpen: boolean;
   onLoadImageAttachment?: (attachmentId: string) => Promise<string>;
@@ -57,7 +60,6 @@ type ConversationTranscriptProps = {
   onStagePreset: (id: string) => void;
   onCopyMessage: (text: string) => void | Promise<void>;
   onCopySelection: (text: string) => void | Promise<void>;
-  onEditAnnotation: (messageId: string) => void | Promise<void>;
   onRetryMessage?: (seq: number) => void | Promise<void>;
   onForkSession: (sessionId: string, seq?: number) => void | Promise<void>;
   onOpenSessionPath: (path: string) => void | Promise<void>;
@@ -634,17 +636,17 @@ function LightboxThumb({ image }: { image: TranscriptImage }) {
 
 type TranscriptArticleProps = {
   item: TranscriptItem;
-  note: string | undefined;
   retryingMessageSeq: number | null;
   activeRunning: boolean;
   loading: boolean;
   activeSessionId: string | null;
   locale: UiLocale;
+  uiRuntime: DesktopUiRuntime;
+  uiHost: UiHostActions;
   onPreviewImage: (image: PreviewImage, images: TranscriptImage[], index: number) => void;
   onLoadImageAttachment?: (attachmentId: string) => Promise<string>;
   onCopyMessage: (text: string) => void | Promise<void>;
   onRequestCopyMenu: (item: TranscriptItem, x: number, y: number, target: EventTarget | null) => void;
-  onEditAnnotation: (messageId: string) => void | Promise<void>;
   onRetryMessage?: (seq: number) => void | Promise<void>;
   onForkSession: (sessionId: string, seq?: number) => void | Promise<void>;
   onOpenPath: (path: string) => void | Promise<void>;
@@ -664,17 +666,17 @@ function workflowStatusKey(status: string): string {
 
 function TranscriptArticleView({
   item,
-  note,
   retryingMessageSeq,
   activeRunning,
   loading,
   activeSessionId,
   locale,
+  uiRuntime,
+  uiHost,
   onPreviewImage,
   onLoadImageAttachment,
   onCopyMessage,
   onRequestCopyMenu,
-  onEditAnnotation,
   onRetryMessage,
   onForkSession,
   onOpenPath,
@@ -686,10 +688,9 @@ function TranscriptArticleView({
   const hasToolResult = item.toolResultText !== undefined || item.toolResultDiff !== undefined || isResultDomainCard(item.domainCard) || item.toolState === "result";
   const toolStatus = item.toolResultError ? "error" : hasToolResult ? "returned" : "running";
   const streamingAssistant = item.kind === "assistant" && item.key.startsWith("stream-");
-  const annotation = note;
   return (
     <article
-      className={`message-row ${item.kind}${item.injected ? " context-row" : ""}${item.kind === "tool" ? " tool-row" : ""}${annotation ? " has-annotation" : ""}`}
+      className={`message-row ${item.kind}${item.injected ? " context-row" : ""}${item.kind === "tool" ? " tool-row" : ""}`}
       onContextMenu={(event) => {
         if (event.target instanceof Element && event.target.closest("button, a, input, select, textarea")) return;
         if (!isWithinSelector(event.target, TRANSCRIPT_TEXT_SELECTOR)) return;
@@ -697,7 +698,20 @@ function TranscriptArticleView({
         onRequestCopyMenu(item, event.clientX, event.clientY, event.target);
       }}
     >
-      {item.kind !== "tool" && item.kind !== "reasoning" && <div className="message-gutter"><span>{item.label}</span><time>{formatClock(item.time)}</time>{annotation && <aside className="message-annotation" title={t("conversation.annotation.label", locale)}><i aria-hidden="true" />{annotation}</aside>}</div>}
+      {item.kind !== "tool" && item.kind !== "reasoning" && <div className="message-gutter"><span>{item.label}</span><time>{formatClock(item.time)}</time>{item.messageId && activeSessionId && (item.kind === "user" || item.kind === "assistant") && <SlotOutlet
+        runtime={uiRuntime}
+        slot="conversation.message.actions"
+        variant="message-badge"
+        context={{
+          session: uiRuntime.sessionContext,
+          activeSessionId,
+          sessionGeneration: uiRuntime.sessionGeneration,
+          locale,
+          host: uiHost,
+          message: { sessionId: activeSessionId, messageId: item.messageId, role: item.kind, ...(item.seq === undefined ? {} : { seq: item.seq }) },
+        }}
+        onActionError={(message) => uiHost.notify(message, "error")}
+      />}</div>}
       <div className="message-content">
         {item.images && item.images.length > 0 && <MessageImages images={item.images} locale={locale} onLoadAttachment={onLoadImageAttachment} onOpen={onPreviewImage} />}
         {item.kind === "tool" ? (
@@ -756,7 +770,20 @@ function TranscriptArticleView({
                </button>
              )}
             <button type="button" onClick={() => void onCopyMessage(item.text)} title={t("conversation.copy.message", locale)}>{t("common.copy", locale)}</button>
-            {item.messageId && <button type="button" onClick={() => void onEditAnnotation(item.messageId!)} title={annotation ? t("conversation.annotation.edit", locale) : t("conversation.annotation.add", locale)}>{annotation ? t("conversation.annotation.editShort", locale) : t("conversation.annotation.addShort", locale)}</button>}
+            {item.messageId && activeSessionId && <SlotOutlet
+              runtime={uiRuntime}
+              slot="conversation.message.actions"
+              variant="message-actions"
+              context={{
+                session: uiRuntime.sessionContext,
+                activeSessionId,
+                sessionGeneration: uiRuntime.sessionGeneration,
+                locale,
+                host: uiHost,
+                message: { sessionId: activeSessionId, messageId: item.messageId, role: item.kind === "user" ? "user" : "assistant", ...(item.seq === undefined ? {} : { seq: item.seq }) },
+              }}
+              onActionError={(message) => uiHost.notify(message, "error")}
+            />}
              {item.kind === "assistant" && item.seq !== undefined && activeSessionId && (
               <button type="button" onClick={() => void onForkSession(activeSessionId, item.seq)} title={t("conversation.forkFromMessage", locale)}>{t("conversation.fork", locale)}</button>
             )}
@@ -769,17 +796,17 @@ function TranscriptArticleView({
 
 // Callbacks are intentionally not compared: they are either stable
 // (onPreviewImage / onLoadImageAttachment) or safe to hold as stale closures
-// because every value they read is either a ref or is covered by the compared
-// props (note / activeRunning / loading), so the article
-// re-renders (and receives a fresh handler) whenever that value changes.
+// because their visible state is represented by the compared props and the
+// UI Runtime identity.
 const TranscriptArticle = memo(TranscriptArticleView, (prev, next) => {
   if (!sameItemFields(prev.item, next.item)) return false;
-  return prev.note === next.note
-    && prev.retryingMessageSeq === next.retryingMessageSeq
+  return prev.retryingMessageSeq === next.retryingMessageSeq
     && prev.activeRunning === next.activeRunning
     && prev.loading === next.loading
     && prev.activeSessionId === next.activeSessionId
-    && prev.locale === next.locale;
+    && prev.locale === next.locale
+    && prev.uiRuntime === next.uiRuntime
+    && prev.uiHost === next.uiHost;
 });
 
 export function ConversationTranscript({
@@ -801,7 +828,8 @@ export function ConversationTranscript({
   runtimeDirectory,
   modelName,
   presets,
-  annotations,
+  uiRuntime,
+  uiHost,
   nextPreset,
   presetMenuOpen,
   onLoadImageAttachment,
@@ -813,7 +841,6 @@ export function ConversationTranscript({
   onStagePreset,
   onCopyMessage,
   onCopySelection,
-  onEditAnnotation,
   onRetryMessage,
   onForkSession,
   onOpenSessionPath,
@@ -917,7 +944,8 @@ export function ConversationTranscript({
             <TranscriptArticle
               key={item.key}
               item={item}
-              note={item.messageId ? annotations[item.messageId]?.note : undefined}
+              uiRuntime={uiRuntime}
+              uiHost={uiHost}
               retryingMessageSeq={retryingMessageSeq}
               activeRunning={activeRunning}
               loading={loading}
@@ -927,7 +955,6 @@ export function ConversationTranscript({
               onLoadImageAttachment={onLoadImageAttachment}
               onCopyMessage={onCopyMessage}
               onRequestCopyMenu={requestCopyMenu}
-              onEditAnnotation={onEditAnnotation}
               onRetryMessage={onRetryMessage}
               onForkSession={onForkSession}
                onOpenPath={onOpenSessionPath}

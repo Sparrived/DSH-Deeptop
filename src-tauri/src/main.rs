@@ -252,6 +252,8 @@ const BRIDGE_ROUTES: &str = include_str!("../../deeptop-bridge/routes.mjs");
 const BRIDGE_SESSION_REPAIR: &str = include_str!("../../deeptop-bridge/session-repair.mjs");
 const BRIDGE_MESSAGE_ANNOTATIONS: &str =
     include_str!("../../deeptop-bridge/message-annotations.mjs");
+const BRIDGE_MESSAGE_ANNOTATIONS_UI: &str =
+    include_str!("../../deeptop-bridge/message-annotations-ui.mjs");
 const BRIDGE_SESSION_PINS: &str = include_str!("../../deeptop-bridge/session-pins.mjs");
 const BRIDGE_SESSION_PINS_MODEL: &str = include_str!("../../deeptop-bridge/session-pins-model.mjs");
 const BRIDGE_UI_PLUGIN_MANIFEST: &str = include_str!("../../deeptop-bridge/ui-plugin-manifest.mjs");
@@ -984,7 +986,7 @@ fn migrate_desktop_profile_patch(path: &Path) -> Result<(), String> {
     write_text(path, &format!("{}{newline}", filtered.join(newline)))
 }
 
-fn bundled_bridge_files() -> [(&'static str, &'static str); 16] {
+fn bundled_bridge_files() -> [(&'static str, &'static str); 17] {
     [
         ("package.json", BRIDGE_PACKAGE_JSON),
         ("cordis.patch.yml", BRIDGE_PATCH),
@@ -993,6 +995,7 @@ fn bundled_bridge_files() -> [(&'static str, &'static str); 16] {
         ("routes.mjs", BRIDGE_ROUTES),
         ("session-repair.mjs", BRIDGE_SESSION_REPAIR),
         ("message-annotations.mjs", BRIDGE_MESSAGE_ANNOTATIONS),
+        ("message-annotations-ui.mjs", BRIDGE_MESSAGE_ANNOTATIONS_UI),
         ("session-pins.mjs", BRIDGE_SESSION_PINS),
         ("session-pins-model.mjs", BRIDGE_SESSION_PINS_MODEL),
         ("ui-plugin-manifest.mjs", BRIDGE_UI_PLUGIN_MANIFEST),

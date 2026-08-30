@@ -10,6 +10,29 @@ import type {
   UiPluginErrorCodeValue,
   UiRuntimeSlot,
 } from "../../app/ui-plugin-model.ts";
+import type { UiLocale } from "../../app/i18n.ts";
+
+/** Data for one message-level UI contribution. */
+export interface MessageUiContext {
+  sessionId: string;
+  messageId: string;
+  role: "user" | "assistant";
+  seq?: number;
+}
+
+/** Host-owned UI primitives exposed to trusted and controlled client modules. */
+export interface UiPromptRequest {
+  title: string;
+  value?: string;
+  description?: string;
+}
+
+export type UiNoticeKind = "info" | "error";
+
+export interface UiHostActions {
+  prompt(request: UiPromptRequest): Promise<string | null>;
+  notify(message: string, kind?: UiNoticeKind): void;
+}
 
 /** Why a plugin was asked to deactivate. */
 export type DeactivateReason =
@@ -19,12 +42,19 @@ export type DeactivateReason =
   | "incompatible"
   | "manual";
 
-/** Minimal serializable view passed to every slot component. */
+/** Slot data and the narrow host UI facade passed to every contribution. */
 export interface SlotRenderContext {
   /** Target session of the row / menu / header the outlet lives in; null on global slots. */
   session: SessionUiContext | null;
   /** Session currently open in the conversation area. */
   activeSessionId: string | null;
+  /** Generation of the current session context; stale async writes must not commit. */
+  sessionGeneration: number;
+  /** Message target for conversation.message.actions; absent on other slots. */
+  message?: MessageUiContext;
+  /** Locale and native prompt/notice operations supplied by the host surface. */
+  locale: UiLocale;
+  host: UiHostActions;
 }
 
 /** Component-based contribution registered by an activated client module. */
@@ -42,6 +72,7 @@ export interface RegisteredContribution {
   pluginId: string;
   slot: UiRuntimeSlot;
   contributionId: string;
+  kind?: UiContribution["kind"];
   order?: number;
   declarative: DshDeclarativeContribution | null;
   render?: ComponentType<SlotRenderContext>;
@@ -93,6 +124,8 @@ export interface DeeptopClientContext {
   ui: {
     register(slot: UiRuntimeSlot, contribution: UiContribution): () => void;
   };
+  locale: UiLocale;
+  host: UiHostActions;
   remote: ScopedRemoteClient;
   events: ScopedEventClient;
   storage: ScopedStorage;
@@ -120,4 +153,4 @@ export type ClientPluginState =
   | "load-failed"
   | "activate-failed";
 
-export type { DshDeclarativeContribution, DshUiPluginDescriptor, SessionUiContext, UiPluginErrorCodeValue, UiRuntimeSlot };
+export type { DshDeclarativeContribution, DshUiPluginDescriptor, SessionUiContext, UiLocale, UiPluginErrorCodeValue, UiRuntimeSlot };

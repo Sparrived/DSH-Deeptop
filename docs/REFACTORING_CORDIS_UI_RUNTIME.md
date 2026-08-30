@@ -4,7 +4,7 @@
 
 `master` 已合并 `feature/desktop-ui-runtime`，合并提交为 `a9177bd53a`。当前运行时由一个 DSH Host/Cordis 进程、`deeptop-bridge`、Tauri Bridge Manager 和 React 桌面 UI 组成。UI Runtime 已提供 `deeptop-ui-registry`、受限 `ui.plugin.*` 路由、Scoped Remote/Storage、Client Module 生命周期、错误隔离和受控 `deeptop-plugin://` Bundle 加载。
 
-当前真正挂载到主界面的 Slot 是 `session.context-menu`；其它 Slot 仍需要宿主组件逐步接入。没有 UI Plugin 时，核心会话流程必须保持不变。
+当前真正挂载到主界面的 Slot 包括 `session.context-menu` 和 `conversation.message.actions`；后者已由内置消息注记 Client Plugin 使用。其它 Slot 仍需要宿主组件逐步接入。没有 UI Plugin 时，核心会话流程必须保持不变。
 
 ## 重构目标
 
@@ -48,9 +48,11 @@ session-pins.mjs
 - 服务销毁前关闭新的 mutation，等待已接受写入并关闭 domain。
 - 根目录测试覆盖旧数据解析、重复数据过滤和有效成员过滤；Bridge 测试覆盖服务委托、列表装饰和路由兼容。真实 Service 初始化、domain 持久化和销毁由 desktop Profile 的 DSH 运行时验证。
 
-## 第二批：消息注记 UI Consumer
+## 第二批：消息注记 UI Consumer（已开始）
 
-Host Service `message-annotations.mjs` 已经独立，下一步只移动 UI Consumer。需要新增 `conversation.message.actions` Slot，并向组件提供不可变的 `sessionId`、`messageId`、`role`、`seq` 和当前注记版本。注记的 compare-and-set、Session identity 检查和持久化顺序继续由 Host Service 负责。
+Host Service `message-annotations.mjs` 保持注记的 compare-and-set、Session identity 检查和持久化顺序。内置 `message-annotations-ui` Host Plugin 已登记 `conversation.message.actions`，内置 Client Module 通过受限 `messageAnnotations` Remote 读取和修改注记；`ConversationTranscript` 只提供最小消息 context 与 App-owned Popup/notice facade。
+
+当前实现还需继续补齐 UI 组件测试和更细的冲突状态提示。外部 UI Plugin 不能通过该 facade 访问 Tauri、Node 或任意 App 状态。
 
 ## 第三批：官方领域 UI Consumer
 

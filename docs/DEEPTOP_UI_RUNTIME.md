@@ -4,9 +4,9 @@
 >
 > 本文定义如何在 Deeptop 中实现一套类似 DSH WebUI 原生 Client Runtime 的桌面 UI 插件运行时，使插件可以复用同一棵 DSH Cordis 树，并通过 Host/Cordis 插件为 Deeptop 添加 React 组件、菜单项、Badge、设置页和 Inspector 面板。
 >
-> 当前实现进度：Cordis 宿主 `deeptop-ui-registry` 服务（`deeptop-bridge/ui-registry.mjs`）、受限路由 `ui.plugin.list/module/bundle/invoke/storage.*`（`deeptop-bridge/ui-routes.mjs`）、客户端运行时（`src/lib/desktop-ui-runtime/`）、纯协议模型（`src/app/ui-plugin-model.ts`）、会话右键菜单的 `SlotOutlet` 接入以及设置页「UI 插件」状态区块已完成并有测试覆盖。宿主-only 插件可通过声明式 contributions 直接提供菜单项和徽标；外部 Client Bundle 经 Tauri 受控资源协议 `deeptop-plugin://`（`src-tauri/src/ui_plugin_bundle.rs`）加载：路径围栏、SHA-256 完整性、大小与装载时限在桌面进程强制执行。第三阶段隔离模式仍未实现。
+> 当前实现进度：Cordis 宿主 `deeptop-ui-registry` 服务（`deeptop-bridge/ui-registry.mjs`）、受限路由 `ui.plugin.list/module/bundle/invoke/storage.*`（`deeptop-bridge/ui-routes.mjs`）、客户端运行时（`src/lib/desktop-ui-runtime/`）、纯协议模型（`src/app/ui-plugin-model.ts`）、会话右键菜单与消息操作的 `SlotOutlet` 接入以及设置页「UI 插件」状态区块已完成并有测试覆盖。内置 `message-annotations-ui` Host/Client Plugin 已将消息注记 UI 迁出主编排层。宿主-only 插件可通过声明式 contributions 直接提供菜单项和徽标；外部 Client Bundle 经 Tauri 受控资源协议 `deeptop-plugin://`（`src-tauri/src/ui_plugin_bundle.rs`）加载：路径围栏、SHA-256 完整性、大小与装载时限在桌面进程强制执行。第三阶段隔离模式仍未实现。
 >
-> 本文不是对当前仓库已有能力的描述。当前 Deeptop 已有 DSH Host/Cordis、Bridge、Remote、Projection、事件和 React 原生 UI，但还没有动态 Client Module、Slot Registry 或客户端插件生命周期。本文中的接口、路由和目录是拟议实现，落地时必须以锁定的 DSH 版本、Tauri 版本和实际 Cordis API 重新核对。
+> 本文同时记录已落地的 UI Runtime 核心和仍未实现的扩展设计。当前 Deeptop 已有 DSH Host/Cordis、Bridge、Remote、Projection、事件、Slot Registry、客户端插件生命周期和受控 Client Bundle 加载；更完整的 WebUI 兼容模式与第三阶段隔离模式仍未实现。
 
 ---
 
@@ -495,6 +495,11 @@ export interface DeeptopClientContext {
       contribution: UiContribution,
     ): Disposable;
   };
+  locale: "zh" | "en";
+  host: {
+    prompt(request: { title: string; value?: string; description?: string }): Promise<string | null>;
+    notify(message: string, kind?: "info" | "error"): void;
+  };
   remote: ScopedRemoteClient;
   events: ScopedEventClient;
   storage: ScopedStorage;
@@ -552,7 +557,7 @@ interface SlotContextMap {
 }
 ```
 
-组件不应捕获旧的 `sessionId` 后在异步完成时无条件写入全局状态。Remote response 必须携带 session ID，或者由 Runtime 检查当前上下文版本。
+组件不应捕获旧的 `sessionId` 后在异步完成时无条件写入全局状态。Remote response 必须携带 session ID，或者由 Runtime 检查当前上下文版本。消息级 Slot 还收到最小的 `messageId`、`role`、`seq`，以及当前 Session generation；消息正文不通过通用 UI Context 暴露。
 
 ### 7.4 Slot 类型
 
@@ -689,7 +694,7 @@ ui-remote-invalid-args
 ui-host-unavailable
 ```
 
-现有的 `remote.invoke` 可以继续用于 Deeptop 内置、经过明确 allowlist 的官方 Remote；UI Plugin Runtime 应使用更窄的 `ui.plugin.invoke` 或等价受限入口。
+现有的 `remote.invoke` 可以继续用于 Deeptop 内置、经过明确 allowlist 的官方 Remote；UI Plugin Runtime 应使用更窄的 `ui.plugin.invoke` 或等价受限入口。对于同一 Cordis 树内的内置 UI Consumer，Registry 可以登记 Host-owned handler；路由仍先执行 manifest 的 namespace/method/args 校验，再调用 handler，不要求把该调用绕行通用 Gateway。
 
 ### 7.8 Scoped Events
 
@@ -1802,16 +1807,13 @@ export function apply(ctx) {
 
 ## 20. 建议的实际起步顺序
 
-不要先实现动态加载器。建议按以下顺序落地：
+当前实现已经完成 Slot Registry、`SessionSidebar` context menu、`conversation.message.actions`、`deeptop-ui-registry`、受限 `ui.plugin.invoke`、Session switching/DSH restart 测试，以及受控资源协议。后续按以下顺序扩展：
 
-1. 在 `src/lib/desktop-ui-runtime` 建立纯内存 Slot Registry 和生命周期测试；
-2. 在 React 中接入一个 `SlotOutlet`，先放在 `SessionSidebar` 的 context menu；
-3. 写一个完全内置的 `session-pins` Client Module；
-4. 将 `session-pins` 的 Host 状态放进 Cordis Storage，并通过受限 Remote 访问；
-5. 增加 `deeptop-ui-registry` 和 `ui.plugin.list`，让清单来源变成 Cordis；
-6. 增加 `ui.plugin.invoke`，严格限制 manifest 声明的方法；
-7. 覆盖 DSH restart、Session switching、plugin failure 和 disable；
-8. 只有这些行为稳定后，才实现受控资源协议和外部 Client Bundle；
-9. 如果未来需要不信任插件，再设计 iframe/独立 WebView 隔离，而不是继续扩大主 WebView 权限。
+1. 补齐 `conversation.message.actions` 的完整 UI 测试和版本冲突可见状态；
+2. 接入 `conversation.header.actions`，先迁移 Session Stats 和 Plan 的只读入口；
+3. 接入 `settings.sections`，迁移 Provider、Agent Preset 和 Skill 的独立设置入口；
+4. 接入 `composer.actions`，迁移 Commands、Skill 和引用候选的辅助入口；
+5. 接入 `inspector.tabs`，迁移 Goal、Subagent 和 Runtime diagnostics 的可选面板；
+6. 外部第三方 Bundle 继续使用受控资源协议；不信任插件仍需 iframe/独立 WebView 隔离，不扩大主 WebView 权限。
 
 这条路线可以最大限度复用当前 Deeptop 的 Cordis、Bridge、Remote、Projection 和 React 架构，同时避免把 WebUI 的浏览器运行时假设直接带入桌面端。

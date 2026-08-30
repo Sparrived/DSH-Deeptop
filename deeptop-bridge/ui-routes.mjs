@@ -67,6 +67,10 @@ export async function invokeUiPluginRemote(ctx, payload, signal) {
     ? registry.require(isRecord(payload) ? payload.pluginId : undefined)
     : undefined
   const call = validateScopedInvoke(record ?? null, payload)
+  if (typeof registry.hasRemoteHandler === 'function' && registry.hasRemoteHandler(call.pluginId, call.namespace, call.method)) {
+    const value = await registry.invokeRemote(call, signal)
+    return { value }
+  }
   const gateway = ctx.get?.('typertGateway')
   if (!gateway || typeof gateway.invoke !== 'function') {
     throw uiPluginError(UI_PLUGIN_ERROR_CODES.hostUnavailable, 'ui.plugin.invoke requires @deepseek-ai/dsh-api-gateway')

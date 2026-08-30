@@ -82,6 +82,10 @@ function registryWith(...records) {
     storageGet: async (namespace, key) => (namespace === 'session-pins' && key === 'last' ? { pinned: true } : undefined),
     storageSet: async () => {},
     storageDelete: async () => {},
+    ...(records.some(record => record.remoteHandlers) ? {
+      hasRemoteHandler: (pluginId, namespace, method) => typeof map.get(pluginId)?.remoteHandlers?.[namespace]?.[method] === 'function',
+      invokeRemote: async (call, signal) => map.get(call.pluginId).remoteHandlers[call.namespace][call.method](call.args, signal),
+    } : {}),
   }
 }
 
@@ -274,6 +278,25 @@ test('ui.plugin.invoke forwards declared calls and preserves abort semantics', a
   controller.abort()
   const aborted = await invokeUiPluginRemote(ctx, { pluginId: 'example.session-pins', namespace: 'sessionPins', method: 'toggle', args: {} }, controller.signal)
   assert.equal(aborted.value.signalAborted, true)
+})
+
+test('ui.plugin.invoke can dispatch a validated host-owned handler without the gateway', async () => {
+  const record = normalizeUiPluginRegistration({
+    schemaVersion: 1,
+    pluginId: 'deeptop.annotation-ui',
+    version: '0.1.0',
+    client: { entryId: 'deeptop.annotation-ui/client', format: 'esm', sdkVersion: '^1.0.0' },
+    ui: { slots: ['conversation.message.actions'] },
+    capabilities: { remotes: [{ namespace: 'annotations', methods: ['list'] }] },
+  })
+  record.remoteHandlers = { annotations: { list: async (args, signal) => ({ args, aborted: signal.aborted }) } }
+  const controller = new AbortController()
+  const result = await invokeUiPluginRemote(
+    ctxWith(registryWith(record)),
+    { pluginId: record.pluginId, namespace: 'annotations', method: 'list', args: { sessionId: 's-1' } },
+    controller.signal,
+  )
+  assert.deepEqual(result, { value: { args: { sessionId: 's-1' }, aborted: false } })
 })
 
 test('ui.plugin.invoke keeps gateway failures intact after capability checks pass', async () => {

@@ -108,8 +108,6 @@ import {
   type DshHistoryEntry,
   type DshJob,
   type DshCommandDescriptor,
-  type DshMessageAnnotationItem,
-  type DshMessageAnnotationResult,
   type DshPluginConfigDescription,
   type DshPluginConfigEntry,
   type DshPluginConfigMutation,
@@ -478,7 +476,6 @@ function AppContent() {
   const [storedDefaultPermission, setStoredDefaultPermission] = useState<DefaultPermission | null>(readStoredDefaultPermission);
   const [draftPermission, setDraftPermission] = useState<DefaultPermission | null>(null);
   const [commands, setCommands] = useState<DshCommandDescriptor[]>([]);
-  const [annotations, setAnnotations] = useState<Record<string, DshMessageAnnotationItem>>({});
   const [permissionSelect, setPermissionSelect] = useState<DshPermissionSelect | null>(null);
   const [pendingPermissionValue, setPendingPermissionValue] = useState<DefaultPermission | null>(null);
   const [pendingDefaultPermission, setPendingDefaultPermission] = useState<DefaultPermission | null>(null);
@@ -703,11 +700,19 @@ function AppContent() {
     });
   }
 
-  function requestPrompt(title: string, value = "", description?: string) {
+  const requestPrompt = useCallback((title: string, value = "", description?: string) => {
     return new Promise<string | null>((resolve) => {
       enqueuePopupRequest({ kind: "prompt", title, value, description, resolve });
     });
-  }
+  }, []);
+
+  const uiHostActions = useMemo(() => ({
+    prompt: ({ title, value, description }: { title: string; value?: string; description?: string }) => requestPrompt(title, value ?? "", description),
+    notify: (message: string, kind: "info" | "error" = "info") => {
+      if (kind === "error") setErrorNotice(message);
+      else setNotice(message);
+    },
+  }), [requestPrompt, setErrorNotice, setNotice]);
 
   function requestCloseBehavior() {
     return new Promise<Exclude<CloseBehavior, "ask"> | null>((resolve) => {
@@ -953,6 +958,9 @@ function AppContent() {
 
   // 桌面 UI 插件运行时：发现/激活插件并维护 Slot Registry；无插件时主应用完全不变。
   const uiRuntime = useDesktopUiRuntime();
+  useEffect(() => {
+    uiRuntime.setHostContext(locale, uiHostActions);
+  }, [locale, uiHostActions, uiRuntime]);
   useEffect(() => {
     uiRuntime.updateSession(activeSession ? toSessionUiContext(activeSession, displayTitle(activeSession)) : null);
   }, [uiRuntime, activeSession]);
@@ -1941,26 +1949,6 @@ function AppContent() {
     }
   }
 
-  async function loadAnnotations(sessionId = activeSessionRef.current) {
-    if (!desktop || !sessionId) {
-      setAnnotations({});
-      return;
-    }
-    if (!capabilityFeatures.annotations) {
-      setAnnotations({});
-      return;
-    }
-    try {
-      const result = await desktopRequest("messageAnnotations.list", { sessionId });
-      if (activeSessionRef.current !== sessionId) return;
-      if (!result.ok) throw new Error(result.error.code);
-      setAnnotations(Object.fromEntries(result.value.items.map((item) => [item.messageId, item])));
-    } catch {
-      if (activeSessionRef.current !== sessionId) return;
-      setAnnotations({});
-    }
-  }
-
   useEffect(() => {
     setSubagentSession(null);
     setSelectedSubagentId(null);
@@ -1969,13 +1957,11 @@ function AppContent() {
     setSubagentDockOpen(false);
     setSkills([]);
     setCommands([]);
-    setAnnotations({});
     setPermissionSelect(null);
     setPlan(null);
     void loadSubagents();
     if (activeSessionId) {
       void loadCommands(activeSessionId);
-      void loadAnnotations(activeSessionId);
       void desktopRequest("skill.list", { sessionId: activeSessionId })
         .then((result) => setSkills(result.skills))
         .catch(() => undefined);
@@ -1999,7 +1985,7 @@ function AppContent() {
         setSubagents(await desktopRequest("subagent.list", { parentSessionId: activeSessionId }));
       }
       if (tab === "runtime" && activeSessionId) {
-        await Promise.all([loadCommands(activeSessionId), loadAnnotations(activeSessionId)]);
+        await loadCommands(activeSessionId);
       }
       if (tab === "goal" && activeSessionId) {
         const historyResult = await desktopRequest("session.history", { sessionId: activeSessionId, maxMessages: 100 });
@@ -2366,7 +2352,6 @@ function AppContent() {
     setDraftModelSelection(null);
     setDraftPermission(null);
     setPermissionSelect(null);
-    setAnnotations({});
     setLoading(true);
     try {
       const [historyResult, modelsResult] = await Promise.all([
@@ -3195,7 +3180,6 @@ function AppContent() {
     setDraftPermission(null);
     setSessionStats({ inputTokens: 0, outputTokens: 0, totalTokens: 0, reasoningTokens: 0, uncachedInputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, contextTokens: 0, contextLimit: 0, cacheHitRate: 0, messages: 0 });
     setCommands([]);
-    setAnnotations({});
     setPermissionSelect(null);
     setPlan(null);
     setQueue([]);
@@ -3800,90 +3784,6 @@ function AppContent() {
       await openLogsDirectory();
     } catch (error) {
       setErrorNotice(errorText(error, locale));
-    }
-  }
-
-  async function putAnnotation(messageId: string, note: string) {
-    const sessionId = activeSessionRef.current;
-    if (!sessionId) return;
-    const current = annotations[messageId];
-    const result = await desktopRequest("messageAnnotations.put", {
-      sessionId,
-      messageId,
-      note,
-      ifVersion: current?.version ?? null,
-    });
-    if (!result.ok) {
-      if (result.error.code === "version-conflict") {
-        const conflict = result.error.current;
-        setAnnotations((items) => {
-          const next = { ...items };
-          if (conflict) next[messageId] = conflict;
-          else delete next[messageId];
-          return next;
-        });
-      }
-      throw new Error(t("err.annotationSave", locale, { code: result.error.code }));
-    }
-    setAnnotations((items) => ({ ...items, [messageId]: result.value }));
-  }
-
-  async function deleteAnnotation(messageId: string) {
-    const sessionId = activeSessionRef.current;
-    const current = annotations[messageId];
-    if (!sessionId || !current) return;
-    const result = await desktopRequest("messageAnnotations.delete", {
-      sessionId,
-      messageId,
-      ifVersion: current.version,
-    });
-    if (!result.ok) {
-      if (result.error.code === "version-conflict") {
-        const conflict = result.error.current;
-        setAnnotations((items) => {
-          const next = { ...items };
-          if (conflict) next[messageId] = conflict;
-          else delete next[messageId];
-          return next;
-        });
-      }
-      throw new Error(t("err.annotationDelete", locale, { code: result.error.code }));
-    }
-    setAnnotations((items) => {
-      const next = { ...items };
-      delete next[messageId];
-      return next;
-    });
-  }
-
-  async function editMessageAnnotation(messageId: string) {
-    const sessionId = activeSessionRef.current;
-    const current = annotations[messageId];
-    const draft = await requestPrompt(t("dialog.annotationEdit.title", locale), current?.note ?? "", t("dialog.annotationEdit.description", locale));
-    if (draft === null) return;
-    setNotice(t("notice.annotationSaving", locale));
-    try {
-      if (draft.trim()) {
-        await putAnnotation(messageId, draft.trim());
-        if (activeSessionRef.current !== sessionId) {
-          setNotice(t("notice.annotationSavedSwitched", locale));
-        } else {
-          setNotice(current ? t("notice.annotationUpdated", locale) : t("notice.annotationAdded", locale));
-        }
-      } else if (current) {
-        await deleteAnnotation(messageId);
-        if (activeSessionRef.current !== sessionId) {
-          setNotice(t("notice.annotationClearedSwitched", locale));
-        } else {
-          setNotice(t("notice.annotationCleared", locale));
-        }
-      }
-    } catch (error) {
-      if (activeSessionRef.current !== sessionId) {
-        setErrorNotice(t("notice.annotationSaveFailedSwitched", locale, { error: errorText(error, locale) }));
-      } else {
-        setErrorNotice(errorText(error, locale));
-      }
     }
   }
 
@@ -4752,6 +4652,8 @@ function AppContent() {
           onUnpinnedSectionChange={setUnpinnedSectionOpen}
           sessionContextMenu={sessionContextMenu}
           onRequestSessionAction={requestSessionAction}
+          uiLocale={locale}
+          uiHost={uiHostActions}
           uiRuntime={uiRuntime}
           workspace={workspace}
           workspaces={workspaces}
@@ -4857,7 +4759,8 @@ function AppContent() {
               runtimeDirectory={status.runtimeDirectory}
               modelName={models?.current.model ?? defaultModelName}
               presets={presets}
-              annotations={annotations}
+              uiRuntime={uiRuntime}
+              uiHost={uiHostActions}
               nextPreset={nextPreset}
               presetMenuOpen={presetMenuOpen}
               onLoadOlder={loadOlderHistory}
@@ -4868,7 +4771,6 @@ function AppContent() {
               onStagePreset={stagePresetForNextSession}
               onCopyMessage={copyMessage}
               onCopySelection={copySelection}
-              onEditAnnotation={editMessageAnnotation}
                onRetryMessage={retryMessage}
                retryingMessageSeq={retryingMessageSeq}
               onForkSession={forkSession}

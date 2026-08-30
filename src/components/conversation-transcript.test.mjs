@@ -14,6 +14,7 @@ function createHookRenderer() {
   let pendingEffects = [];
 
   const react = {
+    Component: class {},
     memo: (component) => component,
     useState(initial) {
       const index = hookIndex++;

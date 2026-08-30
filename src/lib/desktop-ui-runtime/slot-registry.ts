@@ -68,6 +68,7 @@ export class SlotRegistry {
       pluginId,
       slot,
       contributionId: contribution.id,
+      kind: contribution.kind,
       ...(contribution.order !== undefined ? { order: contribution.order } : {}),
       declarative: null,
       render: contribution.render,
@@ -97,6 +98,7 @@ export class SlotRegistry {
       pluginId,
       slot: contribution.slot,
       contributionId: contribution.id,
+      kind: contribution.kind,
       ...(contribution.order !== undefined ? { order: contribution.order } : {}),
       declarative: contribution,
     };
@@ -141,6 +143,11 @@ export class SlotRegistry {
     return () => {
       this.listeners.delete(listener);
     };
+  }
+
+  /** Notify SlotOutlets that host context changed without changing contributions. */
+  notifyAll(): void {
+    this.notify();
   }
 
   private bucketFor(slot: UiRuntimeSlot): Map<string, RegisteredContribution> {

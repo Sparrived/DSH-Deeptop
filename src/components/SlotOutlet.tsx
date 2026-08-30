@@ -12,8 +12,10 @@ export interface SlotOutletProps {
    * "menu-item": vertical action lists (context menus); declarative badges are
    * omitted there because a text badge is not a menu row.
    * "inline": badges and actions render in place (row trailing areas).
+   * "message-actions": action contributions render in message action rows.
+   * "message-badge": badge contributions render beside a message.
    */
-  variant?: "menu-item" | "inline";
+  variant?: "menu-item" | "inline" | "message-actions" | "message-badge";
   onActionError?: (message: string) => void;
 }
 
@@ -36,6 +38,7 @@ export function SlotOutlet({ runtime, slot, context, variant = "menu-item", onAc
       {contributions.map((contribution) => {
         if (contribution.declarative) {
           const key = `${contribution.pluginId}:${contribution.contributionId}`;
+          if (variant === "message-actions" || variant === "message-badge") return null;
           if (variant === "menu-item") {
             return contribution.declarative.kind === "action"
               ? <DeclarativeActionItem key={key} runtime={runtime} contribution={contribution} context={context} onActionError={onActionError} />
@@ -45,6 +48,8 @@ export function SlotOutlet({ runtime, slot, context, variant = "menu-item", onAc
             ? <DeclarativeInlineItem key={key} runtime={runtime} contribution={contribution} context={context} onActionError={onActionError} />
             : null;
         }
+        if (variant === "message-actions" && contribution.kind !== "action") return null;
+        if (variant === "message-badge" && contribution.kind !== "badge") return null;
         const Render = contribution.render;
         if (!Render) return null;
         return (

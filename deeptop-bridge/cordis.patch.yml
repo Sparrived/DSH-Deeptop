@@ -82,6 +82,9 @@
     - id: deeptop-ui-registry
       name: 'deeptop-bridge/ui-registry'
 
+    - id: message-annotations-ui
+      name: 'deeptop-bridge/message-annotations-ui'
+
     - id: desktop-bridge
       name: 'deeptop-bridge'
 

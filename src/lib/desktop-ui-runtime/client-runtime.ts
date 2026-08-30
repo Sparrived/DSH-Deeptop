@@ -11,6 +11,7 @@ import {
   type DshUiPluginDescriptor,
   type SessionUiContext,
 } from "../../app/ui-plugin-model.ts";
+import type { UiHostActions, UiLocale } from "./types.ts";
 import {
   CapabilityDeniedError,
   PluginEventScope,
@@ -82,6 +83,9 @@ export interface DesktopUiRuntimeOptions {
   /** Dynamic import seam (tests stub this; production uses native import()). */
   importModule?: ModuleImporter;
   enabled?: boolean;
+  /** Current host locale and the host UI facade are refreshed as React state changes. */
+  locale?: UiLocale;
+  hostActions?: UiHostActions;
   log?(message: string): void;
 }
 
@@ -108,9 +112,21 @@ export class DesktopUiRuntime {
   diagnostics: UiRuntimeDiagnostic[] = [];
   sessionContext: SessionUiContext | null = null;
   sessionGeneration = 0;
+  private sessionInitialized = false;
+  private locale: UiLocale = "zh";
+  private hostActions: UiHostActions = { prompt: async () => null, notify: () => undefined };
 
   constructor(options: DesktopUiRuntimeOptions) {
     this.options = options;
+    this.locale = options.locale ?? "zh";
+    this.hostActions = options.hostActions ?? this.hostActions;
+  }
+
+  setHostContext(locale: UiLocale, hostActions: UiHostActions): void {
+    this.locale = locale;
+    this.hostActions = hostActions;
+    this.slots.notifyAll();
+    this.notifyCatalogListeners();
   }
 
   get enabled(): boolean {
@@ -258,7 +274,8 @@ export class DesktopUiRuntime {
     return this.enqueue(async () => {
       await this.removeAll("host-restarted");
       this.sessionGeneration += 1;
-      this.sessionContext = null;
+      this.sessionInitialized = false;
+       this.sessionContext = null;
       this.status = "loading";
       this.notifyCatalogListeners();
     });
@@ -266,13 +283,21 @@ export class DesktopUiRuntime {
 
   /** Feed the latest serializable session view; notifies imperative subscribers. */
   updateSession(context: SessionUiContext | null): void {
+    if (this.sessionInitialized && this.sessionContext?.sessionId === context?.sessionId) {
+      this.sessionContext = context;
+      this.slots.notifyAll();
+      return;
+    }
+    this.sessionInitialized = true;
     this.sessionGeneration += 1;
     this.sessionContext = context;
     for (const listener of [...this.sessionListeners]) listener(context);
+    this.slots.notifyAll();
   }
 
   onSessionChange(listener: (session: SessionUiContext | null) => void): () => void {
     this.sessionListeners.add(listener);
+    listener(this.sessionContext);
     return () => {
       this.sessionListeners.delete(listener);
     };
@@ -397,6 +422,12 @@ export class DesktopUiRuntime {
       },
       ui: {
         register: (slot, contribution) => scope.add(this.slots.register(descriptor.pluginId, descriptor.slots, slot, contribution)),
+      },
+      get locale() {
+        return runtimeRef.locale;
+      },
+      get host() {
+        return runtimeRef.hostActions;
       },
       remote: createScopedRemote(descriptor.pluginId, descriptor.capabilities, send),
       events: {

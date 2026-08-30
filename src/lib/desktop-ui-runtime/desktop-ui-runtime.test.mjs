@@ -413,6 +413,17 @@ test('DSH restart clears old generation state and re-discovers fresh descriptors
   assert.equal(runtime.slots.snapshot('session.context-menu').length, 1)
 })
 
+test('session subscribers receive initial and changed sessions but not same-session projections', () => {
+  const runtime = new DesktopUiRuntime({ request: async () => ({ items: [] }), listen: () => () => {} })
+  const sessions = []
+  runtime.updateSession({ sessionId: 's-1', title: 'One', running: false, blank: false })
+  runtime.onSessionChange(session => sessions.push(session?.sessionId ?? null))
+  runtime.updateSession({ sessionId: 's-1', title: 'One updated', running: true, blank: false })
+  runtime.updateSession({ sessionId: 's-2', title: 'Two', running: false, blank: false })
+  assert.deepEqual(sessions, ['s-1', 's-2'])
+  assert.equal(runtime.sessionGeneration, 2)
+})
+
 test('catalog failures keep the host app functional and report diagnostics', async () => {
   const runtime = new DesktopUiRuntime({
     request: async () => { throw new Error('bridge down') },

@@ -2,6 +2,7 @@ import { useMemo, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useFloatingMenuPosition } from "../app/useFloatingMenuPosition";
 import type { DesktopUiRuntime } from "../lib/desktop-ui-runtime/client-runtime";
+import type { UiHostActions } from "../lib/desktop-ui-runtime/types";
 import { SlotOutlet } from "./SlotOutlet";
 import { SessionRow, sessionStatusLabels } from "./SessionRow";
 import { WorkspaceGroup as WorkspaceGroupSection } from "./WorkspaceGroup";
@@ -61,6 +62,8 @@ type SessionSidebarProps = {
   sessionContextMenu: SessionContextMenu | null;
   onRequestSessionAction: (action: SessionAction, session: DshSessionSummary) => void;
   uiRuntime: DesktopUiRuntime;
+  uiLocale: UiLocale;
+  uiHost: UiHostActions;
   workspace: string;
   workspaces: DshWorkspace[];
   workspaceMenuOpen: boolean;
@@ -107,6 +110,8 @@ export function SessionSidebar({
   sessionContextMenu,
   onRequestSessionAction,
   uiRuntime,
+  uiLocale,
+  uiHost,
   workspace,
   workspaces,
   workspaceMenuOpen,
@@ -304,7 +309,7 @@ export function SessionSidebar({
             runtime={uiRuntime}
             slot="session.context-menu"
             variant="menu-item"
-            context={{ session: toSessionUiContext(sessionContextMenu.session, displayTitle(sessionContextMenu.session)), activeSessionId }}
+            context={{ session: toSessionUiContext(sessionContextMenu.session, displayTitle(sessionContextMenu.session)), activeSessionId, sessionGeneration: uiRuntime.sessionGeneration, locale: uiLocale, host: uiHost }}
           />
           {workspaceBySessionId.has(sessionContextMenu.session.sessionId) && (activeOpen || !search.trim()) && <button role="menuitem" onClick={() => onRequestSessionAction("pin", sessionContextMenu.session)}>{workspaceBySessionId.get(sessionContextMenu.session.sessionId)?.pinnedSessionIds?.includes(sessionContextMenu.session.sessionId) ? t("session.unpin", locale) : t("session.pinInWorkspace", locale)}</button>}
           <button role="menuitem" onClick={() => onRequestSessionAction("rename", sessionContextMenu.session)}>{t("session.rename", locale)}</button>
