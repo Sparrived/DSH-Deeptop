@@ -258,6 +258,7 @@ const BRIDGE_SESSION_PINS: &str = include_str!("../../deeptop-bridge/session-pin
 const BRIDGE_SESSION_PINS_MODEL: &str = include_str!("../../deeptop-bridge/session-pins-model.mjs");
 const BRIDGE_UI_PLUGIN_MANIFEST: &str = include_str!("../../deeptop-bridge/ui-plugin-manifest.mjs");
 const BRIDGE_UI_REGISTRY: &str = include_str!("../../deeptop-bridge/ui-registry.mjs");
+const BRIDGE_UI_ROUTES: &str = include_str!("../../deeptop-bridge/ui-routes.mjs");
 const BRIDGE_SKILL_INSTALLER: &str = include_str!("../../deeptop-bridge/skill-installer.mjs");
 const BRIDGE_SKILL_INSTALL_PLUGIN: &str =
     include_str!("../../deeptop-bridge/skill-install-plugin.mjs");
@@ -986,7 +987,7 @@ fn migrate_desktop_profile_patch(path: &Path) -> Result<(), String> {
     write_text(path, &format!("{}{newline}", filtered.join(newline)))
 }
 
-fn bundled_bridge_files() -> [(&'static str, &'static str); 17] {
+fn bundled_bridge_files() -> [(&'static str, &'static str); 18] {
     [
         ("package.json", BRIDGE_PACKAGE_JSON),
         ("cordis.patch.yml", BRIDGE_PATCH),
@@ -1000,6 +1001,7 @@ fn bundled_bridge_files() -> [(&'static str, &'static str); 17] {
         ("session-pins-model.mjs", BRIDGE_SESSION_PINS_MODEL),
         ("ui-plugin-manifest.mjs", BRIDGE_UI_PLUGIN_MANIFEST),
         ("ui-registry.mjs", BRIDGE_UI_REGISTRY),
+        ("ui-routes.mjs", BRIDGE_UI_ROUTES),
         ("skill-installer.mjs", BRIDGE_SKILL_INSTALLER),
         ("skill-install-plugin.mjs", BRIDGE_SKILL_INSTALL_PLUGIN),
         ("plugin-config.mjs", BRIDGE_PLUGIN_CONFIG),
@@ -5216,7 +5218,7 @@ mod tests {
     }
 
     #[test]
-    fn materializes_every_local_bridge_export() {
+    fn materializes_every_local_bridge_dependency() {
         let package: serde_json::Value =
             serde_json::from_str(super::BRIDGE_PACKAGE_JSON).expect("embedded bridge package");
         let exports = package["exports"].as_object().expect("bridge exports");
@@ -5243,6 +5245,30 @@ mod tests {
                 .any(|(name, _)| *name == "ui-plugin-manifest.mjs"),
             "UI plugin manifest must be materialized for the registry module"
         );
+        for (owner, content) in &files {
+            for (marker, quote) in [
+                ("from './", '\''),
+                ("from \"./", '"'),
+                ("import './", '\''),
+                ("import \"./", '"'),
+                ("import('./", '\''),
+                ("import(\"./", '"'),
+            ] {
+                let mut remainder = *content;
+                while let Some(start) = remainder.find(marker) {
+                    remainder = &remainder[start + marker.len()..];
+                    let end = remainder.find(quote).unwrap_or_else(|| {
+                        panic!("bridge file {owner} has an unterminated local import")
+                    });
+                    let imported = &remainder[..end];
+                    assert!(
+                        files.iter().any(|(name, _)| *name == imported),
+                        "bridge file {owner} imports {imported}, but it is not materialized"
+                    );
+                    remainder = &remainder[end + quote.len_utf8()..];
+                }
+            }
+        }
         assert!(files.iter().all(|(_, content)| !content.trim().is_empty()));
     }
 
