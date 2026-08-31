@@ -33,7 +33,7 @@ Frontend `dist` 也会作为 7 天保留的 CI 制品上传。CI 使用 npm cach
 
 - `package.json`；
 - `package-lock.json` 的根版本和 `packages[""]` 版本；
-- `deeptop-bridge/package.json`；
+- `cordis/package.json`；
 - `src-tauri/tauri.conf.json`；
 - `src-tauri/Cargo.toml`；
 - `src-tauri/Cargo.lock` 中 `deeptop` package 的版本。
@@ -74,7 +74,7 @@ npm run build:dev -- --help
 ```powershell
 npm run version:set -- 0.2.0
 npm run version:check
-git add package.json package-lock.json deeptop-bridge/package.json src-tauri scripts .github docs README.md README.zh.md
+git add package.json package-lock.json cordis/package.json src-tauri scripts .github docs README.md README.zh.md
 git commit -m "chore: prepare release v0.2.0"
 git tag v0.2.0
 git push origin main --follow-tags
@@ -87,7 +87,7 @@ npm run version:set -- 0.1.1-dev.1
 npm run version:check
 npm run build
 npm test
-git add package.json package-lock.json deeptop-bridge/package.json src-tauri scripts .github docs README.md README.zh.md
+git add package.json package-lock.json cordis/package.json src-tauri scripts .github docs README.md README.zh.md
 git commit -m "chore: prepare development release v0.1.1-dev.1"
 git tag v0.1.1-dev.1
 git push origin master --follow-tags

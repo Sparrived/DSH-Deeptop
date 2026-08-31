@@ -44,9 +44,10 @@ Tauri runtime
   -> run the cached `@deepseek-ai/dsh/lib/bin.js` through system Node.js
   -> keep Profile, sessions, logs and settings in `$DSH_HOME`; never write to resources
      -> desktop Profile + Cordis services
-        -> deeptop-bridge plugin
-           -> bridge.mjs       JSONL lifecycle and event forwarding
-           -> routes.mjs       ApiProxy method mapping
+        -> cordis/             one directory per built-in plugin
+           -> desktop-bridge/  JSONL lifecycle, events and ApiProxy mapping
+           -> session-pins/    durable workspace pin service
+           -> ui-registry/     scoped UI Plugin registry and routes
 ```
 
 The dependency direction is one-way:
@@ -67,17 +68,17 @@ interaction parsers in `ui-model.ts`, and trajectory parsing in
 
 ## DSH plugin boundary
 
-`deeptop-bridge/index.mjs` follows the Harness plugin contract:
+`cordis/desktop-bridge/index.mjs` follows the Harness plugin contract:
 
 - `name` identifies the plugin;
 - `inject` declares `apiProxy`, `pluginInventory`, `llm` and `typertGateway` dependencies;
 - `apply(ctx)` starts the bridge and returns the disposer.
 
-The entry module does not contain protocol details. `bridge.mjs` owns stdin,
-stdout, JSONL validation, event streams and cancellation. `routes.mjs` owns the
+The entry module does not contain protocol details. `cordis/desktop-bridge/bridge.mjs` owns stdin,
+stdout, JSONL validation, event streams and cancellation. `cordis/desktop-bridge/routes.mjs` owns the
 allowlisted desktop method map, including `remote.invoke` and `skill.install`.
-The separate `skill-installer` Cordis plugin registers the approval-gated model
-tool `skill-install`. Both surfaces call the shared GitHub installer and leave
+The separate `cordis/skill-installer/` plugin registers the approval-gated model
+tool `skill-install`. Both surfaces call its shared GitHub installer and leave
 catalog refresh to the official skill filesystem watcher. Adding an exposed API
 should therefore touch the route map and the TypeScript contract together,
 instead of growing the plugin lifecycle code.
@@ -90,7 +91,7 @@ structurally complete zstd frame ends in a torn JSONL record. Upstream DSH
 session log: complete frame contains a torn JSONL record` and never
 auto-recovers them, so the session becomes unopenable. Deeptop fixes this on
 the desktop side: the `session.repairCorrupt` bridge route (implemented in
-`session-repair.mjs`, surfaced through `routes.mjs`) scans the artifact,
+`cordis/desktop-bridge/session-repair.mjs`, surfaced through the desktop Bridge routes) scans the artifact,
 preserves the committed prefix, drops the torn tail, verifies the result is
 readable, and rewrites it atomically (temp file + rename). It refuses to touch
 a session that is still running or an artifact that cannot be repaired. The
@@ -110,7 +111,7 @@ crash-restart that leaves a stale daemon alive). Each writer carries its own
 seq counter, so their frames interleave overlapping seq branches in the
 committed region; DSH rejects the result with `corrupt session log: seq gap in
 committed region at line N (expected X, got Y)`. The same repair path handles
-it: `reconstructContiguous` in `session-repair.mjs` decodes every committed
+it: `reconstructContiguous` in `cordis/desktop-bridge/session-repair.mjs` decodes every committed
 record (expanding packed `*-chunks` rows exactly like `decodeStorageRecord`)
 and keeps only the records that continue the running seq counter — the longest
 contiguous stream, which preserves every later turn. `verifyReadable` now also

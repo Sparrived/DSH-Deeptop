@@ -4,7 +4,7 @@
 >
 > 本文定义如何在 Deeptop 中实现一套类似 DSH WebUI 原生 Client Runtime 的桌面 UI 插件运行时，使插件可以复用同一棵 DSH Cordis 树，并通过 Host/Cordis 插件为 Deeptop 添加 React 组件、菜单项、Badge、设置页和 Inspector 面板。
 >
-> 当前实现进度：Cordis 宿主 `deeptop-ui-registry` 服务（`deeptop-bridge/ui-registry.mjs`）、受限路由 `ui.plugin.list/module/bundle/invoke/storage.*`（`deeptop-bridge/ui-routes.mjs`）、客户端运行时（`src/lib/desktop-ui-runtime/`）、纯协议模型（`src/app/ui-plugin-model.ts`）、会话右键菜单与消息操作的 `SlotOutlet` 接入以及设置页「UI 插件」状态区块已完成并有测试覆盖。内置 `message-annotations-ui` Host/Client Plugin 已将消息注记 UI 迁出主编排层。宿主-only 插件可通过声明式 contributions 直接提供菜单项和徽标；外部 Client Bundle 经 Tauri 受控资源协议 `deeptop-plugin://`（`src-tauri/src/ui_plugin_bundle.rs`）加载：路径围栏、SHA-256 完整性、大小与装载时限在桌面进程强制执行。第三阶段隔离模式仍未实现。
+> 当前实现进度：Cordis 宿主 `deeptop-ui-registry` 服务（`cordis/ui-registry/index.mjs`）、受限路由 `ui.plugin.list/module/bundle/invoke/storage.*`（`cordis/ui-registry/routes.mjs`）、客户端运行时（`src/lib/desktop-ui-runtime/`）、纯协议模型（`src/app/ui-plugin-model.ts`）、会话右键菜单与消息操作的 `SlotOutlet` 接入以及设置页「UI 插件」状态区块已完成并有测试覆盖。内置 `message-annotations-ui` Host/Client Plugin 已将消息注记 UI 迁出主编排层。宿主-only 插件可通过声明式 contributions 直接提供菜单项和徽标；外部 Client Bundle 经 Tauri 受控资源协议 `deeptop-plugin://`（`src-tauri/src/ui_plugin_bundle.rs`）加载：路径围栏、SHA-256 完整性、大小与装载时限在桌面进程强制执行。第三阶段隔离模式仍未实现。
 >
 > 本文同时记录已落地的 UI Runtime 核心和仍未实现的扩展设计。当前 Deeptop 已有 DSH Host/Cordis、Bridge、Remote、Projection、事件、Slot Registry、客户端插件生命周期和受控 Client Bundle 加载；更完整的 WebUI 兼容模式与第三阶段隔离模式仍未实现。
 
@@ -85,7 +85,7 @@ One Cordis Tree
 ```
 
 - DSH 负责 Session、Agent、Tool、Model、Storage、Workspace、Skill、Goal、Provider、Projection、事件和持久化。
-- `deeptop-bridge` 运行在 DSH Cordis 树内，负责 JSONL 协议、API allowlist、Remote 转发和桌面边界适配。
+- `cordis/desktop-bridge/` 的源码以运行时包 `deeptop-bridge` 运行在 DSH Cordis 树内，负责 JSONL 协议、API allowlist、Remote 转发和桌面边界适配。
 - Tauri/Rust 负责进程启动、停止、重启、stdin/stdout、请求超时和系统能力。
 - React 负责原生桌面交互和状态展示。
 
@@ -1272,7 +1272,7 @@ UI Runtime 提供 `session.list.sorters` 扩展点，由插件声明排序函数
 
 ## 14. 推荐代码落点
 
-以下是和当前仓库一致的拟议目录，不代表现在已经存在：
+以下是当前仓库已经落地的主要目录；每个内置 Cordis 插件都拥有独立文件夹和 `index.mjs` 入口：
 
 ```text
 src/
@@ -1288,19 +1288,34 @@ src/
       ├─ client-runtime.ts               # discover/load/activate/dispose
       ├─ module-loader.ts                # bundled / protocol loader
       ├─ plugin-runner.ts                # 生命周期
-      ├─ plugin-context.ts               # scoped APIs
       ├─ slot-registry.ts                # contribution 注册
       ├─ capability-client.ts            # remote/event/storage
       ├─ plugin-error.ts                 # 错误归一化
       └─ types.ts                        # manifest/context/slot types
 
-deeptop-bridge/
-├─ index.mjs                             # 增加 registry 注入
-├─ ui-registry.mjs                       # Cordis Host registry adapter
-├─ ui-routes.mjs                         # list/module/scoped invoke
-├─ routes.mjs                             # allowlist 接线
-├─ bridge.mjs                             # 必要时增加 UI event filtering
-└─ routes.test.mjs                        # 路由和能力校验
+cordis/
+├─ desktop-bridge/
+│  ├─ index.mjs                          # JSONL Bridge Cordis plugin
+│  ├─ bridge.mjs                         # 协议与 UI event filtering
+│  ├─ routes.mjs                         # allowlist 接线
+│  └─ routes.test.mjs                    # Bridge 路由校验
+├─ message-annotations/
+│  └─ index.mjs                          # 持久消息注记 Service
+├─ message-annotations-ui/
+│  └─ index.mjs                          # 独立 Host UI registration plugin
+├─ session-pins/
+│  ├─ index.mjs                          # 会话置顶 Service
+│  └─ model.mjs                          # 旧数据与成员纯模型
+├─ skill-installer/
+│  ├─ index.mjs                          # approval-gated Tool plugin
+│  └─ installer.mjs                      # 共享 GitHub 安装实现
+├─ theme-settings/
+│  └─ index.mjs                          # 主题和语言 Host settings
+└─ ui-registry/
+   ├─ index.mjs                          # Cordis Host registry service
+   ├─ manifest.mjs                       # 清单与 capability 校验
+   ├─ routes.mjs                         # list/module/scoped invoke
+   └─ routes.test.mjs                    # UI 路由校验
 
 src-tauri/src/
 └─ main.rs                               # 第二阶段受控资源协议
@@ -1311,7 +1326,7 @@ docs/
 
 ### 14.1 Bridge 注入顺序
 
-拟议 Profile 结构：
+当前 Profile 结构：
 
 ```yaml
 - insert:
@@ -1319,12 +1334,12 @@ docs/
       name: 'deeptop-bridge/ui-registry'
 
     - id: desktop-bridge
-      name: 'deeptop-bridge'
+      name: 'deeptop-bridge/desktop-bridge'
 ```
 
-如果 UI Registry 作为 `deeptop-bridge` 内部服务而不是单独插件，也必须保证它在用户 Host 插件调用前完成注册。实际注入顺序要根据 Cordis 的 Service Definition / Provider 规则验证，不能只依赖 YAML 文本顺序。
+UI Registry 是独立的 `cordis/ui-registry/` Service 插件，并在消息注记 UI 注册器与 desktop Bridge 前挂载；依赖仍通过 Cordis Service Definition / Provider 规则表达，不能只依赖 YAML 文本顺序。
 
-`deeptop-bridge/index.mjs` 可能增加：
+`cordis/desktop-bridge/index.mjs` 当前声明：
 
 ```js
 export const inject = [
@@ -1336,11 +1351,11 @@ export const inject = [
   'sessionPersistence',
   'sessions',
   'messageAnnotations',
-  'deeptopUiRegistry',
+  'agents',
 ]
 ```
 
-只有确认当前 DSH 能提供该 service，且缺失时有明确降级行为后，才应将依赖加入必需 `inject`。否则应采用可选依赖或能力探测，避免旧 Profile 无法启动。
+UI Registry 通过 `ctx.get('deeptopUiRegistry')` 做能力探测：服务缺失时 `ui.plugin.list` 降级为空清单，其它 scoped 路由返回稳定的 unavailable 错误。只有确认旧 Profile 一定提供某个 service 时，才把它加入必需 `inject`，避免可选插件缺失导致 desktop Bridge 无法启动。
 
 ### 14.2 TypeScript 契约
 

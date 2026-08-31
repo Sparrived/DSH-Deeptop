@@ -18,20 +18,20 @@
 
 ### 现状问题
 
-会话置顶原先由 `deeptop-bridge/routes.mjs` 私有读写 `$DSH_HOME/profiles/desktop/session-pins.json`，并在 Bridge 路由中维护串行写入、工作区清理和会话清理。这样持久化领域逻辑与路由、工作区 API 装饰耦合，不能被其它 Host Consumer 复用。
+会话置顶原先由平铺的 Bridge `routes.mjs` 私有读写 `$DSH_HOME/profiles/desktop/session-pins.json`，并在 Bridge 路由中维护串行写入、工作区清理和会话清理。这样持久化领域逻辑与路由、工作区 API 装饰耦合，不能被其它 Host Consumer 复用。
 
 ### 已采用的目标结构
 
 ```text
-session-pins.mjs
-  SessionPinsService
+cordis/session-pins/
+  index.mjs -> SessionPinsService
     storageDomain: session_pins
     workspaceRegistry: workspaceRegistry
     legacy JSON one-time import
     ordered per-workspace pin records
     mutation queue and cleanup
         |
-        +-- routes.mjs: workspace list/mutation decoration and request forwarding
+        +-- ../desktop-bridge/routes.mjs: workspace list/mutation decoration and request forwarding
         +-- UI Runtime: future session row Badge/context-menu contribution
 ```
 

@@ -10,36 +10,41 @@
 - 最近合并提交：`a9177bd53a`，合并 `feature/desktop-ui-runtime`。
 - 会话置顶 Host Plugin 提交：`d94c1e8739`。
 - 消息注记 UI Consumer 提交：`ac3be1b564`。
-- 本轮 Runtime 生命周期加固：`56d660c5a3`；消息注记缓存隔离：`e17b5ece93`；真实 Host 验收：`93eb0d2ac7`。最新文档提交以 `git log -5 --oneline` 为准。
+- 本轮 Runtime 生命周期加固：`56d660c5a3`；消息注记缓存隔离：`e17b5ece93`；真实 Host 验收：`93eb0d2ac7`；Cordis 独立目录迁移：`e1f3d63265`。最新文档提交以 `git log -5 --oneline` 为准。
 - 最新分支领先数量和工作区状态以 `git status --short --branch` 为准。
-- 必须保留的四个用户未提交文件：`src/App.tsx`、`src/app/tool-args-render.tsx`、`src/styles/15-final-overrides.css`、`src/styles/18-session-dashboard.css`。
-- `docs/requirements/theming-pluggable.md` 另有不属于本模块的未提交改动；同样不要重置、暂存或提交。
+- 开始后续工作前必须重新识别用户未提交改动；不得依据本文的历史快照假定工作区干净。
 
-前四个文件包含用户已有的会话看板、工具参数渲染和样式改动；后续操作不得重置、覆盖、丢弃、rebase、squash 或把这些改动错误地带入无关提交。涉及 `src/App.tsx` 时必须使用选择性暂存，并在提交前分别检查 `git diff` 和 `git diff --cached`。本轮新增文件和 UI Runtime 文件也必须按模块选择性暂存，不要用全量 `git add .`。
+后续操作不得重置、覆盖、丢弃、rebase、squash 或把用户改动错误地带入无关提交。涉及共享文件时必须先读取当前内容、按模块选择性暂存，并在提交前分别检查 `git diff` 和 `git diff --cached`；不要用全量 `git add .`。
 
 ## 已完成的迁移
 
 ### 1. UI Runtime 分支合并
 
-`feature/desktop-ui-runtime` 已合并到 `master`。冲突集中在 `package.json`、`deeptop-bridge/package.json`、能力标签、`SessionSidebar` 和 `SettingsPluginsPanel`。合并结果保留了主分支的完整测试清单、i18n key、Schema 设置表单和用户界面逻辑，也保留了 UI Runtime 的 `ui.plugin.*` 路由、Slot Registry、Client Module 生命周期、受控 Bundle 协议和 UI 插件状态面板。
+`feature/desktop-ui-runtime` 已合并到 `master`。冲突集中在 `package.json`、`cordis/package.json`、能力标签、`SessionSidebar` 和 `SettingsPluginsPanel`。合并结果保留了主分支的完整测试清单、i18n key、Schema 设置表单和用户界面逻辑，也保留了 UI Runtime 的 `ui.plugin.*` 路由、Slot Registry、Client Module 生命周期、受控 Bundle 协议和 UI 插件状态面板。
 
-运行时接线已补齐 `resolve_ui_plugin_bundle` 的 Tauri ACL，以及 `ui-plugin-manifest.mjs`、`ui-registry.mjs`、`ui-routes.mjs` 的 Bridge Bundle 物化。`materializes_every_local_bridge_dependency` 不仅检查 package exports，也扫描已物化模块的静态、side-effect 和动态本地 ESM import；新增或修改 Bridge 文件时必须同步检查 Rust `include_str!` 常量和 `bundled_bridge_files()` 数组。
+运行时接线已补齐 `resolve_ui_plugin_bundle` 的 Tauri ACL，以及 `cordis/ui-registry/manifest.mjs`、`index.mjs`、`routes.mjs` 的 Bridge Bundle 物化。`materializes_every_local_bridge_dependency` 不仅检查 package exports，也按导入者目录解析 `./` 与 `../` 本地 ESM import，验证嵌套文件全部被物化；新增或修改 Bridge 文件时必须同步检查 Rust `include_str!` 常量和 `bundled_bridge_files()` 数组。
 
-### 2. 会话置顶迁移到 Cordis Host Plugin
+### 2. Cordis 插件源码目录隔离
 
-`deeptop-bridge/session-pins.mjs` 提供 `SessionPinsService`，服务名为 `sessionPins`，使用 `session_pins` Storage Domain 保存工作区到有序会话 ID 的映射。服务依赖 `storageDomain` 和 `workspaceRegistry`，负责成员校验、串行 mutation、工作区清理、会话清理和服务销毁时的写入排空。
+仓库源码已从平铺的 `deeptop-bridge/` 迁入 `cordis/`。七个内置插件分别位于 `desktop-bridge/`、`message-annotations/`、`message-annotations-ui/`、`session-pins/`、`skill-installer/`、`theme-settings/` 和 `ui-registry/`，每个目录都以自己的 `index.mjs` 作为 Cordis 入口；helper 与测试和所属插件共置。Profile 级的 `cordis.patch.yml`、`desktop-profile.json`、`profile.patch.yml` 与 `presets/` 保留在 `cordis/` 根目录。
 
-旧版 `$DSH_HOME/profiles/desktop/session-pins.json` 只在新 Domain 的 `legacyImported` 标记为 false 时导入一次。旧 JSON 的解析和成员过滤位于无依赖的 `session-pins-model.mjs`，根目录测试可以直接覆盖；真正的 Cordis Service 初始化、Domain 持久化和销毁需要通过 DSH Profile 或内嵌运行时验证。
+源码目录变更不改变运行时兼容名：npm Bundle、Profile 引用和 `$DSH_HOME/profiles/node_modules/deeptop-bridge` 仍使用 `deeptop-bridge`。`cordis/package.json` 保留 bare root 和旧 `skill-install-plugin` alias，同时新增显式的 `desktop-bridge`、`skill-installer` 子路径。Tauri 升级物化先写全部嵌套模块，再切换 package manifest 和 patch，最后尽力清理旧平铺生成文件，避免写入中途失败时先破坏仍可启动的旧 Bundle。`cordis/structure.test.mjs` 防止插件入口再次退化为根目录平铺文件。
 
-`routes.mjs` 不再拥有置顶文件的读写和 mutation queue，只通过 `ctx.get('sessionPins')` 调用服务。`workspace.list`、工作区 mutation 返回值仍包含 `pinnedSessionIds`，所以 React 的搜索、拖拽、排序和现有置顶入口保持不变。服务缺失时列表可以按无置顶降级，但写入必须明确失败。
+### 3. 会话置顶迁移到 Cordis Host Plugin
+
+`cordis/session-pins/index.mjs` 提供 `SessionPinsService`，服务名为 `sessionPins`，使用 `session_pins` Storage Domain 保存工作区到有序会话 ID 的映射。服务依赖 `storageDomain` 和 `workspaceRegistry`，负责成员校验、串行 mutation、工作区清理、会话清理和服务销毁时的写入排空。
+
+旧版 `$DSH_HOME/profiles/desktop/session-pins.json` 只在新 Domain 的 `legacyImported` 标记为 false 时导入一次。旧 JSON 的解析和成员过滤位于无依赖的 `cordis/session-pins/model.mjs`，根目录测试可以直接覆盖；真正的 Cordis Service 初始化、Domain 持久化和销毁需要通过 DSH Profile 或内嵌运行时验证。
+
+`cordis/desktop-bridge/routes.mjs` 不再拥有置顶文件的读写和 mutation queue，只通过 `ctx.get('sessionPins')` 调用服务。`workspace.list`、工作区 mutation 返回值仍包含 `pinnedSessionIds`，所以 React 的搜索、拖拽、排序和现有置顶入口保持不变。服务缺失时列表可以按无置顶降级，但写入必须明确失败。
 
 这是 Deeptop 自有 Host Plugin，不是 DSH 官方插件。当前置顶 UI 仍主要是主应用内置入口；后续如迁移到 Client Plugin，应先使用现有 `session.context-menu` 和 `session.row.trailing` Slot 验证，再删除内置重复逻辑。
 
-### 3. 消息注记 UI Consumer 迁移
+### 4. 消息注记 UI Consumer 迁移
 
-`deeptop-bridge/message-annotations.mjs` 继续拥有注记的持久化、目标消息校验、Session identity 检查、compare-and-set 版本冲突和 durability barrier。新增的 `message-annotations-ui.mjs` 是 Host Plugin，向 `deeptopUiRegistry` 登记插件 `deeptop.message-annotations`，声明 `conversation.message.actions` 和 `messageAnnotations.list/put/delete`。
+`cordis/message-annotations/index.mjs` 继续拥有注记的持久化、目标消息校验、Session identity 检查、compare-and-set 版本冲突和 durability barrier。独立的 `cordis/message-annotations-ui/index.mjs` 是 Host Plugin，向 `deeptopUiRegistry` 登记插件 `deeptop.message-annotations`，声明 `conversation.message.actions` 和 `messageAnnotations.list/put/delete`。
 
-`deeptop-bridge/ui-registry.mjs` 支持 Host-owned `remoteHandlers`。handler 只保存在 Host Registry 的私有记录中，不进入 `ui.plugin.list` 响应；`ui-routes.mjs` 仍先执行 pluginId、插件状态、namespace、method 和 JSON args 校验，校验成功后才调用 Host handler。没有 handler 时才回退到通用 `typertGateway`，因此内置注记调用不必绕行通用 Gateway。
+`cordis/ui-registry/index.mjs` 支持 Host-owned `remoteHandlers`。handler 只保存在 Host Registry 的私有记录中，不进入 `ui.plugin.list` 响应；`cordis/ui-registry/routes.mjs` 仍先执行 pluginId、插件状态、namespace、method 和 JSON args 校验，校验成功后才调用 Host handler。没有 handler 时才回退到通用 `typertGateway`，因此内置注记调用不必绕行通用 Gateway。
 
 `src/lib/desktop-ui-runtime/message-annotation-store.ts` 负责 Client 侧的按 Session 缓存、订阅、读取、修改和删除。它使用 `sessionId + generation`、per-Session load token 与 mutation revision 检查迟到结果：旧会话的成功结果可以返回给调用方并显示“保存期间会话已切换”，但不会写入当前会话的 Client cache；同一代中较慢的 list 也不能覆盖较新的 put/remove。版本冲突会先把 Host 返回的当前版本写入缓存，再把带错误码的失败交给 UI。
 
@@ -96,7 +101,7 @@
 
 ### 工作区保护
 
-新会话开始必须先执行 `git status --short --branch` 和 `git diff --stat`。当前四个用户文件以及 `docs/requirements/theming-pluggable.md` 都有本模块之外的未提交改动，不要使用 `git reset --hard`、`git checkout --`、`git restore`、`git clean`、rebase、squash 或全量 stash 覆盖它们。若必须修改 `App.tsx`，先读取当前文件，再使用选择性暂存；提交前确认外部改动仍位于 unstaged 区域。
+新会话开始必须先执行 `git status --short --branch` 和 `git diff --stat`，识别本轮之外的未提交改动。不要使用 `git reset --hard`、`git checkout --`、`git restore`、`git clean`、rebase、squash 或全量 stash 覆盖它们。若必须修改已有改动的文件，先读取当前内容，再使用选择性暂存；提交前确认外部改动仍位于 unstaged 区域。
 
 不要切换到 `feature/desktop-ui-runtime`，也不要为了比较代码改动当前分支。使用 `git show feature/desktop-ui-runtime:<path>` 读取历史分支内容即可。
 
@@ -104,7 +109,7 @@
 
 根目录没有可直接解析的 `@deepseek-ai/cordis`、`@deepseek-ai/dsh-storage-domain` Node 包；这些依赖位于 Tauri 缓存的内嵌 DSH 运行时中。不要为了运行单测临时复制或修改 `node_modules`、`src-tauri/target` 或 `vendor/dsh`。
 
-可无依赖测试的内容放在纯 `.ts`/`.mjs` 模块中，例如 `session-pins-model.mjs` 和 `message-annotation-store.ts`。依赖 Cordis、Storage Domain 或 DSH Service 的代码通过 Bridge 路由替身测试，并在真实 DSH Profile 启动路径中验证。
+可无依赖测试的内容放在纯 `.ts`/`.mjs` 模块中，例如 `cordis/session-pins/model.mjs` 和 `message-annotation-store.ts`。依赖 Cordis、Storage Domain 或 DSH Service 的代码通过 Bridge 路由替身测试，并在真实 DSH Profile 启动路径中验证。
 
 ### UI Plugin 安全
 
@@ -124,7 +129,7 @@ Host function plugin 使用命名导出 `name`、`inject`、`apply`，不要添�
 
 ### Tauri Bridge Bundle 接线
 
-新增 Bridge `.mjs` 时至少同步以下位置：`deeptop-bridge/package.json` 的 exports、`src-tauri/src/main.rs` 的 `include_str!` 常量、`bundled_bridge_files()` 数组、Profile patch（如果是内置插件）和 Rust 的物化测试。数组长度必须与实际数组项一致；Bridge export 的目标文件必须被物化，否则运行时启动后才会失败。
+新增 Cordis 插件或 Bridge `.mjs` 时至少同步以下位置：独立的 `cordis/<plugin>/` 目录、`cordis/package.json` 的 exports、`src-tauri/src/main.rs` 的 `include_str!` 常量、`bundled_bridge_files()` 数组、Profile patch（如果是内置插件）和 Rust 的物化测试。数组长度必须与实际数组项一致；Bridge export 的目标文件必须被物化，否则运行时启动后才会失败。
 
 ### 文档和兼容矩阵
 
@@ -139,7 +144,7 @@ Host function plugin 使用命名导出 `name`、`inject`、`apply`，不要添�
 3. ✅ 已覆盖 Popup 取消：取消输入不调用 Host Remote，也不显示保存成功/保存中通知。Store 通过 `dispose()` 和 Client `AbortSignal` 清理 Session listener、cache 与订阅。
 4. ✅ `desktop-ui-runtime.test.mjs` 覆盖 Host down 时在慢插件 teardown 前同步撤销 Slot、bridge event、Session listener 与 Session generation；Host coordinator 还覆盖快速 down/up、初始 catalog 失败重试、初始不可用快照和 unmount 期间的过期恢复抑制。
 5. ✅ `message-annotations-host.test.mjs` 从当前 Tauri 内嵌 `0.1.1-rc.2` 归档启动隔离的 desktop Profile，覆盖真实 `ui.plugin.list`/受限 Remote、A → B → A 后才释放旧 A 响应、空 Session 不读取且不渲染、Host 进程重启后的注记重新加载，以及禁用 `message-annotations-ui` 后清单、Slot 和 Remote 同时失效。
-6. ✅ 真实启动发现并修复 `ui-routes.mjs` 未被 Tauri 物化的问题；Rust 测试现在检查所有已物化 Bridge 模块的本地 ESM 依赖。行内注记 CSS 暂不单独拆分，继续复用主应用样式。
+6. ✅ 真实启动发现并修复 UI Registry routes 未被 Tauri 物化的问题；Rust 测试现在检查所有已物化 Bridge 模块的本地 ESM 依赖。行内注记 CSS 暂不单独拆分，继续复用主应用样式。
 
 ### P1：按 Slot 扩展官方领域 UI
 
@@ -158,7 +163,7 @@ Host function plugin 使用命名导出 `name`、`inject`、`apply`，不要添�
 
 ## 验证命令
 
-在不触碰用户未提交改动的前提下，按变更范围运行：
+按变更范围运行，并确保验证命令不覆盖用户未提交改动：
 
 ```powershell
 npm run test:ui-runtime
@@ -174,14 +179,14 @@ cargo test --locked tests::every_registered_command_is_acl_listed_in_build_scrip
 cargo test --locked tests::materializes_every_local_bridge_dependency
 ```
 
-当前验证结果：完整 JavaScript 412/412、UI Runtime 与注记存储/组件专项 58/58、内嵌 desktop Host 集成专项 1/1、Bridge 专项 73/73 均通过；`npm run build`、`npm run i18n:check`、`npm run version:check`、`npm run dsh:verify`、`cargo fmt --all -- --check`、`cargo check --locked`、ACL 测试和 `materializes_every_local_bridge_dependency` 均通过。Vite 构建报告大于 500 kB 的已知 chunk 警告，Rust Windows linker 输出 linker stdout warning；两者均未影响命令成功。
+当前验证结果：完整 JavaScript 413/413、UI Runtime 与注记存储/组件专项 58/58、内嵌 desktop Host 集成专项 1/1、Bridge 与目录结构专项 74/74 均通过；`npm run build`、`npm run i18n:check`、`npm run version:check`、`npm run dsh:verify`、`cargo fmt --all -- --check`、`cargo check --locked`、ACL 测试和 `materializes_every_local_bridge_dependency` 均通过。Vite 构建报告大于 500 kB 的已知 chunk 警告，Rust Windows linker 输出 linker stdout warning；两者均未影响命令成功。
 
 ## 新会话接手流程
 
 1. 阅读根目录 `AGENTS.md`、本文和相关设计文档。
-2. 执行 `git status --short --branch`，确认四个用户文件仍未被覆盖。
-3. 阅读 `src/lib/desktop-ui-runtime/*`、`deeptop-bridge/ui-registry.mjs`、`ui-routes.mjs`、`message-annotations-ui.mjs` 和 `ConversationTranscript.tsx`。
+2. 执行 `git status --short --branch` 和 `git diff --stat`，识别并保护当前用户未提交改动。
+3. 阅读 `src/lib/desktop-ui-runtime/*`、`cordis/ui-registry/`、`cordis/message-annotations-ui/`、`cordis/desktop-bridge/routes.mjs` 和 `ConversationTranscript.tsx`。
 4. 运行 `npm run test:ui-runtime`、`npm run test:bridge` 和 `npm run build`，确认新会话环境没有额外回归。
 5. 消息注记的组件、冲突、取消、本地生命周期与真实 Host 集成验收均已完成；下一步按 P1 从 `conversation.header.actions` 的只读 Session Stats/Plan 入口中选择一个，不要直接开始多个领域的并行迁移。
-6. 最新提交和验证状态以 `git log -5 --oneline` 与上文验证命令为准；四个用户文件和 `docs/requirements/theming-pluggable.md` 必须继续保持 unstaged，不得擅自重置。
-7. 每个独立模块完成后先运行专项检查、审阅 diff，再创建一个 Conventional Commit；如果 `App.tsx` 同时包含用户改动，必须选择性暂存并在提交后再次确认工作区状态。
+6. 最新提交和验证状态以 `git log -5 --oneline` 与上文验证命令为准；不得重置或擅自暂存新会话发现的外部改动。
+7. 每个独立模块完成后先运行专项检查、审阅 diff，再创建一个 Conventional Commit；共享文件同时包含外部改动时，必须选择性暂存并在提交后再次确认工作区状态。

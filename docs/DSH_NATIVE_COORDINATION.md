@@ -14,14 +14,14 @@ DSH Host 进程
 DSH desktop Profile
 ```
 
-`deeptop-bridge` 运行在 DSH 的 Cordis 树内，所以它能直接访问 `apiProxy`、`typertGateway`、`llm`、`workspaceRegistry`、`sessionPersistence`、`sessions` 等 Host 服务。它不是独立 daemon，也不是第二个 Agent runtime。
+仓库中的 Cordis 源码按插件独立存放在 `cordis/`，并以兼容运行时 Bundle `deeptop-bridge` 运行在 DSH 的 Cordis 树内，所以它能直接访问 `apiProxy`、`typertGateway`、`llm`、`workspaceRegistry`、`sessionPersistence`、`sessions` 等 Host 服务。它不是独立 daemon，也不是第二个 Agent runtime。
 
 ## 1. 四层职责
 
 | 层 | 主要职责 | 不应承担 |
 | --- | --- | --- |
 | DSH Host/Cordis | Agent、Session、Tool、Model、Storage、Workspace、Skill、Goal、Provider、Permission、Projection、事件和持久化 | 不负责桌面窗口布局 |
-| `deeptop-bridge` | Profile 内插件、JSONL 协议、API allowlist、Remote 转发、桌面边界操作 | 不复制 Agent/Session 领域决策 |
+| `cordis/` 源码 / `deeptop-bridge` 运行时 Bundle | Profile 内插件、JSONL 协议、API allowlist、Remote 转发、桌面边界操作 | 不复制 Agent/Session 领域决策 |
 | Tauri/Rust | 启动/停止/重启 DSH、物化 Profile、stdin/stdout、请求等待、超时、诊断和系统通知 | 不复制 DSH 服务或 React 状态模型 |
 | React | 原生 UI、交互、状态展示、Projection 到界面模型的映射 | 不绕过 Bridge 直接启动 DSH 或实现权限决策 |
 
@@ -35,11 +35,11 @@ DSH desktop Profile
 
 Rust 启动器在 `src-tauri/src/main.rs` 中内嵌以下资源：
 
-- `deeptop-bridge/package.json`；
-- `deeptop-bridge/cordis.patch.yml`；
-- Bridge 的 `index.mjs`、`bridge.mjs`、`routes.mjs` 及 Skill 相关模块；
-- `desktop-profile.json`；
-- 用户 Profile patch 模板。
+- `cordis/package.json`；
+- `cordis/cordis.patch.yml`；
+- `cordis/<plugin>/` 下各插件的 `index.mjs` 与所属 helper；
+- `cordis/desktop-profile.json`；
+- `cordis/profile.patch.yml` 用户 Profile patch 模板。
 
 启动时会：
 
@@ -48,7 +48,7 @@ Rust 启动器在 `src-tauri/src/main.rs` 中内嵌以下资源：
 3. 合并 desktop Profile 的 Bundle 清单，确保 `@deepseek-ai/dsh-base` 和 `deeptop-bridge` 存在；
 4. 保留用户添加的其他 Bundle；
 5. 只在用户文件不存在时创建 `cordis.patch.yml`；
-6. 将 Bridge 内容写到 `$DSH_HOME/profiles/node_modules/deeptop-bridge`。
+6. 将 `cordis/<plugin>/` 的嵌套布局写到 `$DSH_HOME/profiles/node_modules/deeptop-bridge`；模块完成后再切换 package manifest 和 patch，并清理旧平铺生成文件。
 
 这样桌面端可以按 Profile 解析 Bridge，同时又不会覆盖用户的 desktop Profile 扩展。运行时资源来自安装包内的固定 DSH 源码构建，资源目录只读；系统 Node.js 只执行归档解压缓存中的 `@deepseek-ai/dsh/lib/bin.js`，不会使用 PATH、全局 npm、`$DSH_HOME` prefix、npm/npx 缓存或 registry。
 
@@ -144,7 +144,7 @@ Bridge 路由只暴露必要的桌面方法。例如：
 - Provider/Model：`credentials.*`、`llm.providers`、`llm.models`、`llm.discoverModels`；
 - 契约适配：`remote.invoke`、`respond`。
 
-完整 allowlist 以 `deeptop-bridge/routes.mjs` 为准。不要为了方便而把整个 `apiProxy` 对象暴露给 React。
+完整 allowlist 以 `cordis/desktop-bridge/routes.mjs` 为准。不要为了方便而把整个 `apiProxy` 对象暴露给 React。
 
 ## 5. 事件链路与 Session 隔离
 
@@ -234,7 +234,7 @@ Deeptop 的桌面运行时使用 Vite 打包的 React、Tauri event 和自己的
 
 只有未来明确需要“无改动运行 WebUI Client bundle”时，才应另行设计 WebUI compatibility mode，而不是逐步把 ModuleLoader、slot 和 client lifecycle 混入纯桌面层。
 
-如果需要让受信任的 Cordis 插件向 Deeptop 增加桌面 React 组件，应采用独立的 Deeptop Client Runtime：复用同一棵 Cordis 树的 Host、Remote、Projection 和事件，但通过受控 Client Module、Slot Registry 和插件生命周期加载桌面组件。当前第一批重构已将会话置顶持久化移入 `deeptop-bridge/session-pins.mjs`；后续拆分顺序和验收要求见 [Cordis/UI Runtime 重构计划](REFACTORING_CORDIS_UI_RUNTIME.md)。完整的 UI Runtime 协议、权限、资源加载和分阶段实施方案见 [Deeptop UI Runtime 实现设计](DEEPTOP_UI_RUNTIME.md)。
+如果需要让受信任的 Cordis 插件向 Deeptop 增加桌面 React 组件，应采用独立的 Deeptop Client Runtime：复用同一棵 Cordis 树的 Host、Remote、Projection 和事件，但通过受控 Client Module、Slot Registry 和插件生命周期加载桌面组件。当前第一批重构已将会话置顶持久化移入 `cordis/session-pins/index.mjs`；后续拆分顺序和验收要求见 [Cordis/UI Runtime 重构计划](REFACTORING_CORDIS_UI_RUNTIME.md)。完整的 UI Runtime 协议、权限、资源加载和分阶段实施方案见 [Deeptop UI Runtime 实现设计](DEEPTOP_UI_RUNTIME.md)。
 
 ## 8. 插件接入决策表
 
@@ -278,8 +278,8 @@ Bridge 会把 AbortSignal 传给 Gateway/API。新增长任务时，必须确保
 
 | 需求 | 先看/修改 |
 | --- | --- |
-| 新 DSH 服务或 Agent 行为 | `deeptop-bridge/cordis.patch.yml`、desktop Profile |
-| 新 API 路由 | `deeptop-bridge/routes.mjs`、`src/lib/desktop.ts`、`routes.test.mjs` |
+| 新 DSH 服务或 Agent 行为 | 独立的 `cordis/<plugin>/`、`cordis/cordis.patch.yml`、desktop Profile |
+| 新 API 路由 | `cordis/desktop-bridge/routes.mjs`、`src/lib/desktop.ts`、对应测试 |
 | 新 Remote 能力 | `src/lib/desktop-client-runtime.ts`、`bridge-event-handler.ts` |
 | 新 Projection/UI 状态 | `src/app/`、`src/App.tsx`、相关 component |
 | 子进程或运行时生命周期 | `src-tauri/src/main.rs` |

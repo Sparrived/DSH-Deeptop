@@ -136,7 +136,7 @@ Recommended order:
 
 1. Look for existing DSH Host/Cordis services, ApiProxy methods, Remote contracts or Projections;
 2. Mount and verify the capability in the Profile;
-3. When a desktop entry point is needed, add a minimal, explicitly validated allowlist route in `deeptop-bridge`;
+3. When a desktop entry point is needed, add a minimal, explicitly validated allowlist route in `cordis/desktop-bridge/routes.mjs`;
 4. Handle native boundaries such as directory access, file saving and system notifications in the Tauri layer;
 5. Let React map state and trigger semantic actions last, covering success, cancellation, failure and missing-capability paths.
 

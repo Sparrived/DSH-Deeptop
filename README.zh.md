@@ -91,7 +91,7 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 关键原则：
 
 1. DSH 是领域能力的权威来源，桌面端复用 Host/Cordis 服务、ApiProxy、Remote 契约、Projection、事件和数据语义。
-2. `deeptop-bridge` 是 DSH Profile Bundle 中的 Cordis 插件，不是一个独立的 HTTP 服务，也不是第二套 Agent。
+2. 仓库内置 Cordis 插件按职责独立存放在 `cordis/<plugin>/`；运行时统一物化为兼容 Bundle `deeptop-bridge`，它不是独立 HTTP 服务，也不是第二套 Agent。
 3. Tauri 只维持一个隐藏、长驻的 DSH 子进程，并通过 JSONL 请求/响应和事件流连接原生 UI。
 4. 只有桌面传输、目录选择、文件下载和原生交互等边界能力放在 Bridge/Tauri 中；领域逻辑不应在 React 或 Rust 中复制。
 5. WebUI 专属的 ModuleLoader、Client Runner、slot registry 和客户端生命周期不属于纯桌面兼容目标。
@@ -104,7 +104,7 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 
 1. 读取 `DSH_HOME`；未设置时，Windows 默认使用 `%USERPROFILE%\.dsh`，Unix-like 系统默认使用 `$HOME/.dsh`。
 2. 创建 `$DSH_HOME/profiles/desktop`，写入或补齐 desktop Profile 清单。
-3. 将内置 `deeptop-bridge` 写入 `$DSH_HOME/profiles/node_modules/deeptop-bridge`，因此无需全局安装该 Bridge。
+3. 将 `cordis/` 下的内置插件按嵌套目录写入 `$DSH_HOME/profiles/node_modules/deeptop-bridge`，因此无需全局安装该 Bundle。
 4. 保留用户已有的 desktop Profile Bundle 和 `$DSH_HOME/profiles/desktop/cordis.patch.yml` 修改。
 5. 从 Tauri 安装包的压缩 `dsh-runtime.tar.gz` 和清单读取固定版本的 DSH 源码构建产物和完整依赖树。
 6. 将归档安全解压到按源码提交、平台、架构和运行时树摘要命名的应用本地数据缓存；缓存使用 `.complete` 标记，并在启动前重新计算树摘要，只有完整校验后才会复用，更新时保留旧版本缓存以便回滚。
@@ -207,7 +207,7 @@ export function apply(ctx: Context) {
 2. 有 Host 能力时，把插件加入 Profile 并复用其服务，不在桌面端重新实现领域逻辑。
 3. 有 Remote/Projection 时，在 `src/lib/desktop.ts` 声明最小类型，通过 `desktopClientRuntime` 接入。
 4. 只有 WebUI Client UI 时，用原生 React 实现桌面入口，不直接加载 WebUI Client bundle。
-5. 新增 Bridge 路由时，必须加入 `deeptop-bridge/routes.mjs` 的显式 allowlist，并补充测试。
+5. 新增 Bridge 路由时，必须加入 `cordis/desktop-bridge/routes.mjs` 的显式 allowlist，并补充测试。
 
 不要直接编辑运行时生成的 `$DSH_HOME/profiles/node_modules/deeptop-bridge` 内容；重启时这些文件会由应用重新物化。需要持久化用户扩展时，请改 desktop Profile 的 `cordis.patch.yml`。
 
@@ -263,7 +263,7 @@ src/lib/desktop-client-runtime.ts
                            Remote loopback 和 Host 事件订阅
 src-tauri/src/main.rs      DSH 子进程、Profile 物化和 JSONL 管理
 src-tauri/                 Tauri 配置与 Rust 工程
-deeptop-bridge/            DSH Cordis Bundle、路由和 Bridge 测试
+cordis/                    按插件独立分目录的 Cordis Bundle、路由和测试
 docs/                      项目手册与 DSH 原生协调说明
 ARCHITECTURE.md            依赖方向与插件化规则
 PLUGIN_COMPATIBILITY.md    插件兼容分层与工程清单

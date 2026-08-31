@@ -108,7 +108,7 @@
 - `npm run test:bridge`。
 - `cargo fmt --all -- --check`。
 - `cargo check --locked`。
-- `cargo test --locked`（含 `every_registered_command_is_acl_listed_in_build_script` 与 `materializes_every_local_bridge_export`）。
+- `cargo test --locked`（含 `every_registered_command_is_acl_listed_in_build_script` 与 `materializes_every_local_bridge_dependency`）。
 - 同步 `docs/DSH_NATIVE_COORDINATION.md` 与 `docs/PROJECT_GUIDE.md` 相关段落。
 
 ## 4. 验收

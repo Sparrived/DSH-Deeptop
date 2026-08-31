@@ -8,7 +8,7 @@ Deeptop 是 DSH 的原生桌面工作台：
 
 - **DSH** 提供 Agent、Session、Tool、Model、Storage、Workspace、Skill、Goal、Provider、权限和事件等领域能力；
 - **Tauri/Rust** 启动并监管 DSH 子进程，负责 Profile 物化、JSONL stdin/stdout、超时、重启和桌面系统能力；
-- **deeptop-bridge** 作为 Cordis Profile Bundle 运行在 DSH 内部，把 DSH Host/API 能力转换为受控的桌面协议；
+- **cordis/** 按插件独立保存 Deeptop 的 Cordis 源码；它们以兼容运行时 Bundle **deeptop-bridge** 在 DSH 内部运行，把 DSH Host/API 能力转换为受控的桌面协议；
 - **React** 提供会话、输入、设置、运行台和 Inspector 等原生界面，并将事件映射为 UI 状态。
 
 因此，项目的核心目标是：
@@ -53,7 +53,7 @@ npm test
 npm run version:check
 ```
 
-项目提供统一的 `npm test`，但暂未配置 lint 或 format 脚本。修改前端后运行 `npm run build`；修改 `deeptop-bridge` 路由、来源校验或消息重试时运行对应的专项测试。`src-tauri/tauri.conf.json` 已启用 Tauri bundle，`npm run tauri:build` 会构建原生应用和平台包。推送 `v<SemVer>` Tag 会触发 GitHub Actions 的跨平台构建、校验和 Release 发布，详见 [CI/CD 与发布](CI_CD.md)。
+项目提供统一的 `npm test`，但暂未配置 lint 或 format 脚本。修改前端后运行 `npm run build`；修改 `cordis/` 插件、Bridge 路由、来源校验或消息重试时运行对应的专项测试。`src-tauri/tauri.conf.json` 已启用 Tauri bundle，`npm run tauri:build` 会构建原生应用和平台包。推送 `v<SemVer>` Tag 会触发 GitHub Actions 的跨平台构建、校验和 Release 发布，详见 [CI/CD 与发布](CI_CD.md)。
 
 ### 2.3 首次启动与用户流程
 
@@ -77,11 +77,11 @@ npm run version:check
 | `src/lib/desktop-client-runtime.ts` | Remote loopback 调用和 Host Remote 事件订阅 |
 | `src-tauri/src/main.rs` | DSH 进程管理、Profile 物化、JSONL 请求/响应、系统托盘和诊断转发 |
 | `src-tauri/` | Tauri 应用配置和 Rust 工程 |
-| `deeptop-bridge/index.mjs` | Cordis 插件入口和服务依赖声明 |
-| `deeptop-bridge/bridge.mjs` | `deeptop/1` JSONL 协议、请求处理和事件转发 |
-| `deeptop-bridge/routes.mjs` | 桌面 API allowlist、Host API 转发和原生边界操作 |
-| `deeptop-bridge/cordis.patch.yml` | 内置 desktop Profile 的 DSH Host/Cordis 插件组合 |
-| `deeptop-bridge/desktop-profile.json` | desktop Profile 的基础 Bundle 清单 |
+| `cordis/*/index.mjs` | 各个内置 Cordis 插件的独立入口和服务依赖声明 |
+| `cordis/desktop-bridge/bridge.mjs` | `deeptop/1` JSONL 协议、请求处理和事件转发 |
+| `cordis/desktop-bridge/routes.mjs` | 桌面 API allowlist、Host API 转发和原生边界操作 |
+| `cordis/cordis.patch.yml` | 内置 desktop Profile 的 DSH Host/Cordis 插件组合 |
+| `cordis/desktop-profile.json` | desktop Profile 的基础 Bundle 清单 |
 | `PLUGIN_COMPATIBILITY.md` | 插件兼容分层和未完成事项 |
 | `DEEPTOP_UI_RUNTIME.md` | Client Module、Slot、Bridge 能力和桌面 UI 插件的实施设计 |
 | `REFACTORING_CORDIS_UI_RUNTIME.md` | 合并 UI Runtime 后的重构基线、功能归属和实施顺序 |
@@ -138,12 +138,13 @@ $DSH_HOME/
 
 应用启动时：
 
-- 如果 desktop Profile 不存在，则使用仓库内 `desktop-profile.json` 模板；
+- 如果 desktop Profile 不存在，则使用仓库内 `cordis/desktop-profile.json` 模板；
 - 始终确保 `@deepseek-ai/dsh-base` 和 `deeptop-bridge` 位于 Bundle 列表前部；
 - 保留用户添加的其他 Bundle；
-- 只在用户文件不存在时写入 `profile.patch.yml` 和 workspace 文件；
-- 将内置 Bridge 文件写入 `profiles/node_modules/deeptop-bridge`，以便当前 DSH 包解析；
-- 每次启动都会同步内置 Bridge 文件，因此不要直接修改生成目录。
+- 只在用户文件不存在时，才由 `cordis/profile.patch.yml` 模板创建 `profiles/desktop/cordis.patch.yml`，并创建 workspace 文件；
+- 将 `cordis/<plugin>/` 的嵌套布局写入 `profiles/node_modules/deeptop-bridge`，以兼容包名供 DSH 解析；
+- 升级时先写嵌套模块，再切换 package manifest 和 patch，最后清理旧平铺生成文件；
+- 每次启动都会同步内置 Bundle，因此不要直接修改生成目录。
 
 用户要添加 Cordis 插件时，应修改：
 
@@ -161,7 +162,7 @@ $DSH_HOME/profiles/desktop/cordis.patch.yml
 
 ## 6. 当前 DSH 能力面
 
-内置 `deeptop-bridge/cordis.patch.yml` 当前组合了以下类型的服务：
+内置 `cordis/cordis.patch.yml` 当前组合了以下类型的服务：
 
 - storage、JSON storage、storage domain；
 - message feedback、message annotations、session pins；
@@ -184,7 +185,7 @@ const result = await bridgeRequest<DshSessionModels>("session.models", {
 });
 ```
 
-Bridge 在 `routes.mjs` 中生成 DSH RPC request，并只暴露显式列出的 method，例如：
+Bridge 在 `cordis/desktop-bridge/routes.mjs` 中生成 DSH RPC request，并只暴露显式列出的 method，例如：
 
 ```text
 session.list              session.history         session.prompt
@@ -194,7 +195,7 @@ settings.describe         credentials.set         llm.models
 remote.invoke             plugin.list             respond
 ```
 
-真实可用的方法以 `deeptop-bridge/routes.mjs` 和对应 DSH `ApiProxy` 为准。未在 allowlist 中的方法会被拒绝。
+真实可用的方法以 `cordis/desktop-bridge/routes.mjs` 和对应 DSH `ApiProxy` 为准。未在 allowlist 中的方法会被拒绝。
 
 事件通过两条流进入桌面端：
 
@@ -210,7 +211,7 @@ Rust 将 Bridge 帧转发为 `deeptop-bridge-event`，React 再通过 `bridge-ev
 | 问题 | 首选位置 |
 | --- | --- |
 | 需要新增 Session、Agent、Tool、Storage 或权限语义 | DSH 官方插件 / desktop Profile |
-| 需要复用官方 Host 服务但桌面端没有入口 | `deeptop-bridge/routes.mjs` + `src/lib/desktop.ts` |
+| 需要复用官方 Host 服务但桌面端没有入口 | `cordis/desktop-bridge/routes.mjs` + `src/lib/desktop.ts` |
 | 需要复用 Remote/Projection/Host event | `desktop-client-runtime.ts` + `bridge-event-handler.ts` |
 | 需要展示或编辑状态 | `src/components/` + `src/app/` |
 | 需要启动、停止、重启 DSH 或访问系统通知 | `src-tauri/src/main.rs` |
@@ -281,7 +282,7 @@ Rust 将 Bridge 帧转发为 `deeptop-bridge-event`，React 再通过 `bridge-ev
 
 Deeptop 启动的是 `vendor/dsh` 固定提交构建的 DSH 版本；运行时清单记录源码提交、包版本和目标平台。仓库源码可以证明 Bridge 的启动命令、Profile 物化、路由 allowlist、JSONL 协议和已实现的 React 入口，但不能单独证明某个 DSH 版本内部服务的全部语义。不要把 Deeptop 描述为 DSH 官方桌面客户端、官方 fork 或“已覆盖全部官方插件”。
 
-判断能力是否可用时，应以当前 Profile、`deeptop-bridge/routes.mjs`、`src/lib/desktop.ts` 和事件处理代码为依据。未出现在这些边界中的 DSH 能力不能视为已支持；可选域缺失时，面板应保持不可用。版本升级后应重新验证：
+判断能力是否可用时，应以当前 Profile、`cordis/desktop-bridge/routes.mjs`、`src/lib/desktop.ts` 和事件处理代码为依据。未出现在这些边界中的 DSH 能力不能视为已支持；可选域缺失时，面板应保持不可用。版本升级后应重新验证：
 
 - desktop Profile 的 Bundle 依赖和插件加载顺序；
 - ApiProxy 方法的参数、返回值和错误结构；

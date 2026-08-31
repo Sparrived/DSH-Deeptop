@@ -116,7 +116,7 @@
 - `src/styles.css` 增加消息操作栏和 composer 候选层；候选层不抢 textarea 焦点。
 - `src/App.tsx` 接入 workspace/session 排序、历史分页、assistant/chunk 拼装、reasoning、Jobs、Workflow、Produced Files、图片附件和 JSON 导出。
 - `src/App.tsx` 接入 `credentials.*`、`llm.discoverModels`、字段级 `settings.mutate`，Provider 支持自定义连接和模型写回。
-- `deeptop-bridge/cordis.patch.yml` 注入官方 `message-feedback`、`session-log-download`、`session-stats` Host 插件；`standard` preset 继续提供 Windows PowerShell、文件、搜索和 Job 工具，避免 Host 重复挂载。桌面端对消息反馈、导出和统计优先复用 RC8 Host/Projection；仅保留 Tauri 原生保存对话框和 Bridge 取消适配，不加载 WebUI 浏览器下载流程。
+- `cordis/cordis.patch.yml` 注入官方 `message-feedback`、`session-log-download`、`session-stats` Host 插件；`standard` preset 继续提供 Windows PowerShell、文件、搜索和 Job 工具，避免 Host 重复挂载。桌面端对消息反馈、导出和统计优先复用 RC8 Host/Projection；仅保留 Tauri 原生保存对话框和 Bridge 取消适配，不加载 WebUI 浏览器下载流程。
 - `src/lib/desktop-client-runtime.ts` 暴露 loopback `remote.invoke/on`，桌面端接入官方 commands、messageFeedback、permissions、plan、sessionStats 以及 ZIP 导出。
 - `src/styles.css` 增加侧栏拖拽宽度、Job/Workflow/Produced Files/Provider 编辑/深色主题样式。
 - 验证：`npm run build` 通过（TypeScript 与 Vite）。

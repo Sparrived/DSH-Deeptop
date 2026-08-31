@@ -4,7 +4,7 @@
 
 - Deeptop 是 Tauri + React 原生桌面客户端；DSH/Cordis 负责 Agent、Session、Tool、Model、Workspace、Skill、Goal、Provider、持久化和领域事件。
 - `src/` 负责桌面界面、编排和纯投影；`src/app/*-model.ts` 保持纯函数，不调用 React、Tauri 或 Bridge。
-- `src/lib/desktop.ts` 维护前端传输与 DSH 类型；`deeptop-bridge/` 维护 Cordis 插件、JSONL 协议、allowlist 路由和 Host/Remote 适配；`src-tauri/` 只负责进程、窗口、原生系统能力和 Bridge 监管。
+- `src/lib/desktop.ts` 维护前端传输与 DSH 类型；`cordis/` 按独立目录维护各个 Cordis 插件、JSONL 协议、allowlist 路由和 Host/Remote 适配，运行时仍物化为兼容包 `deeptop-bridge`；`src-tauri/` 只负责进程、窗口、原生系统能力和 Bridge 监管。
 - 不在 React 或 Rust 中复制 DSH 领域逻辑。新增 DSH 能力优先通过 Profile/Bridge 复用官方服务；修改 `vendor/dsh` 前先确认是明确的上游同步或兼容性任务。
 - 选定工作区会作为新会话的 `cwd`。需要验证本项目指令时，使用本仓库根目录或其子目录创建会话，并在对话上下文中确认已出现 `Instructions from: AGENTS.md`。
 

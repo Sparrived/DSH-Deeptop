@@ -43,7 +43,7 @@ Deeptop 是纯桌面端运行框架，目标是把 DSH 的运行时、Session、
 - `dsh-settings`、`dsh-credentials`、`dsh-llm`、`dsh-api-gateway`、`dsh-host-apiproxy`；
 - Storage、Session Persistence、Session Projection、Attachment 和 Plugin Inventory 相关服务。
 
-Windows 工具由现有 `standard` Agent Preset 提供。`deeptop-bridge/cordis.patch.yml` 对 Host 侧重复工具的禁用是挂载去重，不代表桌面端放弃这些官方能力。
+Windows 工具由现有 `standard` Agent Preset 提供。`cordis/cordis.patch.yml` 对 Host 侧重复工具的禁用是挂载去重，不代表桌面端放弃这些官方能力。
 
 ask_user_question、todo_write、web 搜索/抓取、workflow、plan 与 compaction 等模型可见能力同样由官方 `standard` preset 在会话内挂载；桌面端通过既有问题响应面板、Todo 面板和投影消费其结果。这些工具调用目前以通用工具卡呈现，按官方 render-intent 渲染领域卡片属于 P1 体验补齐。
 
@@ -64,9 +64,9 @@ ask_user_question、todo_write、web 搜索/抓取、workflow、plan 与 compact
 当前桌面适配边界集中在：
 
 - [desktop-client-runtime.ts](src/lib/desktop-client-runtime.ts)：提供 loopback `remote.invoke` 和官方转发事件订阅；
-- [routes.mjs](deeptop-bridge/routes.mjs)：校验并 allowlist 桌面 API，转发 Remote 和 Host 下载能力；
+- [routes.mjs](cordis/desktop-bridge/routes.mjs)：校验并 allowlist 桌面 API，转发 Remote 和 Host 下载能力；
 - [bridge-event-handler.ts](src/app/bridge-event-handler.ts)：把 Session Projection 和 Host 事件映射为 React 状态；
-- [cordis.patch.yml](deeptop-bridge/cordis.patch.yml)：配置官方 Host 插件和桌面 Profile。
+- [cordis.patch.yml](cordis/cordis.patch.yml)：配置官方 Host 插件和桌面 Profile。
 
 ### 不直接复用的内容
 
