@@ -55,15 +55,28 @@ export function createMessageAnnotationStore(context: Pick<DeeptopClientContext,
   let currentGeneration = -1;
   let disposed = false;
   const values = new Map<string, AnnotationMap>();
+  const emptyAnnotations: AnnotationMap = {};
+  const revisions = new Map<string, number>();
+  const loadTokens = new Map<string, number>();
   const listeners = new Set<() => void>();
   const notify = () => {
     for (const listener of [...listeners]) listener();
   };
   const isCurrent = (sessionId: string, generation: number) => currentSessionId === sessionId && currentGeneration === generation;
+  const nextLoadToken = (sessionId: string) => {
+    const token = (loadTokens.get(sessionId) ?? 0) + 1;
+    loadTokens.set(sessionId, token);
+    return token;
+  };
+  const bumpRevision = (sessionId: string) => {
+    const revision = (revisions.get(sessionId) ?? 0) + 1;
+    revisions.set(sessionId, revision);
+    return revision;
+  };
 
   let sessionUnsubscribe: (() => void) | null = null;
   const store: AnnotationStore = {
-    get: (sessionId) => values.get(sessionId) ?? {},
+    get: (sessionId) => values.get(sessionId) ?? emptyAnnotations,
     subscribe: (listener) => {
       if (disposed) return () => undefined;
       listeners.add(listener);
@@ -73,8 +86,10 @@ export function createMessageAnnotationStore(context: Pick<DeeptopClientContext,
       if (disposed) return;
       currentSessionId = sessionId;
       currentGeneration = generation;
+      const token = nextLoadToken(sessionId);
+      const revision = revisions.get(sessionId) ?? 0;
       const result = await remote.list({ sessionId });
-      if (disposed || !isCurrent(sessionId, generation)) return;
+      if (disposed || !isCurrent(sessionId, generation) || loadTokens.get(sessionId) !== token || (revisions.get(sessionId) ?? 0) !== revision) return;
       if (!result.ok) throw new Error(`annotation list failed: ${result.error.code}`);
       values.set(sessionId, Object.fromEntries(result.value.items.map((item) => [item.messageId, item])));
       notify();
@@ -82,38 +97,46 @@ export function createMessageAnnotationStore(context: Pick<DeeptopClientContext,
     async put(sessionId, messageId, note, generation) {
       if (disposed) throw new Error("message annotation store is disposed");
       const current = store.get(sessionId)[messageId];
+      const operationRevision = bumpRevision(sessionId);
       const result = await remote.put({ sessionId, messageId, note, ifVersion: current?.version ?? null });
       const switched = disposed || !isCurrent(sessionId, generation);
-      if (!switched && !result.ok && result.error.code === "version-conflict") {
+      const canCommit = !switched && revisions.get(sessionId) === operationRevision;
+      if (canCommit && !result.ok && result.error.code === "version-conflict") {
         const next = { ...store.get(sessionId) };
         if (result.error.current) next[messageId] = result.error.current;
         else delete next[messageId];
         values.set(sessionId, next);
+        revisions.set(sessionId, operationRevision + 1);
         notify();
       }
       const item = errorForResult(result, "save", context.locale);
-      if (!switched) {
+      if (canCommit) {
         values.set(sessionId, { ...store.get(sessionId), [messageId]: item });
+        revisions.set(sessionId, operationRevision + 1);
         notify();
       }
       return { value: item, switched };
     },
     async remove(sessionId, messageId, version, generation) {
       if (disposed) throw new Error("message annotation store is disposed");
+      const operationRevision = bumpRevision(sessionId);
       const result = await remote.delete({ sessionId, messageId, ifVersion: version });
       const switched = disposed || !isCurrent(sessionId, generation);
-      if (!switched && !result.ok && result.error.code === "version-conflict") {
+      const canCommit = !switched && revisions.get(sessionId) === operationRevision;
+      if (canCommit && !result.ok && result.error.code === "version-conflict") {
         const next = { ...store.get(sessionId) };
         if (result.error.current) next[messageId] = result.error.current;
         else delete next[messageId];
         values.set(sessionId, next);
+        revisions.set(sessionId, operationRevision + 1);
         notify();
       }
       errorForResult(result, "delete", context.locale);
-      if (!switched) {
+      if (canCommit) {
         const next = { ...store.get(sessionId) };
         delete next[messageId];
         values.set(sessionId, next);
+        revisions.set(sessionId, operationRevision + 1);
         notify();
       }
       return { value: undefined, switched };

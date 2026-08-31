@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 import type { MessageUiContext, DeeptopClientContext, SlotRenderContext } from "./types";
 import { t } from "../../app/i18n";
 import { createMessageAnnotationStore, type AnnotationStore } from "./message-annotation-store.ts";
 
 function useAnnotationSnapshot(store: AnnotationStore, sessionId: string) {
-  const [, forceRender] = useState(0);
-  useEffect(() => store.subscribe(() => forceRender((value) => value + 1)), [store]);
-  return store.get(sessionId);
+  return useSyncExternalStore(
+    store.subscribe,
+    () => store.get(sessionId),
+    () => store.get(sessionId),
+  );
 }
 
 function AnnotationAction({
@@ -25,11 +27,18 @@ function AnnotationAction({
   const edit = useCallback(async () => {
     if (!currentSession || currentSession.sessionId !== message.sessionId || busy) return;
     const operationGeneration = context.sessionGeneration;
-    const draft = await context.host.prompt({
-      title: t("dialog.annotationEdit.title", context.locale),
-      value: current?.note ?? "",
-      description: t("dialog.annotationEdit.description", context.locale),
-    });
+    let draft: string | null;
+    try {
+      draft = await context.host.prompt({
+        title: t("dialog.annotationEdit.title", context.locale),
+        value: current?.note ?? "",
+        description: t("dialog.annotationEdit.description", context.locale),
+      });
+    } catch {
+      // Host restart/disposal rejects the scoped prompt facade. The popup queue
+      // belongs to the host shell, so this stale action must simply stop.
+      return;
+    }
     if (draft === null || (!draft.trim() && !current)) return;
     context.host.notify(t("notice.annotationSaving", context.locale));
     setBusy(true);

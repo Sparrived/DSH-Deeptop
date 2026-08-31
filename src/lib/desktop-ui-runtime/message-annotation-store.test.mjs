@@ -10,9 +10,9 @@ const item = (messageId, note, version = "version-1") => ({
   updatedAt: 1,
 });
 
-function contextHarness({ put } = {}) {
+function contextHarness({ list, put } = {}) {
   const sessionHandlers = new Set();
-  let generation = 1;
+  let generation = 0;
   const lists = new Map([["session-1", [item("message-1", "old")]], ["session-2", []]]);
   let pendingPutResolve = null;
   const context = {
@@ -27,7 +27,10 @@ function contextHarness({ put } = {}) {
     },
     remote: {
       invokeIn: async (_namespace, method, args) => {
-        if (method === "list") return { ok: true, value: { items: lists.get(args.sessionId) ?? [] } };
+        if (method === "list") {
+          if (list) return list(args);
+          return { ok: true, value: { items: lists.get(args.sessionId) ?? [] } };
+        }
         if (method === "put") {
           if (put) return put(args);
           return await new Promise((resolve) => { pendingPutResolve = () => resolve({ ok: true, value: item(args.messageId, args.note, "version-2") }); });
@@ -63,6 +66,66 @@ test("loads per-session values and ignores a late write after session switch", a
   assert.equal(result.switched, true);
   assert.equal(store.get("session-1")["message-2"], undefined);
   assert.deepEqual(store.get("session-2"), {});
+});
+
+test("does not let a pending same-generation list overwrite a successful mutation", async () => {
+  let releaseList;
+  const listResponse = new Promise((resolve) => { releaseList = resolve; });
+  const harness = contextHarness({
+    list: async () => listResponse,
+    put: async (args) => ({ ok: true, value: item(args.messageId, args.note, "version-2") }),
+  });
+  const store = createMessageAnnotationStore(harness.context);
+  harness.switchSession("session-1");
+  await Promise.resolve();
+
+  await store.put("session-1", "message-1", "newer mutation", harness.context.session.generation);
+  assert.equal(store.get("session-1")["message-1"]?.note, "newer mutation");
+
+  releaseList({ ok: true, value: { items: [item("message-1", "stale list", "version-1")] } });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(store.get("session-1")["message-1"]?.note, "newer mutation");
+  assert.equal(store.get("session-1")["message-1"]?.version, "version-2");
+});
+
+test("ignores A generation-one list after A → B → A generation-three", async () => {
+  let sessionOneCalls = 0;
+  let releaseFirstA;
+  let releaseLatestA;
+  const firstA = new Promise((resolve) => { releaseFirstA = resolve; });
+  const latestA = new Promise((resolve) => { releaseLatestA = resolve; });
+  const harness = contextHarness({
+    list: async ({ sessionId }) => {
+      if (sessionId === "session-1") {
+        sessionOneCalls += 1;
+        return sessionOneCalls === 1 ? firstA : latestA;
+      }
+      return { ok: true, value: { items: [item("message-2", "session B")] } };
+    },
+  });
+  const store = createMessageAnnotationStore(harness.context);
+
+  harness.switchSession("session-1");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(harness.context.session.generation, 1);
+  harness.switchSession("session-2");
+  await new Promise((resolve) => setImmediate(resolve));
+  harness.switchSession("session-1");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(harness.context.session.generation, 3);
+  assert.equal(sessionOneCalls, 2);
+
+  releaseLatestA({ ok: true, value: { items: [item("message-1", "latest A", "version-3")] } });
+  await new Promise((resolve) => setImmediate(resolve));
+  await Promise.resolve();
+  assert.equal(store.get("session-1")["message-1"]?.note, "latest A");
+
+  releaseFirstA({ ok: true, value: { items: [item("message-1", "stale A", "version-1")] } });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(store.get("session-1")["message-1"]?.note, "latest A");
+  assert.equal(store.get("session-1")["message-1"]?.version, "version-3");
 });
 
 test("keeps the Host's current value when an edit loses a version race", async () => {

@@ -9,6 +9,16 @@ function dependenciesMatch(left, right) {
   return left?.length === right?.length && left.every((value, index) => Object.is(value, right[index]));
 }
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+  return { promise, resolve, reject };
+}
+
 function createHookRenderer() {
   const hooks = [];
   let hookIndex = 0;
@@ -36,6 +46,21 @@ function createHookRenderer() {
       }
       hooks[index] = { ...(hooks[index] ?? {}), dependencies };
     },
+    useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot = getSnapshot) {
+      const [snapshot, setSnapshot] = react.useState(() => getServerSnapshot());
+      react.useEffect(() => {
+        const check = () => {
+          const next = getSnapshot();
+          setSnapshot((current) => Object.is(current, next) ? current : next);
+        };
+        const cleanup = subscribe(check);
+        // React checks once after subscribing so a store update between render
+        // and the passive effect cannot be lost.
+        check();
+        return cleanup;
+      }, [subscribe, getSnapshot]);
+      return snapshot;
+    },
     useMemo(factory, dependencies) {
       const index = hookIndex++;
       const previous = hooks[index];
@@ -51,11 +76,11 @@ function createHookRenderer() {
 
   return {
     react,
-    render(Component, props) {
+    render(Component, props, { flushEffects = true } = {}) {
       hookIndex = 0;
       pendingEffects = [];
       const tree = Component(props);
-      this.flushEffects();
+      if (flushEffects) this.flushEffects();
       return tree;
     },
     flushEffects() {
@@ -73,9 +98,9 @@ function jsx(type, props, key) {
   return { type, key, props: props ?? {} };
 }
 
-function renderTree(renderer, node) {
+function renderTree(renderer, node, { flushEffects = true } = {}) {
   if (!node || typeof node !== "object") return node;
-  if (typeof node.type === "function") return renderTree(renderer, renderer.render(node.type, node.props));
+  if (typeof node.type === "function") return renderTree(renderer, renderer.render(node.type, node.props, { flushEffects }), { flushEffects });
   return node;
 }
 
@@ -135,13 +160,19 @@ function createHarness(module) {
   const prompts = [];
   const calls = [];
   let listItems = [item("message-1", "existing")];
+  let listGate = null;
   const session = { sessionId: "session-1", title: "Session one", running: false, blank: false };
   const runtime = new DesktopUiRuntime({
     request: async (method, payload) => {
       calls.push({ method, payload });
       if (method === "ui.plugin.list") return { items: [descriptor()] };
       if (method === "ui.plugin.invoke") {
-        if (payload.method === "list") return { value: { ok: true, value: { items: listItems } } };
+        if (payload.method === "list") {
+          const pendingList = listGate;
+          listGate = null;
+          if (pendingList) await pendingList.promise;
+          return { value: { ok: true, value: { items: listItems } } };
+        }
         if (payload.method === "put") return { value: { ok: true, value: item(payload.args.messageId, payload.args.note, "version-2") } };
         if (payload.method === "delete") return { value: { ok: true, value: { absent: true } } };
       }
@@ -170,7 +201,17 @@ function createHarness(module) {
       dispose();
     };
   };
-  return { runtime, session, updateSession, sessionHandlers, notifications, prompts, calls, setListItems: (items) => { listItems = items; } };
+  return {
+    runtime,
+    session,
+    updateSession,
+    sessionHandlers,
+    notifications,
+    prompts,
+    calls,
+    setListItems: (items) => { listItems = items; },
+    setListGate: (gate) => { listGate = gate; },
+  };
 }
 
 test("activates the message annotation client, renders action and badge, and removes both on stop", async () => {
@@ -179,7 +220,7 @@ test("activates the message annotation client, renders action and badge, and rem
   const harness = createHarness(module);
   await harness.runtime.start();
   harness.updateSession(harness.session);
-  await Promise.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
   await Promise.resolve();
 
   const context = {
@@ -214,6 +255,42 @@ test("activates the message annotation client, renders action and badge, and rem
   await harness.runtime.stop();
   assert.equal(harness.runtime.slots.snapshot("conversation.message.actions").length, 0);
   assert.equal(harness.sessionHandlers.size, 0, "plugin session listener is removed with its scope");
+});
+
+test("a mounted Badge catches a list completion between render and subscription", async () => {
+  const renderer = createHookRenderer();
+  const module = await loadClientModule(renderer.react);
+  const harness = createHarness(module);
+  const listGate = deferred();
+  harness.setListGate(listGate);
+  await harness.runtime.start();
+  harness.updateSession(harness.session);
+  await Promise.resolve();
+
+  const badgeEntry = harness.runtime.slots.snapshot("conversation.message.actions").find((entry) => entry.kind === "badge");
+  const context = {
+    session: harness.session,
+    activeSessionId: harness.session.sessionId,
+    sessionGeneration: harness.runtime.sessionGeneration,
+    locale: "en",
+    host: harness.runtime["hostActions"],
+    message: { sessionId: "session-1", messageId: "message-1", role: "assistant", seq: 1 },
+  };
+  const mountedBadge = badgeEntry.render(context);
+  assert.equal(renderTree(renderer, mountedBadge, { flushEffects: false }), null, "the pending list has no snapshot yet");
+
+  listGate.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
+  await Promise.resolve();
+  // The list notify happened before useEffect could subscribe. React's
+  // useSyncExternalStore post-subscribe check must make that update visible.
+  renderer.flushEffects();
+  const rerenderedBadge = renderTree(renderer, mountedBadge, { flushEffects: false });
+  assert.equal(rerenderedBadge?.type, "span");
+  assert.equal(rerenderedBadge?.props.children[1], "existing");
+
+  renderer.dispose();
+  await harness.runtime.stop();
 });
 
 test("cancelling the annotation prompt does not invoke the Host or show a save notification", async () => {
