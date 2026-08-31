@@ -1528,6 +1528,9 @@ function AppContent() {
 
   const activeGoal = goal && typeof goal === "object" ? goal.goal : null;
   const goalRoundsStarted = goal && typeof goal === "object" ? goal.roundsStarted : 0;
+  // 对话、轨迹和会话看板共用同一内容壳；只有对话页显示 Goal、Dock 等会话工具。
+  const conversationPageActive = !trajectoryOpen && !sessionDashboardOpen;
+  const visibleGoal = conversationPageActive ? activeGoal : null;
   useEffect(() => {
     if (activeGoal?.phase === "complete") {
       setGoalBarCollapsed(true);
@@ -1535,10 +1538,14 @@ function AppContent() {
       setGoalBarCollapsed(false);
     }
   }, [activeGoal?.id, activeGoal?.phase]);
+  useEffect(() => {
+    if (!conversationPageActive) setGoalPanelOpen(false);
+  }, [conversationPageActive]);
   const subagentEntries = subagents?.entries ?? [];
   const childSubagents = subagentEntries.filter((entry): entry is ChildSubagentEntry => entry.kind === "child");
   // 钉住的 Dock 卡片 portal 进左右两个流内分栏层，对话列由网格布局天然让位。
-  const dockExpandedById: Record<string, boolean> = {
+  // 看板/轨迹页不显示 Dock，因此也不能让已钉住的 Dock 继续占据分栏。
+  const dockExpandedById: Record<string, boolean> = conversationPageActive ? {
     "terminal-dock": terminalOpen,
     "workspace-files-dock": filesOpen,
     "git-dock": gitOpen,
@@ -1546,7 +1553,7 @@ function AppContent() {
     "todo-dock": todoVisible && !todoCollapsed,
     "subagent-dock": childSubagents.length > 0 && subagentDockOpen,
     "deliverables-dock": deliverablesVisible && !deliverablesCollapsed,
-  };
+  } : {};
   const pinLayerWidths = computePinLayerWidths({ pinned: pinnedDocks, expandedById: dockExpandedById });
   const customPinColumnWidths = dockSettings.columnWidths;
   const resolvedPinLayerWidths = resolvePinLayerWidths({ computed: pinLayerWidths, custom: customPinColumnWidths });
@@ -4626,8 +4633,8 @@ function AppContent() {
         onEditCommand={(command) => { if (desktop) document.execCommand(command); }}
       />
 
-      <DockPinLayersProvider value={pinLayerElements}>
-      <div className={`workspace-layout ${todoVisible ? "todo-visible" : ""} ${todoVisible && todoCollapsed ? "todo-collapsed" : ""} ${activeJobs.length > 0 ? "tasks-visible" : ""} ${activeJobs.length > 0 && jobsCollapsed ? "tasks-collapsed" : ""} ${deliverablesVisible ? "deliverables-visible" : ""} ${deliverablesVisible && deliverablesCollapsed ? "deliverables-collapsed" : ""}`} style={{ "--sidebar-width": `${sidebarWidth}px`, "--pin-left-width": `${effectivePinLayerWidths.left}px`, "--pin-right-width": `${effectivePinLayerWidths.right}px` } as CSSProperties}>
+      <DockPinLayersProvider value={conversationPageActive ? pinLayerElements : { left: null, right: null }}>
+      <div className={`workspace-layout ${conversationPageActive && todoVisible ? "todo-visible" : ""} ${conversationPageActive && todoVisible && todoCollapsed ? "todo-collapsed" : ""} ${conversationPageActive && activeJobs.length > 0 ? "tasks-visible" : ""} ${conversationPageActive && activeJobs.length > 0 && jobsCollapsed ? "tasks-collapsed" : ""} ${conversationPageActive && deliverablesVisible ? "deliverables-visible" : ""} ${conversationPageActive && deliverablesVisible && deliverablesCollapsed ? "deliverables-collapsed" : ""}`} style={{ "--sidebar-width": `${sidebarWidth}px`, "--pin-left-width": `${effectivePinLayerWidths.left}px`, "--pin-right-width": `${effectivePinLayerWidths.right}px` } as CSSProperties}>
         <SessionSidebar
           locale={locale}
           search={search}
@@ -4706,7 +4713,7 @@ function AppContent() {
           )}
         </div>
 
-        <section className="conversation-panel">
+        <section className={`conversation-panel${conversationPageActive ? "" : " page-non-conversation"}`}>
           <ConversationHeader
             locale={locale}
             activeSession={activeSession}
@@ -4714,17 +4721,17 @@ function AppContent() {
             runtimeDirectory={status.runtimeDirectory}
             notice={notice}
             noticeIsError={noticeIsError}
-            queueCount={queue.length}
+            queueCount={conversationPageActive ? queue.length : 0}
             trajectoryOpen={trajectoryOpen}
             sessionDashboardOpen={sessionDashboardOpen}
             onToggleTrajectory={() => { setSessionDashboardOpen(false); setTrajectoryOpen((open) => !open); }}
             onToggleSessionDashboard={() => { setTrajectoryOpen(false); setSessionDashboardOpen((open) => !open); }}
           />
 
-          <div className={`conversation-transcript-stage${activeGoal ? " has-current-goal" : ""}${goalBarCollapsed ? " current-goal-collapsed" : ""}`}>
+          <div className={`conversation-transcript-stage${conversationPageActive ? "" : " page-non-conversation"}${conversationPageActive && activeGoal ? " has-current-goal" : ""}${conversationPageActive && goalBarCollapsed ? " current-goal-collapsed" : ""}`}>
             <CurrentGoalBar
               locale={locale}
-              activeGoal={activeGoal}
+              activeGoal={visibleGoal}
               roundsStarted={goalRoundsStarted}
               collapsed={goalBarCollapsed}
               onOpen={openGoalPanel}
@@ -5262,7 +5269,7 @@ function AppContent() {
             </aside>
           </div>
         )}
-      {goalPanelOpen && activeSessionId && <PopupDialog
+      {conversationPageActive && goalPanelOpen && activeSessionId && <PopupDialog
           locale={locale}
           title={activeGoal ? t("dialog.goal.manage", locale) : t("dialog.goal.create", locale)}
           eyebrow="DSH / GOAL"
@@ -5273,7 +5280,7 @@ function AppContent() {
         >
           <GoalSurfacePanel
             locale={locale}
-            activeGoal={activeGoal}
+            activeGoal={visibleGoal}
             roundsStarted={goalRoundsStarted}
             draft={goalDraft}
             maxRoundsDraft={goalMaxRoundsDraft}
