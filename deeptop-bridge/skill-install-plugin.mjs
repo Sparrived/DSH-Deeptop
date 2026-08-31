@@ -12,7 +12,7 @@ export function apply(ctx) {
       source: {
         type: 'string',
         required: true,
-        description: 'HTTPS GitHub repository or tree URL. A repository root is accepted when it contains one matching skill directory.',
+        description: 'HTTPS GitHub repository or tree URL. A repository root is accepted when it contains one matching skill directory; mirrored skills/<repo> and .openclaw/skills/<repo> roots prefer skills/<repo>.',
       },
       path: {
         type: 'string',

@@ -9,7 +9,7 @@ import { routeDesktopRequest } from './routes.mjs'
 import { bridgeErrorFrame } from './bridge.mjs'
 import { applyProxy, initNetworkProxy, loadProxySetting, normalizeProxyOverride, parseWindowsProxyServer, setProxySetting, stopSystemProxyWatch } from './network-proxy.mjs'
 import { describePluginConfig, mutatePluginConfig } from './plugin-config.mjs'
-import { parseGitHubSource, validateRelativeRepoPath } from './skill-installer.mjs'
+import { parseGitHubSource, selectSkillPath, validateRelativeRepoPath } from './skill-installer.mjs'
 import { reconstructContiguous, rowSeqs, scanZstdFrames, verifyReadable } from './session-repair.mjs'
 
 const signal = new AbortController().signal
@@ -817,6 +817,20 @@ test('parses Codex-compatible GitHub repository and tree sources', () => {
     path: undefined,
   })
   assert.throws(() => validateRelativeRepoPath('../outside'), /仓库内的相对路径/)
+})
+
+test('selects the canonical skills directory when a repository ships mirrored skill trees', () => {
+  const candidates = [
+    '.openclaw/skills/ponytail-audit',
+    '.openclaw/skills/ponytail',
+    'skills/ponytail',
+    'skills/ponytail-audit',
+  ]
+  assert.equal(selectSkillPath(candidates, 'ponytail'), 'skills/ponytail')
+  assert.equal(selectSkillPath([...candidates].reverse(), 'ponytail'), 'skills/ponytail')
+  assert.equal(selectSkillPath(['.openclaw/skills/ponytail'], 'ponytail'), '.openclaw/skills/ponytail')
+  assert.equal(selectSkillPath(['.openclaw/skills/only-skill'], 'other-repo'), '.openclaw/skills/only-skill')
+  assert.equal(selectSkillPath(['skills/one', 'skills/two'], 'other-repo'), undefined)
 })
 
 test('streams the official session ZIP endpoint into a temp file for the native save surface', async () => {

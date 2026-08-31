@@ -63,6 +63,19 @@ export function validateSkillName(value) {
   return name
 }
 
+export function selectSkillPath(candidates, repo) {
+  const preferred = candidates.filter(path => path.split('/').at(-1)?.toLowerCase() === repo.toLowerCase())
+  // Prefer the source skill tree over generated adapter copies.
+  const canonicalRoots = [`skills/${repo}`, `.openclaw/skills/${repo}`].map(path => path.toLowerCase())
+  for (const root of canonicalRoots) {
+    const matches = preferred.filter(path => path.toLowerCase() === root)
+    if (matches.length === 1) return matches[0]
+    if (matches.length > 1) return undefined
+  }
+  if (preferred.length === 1) return preferred[0]
+  return preferred.length === 0 && candidates.length === 1 ? candidates[0] : undefined
+}
+
 export function parseGitHubSource(input) {
   if (!input || typeof input.source !== 'string' || input.source.trim() === '') {
     throw new SkillInstallError('skill.install 需要 source')
@@ -132,8 +145,7 @@ async function discoverSkillPath(source, signal) {
       .map(entry => entry.path.replace(/\/SKILL\.md$/i, ''))
       .filter(Boolean)
     : []
-  const preferred = candidates.filter(path => path.split('/').at(-1)?.toLowerCase() === source.repo.toLowerCase())
-  const selected = preferred.length === 1 ? preferred[0] : candidates.length === 1 ? candidates[0] : undefined
+  const selected = selectSkillPath(candidates, source.repo)
   if (selected) return selected
   if (candidates.length === 0) throw new SkillInstallError(`仓库中没有找到 SKILL.md：${source.owner}/${source.repo}`)
   const shown = candidates.slice(0, 12).join(', ')
