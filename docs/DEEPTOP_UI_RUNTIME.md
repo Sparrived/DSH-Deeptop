@@ -478,7 +478,7 @@ remote-failed
 incompatible
 ```
 
-`deactivate` 必须是幂等的。任何插件注册的 Slot、事件监听、定时器和资源都应通过 `PluginScope` 自动清理；插件作者不应依赖 React unmount 才释放 Host 订阅。
+`deactivate` 必须是幂等的。任何插件注册的 Slot、事件监听、定时器和资源都应通过 `PluginScope` 自动清理；插件作者不应依赖 React unmount 才释放 Host 订阅。Runtime 会先同步撤销 `PluginScope` 与生命周期 `AbortSignal`，再以默认 5 秒 deadline 等待 module load、`activate` 或 `deactivate` 收尾；超时只隔离该插件，不阻塞主应用或其它插件。若 module load 在 timeout/Host down 后才返回，或 `activate` 在首轮 cleanup 后才完成，Runtime 会对该迟到 module 再发起一次独立、有界的 `deactivate`，因此插件的 cleanup 必须能安全处理尚未完成或已完成的 activate。
 
 ### 7.2 Client Context
 
@@ -497,7 +497,7 @@ export interface DeeptopClientContext {
   };
   locale: "zh" | "en";
   host: {
-    prompt(request: { title: string; value?: string; description?: string }): Promise<string | null>;
+    prompt(request: { title: string; value?: string; description?: string }, signal?: AbortSignal): Promise<string | null>;
     notify(message: string, kind?: "info" | "error"): void;
   };
   remote: ScopedRemoteClient;
@@ -509,6 +509,8 @@ export interface DeeptopClientContext {
   signal: AbortSignal;
 }
 ```
+
+`remote`、`storage` 与 `host.prompt()` 都绑定当前插件的生命周期 `AbortSignal`。即使底层 transport 或已打开的宿主 Popup 无法物理取消，Runtime 也会在停用时立即本地拒绝调用并丢弃迟到结果；若取消先于排队的 Popup 执行，宿主输入框不会被打开。Component contribution 的 `SlotRenderContext.host` 由 Runtime 通过 React element wrapper 注入同一 scoped facade，不能绕过该取消边界。插件 event 与 Session handler 的同步异常和异步 rejection 会独立记录，不能阻塞同一帧中的健康 sibling。
 
 Context 不应包含：
 
@@ -1063,16 +1065,16 @@ uiRuntimeStatus: "disabled" | "loading" | "ready" | "partial" | "failed"
 
 当前 DSH 重启时：
 
-1. 停止所有 Client Plugin event subscription；
-2. 调用每个插件的 `deactivate("host-restarted")`；
-3. 清空 Slot Registry 中的运行时 contribution；
-4. 作废旧 Remote client generation；
-5. 等待新的 `ready`；
-6. 重新读取 `ui.plugin.list`；
-7. 重新加载并激活；
-8. 重新恢复必要的 host projection。
+1. 收到 `runtimeAvailable=false` 后同步停止 bridge listener、所有 Client Plugin event subscription、Slot contribution 和 Session listener；
+2. 同步作废旧 Remote client/session generation，再以 bounded deadline 调用每个插件的 `deactivate("host-restarted")`；
+3. 保留 React/App 提供的最新 Session projection，但不保留任何插件私有缓存；
+4. `runtimeAvailable=true` 后，Host lifecycle coordinator 以 availability epoch 丢弃在 down/up 期间完成的旧 start/recovery；
+5. 等待旧 teardown，再重新读取 `ui.plugin.list`；
+6. 重新加载并激活，新的 `session.onChange()` 订阅立即收到当前 Session。
 
-旧 generation 的 Remote response 即使晚到，也不能写入新 Runtime。
+React 接线先注册 native runtime-status listener，再读取一次权威 `checkDsh()` 快照；若查询期间已收到更新事件，则以 status revision 丢弃旧快照。Listener 注册失败时仍执行初始 discovery，并以 250ms 起步、5 秒封顶的可取消指数退避重试；成功或 effect cleanup 后不再保留 retry timer。共享 Runtime 的 master switch 由 layout effect 先同步到 `setEnabled()`：禁用会立即撤销 listener、请求、Slot 和插件 context，重新启用后由新的 lifecycle effect 从 Host 清单完整发现，不能留下首帧被动启用窗口。
+
+旧 generation 的 Remote、Storage、声明式 invoke 和 Host prompt response 即使晚到，也不能写入新 Runtime。Session projection 由 App 所有，Host 重启时保留它可避免 Session 对象本身未变化而 React effect 不重跑，导致新插件停在空 Session；插件自己的 Session cache 仍随 `deactivate("host-restarted")` 销毁并从新 Host 重新读取。
 
 ### 11.3 插件启用/禁用
 
@@ -1512,7 +1514,13 @@ Phase 3 之前，不应把主 WebView Client Realm 视为不受信任插件沙�
 - old generation response 被丢弃；
 - DSH restart 后重新 discover/activate。
 
-### 16.3 React Slot 测试
+当前 `desktop-ui-runtime.test.mjs` 已直接覆盖 module load/activate/deactivate deadline、迟到 load/activate 的独立 cleanup、同步与异步 activate rejection 的单次常规 cleanup、Host down 时同步能力撤销、慢 teardown 的 down → up → down、旧 bridge listener token、共享 Runtime 的 stale lifecycle owner、disabled → enabled 重启、声明式 invoke/Remote/Storage/Host prompt 的迟到结果拒绝，以及 event/Session async handler 的 sibling 隔离。`message-annotation-store.test.mjs` 和 `message-annotations-client.test.mjs` 继续覆盖 Session generation、mutation revision、版本冲突、Popup 取消和 React 订阅时序。
+
+### 16.3 真实 Host 组合测试
+
+`npm run test:ui-runtime:host` 从 Tauri 同一份 `dsh-runtime.tar.gz` 启动隔离的 `dsh --profile desktop`，按 `bundled_bridge_files()` 物化当前 Bridge，并通过真实 JSONL 协议和 Storage Domain 验证内置消息注记插件。该测试覆盖插件发现和受限 Remote、两个 Session 快速切换时迟到结果隔离、空 Session 不读取/不渲染、Host 进程重启后持久注记重新加载，以及禁用 Host UI Plugin 后清单、Slot 和 Remote 同时失效；生成的运行时缓存位于已忽略的 `work/`，Profile、Session 和 Storage 数据位于系统临时目录并在结束时删除。
+
+### 16.4 React Slot 测试
 
 需要覆盖：
 
@@ -1524,7 +1532,7 @@ Phase 3 之前，不应把主 WebView Client Realm 视为不受信任插件沙�
 - Inspector/Settings 插件失败时主页面仍可操作；
 - 键盘焦点、aria label 和主题变量。
 
-### 16.4 安全测试
+### 16.5 安全测试
 
 需要覆盖：
 
@@ -1539,7 +1547,7 @@ Phase 3 之前，不应把主 WebView Client Realm 视为不受信任插件沙�
 - 插件卸载后旧事件回调仍被调用；
 - CSP 拒绝未授权模块。
 
-### 16.5 手工验收矩阵
+### 16.6 手工验收矩阵
 
 | 场景 | 预期 |
 | --- | --- |
@@ -1766,26 +1774,26 @@ export function apply(ctx) {
 
 ### 架构
 
-- [ ] Host Plugin、Bridge、Client Runtime 和 React Slot 的职责分层明确；
-- [ ] UI Runtime 与当前 DSH Host 共用同一子进程和 Cordis 树；
-- [ ] 没有在 React/Rust 中复制 Session、Agent、权限或持久化决策；
-- [ ] 没有直接加载未审计的 WebUI Client bundle。
+- [x] Host Plugin、Bridge、Client Runtime 和 React Slot 的职责分层明确；
+- [x] UI Runtime 与当前 DSH Host 共用同一子进程和 Cordis 树；
+- [x] 没有在 React/Rust 中复制 Session、Agent、权限或持久化决策；
+- [x] 没有直接加载未审计的 WebUI Client bundle。
 
 ### 协议
 
-- [ ] UI Plugin manifest 有版本、来源、Slot 和能力声明；
-- [ ] `ui.plugin.list`、module metadata 和 scoped invoke 有显式契约；
-- [ ] Bridge 对 pluginId、namespace、method、args 和状态做校验；
-- [ ] 事件、Remote、取消和错误可测试；
-- [ ] DSH 重启时旧 generation 不会写入新状态。
+- [x] UI Plugin manifest 有版本、来源、Slot 和能力声明；
+- [x] `ui.plugin.list`、module metadata 和 scoped invoke 有显式契约；
+- [x] Bridge 对 pluginId、namespace、method、args 和状态做校验；
+- [x] 事件、Remote、取消和错误可测试；
+- [x] DSH 重启时旧 generation 不会写入新状态。
 
 ### UI
 
-- [ ] 至少两个 Slot 可用；
-- [ ] Slot contribution 可排序、注销和错误隔离；
-- [ ] Session context 和 Session switching 正确；
+- [x] 至少两个 Slot 可用；
+- [x] Slot contribution 可排序、注销和错误隔离；
+- [x] Session context 和 Session switching 正确；
 - [ ] 插件组件不会覆盖主应用全局布局；
-- [ ] 无插件时当前 UI 完全可用。
+- [x] 无插件时当前 UI 完全可用。
 
 ### 安全
 
@@ -1797,23 +1805,22 @@ export function apply(ctx) {
 
 ### 工程
 
-- [ ] 有 Bridge、Client Runtime、Slot 和安全测试；
-- [ ] 有一个完整示例插件，例如 Session Pins；
+- [x] 有 Bridge、Client Runtime、Slot 和安全测试；
+- [x] 有一个完整 Host/Client 示例插件（Message Annotations）；
 - [ ] DSH、Tauri 和 SDK 版本兼容范围已记录；
 - [ ] `PROJECT_GUIDE.md`、`DSH_NATIVE_COORDINATION.md`、`DEEPTOP_UI_RUNTIME.md`、`PLUGIN_COMPATIBILITY.md` 和 `WEBUI_PARITY.md` 已同步；
-- [ ] `npm run build`、`npm run test:bridge` 和新增测试通过。
+- [x] `npm run build`、`npm run test:bridge` 和新增测试通过。
 
 ---
 
 ## 20. 建议的实际起步顺序
 
-当前实现已经完成 Slot Registry、`SessionSidebar` context menu、`conversation.message.actions`、`deeptop-ui-registry`、受限 `ui.plugin.invoke`、Session switching/DSH restart 测试，以及受控资源协议。后续按以下顺序扩展：
+当前实现已经完成 Slot Registry、`SessionSidebar` context menu、`conversation.message.actions`、`deeptop-ui-registry`、受限 `ui.plugin.invoke`、消息注记组件/冲突测试、真实 desktop Host 的 Session switching/DSH restart 验收，以及受控资源协议。后续按以下顺序扩展：
 
-1. 补齐 `conversation.message.actions` 的完整 UI 测试和版本冲突可见状态；
-2. 接入 `conversation.header.actions`，先迁移 Session Stats 和 Plan 的只读入口；
-3. 接入 `settings.sections`，迁移 Provider、Agent Preset 和 Skill 的独立设置入口；
-4. 接入 `composer.actions`，迁移 Commands、Skill 和引用候选的辅助入口；
-5. 接入 `inspector.tabs`，迁移 Goal、Subagent 和 Runtime diagnostics 的可选面板；
-6. 外部第三方 Bundle 继续使用受控资源协议；不信任插件仍需 iframe/独立 WebView 隔离，不扩大主 WebView 权限。
+1. 接入 `conversation.header.actions`，先迁移 Session Stats 和 Plan 的只读入口；
+2. 接入 `settings.sections`，迁移 Provider、Agent Preset 和 Skill 的独立设置入口；
+3. 接入 `composer.actions`，迁移 Commands、Skill 和引用候选的辅助入口；
+4. 接入 `inspector.tabs`，迁移 Goal、Subagent 和 Runtime diagnostics 的可选面板；
+5. 外部第三方 Bundle 继续使用受控资源协议；不信任插件仍需 iframe/独立 WebView 隔离，不扩大主 WebView 权限。
 
 这条路线可以最大限度复用当前 Deeptop 的 Cordis、Bridge、Remote、Projection 和 React 架构，同时避免把 WebUI 的浏览器运行时假设直接带入桌面端。
