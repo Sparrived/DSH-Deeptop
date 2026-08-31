@@ -34,7 +34,8 @@
     "version:set": "node scripts/version.mjs set",
     "build:dev": "node scripts/build-dev.mjs",
     "release:notes": "node scripts/generate-release-notes.mjs",
-    "test:ui-runtime": "node --test src/lib/desktop-ui-runtime/desktop-ui-runtime.test.mjs src/lib/desktop-ui-runtime/message-annotation-store.test.mjs src/lib/desktop-ui-runtime/message-annotations-client.test.mjs src/app/ui-plugin-model.test.mjs"
+    "test:ui-runtime": "node --test src/lib/desktop-ui-runtime/desktop-ui-runtime.test.mjs src/lib/desktop-ui-runtime/message-annotation-store.test.mjs src/lib/desktop-ui-runtime/message-annotations-client.test.mjs src/app/ui-plugin-model.test.mjs",
+    "test:ui-runtime:host": "node --test src/lib/desktop-ui-runtime/message-annotations-host.test.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

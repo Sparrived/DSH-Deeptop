@@ -100,6 +100,8 @@ After launch, wait for the embedded DSH runtime to become ready, pick or create 
 | Frontend type-check & build | `npm run build` |
 | Generate embedded DSH runtime | `npm run dsh:sync` |
 | Verify embedded DSH runtime | `npm run dsh:verify` |
+| UI Runtime unit tests | `npm run test:ui-runtime` |
+| Embedded desktop Host UI Runtime acceptance | `npm run test:ui-runtime:host` |
 | Bridge route tests | `npm run test:bridge` |
 | Full JavaScript test suite | `npm test` |
 | Native app & installers | `npm run tauri:build` |

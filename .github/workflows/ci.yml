@@ -53,6 +53,9 @@ jobs:
       - name: Build and verify embedded DSH runtime
         run: npm run dsh:sync && npm run dsh:verify
 
+      - name: Run desktop Host UI Runtime acceptance
+        run: npm run test:ui-runtime:host
+
       - name: Upload frontend build artifact
         uses: actions/upload-artifact@v4
         with:
