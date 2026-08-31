@@ -133,11 +133,11 @@ function LongTextField({ value, locale }: { value: string; locale: UiLocale }) {
   </div>;
 }
 
-function CommandField({ value, locale }: { value: string; locale: UiLocale }) {
+function CommandField({ value, locale, keyName }: { value: string; locale: UiLocale; keyName?: string }) {
   const [expanded, setExpanded] = useState(false);
   const preview = !expanded && value.length > COMMAND_PREVIEW;
   return <div className="tool-command">
-    <div className="tool-command-meta"><span className="tool-command-prompt" aria-hidden="true">$</span><span className="tool-command-shell">{t("conversation.tool.commandShell", locale)} · {detectShell(value)}</span></div>
+    <div className="tool-command-meta">{keyName && <span className="tool-command-key">{keyName}</span>}<span className="tool-command-prompt" aria-hidden="true">$</span><span className="tool-command-shell">{t("conversation.tool.commandShell", locale)} · {detectShell(value)}</span></div>
     <pre className="tool-command-body"><CommandTokens command={value} preview={preview} /></pre>
     {value.length > COMMAND_PREVIEW && <button type="button" className="tool-fold-toggle" onClick={() => setExpanded((current) => !current)}>{expanded ? t("conversation.tool.collapse", locale) : t("conversation.tool.expandAll", locale)}</button>}
   </div>;
@@ -203,6 +203,10 @@ function FieldRow({ toolName, keyName, kind, value, locale, onOpenPath, onOpenUr
   primary: boolean;
 }) {
   const todos = (toolName?.toLowerCase() === "todo_write" || toolName?.toLowerCase() === "write_todo") && keyName === "todos" ? toolTodoItems(value) : undefined;
+  const normalizedToolName = toolName?.trim().toLowerCase();
+  const isPowerShellCommand = (normalizedToolName === "pwsh" || normalizedToolName === "powershell") && kind === "command" && typeof value === "string";
+  if (isPowerShellCommand) return <CommandField value={value} locale={locale} keyName={keyName} />;
+
   const prominent = primary || (layout === "terminal" && kind === "command") || (layout === "web" && kind === "url") || (layout === "delegation" && kind === "longtext");
   return <div className={`tool-field tool-field-${todos ? "todos" : kind}${prominent ? " is-prominent" : ""}`}>
     <span className="tool-field-key">{keyName}</span>

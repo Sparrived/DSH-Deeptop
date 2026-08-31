@@ -1732,28 +1732,47 @@ body.pin-layer-resizing * {
 }
 .tool-fold-toggle:hover { color: var(--accent-deep); }
 
-/* 命令块：$ 提示符 + shell 标签 + 命令体。 */
+/* 命令块：字段名、$ 提示符、shell 标签与命令体共用一层容器。 */
 .tool-command {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 6px 8px;
+  min-width: 0;
+  padding: 7px 9px 8px;
   border: 1px solid var(--line);
   border-left: 2px solid var(--accent);
   border-radius: 6px;
   background: var(--code-surface);
 }
+.tool-command-meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+.tool-command-key {
+  flex: 0 0 auto;
+  color: var(--ink-faint);
+  font: 600 10px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
 .tool-command-prompt {
   display: inline-block;
+  flex: 0 0 auto;
   width: 14px;
   color: var(--accent);
   font: 600 11px/1 var(--mono);
 }
 .tool-command-shell {
+  min-width: 0;
+  overflow: hidden;
   color: var(--ink-faint);
   font: 600 9px/1 var(--mono);
   letter-spacing: 0.04em;
+  text-overflow: ellipsis;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 .tool-command-body {
   max-height: 240px;
