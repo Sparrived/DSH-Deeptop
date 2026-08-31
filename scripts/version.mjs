@@ -56,7 +56,7 @@ function readManifestVersions() {
     "package.json": readJson("package.json").version,
     "package-lock.json": packageLock.version,
     "package-lock.json#packages.": packageLock.packages?.[""]?.version,
-    "deeptop-bridge/package.json": readJson("deeptop-bridge/package.json").version,
+    "cordis/package.json": readJson("cordis/package.json").version,
     "src-tauri/tauri.conf.json": readJson("src-tauri/tauri.conf.json").version,
     "src-tauri/Cargo.toml": cargoToml,
     "src-tauri/Cargo.lock": cargoLock,
@@ -88,7 +88,7 @@ function setVersion(input) {
       json.packages[""].version = version;
     }
   });
-  updateJson("deeptop-bridge/package.json", (json) => {
+  updateJson("cordis/package.json", (json) => {
     json.version = version;
   });
   updateJson("src-tauri/tauri.conf.json", (json) => {

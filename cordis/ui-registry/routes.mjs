@@ -1,6 +1,6 @@
 // Restricted desktop routes for the UI plugin runtime. Every handler validates
 // against the host ui registry before touching any official service, and all
-// denials carry stable error codes (see ./ui-plugin-manifest.mjs) so the
+// denials carry stable error codes (see ./manifest.mjs) so the
 // WebView can branch on them instead of parsing messages.
 //
 // Handlers receive the cordis ctx and a duck-typed registry service, so route
@@ -11,7 +11,7 @@ import {
   validateScopedInvoke,
   validateScopedStorageKey,
   UI_PLUGIN_ERROR_CODES,
-} from './ui-plugin-manifest.mjs'
+} from './manifest.mjs'
 
 function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value)

@@ -2,8 +2,8 @@
 // No React, Tauri, or bridge imports: everything here is serializable protocol
 // data and deterministic helpers shared by the client runtime and its tests.
 //
-// Slot names are duplicated in deeptop-bridge/ui-plugin-manifest.mjs (host
-// side); keep the two lists identical when extending them.
+// Slot names are duplicated in cordis/ui-registry/manifest.mjs (host side);
+// keep the two lists identical when extending them.
 
 export const UI_RUNTIME_SLOTS = [
   "session.sidebar.header",

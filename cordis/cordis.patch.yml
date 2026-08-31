@@ -86,10 +86,10 @@
       name: 'deeptop-bridge/message-annotations-ui'
 
     - id: desktop-bridge
-      name: 'deeptop-bridge'
+      name: 'deeptop-bridge/desktop-bridge'
 
     - id: skill-installer
-      name: 'deeptop-bridge/skill-install-plugin'
+      name: 'deeptop-bridge/skill-installer'
 
 # The desktop surface uses the same per-session agent-preset arrangement as
 # the web surface. Host services remain shared; each session gets its own

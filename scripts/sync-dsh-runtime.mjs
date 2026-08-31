@@ -33,7 +33,7 @@ const OPTIONAL_RUNTIME_PACKAGES = [
   name,
   sourcePath: path.join(sourceRoot, relativePath),
 }));
-const DESKTOP_PRESET_SOURCE_ROOT = path.join(root, "deeptop-bridge", "presets");
+const DESKTOP_PRESET_SOURCE_ROOT = path.join(root, "cordis", "presets");
 const DESKTOP_PRESETS = ["desktop-persistent-pwsh", "desktop-agent-teams"];
 const DESKTOP_RUNTIME_PACKAGES = [
   { name: "undici", sourcePath: path.join(root, "node_modules", "undici") },

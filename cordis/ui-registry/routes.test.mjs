@@ -10,7 +10,7 @@ import {
   STORAGE_LIMITS,
   UI_PLUGIN_ERROR_CODES,
   UI_PLUGIN_SLOTS,
-} from './ui-plugin-manifest.mjs'
+} from './manifest.mjs'
 import {
   deleteUiPluginStorage,
   getUiPluginBundle,
@@ -19,8 +19,8 @@ import {
   invokeUiPluginRemote,
   listUiPlugins,
   setUiPluginStorage,
-} from './ui-routes.mjs'
-import { routeDesktopRequest } from './routes.mjs'
+} from './routes.mjs'
+import { routeDesktopRequest } from '../desktop-bridge/routes.mjs'
 
 const sessionPinsManifest = {
   schemaVersion: 1,

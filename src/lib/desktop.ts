@@ -1036,7 +1036,7 @@ export interface BridgeRequestOptions {
 /**
  * 把 Tauri invoke 的拒绝原因还原为带错误码的错误。
  * 本端桥协议的错误帧为 `{ code, message, details? }` 的 JSON 字符串
- * （见 deeptop-bridge/bridge.mjs 与 src-tauri 的桥转发），旧格式仍按纯文本处理。
+ * （见 cordis/desktop-bridge/bridge.mjs 与 src-tauri 的桥转发），旧格式仍按纯文本处理。
  */
 function decodeBridgeError(reason: unknown): Error {
   if (reason instanceof Error) return reason;

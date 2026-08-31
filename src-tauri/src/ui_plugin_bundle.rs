@@ -39,7 +39,7 @@ pub fn bundle_url(plugin_id: &str) -> String {
     }
 }
 
-/// 与 deeptop-bridge/ui-plugin-manifest.mjs 相同的 pluginId 约束：
+/// 与 cordis/ui-registry/manifest.mjs 相同的 pluginId 约束：
 /// 小写字母数字与点/连字符，形如 "vendor.plugin-name"，且不允许 "." / ".." 段。
 fn valid_plugin_id(plugin_id: &str) -> bool {
     if plugin_id.is_empty() || plugin_id.len() > 128 {

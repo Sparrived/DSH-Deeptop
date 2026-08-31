@@ -1,0 +1,28 @@
+{
+  "name": "deeptop-bridge",
+  "version": "0.2.0-dev.4",
+  "private": true,
+  "type": "module",
+  "main": "./desktop-bridge/index.mjs",
+  "exports": {
+    ".": "./desktop-bridge/index.mjs",
+    "./desktop-bridge": "./desktop-bridge/index.mjs",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./message-annotations": "./message-annotations/index.mjs",
+    "./message-annotations-ui": "./message-annotations-ui/index.mjs",
+    "./session-pins": "./session-pins/index.mjs",
+    "./skill-installer": "./skill-installer/index.mjs",
+    "./skill-install-plugin": "./skill-installer/index.mjs",
+    "./theme-settings": "./theme-settings/index.mjs",
+    "./package.json": "./package.json",
+    "./ui-registry": "./ui-registry/index.mjs"
+  },
+  "dependencies": {
+    "undici": "^8.10.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

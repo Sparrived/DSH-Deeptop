@@ -251,15 +251,15 @@ async function materializeRuntime() {
 
 function materializedBridgeFiles(mainSource) {
   const includes = new Map();
-  for (const match of mainSource.matchAll(/const\s+([A-Z0-9_]+):\s*&str\s*=\s*include_str!\("\.\.\/\.\.\/(deeptop-bridge\/[^"\r\n]+)"\);/gu)) {
+  for (const match of mainSource.matchAll(/const\s+([A-Z0-9_]+):\s*&str\s*=\s*include_str!\("\.\.\/\.\.\/(cordis\/[^"\r\n]+)"\);/gu)) {
     includes.set(match[1], match[2]);
   }
   const body = mainSource.match(/fn bundled_bridge_files\(\)[^{]*\{\s*\[([\s\S]*?)\]\s*\}/u)?.[1];
   assert.ok(body, "cannot read bundled_bridge_files() from main.rs");
   const files = [];
-  for (const match of body.matchAll(/\("([^"]+)",\s*([A-Z0-9_]+)\)/gu)) {
+  for (const match of body.matchAll(/\(\s*"([^"]+)",\s*([A-Z0-9_]+),?\s*\)/gu)) {
     const source = includes.get(match[2]);
-    assert.ok(source, `materialized Bridge constant ${match[2]} has no deeptop-bridge include`);
+    assert.ok(source, `materialized Bridge constant ${match[2]} has no cordis include`);
     files.push({ destination: match[1], source });
   }
   assert.ok(files.length > 0, "bundled_bridge_files() did not expose any files");
@@ -271,8 +271,8 @@ async function materializeProfile(dshHome) {
   const bridgeDir = path.join(dshHome, "profiles", "node_modules", "deeptop-bridge");
   await Promise.all([mkdir(profileDir, { recursive: true }), mkdir(bridgeDir, { recursive: true })]);
   await Promise.all([
-    copyFile(path.join(root, "deeptop-bridge", "desktop-profile.json"), path.join(profileDir, "package.json")),
-    copyFile(path.join(root, "deeptop-bridge", "profile.patch.yml"), path.join(profileDir, "cordis.patch.yml")),
+    copyFile(path.join(root, "cordis", "desktop-profile.json"), path.join(profileDir, "package.json")),
+    copyFile(path.join(root, "cordis", "profile.patch.yml"), path.join(profileDir, "cordis.patch.yml")),
     writeFile(
       path.join(profileDir, "pnpm-workspace.yaml"),
       "packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n",
@@ -280,9 +280,11 @@ async function materializeProfile(dshHome) {
     ),
   ]);
   const mainSource = await readFile(mainSourcePath, "utf8");
-  await Promise.all(materializedBridgeFiles(mainSource).map(({ destination, source }) => (
-    copyFile(path.join(root, source), path.join(bridgeDir, destination))
-  )));
+  await Promise.all(materializedBridgeFiles(mainSource).map(async ({ destination, source }) => {
+    const target = path.join(bridgeDir, destination);
+    await mkdir(path.dirname(target), { recursive: true });
+    await copyFile(path.join(root, source), target);
+  }));
   return profileDir;
 }
 

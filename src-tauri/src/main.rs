@@ -244,29 +244,27 @@ const MAX_AUTO_RESTARTS: u32 = 3;
 const AUTO_RESTART_BASE_DELAY: Duration = Duration::from_millis(1000);
 const BUNDLED_DSH_VERSION: &str = "0.1.1-rc.2";
 const BUNDLED_DSH_SOURCE_COMMIT: &str = "9270fce86d6a068e00b1cae955273220ceffa1a5";
-const BRIDGE_PACKAGE_JSON: &str = include_str!("../../deeptop-bridge/package.json");
-const BRIDGE_PATCH: &str = include_str!("../../deeptop-bridge/cordis.patch.yml");
-const BRIDGE_ENTRY: &str = include_str!("../../deeptop-bridge/index.mjs");
-const BRIDGE_RUNTIME: &str = include_str!("../../deeptop-bridge/bridge.mjs");
-const BRIDGE_ROUTES: &str = include_str!("../../deeptop-bridge/routes.mjs");
-const BRIDGE_SESSION_REPAIR: &str = include_str!("../../deeptop-bridge/session-repair.mjs");
-const BRIDGE_MESSAGE_ANNOTATIONS: &str =
-    include_str!("../../deeptop-bridge/message-annotations.mjs");
+const BRIDGE_PACKAGE_JSON: &str = include_str!("../../cordis/package.json");
+const BRIDGE_PATCH: &str = include_str!("../../cordis/cordis.patch.yml");
+const BRIDGE_ENTRY: &str = include_str!("../../cordis/desktop-bridge/index.mjs");
+const BRIDGE_RUNTIME: &str = include_str!("../../cordis/desktop-bridge/bridge.mjs");
+const BRIDGE_ROUTES: &str = include_str!("../../cordis/desktop-bridge/routes.mjs");
+const BRIDGE_SESSION_REPAIR: &str = include_str!("../../cordis/desktop-bridge/session-repair.mjs");
+const BRIDGE_MESSAGE_ANNOTATIONS: &str = include_str!("../../cordis/message-annotations/index.mjs");
 const BRIDGE_MESSAGE_ANNOTATIONS_UI: &str =
-    include_str!("../../deeptop-bridge/message-annotations-ui.mjs");
-const BRIDGE_SESSION_PINS: &str = include_str!("../../deeptop-bridge/session-pins.mjs");
-const BRIDGE_SESSION_PINS_MODEL: &str = include_str!("../../deeptop-bridge/session-pins-model.mjs");
-const BRIDGE_UI_PLUGIN_MANIFEST: &str = include_str!("../../deeptop-bridge/ui-plugin-manifest.mjs");
-const BRIDGE_UI_REGISTRY: &str = include_str!("../../deeptop-bridge/ui-registry.mjs");
-const BRIDGE_UI_ROUTES: &str = include_str!("../../deeptop-bridge/ui-routes.mjs");
-const BRIDGE_SKILL_INSTALLER: &str = include_str!("../../deeptop-bridge/skill-installer.mjs");
-const BRIDGE_SKILL_INSTALL_PLUGIN: &str =
-    include_str!("../../deeptop-bridge/skill-install-plugin.mjs");
-const BRIDGE_PLUGIN_CONFIG: &str = include_str!("../../deeptop-bridge/plugin-config.mjs");
-const BRIDGE_NETWORK_PROXY: &str = include_str!("../../deeptop-bridge/network-proxy.mjs");
-const BRIDGE_THEME_SETTINGS: &str = include_str!("../../deeptop-bridge/theme-settings.mjs");
-const PROFILE_TEMPLATE: &str = include_str!("../../deeptop-bridge/desktop-profile.json");
-const PROFILE_PATCH_TEMPLATE: &str = include_str!("../../deeptop-bridge/profile.patch.yml");
+    include_str!("../../cordis/message-annotations-ui/index.mjs");
+const BRIDGE_SESSION_PINS: &str = include_str!("../../cordis/session-pins/index.mjs");
+const BRIDGE_SESSION_PINS_MODEL: &str = include_str!("../../cordis/session-pins/model.mjs");
+const BRIDGE_UI_PLUGIN_MANIFEST: &str = include_str!("../../cordis/ui-registry/manifest.mjs");
+const BRIDGE_UI_REGISTRY: &str = include_str!("../../cordis/ui-registry/index.mjs");
+const BRIDGE_UI_ROUTES: &str = include_str!("../../cordis/ui-registry/routes.mjs");
+const BRIDGE_SKILL_INSTALLER: &str = include_str!("../../cordis/skill-installer/installer.mjs");
+const BRIDGE_SKILL_INSTALL_PLUGIN: &str = include_str!("../../cordis/skill-installer/index.mjs");
+const BRIDGE_PLUGIN_CONFIG: &str = include_str!("../../cordis/desktop-bridge/plugin-config.mjs");
+const BRIDGE_NETWORK_PROXY: &str = include_str!("../../cordis/desktop-bridge/network-proxy.mjs");
+const BRIDGE_THEME_SETTINGS: &str = include_str!("../../cordis/theme-settings/index.mjs");
+const PROFILE_TEMPLATE: &str = include_str!("../../cordis/desktop-profile.json");
+const PROFILE_PATCH_TEMPLATE: &str = include_str!("../../cordis/profile.patch.yml");
 const PROFILE_PNPM_WORKSPACE: &str =
     "packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n";
 const MAX_PENDING_OPEN_SESSIONS: usize = 16;
@@ -991,22 +989,25 @@ fn bundled_bridge_files() -> [(&'static str, &'static str); 18] {
     [
         ("package.json", BRIDGE_PACKAGE_JSON),
         ("cordis.patch.yml", BRIDGE_PATCH),
-        ("index.mjs", BRIDGE_ENTRY),
-        ("bridge.mjs", BRIDGE_RUNTIME),
-        ("routes.mjs", BRIDGE_ROUTES),
-        ("session-repair.mjs", BRIDGE_SESSION_REPAIR),
-        ("message-annotations.mjs", BRIDGE_MESSAGE_ANNOTATIONS),
-        ("message-annotations-ui.mjs", BRIDGE_MESSAGE_ANNOTATIONS_UI),
-        ("session-pins.mjs", BRIDGE_SESSION_PINS),
-        ("session-pins-model.mjs", BRIDGE_SESSION_PINS_MODEL),
-        ("ui-plugin-manifest.mjs", BRIDGE_UI_PLUGIN_MANIFEST),
-        ("ui-registry.mjs", BRIDGE_UI_REGISTRY),
-        ("ui-routes.mjs", BRIDGE_UI_ROUTES),
-        ("skill-installer.mjs", BRIDGE_SKILL_INSTALLER),
-        ("skill-install-plugin.mjs", BRIDGE_SKILL_INSTALL_PLUGIN),
-        ("plugin-config.mjs", BRIDGE_PLUGIN_CONFIG),
-        ("network-proxy.mjs", BRIDGE_NETWORK_PROXY),
-        ("theme-settings.mjs", BRIDGE_THEME_SETTINGS),
+        ("desktop-bridge/index.mjs", BRIDGE_ENTRY),
+        ("desktop-bridge/bridge.mjs", BRIDGE_RUNTIME),
+        ("desktop-bridge/routes.mjs", BRIDGE_ROUTES),
+        ("desktop-bridge/session-repair.mjs", BRIDGE_SESSION_REPAIR),
+        ("message-annotations/index.mjs", BRIDGE_MESSAGE_ANNOTATIONS),
+        (
+            "message-annotations-ui/index.mjs",
+            BRIDGE_MESSAGE_ANNOTATIONS_UI,
+        ),
+        ("session-pins/index.mjs", BRIDGE_SESSION_PINS),
+        ("session-pins/model.mjs", BRIDGE_SESSION_PINS_MODEL),
+        ("ui-registry/manifest.mjs", BRIDGE_UI_PLUGIN_MANIFEST),
+        ("ui-registry/index.mjs", BRIDGE_UI_REGISTRY),
+        ("ui-registry/routes.mjs", BRIDGE_UI_ROUTES),
+        ("skill-installer/installer.mjs", BRIDGE_SKILL_INSTALLER),
+        ("skill-installer/index.mjs", BRIDGE_SKILL_INSTALL_PLUGIN),
+        ("desktop-bridge/plugin-config.mjs", BRIDGE_PLUGIN_CONFIG),
+        ("desktop-bridge/network-proxy.mjs", BRIDGE_NETWORK_PROXY),
+        ("theme-settings/index.mjs", BRIDGE_THEME_SETTINGS),
     ]
 }
 
@@ -1025,8 +1026,43 @@ fn materialize_desktop_profile() -> Result<(), String> {
     )?;
 
     let bridge_dir = profiles.join("node_modules").join("deeptop-bridge");
-    for (name, content) in bundled_bridge_files() {
+    let files = bundled_bridge_files();
+    // Keep upgrades recoverable: write every nested module first, then switch the
+    // compatible package manifest, and update the patch last. The previous flat
+    // bundle remains runnable if any earlier write fails.
+    for (name, content) in files
+        .iter()
+        .filter(|(name, _)| *name != "package.json" && *name != "cordis.patch.yml")
+    {
         write_text(&bridge_dir.join(name), content)?;
+    }
+    write_text(&bridge_dir.join("package.json"), BRIDGE_PACKAGE_JSON)?;
+    write_text(&bridge_dir.join("cordis.patch.yml"), BRIDGE_PATCH)?;
+
+    // These files belonged to the pre-cordis/ flat layout. They are generated,
+    // not user-owned; aliases in package.json preserve existing Profile imports.
+    for legacy in [
+        "index.mjs",
+        "bridge.mjs",
+        "routes.mjs",
+        "session-repair.mjs",
+        "message-annotations.mjs",
+        "message-annotations-ui.mjs",
+        "session-pins.mjs",
+        "session-pins-model.mjs",
+        "ui-plugin-manifest.mjs",
+        "ui-registry.mjs",
+        "ui-routes.mjs",
+        "skill-installer.mjs",
+        "skill-install-plugin.mjs",
+        "plugin-config.mjs",
+        "network-proxy.mjs",
+        "theme-settings.mjs",
+    ] {
+        // A stale file is unreachable through the new exports, so a transient
+        // Windows file lock must not turn a successful package upgrade into a
+        // Host startup failure.
+        let _ = fs::remove_file(bridge_dir.join(legacy));
     }
     Ok(())
 }
@@ -5236,35 +5272,64 @@ mod tests {
             );
         }
         assert!(
-            files.iter().any(|(name, _)| *name == "theme-settings.mjs"),
+            files
+                .iter()
+                .any(|(name, _)| *name == "theme-settings/index.mjs"),
             "desktop theme settings bridge module must be materialized"
         );
         assert!(
             files
                 .iter()
-                .any(|(name, _)| *name == "ui-plugin-manifest.mjs"),
+                .any(|(name, _)| *name == "ui-registry/manifest.mjs"),
             "UI plugin manifest must be materialized for the registry module"
         );
         for (owner, content) in &files {
             for (marker, quote) in [
-                ("from './", '\''),
-                ("from \"./", '"'),
-                ("import './", '\''),
-                ("import \"./", '"'),
-                ("import('./", '\''),
-                ("import(\"./", '"'),
+                ("from '", '\''),
+                ("from \"", '"'),
+                ("import '", '\''),
+                ("import \"", '"'),
+                ("import('", '\''),
+                ("import(\"", '"'),
             ] {
                 let mut remainder = *content;
                 while let Some(start) = remainder.find(marker) {
                     remainder = &remainder[start + marker.len()..];
                     let end = remainder.find(quote).unwrap_or_else(|| {
-                        panic!("bridge file {owner} has an unterminated local import")
+                        panic!("bridge file {owner} has an unterminated import")
                     });
                     let imported = &remainder[..end];
-                    assert!(
-                        files.iter().any(|(name, _)| *name == imported),
-                        "bridge file {owner} imports {imported}, but it is not materialized"
-                    );
+                    if imported.starts_with("./") || imported.starts_with("../") {
+                        let joined = std::path::Path::new(owner)
+                            .parent()
+                            .unwrap_or_else(|| std::path::Path::new(""))
+                            .join(imported);
+                        let mut components = Vec::new();
+                        for component in joined.components() {
+                            match component {
+                                std::path::Component::CurDir => {}
+                                std::path::Component::Normal(value) => {
+                                    components.push(value.to_string_lossy().into_owned());
+                                }
+                                std::path::Component::ParentDir => {
+                                    assert!(
+                                        components.pop().is_some(),
+                                        "bridge file {owner} imports outside the bundle: {imported}"
+                                    );
+                                }
+                                std::path::Component::RootDir | std::path::Component::Prefix(_) => {
+                                    panic!(
+                                        "bridge file {owner} imports an absolute path: {imported}"
+                                    )
+                                }
+                            }
+                        }
+                        let resolved = components.join("/");
+                        assert!(
+                            files.iter().any(|(name, _)| *name == resolved),
+                            "bridge file {owner} imports {imported} ({resolved}), but it is not materialized"
+                        );
+                    }
                     remainder = &remainder[end + quote.len_utf8()..];
                 }
             }

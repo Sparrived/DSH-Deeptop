@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { mkdtemp, open, readFile, rename, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
-import { installSkillFromSource } from './skill-installer.mjs'
+import { installSkillFromSource } from '../skill-installer/installer.mjs'
 import { repairCorruptLog } from './session-repair.mjs'
 import { describePluginConfig, filterInventory, mutatePluginConfig } from './plugin-config.mjs'
 import {
@@ -13,7 +13,7 @@ import {
   invokeUiPluginRemote,
   listUiPlugins,
   setUiPluginStorage,
-} from './ui-routes.mjs'
+} from '../ui-registry/routes.mjs'
 import { loadProxySetting, resolveEffectiveProxy, setProxySetting } from './network-proxy.mjs'
 
 function isRecord(value) {

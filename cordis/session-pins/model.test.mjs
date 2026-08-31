@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { normalizeSessionPinIds, parseLegacySessionPinStore, pinnedForWorkspace } from './session-pins-model.mjs'
+import { normalizeSessionPinIds, parseLegacySessionPinStore, pinnedForWorkspace } from './model.mjs'
 
 test('normalizes legacy ids and rejects non-array values', () => {
   assert.deepEqual(normalizeSessionPinIds(['session-1', 'session-1', '', null, 'session-2']), ['session-1', 'session-2'])

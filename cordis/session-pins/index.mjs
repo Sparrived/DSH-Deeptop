@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { Service } from '@deepseek-ai/cordis'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import { z } from 'zod'
-import { normalizeSessionPinIds, parseLegacySessionPinStore, pinnedForWorkspace } from './session-pins-model.mjs'
+import { normalizeSessionPinIds, parseLegacySessionPinStore, pinnedForWorkspace } from './model.mjs'
 
 const sessionPinRowSchema = z.object({
   sessionIds: z.array(z.string().min(1)),

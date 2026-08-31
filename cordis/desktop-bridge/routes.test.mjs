@@ -9,13 +9,13 @@ import { routeDesktopRequest } from './routes.mjs'
 import { bridgeErrorFrame } from './bridge.mjs'
 import { applyProxy, initNetworkProxy, loadProxySetting, normalizeProxyOverride, parseWindowsProxyServer, setProxySetting, stopSystemProxyWatch } from './network-proxy.mjs'
 import { describePluginConfig, mutatePluginConfig } from './plugin-config.mjs'
-import { parseGitHubSource, selectSkillPath, validateRelativeRepoPath } from './skill-installer.mjs'
+import { parseGitHubSource, selectSkillPath, validateRelativeRepoPath } from '../skill-installer/installer.mjs'
 import { reconstructContiguous, rowSeqs, scanZstdFrames, verifyReadable } from './session-repair.mjs'
 
 const signal = new AbortController().signal
 
 test('keeps workspace clipboard actions on the native bridge', async () => {
-  const source = await readFile(join(import.meta.dirname, '..', 'src', 'components', 'WorkspaceFilesPanel.tsx'), 'utf8')
+  const source = await readFile(join(import.meta.dirname, '..', '..', 'src', 'components', 'WorkspaceFilesPanel.tsx'), 'utf8')
   assert.match(source, /writeClipboard\(path\)/)
   assert.doesNotMatch(source, /navigator\.clipboard|document\.execCommand\(['"]copy/)
 })
@@ -938,9 +938,9 @@ test('rejects invalid native session ZIP requests before contacting DSH', async 
 })
 
 test('keeps message file-card validation on the native Tauri command', async () => {
-  const transcript = await readFile(join(import.meta.dirname, '..', 'src', 'components', 'ConversationTranscript.tsx'), 'utf8')
-  const desktop = await readFile(join(import.meta.dirname, '..', 'src', 'lib', 'desktop.ts'), 'utf8')
-  const native = await readFile(join(import.meta.dirname, '..', 'src-tauri', 'src', 'main.rs'), 'utf8')
+  const transcript = await readFile(join(import.meta.dirname, '..', '..', 'src', 'components', 'ConversationTranscript.tsx'), 'utf8')
+  const desktop = await readFile(join(import.meta.dirname, '..', '..', 'src', 'lib', 'desktop.ts'), 'utf8')
+  const native = await readFile(join(import.meta.dirname, '..', '..', 'src-tauri', 'src', 'main.rs'), 'utf8')
   assert.match(transcript, /onCheckPath=\{checkPath\}/)
   assert.match(desktop, /invoke<boolean>\("is_file_path", \{ path \}\)/)
   assert.match(native, /fn is_file_path\(path: String\) -> bool/)
@@ -949,9 +949,9 @@ test('keeps message file-card validation on the native Tauri command', async () 
 })
 
 test('keeps file export in the native save bridge instead of browser downloads', async () => {
-  const app = await readFile(join(import.meta.dirname, '..', 'src', 'App.tsx'), 'utf8')
-  const desktop = await readFile(join(import.meta.dirname, '..', 'src', 'lib', 'desktop.ts'), 'utf8')
-  const native = await readFile(join(import.meta.dirname, '..', 'src-tauri', 'src', 'main.rs'), 'utf8')
+  const app = await readFile(join(import.meta.dirname, '..', '..', 'src', 'App.tsx'), 'utf8')
+  const desktop = await readFile(join(import.meta.dirname, '..', '..', 'src', 'lib', 'desktop.ts'), 'utf8')
+  const native = await readFile(join(import.meta.dirname, '..', '..', 'src-tauri', 'src', 'main.rs'), 'utf8')
   assert.doesNotMatch(app, /link\.download|URL\.createObjectURL|window\.open/)
   assert.doesNotMatch(desktop, /window\.open/)
   assert.match(app, /moveExportTempFile\(result\.filename, result\.tempPath\)/)

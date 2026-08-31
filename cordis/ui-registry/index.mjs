@@ -6,7 +6,7 @@
 //
 // This service never touches React, DOM, or the WebView realm: everything it
 // stores and returns is JSON-serializable protocol data validated by
-// ./ui-plugin-manifest.mjs.
+// ./manifest.mjs.
 
 import { Service } from '@deepseek-ai/cordis'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
@@ -19,7 +19,7 @@ import {
   uiPluginError,
   validateScopedStorageKey,
   UI_PLUGIN_ERROR_CODES,
-} from './ui-plugin-manifest.mjs'
+} from './manifest.mjs'
 
 const storageRecordSchema = z.object({ json: z.string() })
 

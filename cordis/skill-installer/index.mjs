@@ -1,5 +1,5 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { installSkillFromSource } from './skill-installer.mjs'
+import { installSkillFromSource } from './installer.mjs'
 
 export const name = 'skill-installer'
 export const inject = ['tools']
