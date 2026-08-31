@@ -7,7 +7,42 @@ import type { DshUiPluginCapabilities } from "../../app/ui-plugin-model.ts";
 import type { ScopedRemoteClient, ScopedStorage } from "./types.ts";
 
 export interface RuntimeRequestSender {
-  request<T>(method: string, payload: Record<string, unknown>): Promise<T>;
+  request<T>(method: string, payload: Record<string, unknown>, signal?: AbortSignal): Promise<T>;
+}
+
+function assertContextActive(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  throw signal.reason ?? new Error("plugin context is disposed");
+}
+
+function reportHandlerError(report: (error: unknown) => void, error: unknown): void {
+  try {
+    report(error);
+  } catch {
+    // Plugin error reporting must not escape into sibling plugin delivery.
+  }
+}
+
+function withAbort<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return operation;
+  if (signal.aborted) return Promise.reject(signal.reason ?? new Error("plugin context is disposed"));
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      signal.removeEventListener("abort", abort);
+      reject(signal.reason ?? new Error("plugin context is disposed"));
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    operation.then(
+      (value) => {
+        signal.removeEventListener("abort", abort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      },
+    );
+  });
 }
 
 export class CapabilityDeniedError extends Error {
@@ -24,9 +59,11 @@ export function createScopedRemote(
   pluginId: string,
   capabilities: DshUiPluginCapabilities,
   send: RuntimeRequestSender,
+  signal?: AbortSignal,
 ): ScopedRemoteClient {
   const declared = capabilities.remotes;
   const invokeIn = async <T>(namespace: string, method: string, args?: Record<string, unknown>): Promise<T> => {
+    assertContextActive(signal);
     const remote = declared.find((item) => item.namespace === namespace);
     if (!remote) {
       throw new CapabilityDeniedError(`plugin ${pluginId} does not declare remote namespace "${namespace}"`);
@@ -34,12 +71,13 @@ export function createScopedRemote(
     if (!remote.methods.includes(method)) {
       throw new CapabilityDeniedError(`plugin ${pluginId} does not declare method "${namespace}.${method}"`);
     }
-    const response = await send.request<{ value: T }>("ui.plugin.invoke", {
+    const response = await withAbort(send.request<{ value: T }>("ui.plugin.invoke", {
       pluginId,
       namespace,
       method,
       args: args ?? {},
-    });
+    }, signal), signal);
+    assertContextActive(signal);
     return response.value;
   };
   return {
@@ -61,17 +99,27 @@ export function createScopedRemote(
 export function createScopedStorage(
   pluginId: string,
   send: RuntimeRequestSender,
+  signal?: AbortSignal,
 ): ScopedStorage {
   return {
     async get<T>(key: string) {
-      const response = await send.request<{ value: T | null }>("ui.plugin.storage.get", { pluginId, key });
+      assertContextActive(signal);
+      const response = await withAbort(
+        send.request<{ value: T | null }>("ui.plugin.storage.get", { pluginId, key }, signal),
+        signal,
+      );
+      assertContextActive(signal);
       return response.value;
     },
     async set(key: string, value: unknown) {
-      await send.request("ui.plugin.storage.set", { pluginId, key, value });
+      assertContextActive(signal);
+      await withAbort(send.request("ui.plugin.storage.set", { pluginId, key, value }, signal), signal);
+      assertContextActive(signal);
     },
     async delete(key: string) {
-      await send.request("ui.plugin.storage.delete", { pluginId, key });
+      assertContextActive(signal);
+      await withAbort(send.request("ui.plugin.storage.delete", { pluginId, key }, signal), signal);
+      assertContextActive(signal);
     },
   };
 }
@@ -82,16 +130,18 @@ export function createScopedStorage(
  * frames even if the runtime still dispatches globally.
  */
 export class PluginEventScope {
-  private handlers = new Map<string, Set<(payload: unknown) => void>>();
+  private handlers = new Map<string, Set<(payload: unknown) => void | Promise<void>>>();
   private readonly pluginId: string;
   private readonly declaredEvents: () => readonly string[];
+  private readonly onError: (error: unknown) => void;
 
-  constructor(pluginId: string, declaredEvents: () => readonly string[]) {
+  constructor(pluginId: string, declaredEvents: () => readonly string[], onError: (error: unknown) => void = () => undefined) {
     this.pluginId = pluginId;
     this.declaredEvents = declaredEvents;
+    this.onError = onError;
   }
 
-  on(event: string, handler: (payload: unknown) => void): () => void {
+  on(event: string, handler: (payload: unknown) => void | Promise<void>): () => void {
     if (!this.declaredEvents().includes(event)) {
       throw new CapabilityDeniedError(`plugin ${this.pluginId} does not declare event "${event}"`);
     }
@@ -112,7 +162,13 @@ export class PluginEventScope {
   dispatch(event: string, payload: unknown): boolean {
     const bucket = this.handlers.get(event);
     if (!bucket || bucket.size === 0) return false;
-    for (const handler of [...bucket]) handler(payload);
+    for (const handler of [...bucket]) {
+      try {
+        Promise.resolve(handler(payload)).catch((error) => reportHandlerError(this.onError, error));
+      } catch (error) {
+        reportHandlerError(this.onError, error);
+      }
+    }
     return true;
   }
 

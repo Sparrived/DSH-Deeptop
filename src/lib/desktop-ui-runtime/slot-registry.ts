@@ -121,7 +121,7 @@ export class SlotRegistry {
       }
       if (removed && bucket.size === 0) this.entries.delete(slot);
     }
-    if (removed) this.invalidateSnapshots();
+    if (removed) this.notify();
   }
 
   /** Stable ordered snapshot of one slot; safe to feed useSyncExternalStore. */
@@ -171,10 +171,6 @@ export class SlotRegistry {
     if (slot) this.snapshots.delete(slot);
     else this.snapshots.clear();
     for (const listener of [...this.listeners]) listener();
-  }
-
-  private invalidateSnapshots(): void {
-    this.snapshots.clear();
   }
 }
 

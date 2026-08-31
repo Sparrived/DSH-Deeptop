@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { DesktopUiRuntime } from './client-runtime.ts'
 import { SlotRegistry } from './slot-registry.ts'
-import { PluginScope } from './plugin-runner.ts'
+import { ClientPluginRunner, PluginScope } from './plugin-runner.ts'
+import { UiRuntimeHostLifecycle } from './host-lifecycle.ts'
 import { loadProtocolClientModule, PROTOCOL_IMPORT_TIMEOUT_MS } from './module-loader.ts'
 import {
   CapabilityDeniedError,
@@ -28,7 +29,22 @@ function descriptor(overrides = {}) {
   }
 }
 
-function fakeRuntime({ items = [], modules = {}, responses = new Map(), resolveBundle, importModule } = {}) {
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+  return { promise, resolve, reject };
+}
+
+async function flushMicrotasks() {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+function fakeRuntime({ items = [], modules = {}, responses = new Map(), resolveBundle, importModule, activateTimeoutMs, deactivateTimeoutMs } = {}) {
   const requests = []
   const handlers = new Set()
   const request = async (method, payload) => {
@@ -47,6 +63,8 @@ function fakeRuntime({ items = [], modules = {}, responses = new Map(), resolveB
     bundledModules: modules,
     ...(resolveBundle ? { resolveBundle } : {}),
     ...(importModule ? { importModule } : {}),
+    ...(activateTimeoutMs === undefined ? {} : { activateTimeoutMs }),
+    ...(deactivateTimeoutMs === undefined ? {} : { deactivateTimeoutMs }),
   })
   return { runtime, requests, handlers, request }
 }
@@ -138,6 +156,44 @@ test('a missing bundle or throwing activate settles into coded failure states', 
   await boom.runtime.start()
   assert.equal(boom.runtime.entries.get('a.boom')?.runner.state, 'activate-failed')
   assert.equal(boom.runtime.status, 'partial')
+})
+
+test('sync and async activation rejection each invoke module cleanup exactly once', async () => {
+  let syncCleanup = 0
+  let asyncCleanup = 0
+  const syncFailure = descriptor({
+    pluginId: 'p.sync-failure',
+    slots: ['composer.actions'],
+    capabilities: { remotes: [] },
+    client: { entryId: 'p.sync-failure/client', format: 'esm', sdkVersion: '^1.0.0' },
+  })
+  const asyncFailure = descriptor({
+    pluginId: 'p.async-failure',
+    slots: ['inspector.tabs'],
+    capabilities: { remotes: [] },
+    client: { entryId: 'p.async-failure/client', format: 'esm', sdkVersion: '^1.0.0' },
+  })
+  const { runtime } = fakeRuntime({
+    items: [syncFailure, asyncFailure],
+    modules: {
+      'p.sync-failure/client': async () => ({
+        activate() { throw new Error('sync failure') },
+        deactivate() { syncCleanup += 1 },
+      }),
+      'p.async-failure/client': async () => ({
+        async activate() { throw new Error('async failure') },
+        deactivate() { asyncCleanup += 1 },
+      }),
+    },
+  })
+  await runtime.start()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(runtime.status, 'partial')
+  assert.equal(syncCleanup, 1)
+  assert.equal(asyncCleanup, 1)
+  await runtime.stop()
+  assert.equal(syncCleanup, 1)
+  assert.equal(asyncCleanup, 1)
 })
 
 const protocolModule = {
@@ -261,12 +317,484 @@ test('deactivate is idempotent and scope disposal unwinds in reverse order', asy
   scope.dispose()
   assert.deepEqual(order, ['second', 'first'])
   let calls = 0
-  const detach = scope.add(() => {})
+  const detach = scope.add(() => { calls += 1 })
   assert.equal(typeof detach, 'function')
   detach()
-  scope.add(() => { calls += 1 })
-  scope.dispose()
-  assert.equal(calls, 0, 'resources added after disposal never run their cleanup')
+  detach()
+  assert.equal(calls, 1, 'an early disposer releases the resource immediately and only once')
+  let lateCalls = 0
+  scope.add(() => { lateCalls += 1 })
+  assert.equal(lateCalls, 1, 'resources added after disposal are released immediately')
+})
+
+test('plugin deactivation revokes scope capabilities before waiting and is bounded', async () => {
+  const release = deferred()
+  let sessionListenerDisposed = false
+  let deactivateStarted = false
+  const runner = new ClientPluginRunner({
+    descriptor: descriptor({ client: { entryId: 'example.session-pins/client', format: 'esm', sdkVersion: '^1.0.0' } }),
+    runtimeSdkVersion: '1.0.0',
+    loadModule: async () => ({
+      activate(context) {
+        context.session.onChange(() => undefined)
+        context.ui.register('session.context-menu', { kind: 'action', id: 'owned', render: () => null })
+      },
+      async deactivate() {
+        deactivateStarted = true
+        await release.promise
+      },
+    }),
+    buildContext: (_descriptor, scope) => ({
+      plugin: { id: 'example.session-pins', version: '0.1.0', descriptor: descriptor() },
+      ui: { register: () => scope.add(() => { sessionListenerDisposed = true }) },
+      locale: 'en', host: { prompt: async () => null, notify: () => undefined },
+      remote: { invoke: async () => undefined, invokeIn: async () => undefined },
+      events: { on: () => scope.add(() => undefined) },
+      storage: { get: async () => null, set: async () => undefined, delete: async () => undefined },
+      session: { current: null, generation: 0, onChange: () => scope.add(() => { sessionListenerDisposed = true }) },
+      logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
+      signal: new AbortController().signal,
+    }),
+    deactivateTimeoutMs: 20,
+  })
+  await runner.activate()
+  const deactivation = runner.deactivate('host-restarted')
+  await flushMicrotasks()
+  assert.equal(deactivateStarted, true)
+  assert.equal(sessionListenerDisposed, true)
+  await assert.rejects(deactivation, /deactivate timed out/)
+  assert.equal(runner.state, 'disposed')
+  release.resolve()
+})
+
+test('plugin activation is bounded and a late registration cannot revive its timed-out entry', async () => {
+  const release = deferred()
+  let deactivated = 0
+  const lateSessions = []
+  const full = descriptor({
+    client: { entryId: 'example.session-pins/client', format: 'esm', sdkVersion: '^1.0.0' },
+  })
+  const { runtime } = fakeRuntime({
+    items: [full],
+    activateTimeoutMs: 20,
+    deactivateTimeoutMs: 20,
+    modules: {
+      'example.session-pins/client': async () => ({
+        async activate(context) {
+          await release.promise
+          context.session.onChange(session => lateSessions.push(session?.sessionId ?? null))
+          context.ui.register('session.context-menu', { kind: 'action', id: 'late', render: () => null })
+        },
+        deactivate() { deactivated += 1 },
+      }),
+    },
+  })
+
+  await runtime.start()
+  assert.equal(runtime.status, 'partial')
+  assert.equal(runtime.entries.get('example.session-pins')?.runner.state, 'activate-failed')
+  assert.equal(runtime.slots.snapshot('session.context-menu').length, 0)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(deactivated, 1, 'a timed-out activate receives bounded module cleanup')
+  runtime.updateSession({ sessionId: 'late-session', title: 'Late', running: false, blank: false })
+
+  release.resolve()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(lateSessions.length, 0, 'late activate cannot receive an initial Session callback after disposal')
+  assert.equal(runtime.slots.snapshot('session.context-menu').length, 0, 'late activation sees an already disposed scope')
+  await runtime.stop()
+})
+
+test('a late activation receives one follow-up cleanup for private resources', async () => {
+  const release = deferred()
+  let interval = null
+  let deactivateCalls = 0
+  const full = descriptor({
+    client: { entryId: 'example.session-pins/client', format: 'esm', sdkVersion: '^1.0.0' },
+  })
+  const { runtime } = fakeRuntime({
+    items: [full],
+    activateTimeoutMs: 20,
+    deactivateTimeoutMs: 20,
+    modules: {
+      'example.session-pins/client': async () => ({
+        async activate() {
+          await release.promise
+          interval = setInterval(() => undefined, 60_000)
+          interval.unref?.()
+        },
+        deactivate() {
+          deactivateCalls += 1
+          clearInterval(interval)
+          interval = null
+        },
+      }),
+    },
+  })
+  await runtime.start()
+  assert.equal(runtime.status, 'partial')
+  assert.equal(deactivateCalls, 1, 'primary cleanup begins while activate is still pending')
+  release.resolve()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(deactivateCalls, 2, 'late activation receives one independent follow-up cleanup')
+  assert.equal(interval, null, 'the follow-up cleanup releases late private resources')
+  await runtime.stop()
+  assert.equal(deactivateCalls, 2)
+})
+
+test('a module that resolves after load timeout receives one bounded cleanup', async () => {
+  const load = deferred()
+  let interval = null
+  let deactivateCalls = 0
+  const full = descriptor({
+    client: { entryId: 'example.session-pins/client', format: 'esm', sdkVersion: '^1.0.0' },
+  })
+  const { runtime } = fakeRuntime({
+    items: [full],
+    activateTimeoutMs: 20,
+    deactivateTimeoutMs: 20,
+    modules: {
+      'example.session-pins/client': async () => load.promise,
+    },
+  })
+  await runtime.start()
+  assert.equal(runtime.status, 'partial')
+  interval = setInterval(() => undefined, 60_000)
+  interval.unref?.()
+  load.resolve({
+    activate() { throw new Error('late module must never activate') },
+    deactivate() {
+      deactivateCalls += 1
+      clearInterval(interval)
+      interval = null
+    },
+  })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(deactivateCalls, 1)
+  assert.equal(interval, null, 'late loaded module cleans private resources')
+  await runtime.stop()
+  assert.equal(deactivateCalls, 1, 'the primary disposal does not clean late load twice')
+})
+
+test('plugin loading is bounded when a bundle factory never settles', async () => {
+  const load = deferred()
+  const full = descriptor({
+    client: { entryId: 'example.session-pins/client', format: 'esm', sdkVersion: '^1.0.0' },
+  })
+  const { runtime } = fakeRuntime({
+    items: [full],
+    activateTimeoutMs: 20,
+    modules: {
+      'example.session-pins/client': async () => load.promise,
+    },
+  })
+  await runtime.start()
+  assert.equal(runtime.status, 'partial')
+  assert.equal(runtime.entries.get('example.session-pins')?.runner.state, 'load-failed')
+  load.resolve({ activate() {} })
+  await new Promise(resolve => setImmediate(resolve))
+  await runtime.stop()
+})
+
+test('Host down aborts a hanging module load instead of blocking the lifecycle queue', async () => {
+  const load = deferred()
+  const full = descriptor({
+    client: { entryId: 'example.session-pins/client', format: 'esm', sdkVersion: '^1.0.0' },
+  })
+  const { runtime } = fakeRuntime({
+    items: [full],
+    activateTimeoutMs: 1_000,
+    modules: {
+      'example.session-pins/client': async () => load.promise,
+    },
+  })
+  const starting = runtime.start()
+  await flushMicrotasks()
+  const unavailable = runtime.handleHostUnavailable()
+  let timer
+  try {
+    await Promise.race([
+      Promise.all([starting, unavailable]),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('hanging module load blocked Host teardown')), 250) }),
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+  assert.deepEqual(runtime.pluginViews, [])
+  load.resolve({ activate() {} })
+  await new Promise(resolve => setImmediate(resolve))
+})
+
+test('host unavailability revokes slots, bridge events and Session listeners before a slow plugin teardown', async () => {
+  const release = deferred()
+  let deactivateStarted = false
+  let staleContext
+  const sessions = []
+  const eventPayloads = []
+  const full = descriptor({
+    client: { entryId: 'example.session-pins/client', format: 'esm', sdkVersion: '^1.0.0' },
+  })
+  const { runtime, handlers, requests } = fakeRuntime({
+    items: [full],
+    modules: {
+      'example.session-pins/client': async () => ({
+        activate(context) {
+          staleContext = context
+          context.session.onChange(session => sessions.push(session?.sessionId ?? null))
+          context.events.on('sessionPins/changed', payload => eventPayloads.push(payload))
+          context.ui.register('session.context-menu', { kind: 'action', id: 'owned', render: () => null })
+        },
+        async deactivate() {
+          deactivateStarted = true
+          await release.promise
+        },
+      }),
+    },
+    deactivateTimeoutMs: 100,
+  })
+  await runtime.start()
+  runtime.updateSession({ sessionId: 's-1', title: 'One', running: false, blank: false })
+  assert.deepEqual(sessions, [null, 's-1'])
+  assert.equal(runtime.slots.snapshot('session.context-menu').length, 1)
+  assert.equal(handlers.size, 1)
+
+  const unavailable = runtime.handleHostUnavailable()
+  assert.equal(runtime.status, 'loading')
+  assert.deepEqual(runtime.pluginViews, [])
+  assert.equal(runtime.slots.snapshot('session.context-menu').length, 0)
+  assert.equal(handlers.size, 0, 'the old bridge listener detaches synchronously')
+  const requestsBeforeStaleContext = requests.length
+  assert.equal(staleContext.session.current, null)
+  assert.equal(staleContext.session.generation, -1)
+  await assert.rejects(staleContext.host.prompt({ title: 'stale' }), /plugin context is disposed/)
+  await assert.rejects(staleContext.remote.invokeIn('sessionPins', 'list'), /plugin context is disposed/)
+  await assert.rejects(staleContext.storage.get('key'), /plugin context is disposed/)
+  assert.equal(requests.length, requestsBeforeStaleContext, 'a disposed context cannot reach the new Host')
+  runtime.updateSession({ sessionId: 's-2', title: 'Two', running: false, blank: false })
+  assert.deepEqual(sessions, [null, 's-1'], 'the old plugin cannot observe a later Session projection')
+  assert.deepEqual(eventPayloads, [])
+
+  await flushMicrotasks()
+  assert.equal(deactivateStarted, true)
+  release.resolve()
+  await unavailable
+})
+
+function fakeLifecycleRuntime() {
+  const calls = []
+  const starts = []
+  const runtime = {
+    start: async () => {
+      calls.push('start')
+      const gate = deferred()
+      starts.push(gate)
+      return gate.promise
+    },
+    stop: async () => { calls.push('stop') },
+    handleHostUnavailable: async () => { calls.push('down') },
+    handleHostRestart: async () => { calls.push('restart') },
+    refresh: async () => { calls.push('refresh'); return true },
+  }
+  return { runtime, calls, starts }
+}
+
+test('component contribution host prompts are bound to the plugin AbortSignal', async () => {
+  const promptGate = deferred()
+  let receivedSignal
+  let capturedHost
+  const full = descriptor({
+    client: { entryId: 'example.session-pins/client', format: 'esm', sdkVersion: '^1.0.0' },
+  })
+  const runtime = new DesktopUiRuntime({
+    request: async method => {
+      if (method === 'ui.plugin.list') return { items: [full] }
+      throw new Error(`unexpected ${method}`)
+    },
+    listen: () => () => undefined,
+    hostActions: {
+      prompt: (_request, signal) => {
+        receivedSignal = signal
+        return promptGate.promise
+      },
+      notify: () => undefined,
+    },
+    bundledModules: {
+      'example.session-pins/client': async () => ({
+        activate(context) {
+          context.ui.register('session.context-menu', {
+            kind: 'action',
+            id: 'prompt',
+            render(slot) {
+              capturedHost = slot.host
+              return null
+            },
+          })
+        },
+      }),
+    },
+  })
+  await runtime.start()
+  const entry = runtime.slots.snapshot('session.context-menu')[0]
+  const element = entry.render({ session: null, activeSessionId: null, sessionGeneration: 0, locale: 'en', host: { prompt: async () => 'wrong host', notify: () => undefined } })
+  element.type(element.props)
+  const pending = capturedHost.prompt({ title: 'stale prompt' })
+  await flushMicrotasks()
+  assert.equal(receivedSignal?.aborted, false)
+  const unavailable = runtime.handleHostUnavailable()
+  await assert.rejects(pending, /plugin context is disposed/)
+  assert.equal(receivedSignal?.aborted, true)
+  promptGate.resolve('late answer')
+  await unavailable
+})
+
+test('a caller-cancelled scoped prompt never enqueues a host popup', async () => {
+  let promptCalls = 0
+  let capturedHost
+  const full = descriptor({
+    client: { entryId: 'example.session-pins/client', format: 'esm', sdkVersion: '^1.0.0' },
+  })
+  const runtime = new DesktopUiRuntime({
+    request: async method => {
+      if (method === 'ui.plugin.list') return { items: [full] }
+      throw new Error(`unexpected ${method}`)
+    },
+    listen: () => () => undefined,
+    hostActions: {
+      prompt: async () => {
+        promptCalls += 1
+        return 'unexpected'
+      },
+      notify: () => undefined,
+    },
+    bundledModules: {
+      'example.session-pins/client': async () => ({
+        activate(context) {
+          context.ui.register('session.context-menu', {
+            kind: 'action',
+            id: 'prompt-cancel',
+            render(slot) {
+              capturedHost = slot.host
+              return null
+            },
+          })
+        },
+      }),
+    },
+  })
+  await runtime.start()
+  const entry = runtime.slots.snapshot('session.context-menu')[0]
+  const element = entry.render({ session: null, activeSessionId: null, sessionGeneration: 0, locale: 'en', host: { prompt: async () => 'wrong host', notify: () => undefined } })
+  element.type(element.props)
+  const caller = new AbortController()
+  const pending = capturedHost.prompt({ title: 'cancel before prompt' }, caller.signal)
+  caller.abort(new Error('caller cancelled prompt'))
+  await assert.rejects(pending, /caller cancelled prompt/)
+  await flushMicrotasks()
+  assert.equal(promptCalls, 0)
+  await runtime.stop()
+})
+
+test('host lifecycle revokes stale recovery during rapid down/up and unmount', async () => {
+  const harness = fakeLifecycleRuntime()
+  const lifecycle = new UiRuntimeHostLifecycle(harness.runtime)
+  lifecycle.start()
+  assert.deepEqual(harness.calls, ['start'])
+  lifecycle.statusChanged(false)
+  assert.deepEqual(harness.calls, ['start', 'down'])
+  lifecycle.statusChanged(true)
+  assert.equal(harness.starts.length, 1, 'an in-flight start is not duplicated')
+  harness.starts[0].resolve(true)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(harness.calls, ['start', 'down', 'restart', 'refresh'], 'the invalidated runtime recovers without a stale shared stop')
+
+  lifecycle.statusChanged(true)
+  await flushMicrotasks()
+  assert.deepEqual(harness.calls, ['start', 'down', 'restart', 'refresh'])
+
+  lifecycle.statusChanged(false)
+  lifecycle.statusChanged(true)
+  lifecycle.dispose()
+  await flushMicrotasks()
+  assert.equal(harness.calls.filter((call) => call === 'refresh').length, 1, 'unmount prevents stale recovery refresh')
+  assert.equal(harness.calls.at(-1), 'stop')
+})
+
+test('start does not stale an in-flight Host recovery after a ready transition', async () => {
+  const calls = []
+  const restart = deferred()
+  const runtime = {
+    start: async () => { calls.push('start'); return true },
+    stop: async () => { calls.push('stop') },
+    handleHostUnavailable: async () => { calls.push('down') },
+    handleHostRestart: async () => { calls.push('restart'); await restart.promise },
+    refresh: async () => { calls.push('refresh'); return true },
+  }
+  const lifecycle = new UiRuntimeHostLifecycle(runtime)
+  lifecycle.start()
+  await flushMicrotasks()
+
+  lifecycle.statusChanged(false)
+  lifecycle.statusChanged(true)
+  assert.deepEqual(calls, ['start', 'down', 'restart'])
+
+  // The listener-first checkDsh seed may finish here. It must leave the
+  // recovery epoch alone instead of scheduling a second restart.
+  lifecycle.start()
+  restart.resolve()
+  await new Promise(resolve => setImmediate(resolve))
+
+  assert.equal(calls.filter(call => call === 'restart').length, 1)
+  assert.equal(calls.filter(call => call === 'refresh').length, 1)
+})
+
+test('a stale initial start never stops a newer shared Runtime generation', async () => {
+  const harness = fakeLifecycleRuntime()
+  const lifecycle = new UiRuntimeHostLifecycle(harness.runtime)
+  lifecycle.start()
+  lifecycle.statusChanged(false)
+  harness.starts[0].resolve(true)
+  await flushMicrotasks()
+  assert.equal(harness.calls.filter(call => call === 'stop').length, 0)
+  assert.equal(harness.calls.filter(call => call === 'down').length, 1)
+})
+
+test('host lifecycle retries after an initial catalog failure when Host reports ready', async () => {
+  const harness = fakeLifecycleRuntime()
+  const lifecycle = new UiRuntimeHostLifecycle(harness.runtime)
+  lifecycle.start()
+  harness.starts[0].resolve(false)
+  await flushMicrotasks()
+  lifecycle.statusChanged(true)
+  await flushMicrotasks()
+  assert.equal(harness.starts.length, 2)
+  harness.starts[1].resolve(true)
+  await flushMicrotasks()
+  assert.equal(harness.calls.filter((call) => call === 'start').length, 2)
+})
+
+test('a ready frame during pending discovery retries when that discovery resolves false', async () => {
+  const harness = fakeLifecycleRuntime()
+  const lifecycle = new UiRuntimeHostLifecycle(harness.runtime)
+  lifecycle.start()
+  lifecycle.statusChanged(true)
+  harness.starts[0].resolve(false)
+  await flushMicrotasks()
+  assert.equal(harness.starts.length, 2, 'the ready frame is retained until the first start settles')
+  harness.starts[1].resolve(true)
+  await flushMicrotasks()
+  assert.equal(harness.calls.filter((call) => call === 'start').length, 2)
+})
+
+test('host lifecycle honors an initial unavailable snapshot before starting discovery', async () => {
+  const harness = fakeLifecycleRuntime()
+  const lifecycle = new UiRuntimeHostLifecycle(harness.runtime, { initialHostAvailable: false })
+  lifecycle.start()
+  assert.deepEqual(harness.calls, [])
+  lifecycle.statusChanged(true)
+  assert.deepEqual(harness.calls, ['start'])
+  harness.starts[0].resolve(true)
+  await flushMicrotasks()
+  assert.equal(harness.calls.filter(call => call === 'start').length, 1)
 })
 
 test('scoped remote rejects undeclared namespaces and methods before any request', async () => {
@@ -283,6 +811,65 @@ test('scoped remote rejects undeclared namespaces and methods before any request
     error => error instanceof CapabilityDeniedError,
     'ambiguous single-namespace shortcut refuses to guess',
   )
+})
+
+test('aborted plugin facades refuse stale Remote and Storage calls before wire traffic', async () => {
+  const controller = new AbortController()
+  const requests = []
+  const send = { request: async (method, payload, signal) => {
+    requests.push({ method, payload, signal })
+    return { value: 'unexpected' }
+  } }
+  const remote = createScopedRemote('p.stale', {
+    remotes: [{ namespace: 'alpha', methods: ['list'] }],
+  }, send, controller.signal)
+  const storage = createScopedStorage('p.stale', send, controller.signal)
+  controller.abort(new Error('plugin context is disposed'))
+
+  await assert.rejects(remote.invokeIn('alpha', 'list'), /plugin context is disposed/)
+  await assert.rejects(storage.get('key'), /plugin context is disposed/)
+  await assert.rejects(storage.set('key', { value: true }), /plugin context is disposed/)
+  await assert.rejects(storage.delete('key'), /plugin context is disposed/)
+  assert.equal(requests.length, 0)
+})
+
+test('late Remote and Storage responses are rejected when their context aborts', async () => {
+  const controller = new AbortController()
+  const remoteGate = deferred()
+  const storageGate = deferred()
+  const seenSignals = []
+  const send = {
+    request(method, _payload, signal) {
+      seenSignals.push(signal)
+      return method === 'ui.plugin.invoke' ? remoteGate.promise : storageGate.promise
+    },
+  }
+  const remote = createScopedRemote('p.late', {
+    remotes: [{ namespace: 'alpha', methods: ['list'] }],
+  }, send, controller.signal)
+  const storage = createScopedStorage('p.late', send, controller.signal)
+  const pendingRemote = remote.invokeIn('alpha', 'list')
+  const pendingStorage = storage.get('key')
+  controller.abort(new Error('plugin context is disposed'))
+  await assert.rejects(pendingRemote, /plugin context is disposed/)
+  await assert.rejects(pendingStorage, /plugin context is disposed/)
+  remoteGate.resolve({ value: 'late remote' })
+  storageGate.resolve({ value: 'late storage' })
+  await flushMicrotasks()
+  assert.equal(seenSignals.length, 2)
+  assert.ok(seenSignals.every(signal => signal?.aborted), 'the sender receives the context AbortSignal')
+})
+
+test('async plugin event handlers report failures without blocking healthy siblings', async () => {
+  const errors = []
+  const events = new PluginEventScope('p.events', () => ['allowed/event'], error => errors.push(String(error.message ?? error)))
+  const seen = []
+  events.on('allowed/event', async () => { throw new Error('async event boom') })
+  events.on('allowed/event', payload => seen.push(payload))
+  assert.equal(events.dispatch('allowed/event', { n: 1 }), true)
+  await flushMicrotasks()
+  assert.deepEqual(seen, [{ n: 1 }])
+  assert.deepEqual(errors, ['async event boom'])
 })
 
 test('scoped event delivery honors declarations and detaches on dispose', () => {
@@ -312,6 +899,122 @@ test('runtime dispatches bridge frames only to plugins that declared the event',
   await runtime.stop()
   for (const handler of handlers) handler({ channel: 'host', frame: { rpcId: 'r3', payload: { event: 'sessionPins/changed' } } })
   assert.equal(seen.length, 1, 'disposed plugins stop receiving frames')
+})
+
+test('a throwing bridge unlisten cannot block synchronous plugin revocation', async () => {
+  const handlers = []
+  const logs = []
+  let eventDeliveries = 0
+  let sessionDeliveries = 0
+  const full = descriptor({
+    client: { entryId: 'example.session-pins/client', format: 'esm', sdkVersion: '^1.0.0' },
+  })
+  const runtime = new DesktopUiRuntime({
+    request: async method => {
+      if (method === 'ui.plugin.list') return { items: [full] }
+      throw new Error(`unexpected ${method}`)
+    },
+    listen: handler => {
+      handlers.push(handler)
+      return () => { throw new Error('unlisten failed') }
+    },
+    log: message => logs.push(message),
+    bundledModules: {
+      'example.session-pins/client': async () => ({
+        activate(context) {
+          context.events.on('sessionPins/changed', () => { eventDeliveries += 1 })
+          context.session.onChange(() => { sessionDeliveries += 1 })
+          context.ui.register('session.context-menu', { kind: 'action', id: 'owned', render: () => null })
+        },
+      }),
+    },
+  })
+  await runtime.start()
+  assert.equal(sessionDeliveries, 1)
+  assert.equal(runtime.slots.snapshot('session.context-menu').length, 1)
+  await runtime.handleHostUnavailable()
+  assert.equal(runtime.slots.snapshot('session.context-menu').length, 0)
+  handlers[0]({ channel: 'host', frame: { payload: { event: 'sessionPins/changed' } } })
+  runtime.updateSession({ sessionId: 'after-down', title: 'After down', running: false, blank: false })
+  assert.equal(eventDeliveries, 0)
+  assert.equal(sessionDeliveries, 1)
+  assert.ok(logs.some(message => message.includes('unlisten failed')))
+})
+
+test('an asynchronously unlistened old bridge handler cannot dispatch into a recovered generation', async () => {
+  const seen = []
+  const handlers = []
+  const full = descriptor({ client: { entryId: 'example.session-pins/client', format: 'esm', sdkVersion: '^1.0.0' } })
+  const runtime = new DesktopUiRuntime({
+    request: async method => {
+      if (method === 'ui.plugin.list') return { items: [full] }
+      throw new Error(`unexpected ${method}`)
+    },
+    listen: handler => {
+      handlers.push(handler)
+      return () => undefined
+    },
+    bundledModules: {
+      'example.session-pins/client': async () => ({
+        activate(context) {
+          context.events.on('sessionPins/changed', payload => seen.push(payload))
+        },
+      }),
+    },
+  })
+  await runtime.start()
+  assert.equal(handlers.length, 1)
+  await runtime.handleHostUnavailable()
+  await runtime.handleHostRestart()
+  await runtime.refresh()
+  assert.equal(handlers.length, 2)
+  const frame = { channel: 'host', frame: { rpcId: 'recovered', payload: { event: 'sessionPins/changed', args: [2] } } }
+  handlers[0](frame)
+  assert.deepEqual(seen, [], 'the old listener is ignored by token and Host epoch')
+  handlers[1](frame)
+  assert.deepEqual(seen, [{ event: 'sessionPins/changed', args: [2] }])
+  await runtime.stop()
+})
+
+test('down → up → down during slow teardown never reattaches a stale bridge listener', async () => {
+  const release = deferred()
+  const handlers = []
+  const seen = []
+  const full = descriptor({
+    client: { entryId: 'example.session-pins/client', format: 'esm', sdkVersion: '^1.0.0' },
+  })
+  const runtime = new DesktopUiRuntime({
+    request: async method => {
+      if (method === 'ui.plugin.list') return { items: [full] }
+      throw new Error(`unexpected ${method}`)
+    },
+    listen: handler => {
+      handlers.push(handler)
+      return () => undefined
+    },
+    deactivateTimeoutMs: 1_000,
+    bundledModules: {
+      'example.session-pins/client': async () => ({
+        activate(context) {
+          context.events.on('sessionPins/changed', payload => seen.push(payload))
+        },
+        async deactivate() {
+          await release.promise
+        },
+      }),
+    },
+  })
+  await runtime.start()
+  assert.equal(handlers.length, 1)
+  const downOne = runtime.handleHostUnavailable()
+  const recovering = runtime.handleHostRestart()
+  await flushMicrotasks()
+  const downTwo = runtime.handleHostUnavailable()
+  release.resolve()
+  await Promise.all([downOne, recovering, downTwo])
+  assert.equal(handlers.length, 1, 'the stale recovery must not install a second listener')
+  handlers[0]({ channel: 'host', frame: { payload: { event: 'sessionPins/changed' } } })
+  assert.deepEqual(seen, [], 'the detached generation cannot reach deactivated plugins')
 })
 
 test('catalog snapshots and change notifications power the settings surface', async () => {
@@ -428,6 +1131,92 @@ test('session subscribers receive initial and changed sessions but not same-sess
   assert.equal(runtime.sessionGeneration, 2)
 })
 
+test('async Session handler failures do not block healthy plugin siblings', async () => {
+  const logs = []
+  const sessions = []
+  const failing = descriptor({
+    pluginId: 'p.fail-session',
+    client: { entryId: 'p.fail-session/client', format: 'esm', sdkVersion: '^1.0.0' },
+  })
+  const healthy = descriptor({
+    pluginId: 'p.healthy-session',
+    client: { entryId: 'p.healthy-session/client', format: 'esm', sdkVersion: '^1.0.0' },
+  })
+  const runtime = new DesktopUiRuntime({
+    request: async method => {
+      if (method === 'ui.plugin.list') return { items: [failing, healthy] }
+      throw new Error(`unexpected ${method}`)
+    },
+    listen: () => () => undefined,
+    log: message => logs.push(message),
+    bundledModules: {
+      'p.fail-session/client': async () => ({
+        activate(context) {
+          context.session.onChange(async session => {
+            if (session) throw new Error('async Session boom')
+          })
+        },
+      }),
+      'p.healthy-session/client': async () => ({
+        activate(context) {
+          context.session.onChange(session => sessions.push(session?.sessionId ?? null))
+        },
+      }),
+    },
+  })
+  await runtime.start()
+  runtime.updateSession({ sessionId: 's-1', title: 'One', running: false, blank: false })
+  await flushMicrotasks()
+  assert.deepEqual(sessions, [null, 's-1'])
+  assert.ok(logs.some(message => message.includes('async Session boom')))
+  await runtime.stop()
+})
+
+test('disabled runtime exposes a disabled snapshot before and after start', async () => {
+  const runtime = new DesktopUiRuntime({
+    enabled: false,
+    request: async () => { throw new Error('disabled runtime must not request the Host') },
+    listen: () => () => {},
+  })
+  assert.equal(runtime.catalogSnapshot().status, 'disabled')
+  assert.equal(await runtime.start(), false)
+  assert.equal(runtime.catalogSnapshot().status, 'disabled')
+  assert.equal(await runtime.refresh(), false)
+  assert.equal(runtime.catalogSnapshot().status, 'disabled')
+})
+
+test('a disabled Runtime can re-enable and discover a fresh plugin catalog', async () => {
+  let activated = 0
+  const full = descriptor({
+    client: { entryId: 'example.session-pins/client', format: 'esm', sdkVersion: '^1.0.0' },
+  })
+  const { runtime, handlers } = fakeRuntime({
+    items: [full],
+    modules: {
+      'example.session-pins/client': async () => ({
+        activate(context) {
+          activated += 1
+          context.ui.register('session.context-menu', { kind: 'action', id: 'toggle', render: () => null })
+        },
+      }),
+    },
+  })
+  await runtime.setEnabled(false)
+  assert.equal(runtime.status, 'disabled')
+  assert.equal(runtime.slots.snapshot('session.context-menu').length, 0)
+  await runtime.setEnabled(true)
+  assert.equal(runtime.status, 'loading')
+  assert.equal(await runtime.start(), true)
+  assert.equal(activated, 1)
+  assert.equal(runtime.status, 'ready')
+  assert.equal(handlers.size, 1)
+  assert.equal(runtime.slots.snapshot('session.context-menu').length, 1)
+  await runtime.setEnabled(false)
+  assert.equal(runtime.status, 'disabled')
+  assert.equal(handlers.size, 0)
+  assert.equal(runtime.slots.snapshot('session.context-menu').length, 0)
+})
+
 test('catalog failures keep the host app functional and report diagnostics', async () => {
   const runtime = new DesktopUiRuntime({
     request: async () => { throw new Error('bridge down') },
@@ -447,13 +1236,59 @@ test('catalog failures keep the host app functional and report diagnostics', asy
 
 test('declarative invocation routes through the restricted route with session binding', async () => {
   const contribution = { kind: 'action', id: 'pins.toggle', slot: 'session.context-menu', label: '置顶会话', invoke: { namespace: 'sessionPins', method: 'toggle' } }
+  const badge = { kind: 'badge', id: 'pins.badge', slot: 'session.row.trailing', label: 'B' }
+  const declarative = descriptor({ client: undefined, contributions: [contribution, badge] })
+  const { runtime, requests } = fakeRuntime({ items: [declarative] })
+  await runtime.start()
+  const activeAction = runtime.slots.snapshot('session.context-menu').find(item => item.contributionId === contribution.id).declarative
+  const activeBadge = runtime.slots.snapshot('session.row.trailing').find(item => item.contributionId === badge.id).declarative
+  await runtime.invokeDeclarative('example.session-pins', activeAction, { sessionId: 's-42' })
+  const invoke = requests.find(request => request.method === 'ui.plugin.invoke')
+  assert.deepEqual(invoke.payload, { pluginId: 'example.session-pins', namespace: 'sessionPins', method: 'toggle', args: { sessionId: 's-42' } })
+  await assert.rejects(runtime.invokeDeclarative('example.session-pins', activeBadge), /invoke target/)
+})
+
+test('a captured declarative callback cannot invoke the Host after down invalidates its entry', async () => {
+  const contribution = { kind: 'action', id: 'pins.toggle', slot: 'session.context-menu', label: '置顶会话', invoke: { namespace: 'sessionPins', method: 'toggle' } }
   const declarative = descriptor({ client: undefined, contributions: [contribution] })
   const { runtime, requests } = fakeRuntime({ items: [declarative] })
   await runtime.start()
-  await runtime.invokeDeclarative('example.session-pins', contribution, { sessionId: 's-42' })
-  const invoke = requests.find(request => request.method === 'ui.plugin.invoke')
-  assert.deepEqual(invoke.payload, { pluginId: 'example.session-pins', namespace: 'sessionPins', method: 'toggle', args: { sessionId: 's-42' } })
-  await assert.rejects(runtime.invokeDeclarative('example.session-pins', { kind: 'badge', id: 'b', slot: 'session.row.trailing', label: 'B' }), /invoke target/)
+  const captured = runtime.slots.snapshot('session.context-menu')[0].declarative
+  const requestsBeforeDown = requests.length
+  const unavailable = runtime.handleHostUnavailable()
+  await assert.rejects(
+    runtime.invokeDeclarative('example.session-pins', captured, { sessionId: 'stale' }),
+    /no longer active/,
+  )
+  assert.equal(requests.length, requestsBeforeDown, 'stale declarative actions do not reach the bridge')
+  await unavailable
+})
+
+test('a pending declarative invocation rejects immediately when Host goes down', async () => {
+  const invokeGate = deferred()
+  let receivedSignal
+  const contribution = { kind: 'action', id: 'pins.toggle', slot: 'session.context-menu', label: '置顶会话', invoke: { namespace: 'sessionPins', method: 'toggle' } }
+  const declarative = descriptor({ client: undefined, contributions: [contribution] })
+  const runtime = new DesktopUiRuntime({
+    request: async (method, _payload, signal) => {
+      if (method === 'ui.plugin.list') return { items: [declarative] }
+      if (method === 'ui.plugin.invoke') {
+        receivedSignal = signal
+        return invokeGate.promise
+      }
+      throw new Error(`unexpected ${method}`)
+    },
+    listen: () => () => undefined,
+  })
+  await runtime.start()
+  const active = runtime.slots.snapshot('session.context-menu')[0].declarative
+  const pending = runtime.invokeDeclarative('example.session-pins', active, { sessionId: 's-1' })
+  await flushMicrotasks()
+  const unavailable = runtime.handleHostUnavailable()
+  await assert.rejects(pending, /Host runtime is unavailable/)
+  assert.equal(receivedSignal?.aborted, true)
+  invokeGate.resolve({ value: 'late result' })
+  await unavailable
 })
 
 test('scoped storage passes through the restricted routes', async () => {

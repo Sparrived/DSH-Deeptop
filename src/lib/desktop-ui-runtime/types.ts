@@ -30,7 +30,7 @@ export interface UiPromptRequest {
 export type UiNoticeKind = "info" | "error";
 
 export interface UiHostActions {
-  prompt(request: UiPromptRequest): Promise<string | null>;
+  prompt(request: UiPromptRequest, signal?: AbortSignal): Promise<string | null>;
   notify(message: string, kind?: UiNoticeKind): void;
 }
 
@@ -88,7 +88,7 @@ export interface ScopedRemoteClient {
 
 /** Scoped event subscription limited to the plugin's declared event names. */
 export interface ScopedEventClient {
-  on(event: string, handler: (payload: unknown) => void): () => void;
+  on(event: string, handler: (payload: unknown) => void | Promise<void>): () => void;
 }
 
 /** Namespace-scoped JSON storage backed by the host registry service. */
@@ -102,7 +102,7 @@ export interface ScopedStorage {
 export interface PluginSessionClient {
   readonly current: SessionUiContext | null;
   readonly generation: number;
-  onChange(handler: (session: SessionUiContext | null) => void): () => void;
+  onChange(handler: (session: SessionUiContext | null) => void | Promise<void>): () => void;
 }
 
 export interface PluginLogger {
