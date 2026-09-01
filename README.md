@@ -89,7 +89,7 @@ npm ci
 npm run tauri:dev
 ```
 
-After launch, wait for the embedded DSH runtime to become ready, pick or create a workspace, configure a provider and credentials, then start your first session. Deeptop launches a pinned DSH build from the installer's compressed `dsh-runtime.tar.gz` resource and reuses an extraction cache named after the source commit, platform, architecture and runtime tree digest for subsequent starts and updates; the user's PATH, global npm, npm cache and registry never replace or install the runtime. Installers still execute the embedded JavaScript with the system Node.js and show a retryable native error when Node.js is missing.
+After launch, wait for the embedded DSH runtime to become ready, pick or create a workspace, configure a provider and credentials, then start your first session. Deeptop launches a pinned DSH build from the installer's compressed `dsh-runtime.tar.gz` resource and reuses an extraction cache named after the source commit, platform, architecture and runtime tree digest for subsequent starts and updates; the user's PATH, global npm, npm cache and registry never replace or install the runtime. Runtime builds deploy production dependencies from `vendor/dsh/pnpm-lock.yaml` and smoke-load startup modules, including platform-native dependencies, from the final archive. Installers still execute the embedded JavaScript with the system Node.js and show a retryable native error when Node.js is missing.
 
 > `npm run dev` only starts a Vite preview without the Tauri Bridge or the DSH subprocess. It is meant for layout adjustments, not for verifying session, file or system-integration features.
 

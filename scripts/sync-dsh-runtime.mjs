@@ -13,6 +13,7 @@ const legacyOutputRoot = path.join(resourcesRoot, "dsh-runtime");
 const sourceNodeModules = path.join(sourceRoot, "node_modules");
 const cliManifestPath = path.join(sourceRoot, "apps", "cli", "package.json");
 const entry = "node_modules/@deepseek-ai/dsh/lib/bin.js";
+const RUNTIME_SMOKE_PACKAGES = ["@deepseek-ai/dsh-attachment-local"];
 const OPTIONAL_RUNTIME_PACKAGES = [
   ["@deepseek-ai/dsh-file-reference", "packages/context/file-reference", true],
   ["@deepseek-ai/dsh-file-reference-local", "packages/context/file-reference-local", true],
@@ -101,7 +102,9 @@ function isRuntimeReady(manifest, packageVersion) {
     !force &&
     manifest?.sourceCommit === gitOutput(["rev-parse", "HEAD"]) &&
     manifest?.packageVersion === packageVersion &&
-    manifest?.runtimeFeatures === 3 &&
+    manifest?.runtimeFeatures === 4 &&
+    Array.isArray(manifest?.runtimeSmokePackages) &&
+    RUNTIME_SMOKE_PACKAGES.every((name) => manifest.runtimeSmokePackages.includes(name)) &&
     manifest?.entry === entry &&
     manifest?.platform === process.platform &&
     manifest?.arch === process.arch &&
@@ -217,7 +220,11 @@ function copyWorkspacePackages(workspaceRoot) {
     const targetRoot = packagePathForName(packageManifest.name);
     const targetManifest = path.join(targetRoot, "package.json");
     const targetMain = main ? path.join(targetRoot, main) : undefined;
-    const targetNeedsPackage = !fs.existsSync(targetManifest) || (main !== "" && !fs.existsSync(targetMain));
+    const targetGeneratedEntry = path.join(targetRoot, "lib", "types", "index.js");
+    const targetNeedsPackage =
+      !fs.existsSync(targetManifest) ||
+      (main !== "" && !fs.existsSync(targetMain)) ||
+      (fs.existsSync(sourceGeneratedEntry) && !fs.existsSync(targetGeneratedEntry));
     if (!main) continue;
     if (!targetNeedsPackage) {
       if (fs.existsSync(path.join(targetRoot, "lib", "types"))) {
@@ -269,6 +276,13 @@ function verifyOptionalRuntimeClosure() {
   run(process.execPath, ["--input-type=module", "-e", `for (const name of ${names}) await import(name)`], temporaryRoot);
   const desktopNames = JSON.stringify(DESKTOP_RUNTIME_PACKAGES.map(({ name }) => name));
   run(process.execPath, ["--input-type=module", "-e", `for (const name of ${desktopNames}) await import(name)`], temporaryRoot);
+  const smokeNames = JSON.stringify(RUNTIME_SMOKE_PACKAGES);
+  run(
+    process.execPath,
+    ["--input-type=module", "-e", `for (const name of ${smokeNames}) await import(name)`],
+    temporaryRoot,
+    { NODE_PATH: "", SHARP_FORCE_GLOBAL_LIBVIPS: "", SHARP_IGNORE_GLOBAL_LIBVIPS: "1" },
+  );
 }
 
 function copyDesktopRuntimePackages() {
@@ -461,17 +475,20 @@ fs.mkdirSync(temporaryRoot, { recursive: true });
 
 try {
   const corepack = process.platform === "win32" ? "corepack.cmd" : "corepack";
+  // Injected workspace deploy keeps registry and platform-optional packages pinned
+  // to the shared lockfile while producing a self-contained dependency tree.
   run(
     corepack,
     [
       "pnpm",
       "--config.ignore-scripts=true",
+      "--config.inject-workspace-packages=true",
       "--config.node-linker=hoisted",
+      "--frozen-lockfile",
       "--filter",
       "@deepseek-ai/dsh",
       "deploy",
       "--prod",
-      "--legacy",
       deployRoot,
     ],
     sourceRoot,
@@ -528,8 +545,8 @@ try {
 
   const manifest = {
     format: 1,
-    // The bridge loads this explicitly packaged dependency from the runtime root.
-    runtimeFeatures: 3,
+    // Feature 4 pins the deploy to pnpm-lock.yaml and smokes native startup imports.
+    runtimeFeatures: 4,
     packageName: "@deepseek-ai/dsh",
     packageVersion,
     sourceRepository: "https://github.com/deepseek-ai/deepseek-harness.git",
@@ -541,6 +558,7 @@ try {
     treeSha256: treeSha256(temporaryRoot),
     optionalPackages: OPTIONAL_RUNTIME_PACKAGES.map(({ name }) => name),
     desktopRuntimePackages: DESKTOP_RUNTIME_PACKAGES.map(({ name }) => name),
+    runtimeSmokePackages: RUNTIME_SMOKE_PACKAGES,
     optionalPresets: DESKTOP_PRESETS,
   };
   fs.writeFileSync(path.join(temporaryRoot, "runtime-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
