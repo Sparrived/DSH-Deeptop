@@ -831,7 +831,7 @@ function AppContent() {
   function changeLocale(next: UiLocale) {
     setLocale(next);
     writeStoredLocale(next);
-    void pushLocaleToHost();
+    void pushLocaleToHost(next);
   }
   // @deeptop-pets:start app-system-hook
   const petSystem = usePetSystem({

@@ -25,15 +25,20 @@ export function isUiLocale(value: unknown): value is UiLocale {
 export const LOCALE_STORAGE_KEY = "deeptop.locale";
 export const LOCALE_SETTINGS_NS = "locale";
 
-/** 读取本地持久化的语言；无效或缺失时回退中文。 */
-export function readStoredLocale(): UiLocale {
-  if (typeof window === "undefined") return "zh";
+/** 读取本地显式保存的语言；无效或缺失时返回 undefined。 */
+export function storedLocalePreference(): UiLocale | undefined {
+  if (typeof window === "undefined") return undefined;
   try {
     const saved = window.localStorage.getItem(LOCALE_STORAGE_KEY);
-    return isUiLocale(saved) ? saved : "zh";
+    return isUiLocale(saved) ? saved : undefined;
   } catch {
-    return "zh";
+    return undefined;
   }
+}
+
+/** 读取界面初始语言；本地没有显式选择时回退中文。 */
+export function readStoredLocale(): UiLocale {
+  return storedLocalePreference() ?? "zh";
 }
 
 export function writeStoredLocale(locale: UiLocale) {

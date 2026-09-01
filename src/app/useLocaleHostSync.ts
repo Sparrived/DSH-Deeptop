@@ -6,7 +6,7 @@ import {
   isLocaleDocumentUpdated,
   localePreferenceFromSettings,
   localePreferenceOps,
-  readStoredLocale,
+  storedLocalePreference,
   writeStoredLocale,
   type UiLocale,
 } from "./i18n.ts";
@@ -25,7 +25,7 @@ export function useLocaleHostSync(options: {
   desktop: boolean;
   locale: UiLocale;
   onUserChange: (locale: UiLocale) => void;
-}): { pushToHost: () => Promise<void> } {
+}): { pushToHost: (preference?: UiLocale) => Promise<void> } {
   const { desktop, locale, onUserChange } = options;
   const applyingRef = useRef(false);
   const initialAdoptedRef = useRef(false);
@@ -40,22 +40,29 @@ export function useLocaleHostSync(options: {
         if (cancelled) return;
         const preference = localePreferenceFromSettings(settings);
         if (preference === undefined) return;
-        const saved = readStoredLocale();
-        if (saved !== "zh") {
-          // 本地已有显式选择：写回 Host（若不同），不回读。
+        const saved = storedLocalePreference();
+        if (saved !== undefined) {
+          // 本地已有显式选择（包括中文）：写回 Host（若不同），不回读。
           if (saved !== preference) {
             applyingRef.current = true;
-            await desktopRequest("settings.mutate", {
-              ns: "locale",
-              ops: localePreferenceOps(saved),
-            });
-            applyingRef.current = false;
+            try {
+              await desktopRequest("settings.mutate", {
+                ns: "locale",
+                ops: localePreferenceOps(saved),
+              });
+            } finally {
+              applyingRef.current = false;
+            }
           }
         } else {
-          // 本地无显式选择（默认中文）：采纳 Host 值。
+          // 本地无显式选择：以桌面 Host 设置为跨重启权威值。
           applyingRef.current = true;
-          onUserChange(preference as UiLocale);
-          applyingRef.current = false;
+          try {
+            onUserChange(preference);
+            writeStoredLocale(preference);
+          } finally {
+            applyingRef.current = false;
+          }
         }
       } catch {
         // settings.describe 失败（桥未就绪等）时保持现状。
@@ -77,8 +84,12 @@ export function useLocaleHostSync(options: {
           const preference = localePreferenceFromSettings(settings);
           if (preference === undefined || preference === locale) return;
           applyingRef.current = true;
-          onUserChange(preference as UiLocale);
-          applyingRef.current = false;
+          try {
+            onUserChange(preference);
+            writeStoredLocale(preference);
+          } finally {
+            applyingRef.current = false;
+          }
         } catch {
           // describe 失败保持现状。
         }
@@ -90,13 +101,13 @@ export function useLocaleHostSync(options: {
     };
   }, [desktop, onUserChange, locale]);
 
-  async function pushToHost() {
+  async function pushToHost(preference = locale) {
     if (!desktop || applyingRef.current) return;
     try {
       applyingRef.current = true;
       await desktopRequest("settings.mutate", {
         ns: "locale",
-        ops: localePreferenceOps(locale),
+        ops: localePreferenceOps(preference),
       });
     } catch {
       // Host 未注册/写失败：本地语言仍生效。
