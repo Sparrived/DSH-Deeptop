@@ -7,10 +7,10 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourceRoot = path.join(root, "vendor", "dsh");
 const publicBase = "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e";
 const publicTag = "dsh-v0.1.1-rc.2";
-const patchedCommit = "9270fce86d6a068e00b1cae955273220ceffa1a5";
+const patchedCommit = "7f4408325ff7dece0b98a13185dd3576d0605f60";
 const upstream = "https://github.com/deepseek-ai/deepseek-harness.git";
 
-// The vendored runtime ships two local commits on top of the public RC2 tag.
+// The vendored runtime ships three local commits on top of the public RC2 tag.
 // Each entry reproduces one of them deterministically from its patch file:
 // identical tree, parents, message, and author/committer identity reproduce
 // the exact commit id pinned by src-tauri/src/main.rs.
@@ -53,6 +53,22 @@ const patches = [
       "",
     ].join("\n"),
   },
+  {
+    file: "dsh-pwsh-reprobe.patch",
+    commit: "7f4408325ff7dece0b98a13185dd3576d0605f60",
+    authorName: "Sparrived",
+    authorEmail: "sparrived@outlook.com",
+    authorDate: "2026-09-01T14:32:52+08:00",
+    committerDate: "2026-09-01T14:32:52+08:00",
+    message: [
+      "fix(pwsh): 重新探测 Store 可执行文件",
+      "",
+      "解析 Store app execution alias 的当前包目标，跳过已确认悬空的别名，并在每次命令启动前重新探测自动路径。",
+      "保留显式 pwshPath 与 ACL 阻止目标检查时的 alias 支持，更新中英文 README 和决策记录。",
+      "验证：pwsh-local 与 pwsh-sandbox 专项测试 54 通过、5 平台跳过；包类型检查、lint、文档配对及链接检查通过。",
+      "",
+    ].join("\n"),
+  },
 ];
 
 function git(args, options = {}) {
@@ -71,6 +87,24 @@ function git(args, options = {}) {
 
 function sourceGit(args, options = {}) {
   return git(["-C", sourceRoot, ...args], options);
+}
+
+const rustSource = fs.readFileSync(path.join(root, "src-tauri", "src", "main.rs"), "utf8");
+const rustCommit = rustSource.match(
+  /const BUNDLED_DSH_SOURCE_COMMIT:\s*&str\s*=\s*"([0-9a-f]{40})"/,
+)?.[1];
+const gitlinkCommit = git(["ls-files", "--stage", "vendor/dsh"]).split(/\s+/u)[1];
+const finalPatchCommit = patches.at(-1)?.commit;
+if (
+  rustCommit !== patchedCommit ||
+  gitlinkCommit !== patchedCommit ||
+  finalPatchCommit !== patchedCommit
+) {
+  throw new Error(
+    "DSH 固定提交不一致：" +
+      `源码准备 ${patchedCommit}，Rust ${rustCommit ?? "<missing>"}，` +
+      `gitlink ${gitlinkCommit ?? "<missing>"}，补丁链 ${finalPatchCommit ?? "<missing>"}`,
+  );
 }
 
 if (!fs.existsSync(path.join(sourceRoot, ".git"))) {
