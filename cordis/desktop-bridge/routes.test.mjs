@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
 import { createServer } from 'node:http'
 import { mkdtemp, readdir, readFile, rm as removePath, stat, writeFile } from 'node:fs/promises'
 import test from 'node:test'
@@ -6,7 +7,7 @@ import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { constants, zstdCompressSync, zstdDecompressSync } from 'node:zlib'
 import { routeDesktopRequest } from './routes.mjs'
-import { bridgeErrorFrame } from './bridge.mjs'
+import { bridgeErrorFrame, DesktopBridge, writeBridgeFrame } from './bridge.mjs'
 import { applyProxy, initNetworkProxy, loadProxySetting, normalizeProxyOverride, parseWindowsProxyServer, setProxySetting, stopSystemProxyWatch } from './network-proxy.mjs'
 import { describePluginConfig, mutatePluginConfig } from './plugin-config.mjs'
 import { parseGitHubSource, selectSkillPath, validateRelativeRepoPath } from '../skill-installer/installer.mjs'
@@ -14,10 +15,116 @@ import { reconstructContiguous, rowSeqs, scanZstdFrames, verifyReadable } from '
 
 const signal = new AbortController().signal
 
+function historyEntry(seq, type, data = {}) {
+  return { event: { seq, time: 1_000 + seq, type, data } }
+}
+
+test('waits for stdout drain when the bridge writer applies backpressure', async () => {
+  const output = new EventEmitter()
+  const writes = []
+  output.write = line => {
+    writes.push(line)
+    return false
+  }
+  let settled = false
+  const pending = writeBridgeFrame(output, { type: 'event', value: 1 }).then(() => { settled = true })
+  await Promise.resolve()
+  assert.equal(settled, false)
+  assert.deepEqual(writes, ['{"type":"event","value":1}\n'])
+  output.emit('drain')
+  await pending
+  assert.equal(settled, true)
+})
+
+test('serializes bridge writes while stdout is backpressured', async () => {
+  const output = new EventEmitter()
+  const writes = []
+  let blocked = true
+  output.write = line => {
+    writes.push(line)
+    return !blocked
+  }
+  const bridge = new DesktopBridge({}, output)
+  const first = bridge.write({ order: 1 })
+  const second = bridge.write({ order: 2 })
+  await Promise.resolve()
+  await Promise.resolve()
+  assert.deepEqual(writes, ['{"order":1}\n'])
+  blocked = false
+  output.emit('drain')
+  await Promise.all([first, second])
+  assert.deepEqual(writes, ['{"order":1}\n', '{"order":2}\n'])
+})
+
+test('rejects a blocked bridge write when stdout closes', async () => {
+  const output = new EventEmitter()
+  output.write = () => false
+  const pending = writeBridgeFrame(output, { type: 'event' })
+  output.emit('close')
+  await assert.rejects(pending, /stdout closed before drain/)
+})
+
+test('aborts streams and exits when the bridge output fails', async () => {
+  const exits = []
+  const output = new EventEmitter()
+  output.closed = true
+  const bridge = new DesktopBridge({ get: key => key === 'appExit' ? code => exits.push(code) : undefined }, output)
+
+  await assert.rejects(bridge.write({ type: 'event' }), /stdout is already closed/)
+  await Promise.resolve()
+
+  assert.equal(bridge.abort.signal.aborted, true)
+  assert.deepEqual(exits, [1])
+})
+
 test('keeps workspace clipboard actions on the native bridge', async () => {
   const source = await readFile(join(import.meta.dirname, '..', '..', 'src', 'components', 'WorkspaceFilesPanel.tsx'), 'utf8')
   assert.match(source, /writeClipboard\(path\)/)
   assert.doesNotMatch(source, /navigator\.clipboard|document\.execCommand\(['"]copy/)
+})
+
+test('compacts session history before crossing the desktop bridge', async () => {
+  const raw = [
+    historyEntry(1, 'step/start', { turn: 1, step: 1 }),
+    ...Array.from({ length: 2_000 }, (_, index) => historyEntry(index + 2, 'assistant/chunk', {
+      turn: 1,
+      step: 1,
+      chunk: { type: 'text-delta', index: 0, text: 'x' },
+    })),
+  ]
+  const response = await routeDesktopRequest({
+    apiProxy: {
+      sessions: {
+        history: async () => ({ rpcId: 'history', result: { ok: true, value: { events: raw, hasMore: false } } }),
+      },
+    },
+  }, 'session.history', { sessionId: 'session-1' }, signal)
+
+  assert.equal(response.result.value.events.length, 2)
+  assert.equal(response.result.value.events[1].event.data.chunk.text.length, 2_000)
+  assert.deepEqual(response.result.value.events[1].compactedEventSeqRanges, [[2, 2_001]])
+})
+
+test('keeps raw session history for diagnostics and JSON export', async () => {
+  const raw = [
+    historyEntry(1, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'a' } }),
+    historyEntry(2, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'b' } }),
+  ]
+  let forwardedPayload
+  const response = await routeDesktopRequest({
+    apiProxy: {
+      sessions: {
+        history: async request => {
+          forwardedPayload = request.payload
+          return { rpcId: 'history', result: { ok: true, value: { events: raw, hasMore: false } } }
+        },
+      },
+    },
+  }, 'session.history', { sessionId: 'session-1', display: false }, signal)
+
+  assert.deepEqual(forwardedPayload, { sessionId: 'session-1' })
+  assert.equal(response.result.value.events, raw)
+  assert.equal(response.result.value.events.length, 2)
 })
 
 test('describes an empty plugin config without requiring a browser dialog', async () => {

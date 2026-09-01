@@ -13,6 +13,7 @@ import {
   eventToolText,
   isInjectedMessage,
   messageSource,
+  numberValue,
   recordValue,
   streamKey,
 } from "./message-model.ts";
@@ -35,7 +36,7 @@ function turnEndText(reason: unknown, kind: string, locale: UiLocale = "zh") {
 
 export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLocale = "zh"): TranscriptItem[] {
   const items: TranscriptItem[] = [];
-  const streams = new Map<string, { text: string; reasoning: string; seq: number; time: number }>();
+  const streams = new Map<string, { text: string; reasoning: string; seq: number; time: number; streaming: boolean }>();
   const orderedEntries = [...entries].sort((left, right) => left.event.seq - right.event.seq);
   const messageStats = assistantMessageStats(orderedEntries);
   for (const entry of orderedEntries) {
@@ -47,12 +48,21 @@ export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLoca
       const type = typeof chunk?.type === "string" ? chunk.type : "";
       if ((type === "text-delta" || type === "reasoning-delta") && typeof chunk?.text === "string") {
         const key = streamKey(event);
-        const current = streams.get(key) ?? { text: "", reasoning: "", seq: event.seq, time: event.time };
+        const current = streams.get(key) ?? { text: "", reasoning: "", seq: event.seq, time: event.time, streaming: true };
         if (type === "text-delta") current.text += chunk.text;
         else current.reasoning += chunk.text;
         current.time = event.time;
         streams.set(key, current);
       }
+      continue;
+    }
+    if (event.type === "llm/retry-started") {
+      streams.delete(streamKey(event));
+      continue;
+    }
+    if (event.type === "step/end") {
+      const stream = streams.get(streamKey(event));
+      if (stream) stream.streaming = false;
       continue;
     }
     if (event.type === "user/message") {
@@ -98,7 +108,7 @@ export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLoca
       const segments = contentSegments(assistantContent(event));
       const reasoning = segments.reasoning || stream?.reasoning || "";
       const text = segments.text || stream?.text || "";
-      if (reasoning) items.push({ key: `reasoning-${event.seq}`, kind: "reasoning", label: "Think", text: reasoning, seq: stream?.seq ?? event.seq, time: event.time });
+      if (reasoning) items.push({ key: `reasoning-${event.seq}`, kind: "reasoning", label: "Think", text: reasoning, seq: stream?.seq ?? entry.displayFirstChunkSeq ?? event.seq, time: event.time });
       if (text || segments.images.length > 0) items.push({ key: `event-${event.seq}`, kind: "assistant", label: "DSH", text, images: segments.images, seq: event.seq, messageId, time: event.time, stats: messageStats.get(event.seq) });
       streams.delete(streamKey(event));
       continue;
@@ -123,6 +133,12 @@ export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLoca
       continue;
     }
     if (event.type === "turn/end") {
+      const turn = numberValue(event.data.turn);
+      if (turn !== undefined) {
+        for (const [key, stream] of streams) {
+          if (key.startsWith(`${turn}/`)) stream.streaming = false;
+        }
+      }
       const reason = event.data?.reason;
       const reasonKind = reason && typeof reason === "object"
         ? (reason as Record<string, unknown>).kind
@@ -137,8 +153,8 @@ export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLoca
     }
   }
   for (const [key, stream] of streams) {
-    if (stream.reasoning) items.push({ key: `reasoning-${key}`, kind: "reasoning", label: "Think", text: stream.reasoning, seq: stream.seq, time: stream.time, streaming: true });
-    if (stream.text) items.push({ key: `stream-${key}`, kind: "assistant", label: "DSH", text: stream.text, seq: stream.seq, time: stream.time });
+    if (stream.reasoning) items.push({ key: `reasoning-${key}-${stream.seq}`, kind: "reasoning", label: "Think", text: stream.reasoning, seq: stream.seq, time: stream.time, streaming: stream.streaming });
+    if (stream.text) items.push({ key: `stream-${key}-${stream.seq}`, kind: "assistant", label: "DSH", text: stream.text, seq: stream.seq, time: stream.time, streaming: stream.streaming });
   }
   for (const workflow of workflowViewsFromHistory(orderedEntries, locale)) {
     items.push({ key: `workflow-${workflow.seq}`, kind: "workflow", label: "Workflow", text: workflow.view.name, seq: workflow.seq, time: workflow.time, workflow: workflow.view });

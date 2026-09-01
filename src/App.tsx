@@ -43,6 +43,7 @@ import { useProviderSettings } from "./app/useProviderSettings";
 import { useWindowControls } from "./app/useWindowControls";
 import { normalizeWindowBehavior } from "./app/window-behavior";
 import { clearQueuedSessionEvents, routeBridgeEvent } from "./app/bridge-event-handler";
+import { compactDisplayHistory, displayHistoryStartSeq, mergeDisplayHistory } from "./app/display-history";
 import { trackAsyncCleanup } from "./lib/async-cleanup";
 import { ImageAttachmentCache } from "./app/image-attachment-cache";
 import { BoundedClaimSet } from "./app/bounded-claim-set";
@@ -142,7 +143,7 @@ import { desktopClientRuntime } from "./lib/desktop-client-runtime";
 import { desktopRequest, desktopRemoteInvoke } from "./lib/desktop-api";
 import { seedBridgeLinkStatus } from "./lib/bridge-link";
 import { overlayProjections, sessionProjectionCache } from "./app/projection-cache";
-import { historyPageCache, HISTORY_PAGE_SIZE_DEFAULT } from "./app/history-page-cache";
+import { historyPageCache, HISTORY_PAGE_SIZE_DEFAULT, ownsHistoryView } from "./app/history-page-cache";
 import {
   indexWorkspacesBySessionId,
   reorderWorkspaceProjections,
@@ -409,6 +410,25 @@ function appearanceSectionLabel(section: AppearanceConfigSection, locale: UiLoca
         : t("settings.css", locale);
 }
 
+function emptySessionStats(): SessionStats {
+  return {
+    tokenUsageSource: "none",
+    tokenUsageAvailable: false,
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    reasoningTokens: 0,
+    uncachedInputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    contextTokens: 0,
+    contextTokensAvailable: false,
+    contextLimit: 0,
+    cacheHitRate: 0,
+    messages: 0,
+  };
+}
+
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = window.setTimeout(() => reject(new Error(message)), timeoutMs);
@@ -436,6 +456,7 @@ function AppContent() {
   const [sessionIndicators, setSessionIndicators] = useState<Record<string, SessionIndicator>>({});
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [history, setHistory] = useState<DshHistoryEntry[]>([]);
+  const historyRef = useRef<DshHistoryEntry[]>([]);
   const [historyHasMore, setHistoryHasMore] = useState(false);
   const [historyLoadingOlder, setHistoryLoadingOlder] = useState(false);
   const [todos, setTodos] = useState<TodoItem[] | null>(null);
@@ -482,7 +503,7 @@ function AppContent() {
   const [plan, setPlan] = useState<DshPlanProjection | null>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelMenuPane, setModelMenuPane] = useState<ModelMenuPane>("root");
-  const [sessionStats, setSessionStats] = useState<SessionStats>({ inputTokens: 0, outputTokens: 0, totalTokens: 0, reasoningTokens: 0, uncachedInputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, contextTokens: 0, contextLimit: 0, cacheHitRate: 0, messages: 0 });
+  const [sessionStats, setSessionStats] = useState<SessionStats>(emptySessionStats);
   const [presets, setPresets] = useState<DshPreset[]>([]);
   const [presetAuthorable, setPresetAuthorable] = useState(false);
   const [presetHasDocument, setPresetHasDocument] = useState(false);
@@ -2098,7 +2119,7 @@ function AppContent() {
     try {
       const result = await desktopRequest("subagent.history", { ...address });
       if (requestId !== subagentRequestRef.current) return;
-      setSubagentSession({ address, history: result.events });
+      setSubagentSession({ address, history: compactDisplayHistory(result.events) });
     } catch (error) {
       if (requestId !== subagentRequestRef.current) return;
       const message = errorText(error, locale);
@@ -2327,8 +2348,11 @@ function AppContent() {
     // Existing sessions follow the Host workspace account. cwd only chooses the
     // working directory when creating a session; it does not imply membership.
     setWorkspace(workspacePathForSession(session.sessionId, workspacesRef.current));
+    historyRef.current = [];
     setHistory([]);
     setHistoryHasMore(false);
+    setSessionStats(emptySessionStats());
+    historyLoadingOlderRef.current = false;
     setHistoryLoadingOlder(false);
     setTranscriptFollowing(true);
     setTodos(null);
@@ -2369,15 +2393,22 @@ function AppContent() {
         desktopRequest("session.models", { sessionId: session.sessionId }, undefined, { waitForReconnect: true }),
       ]);
       if (loadRequest !== sessionLoadRequestRef.current || activeSessionRef.current !== session.sessionId) return false;
-      setHistory(historyResult.events);
+      const loadedHistory = compactDisplayHistory(historyResult.events);
+      // Mux events can arrive after the Host history cut while this request is
+      // in flight. Merge rather than replace so those post-cut events survive.
+      const mergedHistory = mergeDisplayHistory(loadedHistory, historyRef.current);
+      historyRef.current = mergedHistory;
+      setHistory(mergedHistory);
       setSessionIndicators((current) => ({
         ...current,
         [session.sessionId]: sessionIndicatorForHistory(historyResult.events) ?? "idle",
       }));
       setHistoryHasMore(historyResult.hasMore);
-      const loadedStats = readSessionStats(historyResult.events, historyResult.projections);
-      contextProjectionRef.current = Boolean(recordValue(historyResult.projections?.values.contextPressure));
-      setSessionStats({ ...loadedStats, contextLimit: modelsResult.contextWindow ?? loadedStats.contextLimit });
+      // Cache the Host projection baseline as well as newer live projections,
+      // so subsequent chunk flushes can recompute stats from one authority.
+      for (const [key, value] of Object.entries(historyResult.projections?.values ?? {})) {
+        sessionProjectionCache.put(session.sessionId, key, value, historyResult.projections?.asOfSeq ?? 0);
+      }
       // 会话切换隔离：历史折叠水位（asOfSeq）之上的实时投影由缓存补齐，
       // 缓存按会话隔离，只允许目标会话自己的条目进入当前视图。
       const mergedProjections = overlayProjections(
@@ -2386,7 +2417,9 @@ function AppContent() {
         sessionProjectionCache.snapshot(session.sessionId),
       );
       const projectionValues = mergedProjections.values;
-      if (recordValue(projectionValues?.contextPressure)) contextProjectionRef.current = true;
+      const loadedStats = readSessionStats(mergedHistory, { values: projectionValues });
+      contextProjectionRef.current = Boolean(recordValue(projectionValues.contextPressure));
+      setSessionStats({ ...loadedStats, contextLimit: modelsResult.contextWindow ?? loadedStats.contextLimit });
       const projectedImageLimits = imageLimitsFromProjection(projectionValues?.imageLimits);
       setModels({ ...modelsResult, ...(projectedImageLimits ? { imageLimits: projectedImageLimits } : {}) });
       setGoal((projectionValues?.goal as DshGoalProjection | null | undefined) ?? null);
@@ -2528,10 +2561,19 @@ function AppContent() {
         maxMessages: 100,
       }, undefined, { waitForReconnect: true });
       if (activeSessionRef.current !== sessionId) return;
-      const projectedImageLimits = imageLimitsFromProjection(result.projections?.values?.imageLimits);
+      for (const [key, value] of Object.entries(result.projections?.values ?? {})) {
+        sessionProjectionCache.put(sessionId, key, value, result.projections?.asOfSeq ?? 0);
+      }
+      const mergedProjections = overlayProjections(
+        result.projections?.values,
+        result.projections?.asOfSeq,
+        sessionProjectionCache.snapshot(sessionId),
+      );
+      const projectedImageLimits = imageLimitsFromProjection(mergedProjections.values.imageLimits);
       if (projectedImageLimits) setModels((current) => current ? { ...current, imageLimits: projectedImageLimits } : current);
-      if (recordValue(result.projections?.values.contextPressure)) contextProjectionRef.current = true;
-       const nextStats = readSessionStats(result.events, result.projections);
+      if (recordValue(mergedProjections.values.contextPressure)) contextProjectionRef.current = true;
+      const statsHistory = mergeDisplayHistory(compactDisplayHistory(result.events), historyRef.current);
+      const nextStats = readSessionStats(statsHistory, { values: mergedProjections.values });
       setSessionStats((current) => ({
         ...current,
         ...nextStats,
@@ -2545,24 +2587,35 @@ function AppContent() {
   }
 
   async function loadOlderHistory() {
-    const sessionId = activeSessionRef.current;
-    const beforeSeq = history[0]?.event.seq;
-    if (!sessionId || beforeSeq === undefined || !historyHasMore || historyLoadingOlderRef.current) return;
-    // 细粒度分页缓存：同一段历史已拉取过（回看后前进）则直接合并，不重复请求。
-    const cached = historyPageCache.get(sessionId, beforeSeq);
-    if (cached) {
-      setHistory((current) => {
-        const known = new Set(current.map((entry) => entry.event.seq));
-        const additions = cached.entries.filter((entry) => !known.has(entry.event.seq));
-        return additions.length > 0 ? [...additions, ...current] : current;
-      });
-      setHistoryHasMore(cached.hasMore);
-      return;
-    }
-    if (!historyPageCache.markLoading(sessionId, beforeSeq)) return;
+    const sessionId = activeSessionId;
+    const loadRequest = sessionLoadRequestRef.current;
+    const beforeSeq = displayHistoryStartSeq(history);
+    if (!sessionId || sessionId !== activeSessionRef.current || beforeSeq === undefined || !historyHasMore || historyLoadingOlderRef.current) return;
+    const owner = { sessionId, generation: loadRequest };
+    const stillOwnsView = () => ownsHistoryView(owner, activeSessionRef.current, sessionLoadRequestRef.current);
     const scroll = transcriptScroll.current;
     const previousHeight = scroll?.scrollHeight ?? 0;
     const previousTop = scroll?.scrollTop ?? 0;
+    const prepend = (entries: DshHistoryEntry[], hasMore: boolean) => {
+      if (!stillOwnsView()) return;
+      const merged = mergeDisplayHistory(historyRef.current, entries);
+      historyRef.current = merged;
+      setHistory(merged);
+      setHistoryHasMore(hasMore);
+      requestAnimationFrame(() => {
+        if (!stillOwnsView()) return;
+        const nextScroll = transcriptScroll.current;
+        if (!nextScroll) return;
+        nextScroll.scrollTop = nextScroll.scrollHeight - previousHeight + previousTop;
+      });
+    };
+    // 细粒度分页缓存：同一段历史已拉取过（回看后前进）则直接合并，不重复请求。
+    const cached = historyPageCache.get(sessionId, beforeSeq);
+    if (cached) {
+      prepend(cached.entries, cached.hasMore);
+      return;
+    }
+    if (!historyPageCache.markLoading(sessionId, beforeSeq)) return;
     historyLoadingOlderRef.current = true;
     setHistoryLoadingOlder(true);
     try {
@@ -2572,22 +2625,15 @@ function AppContent() {
         maxMessages: HISTORY_PAGE_SIZE,
       });
       historyPageCache.put(sessionId, beforeSeq, result.events, result.hasMore);
-      setHistory((current) => {
-        const known = new Set(current.map((entry) => entry.event.seq));
-        return [...result.events.filter((entry) => !known.has(entry.event.seq)), ...current];
-      });
-      setHistoryHasMore(result.hasMore);
-      requestAnimationFrame(() => {
-        const nextScroll = transcriptScroll.current;
-        if (!nextScroll) return;
-        nextScroll.scrollTop = nextScroll.scrollHeight - previousHeight + previousTop;
-      });
+      prepend(result.events, result.hasMore);
     } catch (error) {
-      setErrorNotice(errorText(error, locale));
+      if (stillOwnsView()) setErrorNotice(errorText(error, locale));
     } finally {
       historyPageCache.unmarkLoading(sessionId, beforeSeq);
-      historyLoadingOlderRef.current = false;
-      setHistoryLoadingOlder(false);
+      if (stillOwnsView()) {
+        historyLoadingOlderRef.current = false;
+        setHistoryLoadingOlder(false);
+      }
     }
   }
 
@@ -2738,6 +2784,7 @@ function AppContent() {
     if (routeWorkspaceBridgeEvent(event)) return;
     routeBridgeEvent(event, {
     activeSessionRef,
+    historyRef,
     contextProjectionRef,
     selectedSubagentRef,
     subagentRequestRef,
@@ -3172,7 +3219,10 @@ function AppContent() {
     if (previousSessionId) imageAttachmentCacheRef.current.removeSession(previousSessionId);
     activeSessionRef.current = null;
     contextProjectionRef.current = false;
+    sessionLoadRequestRef.current += 1;
+    historyLoadingOlderRef.current = false;
     setActiveSessionId(null);
+    historyRef.current = [];
     setHistory([]);
     setHistoryHasMore(false);
     setHistoryLoadingOlder(false);
@@ -3185,7 +3235,7 @@ function AppContent() {
     setModels(null);
     setDraftModelSelection(null);
     setDraftPermission(null);
-    setSessionStats({ inputTokens: 0, outputTokens: 0, totalTokens: 0, reasoningTokens: 0, uncachedInputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, contextTokens: 0, contextLimit: 0, cacheHitRate: 0, messages: 0 });
+    setSessionStats(emptySessionStats());
     setCommands([]);
     setPermissionSelect(null);
     setPlan(null);
@@ -3987,6 +4037,7 @@ function AppContent() {
         const result = await desktopRequest("session.history", {
           sessionId,
           maxMessages: 100,
+          display: false,
           ...(beforeSeq === undefined ? {} : { beforeSeq }),
         });
         const known = new Set(exported.map((entry) => entry.event.seq));

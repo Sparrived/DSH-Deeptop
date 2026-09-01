@@ -393,43 +393,81 @@ function MessageStatsLine({ stats, locale }: { stats?: MessageStats; locale: UiL
   return values.length > 0 ? <div className="message-stats" aria-label={t("conversation.stats.aria", locale)}>{values}</div> : null;
 }
 
-// The reasoning body can grow to thousands of tokens while the model "thinks".
-// The body is only mounted once the user opens the entry, and when it is open
-// during a live stream we append only the new slice to the <pre> (never
-// rewriting the whole accumulated text), so a long reasoning block streams
-// without janking the window. The entry is memoized so an unrelated transcript
-// rebuild (e.g. a tool event) does not re-scan the whole text.
-export const ReasoningEntry = memo(function ReasoningEntry({ text, streaming, locale }: { text: string; streaming: boolean; locale: UiLocale }) {
-  const [open, setOpen] = useState(false);
-  const bodyRef = useRef<HTMLPreElement | null>(null);
+function useIncrementalText(text: string, enabled = true) {
+  const textNodeRef = useRef<Text | null>(null);
   const renderedLengthRef = useRef(0);
-  // Closing unmounts the <pre>. Reset the incremental-render cursor whenever a
-  // fresh body mounts so reopening the same Think row renders its full content.
   const setBodyRef = useCallback((pre: HTMLPreElement | null) => {
-    bodyRef.current = pre;
-    if (pre) renderedLengthRef.current = 0;
+    if (!pre) {
+      textNodeRef.current = null;
+      renderedLengthRef.current = 0;
+      return;
+    }
+    const currentText = pre.textContent ?? "";
+    let textNode = pre.firstChild?.nodeType === 3 ? pre.firstChild as Text : null;
+    if (!textNode || pre.childNodes.length !== 1) {
+      pre.replaceChildren();
+      textNode = pre.ownerDocument.createTextNode(currentText);
+      pre.appendChild(textNode);
+    }
+    textNodeRef.current = textNode;
+    renderedLengthRef.current = textNode.data.length;
   }, []);
-  const summary = useMemo(() => {
-    const lines = text.split("\n").filter(Boolean);
-    const line = streaming ? lines.at(-1) : lines[0];
-    return line || t("conversation.reasoning.fallback", locale);
-  }, [text, streaming, locale]);
 
   useEffect(() => {
-    if (!open) return;
-    const pre = bodyRef.current;
-    if (!pre) return;
-    // Defensive: if the text ever resets to something shorter (stream replaced),
-    // redraw the whole body instead of appending garbage.
-    if (text.length < renderedLengthRef.current) {
-      renderedLengthRef.current = 0;
-      pre.textContent = "";
-    }
-    const delta = text.slice(renderedLengthRef.current);
-    if (delta.length === 0) return;
-    pre.append(delta);
+    if (!enabled) return;
+    const textNode = textNodeRef.current;
+    if (!textNode) return;
+    const renderedLength = renderedLengthRef.current;
+    const overlap = Math.min(32, renderedLength, text.length);
+    const diverged = overlap > 0 && (
+      text.slice(0, overlap) !== textNode.data.slice(0, overlap)
+      || text.slice(renderedLength - overlap, renderedLength) !== textNode.data.slice(renderedLength - overlap, renderedLength)
+    );
+    if (text.length < renderedLength || diverged) textNode.data = text;
+    else if (text.length > renderedLength) textNode.appendData(text.slice(renderedLength));
     renderedLengthRef.current = text.length;
-  }, [text, open]);
+  }, [enabled, text]);
+  return setBodyRef;
+}
+
+// Markdown is parsed once after assistant/message finalizes. During streaming,
+// append only the new plain-text slice so a growing response does not reparse
+// and replace its complete DOM tree on every token batch.
+export const StreamingAssistantText = memo(function StreamingAssistantText({ text }: { text: string }) {
+  const bodyRef = useIncrementalText(text);
+  return <pre aria-live="off" className="message-text streaming-assistant-text" ref={bodyRef} />;
+}, (previous, next) => previous.text === next.text);
+
+function reasoningSummary(text: string, streaming: boolean) {
+  if (!text) return "";
+  if (!streaming) {
+    let start = 0;
+    while (start < text.length) {
+      const end = text.indexOf("\n", start);
+      if (end < 0) return text.slice(start);
+      if (end > start) return text.slice(start, end);
+      start = end + 1;
+    }
+    return "";
+  }
+  let end = text.length;
+  while (end > 0) {
+    const start = text.lastIndexOf("\n", end - 1) + 1;
+    if (end > start) return text.slice(start, end);
+    end = Math.max(0, start - 1);
+  }
+  return "";
+}
+
+// The reasoning body is mounted on demand and appended incrementally while its
+// details entry remains open.
+export const ReasoningEntry = memo(function ReasoningEntry({ text, streaming, locale }: { text: string; streaming: boolean; locale: UiLocale }) {
+  const [open, setOpen] = useState(false);
+  const bodyRef = useIncrementalText(text, open);
+  const summary = useMemo(
+    () => reasoningSummary(text, streaming) || t("conversation.reasoning.fallback", locale),
+    [text, streaming, locale],
+  );
 
   return (
     <details
@@ -439,7 +477,7 @@ export const ReasoningEntry = memo(function ReasoningEntry({ text, streaming, lo
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
       <summary><span className="reasoning-marker">Think</span><em>{summary}</em></summary>
-      {open && <div className="reasoning-body"><pre ref={setBodyRef} /></div>}
+      {open && <div className="reasoning-body"><pre aria-live="off" ref={bodyRef} /></div>}
     </details>
   );
 }, (prev, next) => prev.text === next.text && prev.streaming === next.streaming && prev.locale === next.locale);
@@ -687,7 +725,7 @@ function TranscriptArticleView({
   const diff = activeDiff(item);
   const hasToolResult = item.toolResultText !== undefined || item.toolResultDiff !== undefined || isResultDomainCard(item.domainCard) || item.toolState === "result";
   const toolStatus = item.toolResultError ? "error" : hasToolResult ? "returned" : "running";
-  const streamingAssistant = item.kind === "assistant" && item.key.startsWith("stream-");
+  const streamingAssistant = item.kind === "assistant" && item.streaming === true;
   return (
     <article
       className={`message-row ${item.kind}${item.injected ? " context-row" : ""}${item.kind === "tool" ? " tool-row" : ""}`}
@@ -754,7 +792,9 @@ function TranscriptArticleView({
               <pre className="message-text">{item.text}</pre>
             </div>
           </details>
-        ) : <MarkdownContent text={item.text} reveal={streamingAssistant} locale={locale} onOpenPath={onOpenPath} onCheckPath={onCheckPath} onOpenUrl={onOpenUrl} />}
+        ) : streamingAssistant ? (
+          <StreamingAssistantText text={item.text} />
+        ) : <MarkdownContent text={item.text} locale={locale} onOpenPath={onOpenPath} onCheckPath={onCheckPath} onOpenUrl={onOpenUrl} />}
         {item.kind === "assistant" && <MessageStatsLine stats={item.stats} locale={locale} />}
         {(item.kind === "user" || item.kind === "assistant") && (
           <div className="message-actions">

@@ -12,6 +12,20 @@ import type { DshHistoryEntry } from "../lib/desktop";
  */
 export type HistoryPageKey = string;
 
+export interface HistoryViewOwner {
+  sessionId: string;
+  generation: number;
+}
+
+/** Reject stale requests across both session switches and A→B→A ABA cycles. */
+export function ownsHistoryView(
+  owner: HistoryViewOwner,
+  activeSessionId: string | null,
+  activeGeneration: number,
+): boolean {
+  return owner.sessionId === activeSessionId && owner.generation === activeGeneration;
+}
+
 export function historyPageKey(sessionId: string, beforeSeq: number): HistoryPageKey {
   return `${sessionId}\u0000${beforeSeq}`;
 }

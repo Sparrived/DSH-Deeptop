@@ -80,15 +80,24 @@ function findElement(node, type) {
 }
 
 function createPre() {
+  let nodes = [];
+  const createTextNode = (value) => ({
+    nodeType: 3,
+    data: value,
+    appendData(delta) { this.data += delta; },
+  });
   return {
-    textContent: "",
-    append(value) {
-      this.textContent += value;
-    },
+    ownerDocument: { createTextNode },
+    get firstChild() { return nodes[0] ?? null; },
+    get childNodes() { return nodes; },
+    get textContent() { return nodes.map((node) => node.data ?? "").join(""); },
+    set textContent(value) { nodes = [createTextNode(value)]; },
+    replaceChildren(...children) { nodes = children; },
+    appendChild(node) { nodes.push(node); return node; },
   };
 }
 
-async function loadReasoningEntry(react) {
+async function loadTranscriptExports(react) {
   const compiled = await build({
     entryPoints: [fileURLToPath(new URL("./ConversationTranscript.tsx", import.meta.url))],
     bundle: true,
@@ -106,12 +115,12 @@ async function loadReasoningEntry(react) {
     if (id === "react/jsx-runtime") return { jsx, jsxs: jsx, Fragment: Symbol.for("react.fragment") };
     return requireFromTest(id);
   }, module, module.exports);
-  return module.exports.ReasoningEntry;
+  return module.exports;
 }
 
 test("reopening a Think entry restores the full reasoning body", async () => {
   const renderer = createHookRenderer();
-  const ReasoningEntry = await loadReasoningEntry(renderer.react);
+  const { ReasoningEntry } = await loadTranscriptExports(renderer.react);
   const props = { text: "First reasoning line\nSecond reasoning line", streaming: false, locale: "en" };
 
   let tree = renderer.render(ReasoningEntry, props);
@@ -137,4 +146,36 @@ test("reopening a Think entry restores the full reasoning body", async () => {
   renderer.flushEffects();
 
   assert.equal(reopenedBody.textContent, props.text);
+  assert.equal(reopenedBody.childNodes.length, 1);
+});
+
+test("streaming assistant appends through one text node across ref remounts", async () => {
+  const renderer = createHookRenderer();
+  const { StreamingAssistantText } = await loadTranscriptExports(renderer.react);
+  const body = createPre();
+
+  let tree = renderer.render(StreamingAssistantText, { text: "first" });
+  tree.props.ref(body);
+  renderer.flushEffects();
+  assert.equal(body.textContent, "first");
+  assert.equal(body.childNodes.length, 1);
+
+  tree = renderer.render(StreamingAssistantText, { text: "first second" });
+  renderer.flushEffects();
+  assert.equal(body.textContent, "first second");
+  assert.equal(body.childNodes.length, 1);
+
+  // React StrictMode may detach and reattach callback refs without replacing
+  // the DOM node. Reattaching must synchronize the cursor, not replay text.
+  tree.props.ref(null);
+  tree.props.ref(body);
+  tree = renderer.render(StreamingAssistantText, { text: "first second third" });
+  renderer.flushEffects();
+  assert.equal(body.textContent, "first second third");
+  assert.equal(body.childNodes.length, 1);
+
+  tree = renderer.render(StreamingAssistantText, { text: "reset" });
+  renderer.flushEffects();
+  assert.equal(body.textContent, "reset");
+  assert.equal(body.childNodes.length, 1);
 });

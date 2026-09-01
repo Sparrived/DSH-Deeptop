@@ -249,6 +249,8 @@ const BRIDGE_PATCH: &str = include_str!("../../cordis/cordis.patch.yml");
 const BRIDGE_ENTRY: &str = include_str!("../../cordis/desktop-bridge/index.mjs");
 const BRIDGE_RUNTIME: &str = include_str!("../../cordis/desktop-bridge/bridge.mjs");
 const BRIDGE_ROUTES: &str = include_str!("../../cordis/desktop-bridge/routes.mjs");
+const BRIDGE_DISPLAY_HISTORY: &str =
+    include_str!("../../cordis/desktop-bridge/display-history.mjs");
 const BRIDGE_SESSION_REPAIR: &str = include_str!("../../cordis/desktop-bridge/session-repair.mjs");
 const BRIDGE_MESSAGE_ANNOTATIONS: &str = include_str!("../../cordis/message-annotations/index.mjs");
 const BRIDGE_MESSAGE_ANNOTATIONS_UI: &str =
@@ -851,6 +853,75 @@ fn bound_log_text(text: String) -> String {
     format!("{}…（日志已截断，原始 {} 字节）", &text[..end], text.len())
 }
 
+/// Keep protocol diagnostics useful without mirroring every token/projection
+/// frame into the in-memory viewer, persistent log, and WebView event stream.
+fn bridge_stdout_log_summary(frame: &Value) -> Option<String> {
+    let frame_type = frame
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    match frame_type {
+        "event" => {
+            let channel = frame
+                .get("channel")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            let payload = frame.get("frame").and_then(|value| value.get("payload"));
+            let payload_type = payload
+                .and_then(|value| value.get("type"))
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            if payload_type == "session/projection" {
+                return None;
+            }
+            if payload_type == "session/event" {
+                let event = payload.and_then(|value| value.get("event"));
+                let event_type = event
+                    .and_then(|value| value.get("type"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown");
+                if event_type == "assistant/chunk" {
+                    return None;
+                }
+                let session_id = payload
+                    .and_then(|value| value.get("sessionId"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown");
+                let seq = event
+                    .and_then(|value| value.get("seq"))
+                    .and_then(Value::as_u64)
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "?".to_string());
+                return Some(format!(
+                    "bridge event channel={channel} type={event_type} session={session_id} seq={seq}"
+                ));
+            }
+            Some(format!(
+                "bridge event channel={channel} type={payload_type}"
+            ))
+        }
+        "response" => {
+            let id = frame.get("id").and_then(Value::as_str).unwrap_or("unknown");
+            let status = if frame.get("error").is_some() {
+                "error"
+            } else {
+                "ok"
+            };
+            Some(format!("bridge response id={id} status={status}"))
+        }
+        "ready" => Some(format!(
+            "bridge ready protocol={}",
+            frame
+                .get("protocol")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown")
+        )),
+        // These are recorded by their dedicated diagnostic/fatal handlers.
+        "diagnostic" | "fatal" | "protocol-error" => None,
+        _ => serde_json::to_string(frame).ok(),
+    }
+}
+
 /// Best-effort append of one formatted line to the persistent log file.
 /// Logging must never break the runtime, so every failure is ignored.
 fn append_log_file(path: &Path, line: &str) {
@@ -985,13 +1056,14 @@ fn migrate_desktop_profile_patch(path: &Path) -> Result<(), String> {
     write_text(path, &format!("{}{newline}", filtered.join(newline)))
 }
 
-fn bundled_bridge_files() -> [(&'static str, &'static str); 18] {
+fn bundled_bridge_files() -> [(&'static str, &'static str); 19] {
     [
         ("package.json", BRIDGE_PACKAGE_JSON),
         ("cordis.patch.yml", BRIDGE_PATCH),
         ("desktop-bridge/index.mjs", BRIDGE_ENTRY),
         ("desktop-bridge/bridge.mjs", BRIDGE_RUNTIME),
         ("desktop-bridge/routes.mjs", BRIDGE_ROUTES),
+        ("desktop-bridge/display-history.mjs", BRIDGE_DISPLAY_HISTORY),
         ("desktop-bridge/session-repair.mjs", BRIDGE_SESSION_REPAIR),
         ("message-annotations/index.mjs", BRIDGE_MESSAGE_ANNOTATIONS),
         (
@@ -2371,13 +2443,16 @@ impl BridgeManager {
     }
 
     fn handle_stdout(&self, app: &AppHandle, generation: u64, line: String) {
-        self.emit_runtime_log(app, generation, "runtime", "stdout", line.clone());
         let frame: Value = match serde_json::from_str(&line) {
             Ok(frame) => frame,
             Err(_) => {
+                self.emit_runtime_log(app, generation, "runtime", "stdout", line);
                 return;
             }
         };
+        if let Some(summary) = bridge_stdout_log_summary(&frame) {
+            self.emit_runtime_log(app, generation, "runtime", "stdout", summary);
+        }
         let frame_type = frame
             .get("type")
             .and_then(Value::as_str)
@@ -5195,9 +5270,9 @@ fn open_themes_directory() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        base64_encode, bound_log_text, bundled_bridge_files, dsh_home, dsh_homes_match,
-        extract_runtime_archive, format_log_line, format_utc_datetime, is_bundled_runtime_manifest,
-        is_dsh_package_manifest, is_file_path, is_safe_runtime_entry,
+        base64_encode, bound_log_text, bridge_stdout_log_summary, bundled_bridge_files, dsh_home,
+        dsh_homes_match, extract_runtime_archive, format_log_line, format_utc_datetime,
+        is_bundled_runtime_manifest, is_dsh_package_manifest, is_file_path, is_safe_runtime_entry,
         process_command_line_matches_dsh, prune_old_runtime_caches, runtime_arch,
         runtime_cache_validation_message, runtime_platform, runtime_tree_sha256,
         sniff_image_media_type, tray_menu_text, tray_session_label, validate_tray_session_menu,
@@ -5609,6 +5684,40 @@ mod tests {
         assert!(bounded.len() <= MAX_LOG_TEXT_BYTES + 64);
         assert!(bounded.contains("日志已截断"));
         assert!(bounded.starts_with("界"));
+    }
+
+    #[test]
+    fn suppresses_high_frequency_bridge_frames_from_runtime_logs() {
+        let chunk = serde_json::json!({
+            "type": "event",
+            "channel": "mux",
+            "frame": { "payload": { "type": "session/event", "sessionId": "s", "event": { "seq": 1, "type": "assistant/chunk" } } }
+        });
+        let projection = serde_json::json!({
+            "type": "event",
+            "channel": "mux",
+            "frame": { "payload": { "type": "session/projection", "sessionId": "s", "key": "sessionStats" } }
+        });
+        assert_eq!(bridge_stdout_log_summary(&chunk), None);
+        assert_eq!(bridge_stdout_log_summary(&projection), None);
+    }
+
+    #[test]
+    fn summarizes_low_frequency_bridge_protocol_frames() {
+        let event = serde_json::json!({
+            "type": "event",
+            "channel": "mux",
+            "frame": { "payload": { "type": "session/event", "sessionId": "s", "event": { "seq": 7, "type": "step/start" } } }
+        });
+        let response = serde_json::json!({ "type": "response", "id": "rpc-1", "response": {} });
+        assert_eq!(
+            bridge_stdout_log_summary(&event).as_deref(),
+            Some("bridge event channel=mux type=step/start session=s seq=7")
+        );
+        assert_eq!(
+            bridge_stdout_log_summary(&response).as_deref(),
+            Some("bridge response id=rpc-1 status=ok")
+        );
     }
 
     #[test]

@@ -1,11 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import packageInfo from "../../package.json";
-import { parseExternalLaunchPayload, type ExternalLaunchRequest } from "./external-launch";
+import packageInfo from "../../package.json" with { type: "json" };
+import { parseExternalLaunchPayload, type ExternalLaunchRequest } from "./external-launch.ts";
 import type { NativeUpdateDownloadProgress, UpdateChannel } from "../app/update-model";
-export type { ExternalLaunchRequest } from "./external-launch";
-export { missingAgentPresetInfo, type MissingAgentPresetInfo } from "./missing-preset";
+export type { ExternalLaunchRequest } from "./external-launch.ts";
+export { missingAgentPresetInfo, type MissingAgentPresetInfo } from "./missing-preset.ts";
 
 export const DSH_PACKAGE = "@deepseek-ai/dsh（内嵌运行时）";
 export const DEEPTOP_VERSION = packageInfo.version;
@@ -263,11 +263,32 @@ export interface DshSessionEvent {
   data: Record<string, unknown>;
   surfaceOp?: string;
   sourceEventSeqs?: number[];
+  /** Raw chunk sequence ranges merged into this desktop transport event. */
+  compactedEventSeqRanges?: Array<[start: number, end: number]>;
+  /** UTF-16 delta lengths aligned to the represented raw chunk sequences. */
+  compactedDeltaLengths?: number[];
 }
+
+export type DisplayDeltaLengthTree =
+  | { values: number[]; count: number }
+  | { left: DisplayDeltaLengthTree; right: DisplayDeltaLengthTree; count: number };
 
 export interface DshHistoryEntry {
   event: DshSessionEvent;
   view?: unknown;
+  /** Raw event sequence ranges folded into this desktop-only display entry. */
+  compactedEventSeqRanges?: Array<[start: number, end: number]>;
+  /** UTF-16 delta lengths aligned to compacted chunk sequence ranges. */
+  compactedDeltaLengths?: number[];
+  /** Frontend-only persistent tree avoiding full length-array copies per batch. */
+  displayDeltaLengthTree?: DisplayDeltaLengthTree;
+  /** Earliest raw source sequence in the Host-aligned history page. */
+  displayPageStartSeq?: number;
+  /** First assistant chunk coordinates retained after finalized chunks are removed. */
+  displayFirstChunkSeq?: number;
+  displayFirstChunkTime?: number;
+  /** First token timestamp retained after finalized chunks are removed. */
+  displayFirstTokenTime?: number;
 }
 
 export interface DshSessionSummary {

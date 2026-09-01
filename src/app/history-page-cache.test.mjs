@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createHistoryPageCache, historyPageKey } from "./history-page-cache.ts";
+import { createHistoryPageCache, historyPageKey, ownsHistoryView } from "./history-page-cache.ts";
 
 function entry(seq) {
   return { event: { seq, time: 1000 + seq, type: "user/message", data: {} } };
 }
+
+test("rejects stale history owners across session switches and ABA cycles", () => {
+  const owner = { sessionId: "A", generation: 1 };
+  assert.equal(ownsHistoryView(owner, "A", 1), true);
+  assert.equal(ownsHistoryView(owner, "B", 2), false);
+  assert.equal(ownsHistoryView(owner, "A", 3), false);
+});
 
 test("caches pages per session and returns them by beforeSeq", () => {
   const cache = createHistoryPageCache();

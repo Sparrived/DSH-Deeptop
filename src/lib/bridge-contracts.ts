@@ -95,7 +95,7 @@ const session = {
   },
   "session.history": {
     requires: "sessions",
-    payload: {} as { sessionId: string; maxMessages?: number; beforeSeq?: number },
+    payload: {} as { sessionId: string; maxMessages?: number; beforeSeq?: number; display?: boolean },
     value: {} as DshSessionHistoryResult,
   },
   "session.models": {

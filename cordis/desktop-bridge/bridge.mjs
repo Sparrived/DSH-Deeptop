@@ -2,8 +2,11 @@ import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 import { routeDesktopRequest } from './routes.mjs'
 import { initNetworkProxy, stopSystemProxyWatch } from './network-proxy.mjs'
+import { compactLiveEventFrames } from './display-history.mjs'
 
 const PROTOCOL = 'deeptop/1'
+const LIVE_EVENT_FLUSH_MS = 16
+const LIVE_EVENT_BATCH_LIMIT = 512
 
 function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -33,12 +36,47 @@ function errorDetail(error) {
   return errorMessage(error)
 }
 
+function awaitWritableDrain(output, signal) {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      output.off('drain', onDrain)
+      output.off('close', onClose)
+      output.off('error', onError)
+      signal?.removeEventListener('abort', onAbort)
+    }
+    const onDrain = () => { cleanup(); resolve() }
+    const onClose = () => { cleanup(); reject(new Error('deeptop-bridge stdout closed before drain')) }
+    const onError = error => { cleanup(); reject(error) }
+    const onAbort = () => { cleanup(); reject(signal.reason ?? new Error('deeptop-bridge write aborted')) }
+    if (signal?.aborted) return onAbort()
+    output.once('drain', onDrain)
+    output.once('close', onClose)
+    output.once('error', onError)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+/** Write one complete JSONL frame and honor Node writable backpressure. */
+export async function writeBridgeFrame(output, frame, signal) {
+  if (output.destroyed || output.closed || output.writableEnded) {
+    throw new Error('deeptop-bridge stdout is already closed')
+  }
+  if (output.write(`${JSON.stringify(frame)}\n`)) return
+  await awaitWritableDrain(output, signal)
+}
+
 export class DesktopBridge {
-  constructor(ctx) {
+  constructor(ctx, output = process.stdout) {
     this.ctx = ctx
+    this.output = output
     this.closed = false
     this.abort = new AbortController()
     this.input = undefined
+    this.liveFrames = []
+    this.liveFlushTimer = undefined
+    this.liveFlushPromise = undefined
+    this.writeTail = Promise.resolve()
+    this.outputFailure = undefined
   }
 
   async start() {
@@ -54,15 +92,19 @@ export class DesktopBridge {
       console.warn(`[deeptop-bridge] 初始化网络代理失败：${proxyResult.error}`)
     }
 
+    // The protocol handshake must be the first frame observed by Rust even if
+    // an event stream can synchronously produce its first item.
+    await this.write({ type: 'ready', protocol: PROTOCOL })
     this.input = createInterface({ input: process.stdin, crlfDelay: Infinity })
-    this.input.on('line', line => { void this.handleLine(line) })
+    this.input.on('line', line => {
+      void this.handleLine(line).catch(error => this.failOutput(error))
+    })
     this.input.on('close', () => {
       if (!this.closed) this.abort.abort()
     })
 
-    void this.forwardEvents('mux')
-    void this.forwardEvents('host')
-    this.write({ type: 'ready', protocol: PROTOCOL })
+    void this.forwardEvents('mux').catch(error => this.failOutput(error))
+    void this.forwardEvents('host').catch(error => this.failOutput(error))
   }
 
   async handleLine(line) {
@@ -70,60 +112,122 @@ export class DesktopBridge {
     try {
       request = JSON.parse(line)
     } catch {
-      this.write({ type: 'protocol-error', message: 'deeptop-bridge received invalid JSON' })
+      await this.write({ type: 'protocol-error', message: 'deeptop-bridge received invalid JSON' })
       return
     }
     if (!isRecord(request) || typeof request.id !== 'string' || typeof request.method !== 'string') {
-      this.write({ type: 'protocol-error', message: 'deeptop-bridge request requires string id and method' })
+      await this.write({ type: 'protocol-error', message: 'deeptop-bridge request requires string id and method' })
       return
     }
 
+    let response
     try {
-      const response = await routeDesktopRequest(
+      response = await routeDesktopRequest(
         this.ctx,
         request.method,
         isRecord(request.payload) ? request.payload : {},
         this.abort.signal,
       )
-      this.write({ type: 'response', id: request.id, response })
     } catch (error) {
-      this.write({ type: 'response', id: request.id, error: bridgeErrorFrame(error) })
-      this.write({
+      await this.write({ type: 'response', id: request.id, error: bridgeErrorFrame(error) })
+      await this.write({
         type: 'diagnostic',
         level: 'error',
         message: `desktop request ${request.method} failed: ${errorDetail(error)}`,
       })
+      return
+    }
+    // Output failures are transport failures, never a second RPC response.
+    await this.write({ type: 'response', id: request.id, response })
+  }
+
+  async flushLiveFrames() {
+    if (this.liveFlushTimer !== undefined) clearTimeout(this.liveFlushTimer)
+    this.liveFlushTimer = undefined
+    if (this.liveFlushPromise) return this.liveFlushPromise
+    const frames = this.liveFrames
+    this.liveFrames = []
+    if (frames.length === 0) return
+    const flush = (async () => {
+      for (const frame of compactLiveEventFrames(frames)) {
+        await this.write({ type: 'event', channel: 'mux', frame })
+      }
+    })()
+    this.liveFlushPromise = flush
+    try {
+      await flush
+    } finally {
+      if (this.liveFlushPromise === flush) this.liveFlushPromise = undefined
+    }
+  }
+
+  async queueLiveFrame(frame) {
+    if (this.liveFlushPromise) await this.liveFlushPromise
+    this.liveFrames.push({ rpcId: frame.rpcId, payload: frame.payload })
+    if (this.liveFrames.length >= LIVE_EVENT_BATCH_LIMIT) {
+      await this.flushLiveFrames()
+      return
+    }
+    if (this.liveFlushTimer === undefined) {
+      this.liveFlushTimer = setTimeout(() => {
+        void this.flushLiveFrames().catch(error => {
+          if (!this.closed) {
+            console.error(`[deeptop-bridge] flush live events failed: ${errorDetail(error)}`)
+            this.failOutput(error)
+          }
+        })
+      }, LIVE_EVENT_FLUSH_MS)
     }
   }
 
   async forwardEvents(channel) {
     const api = this.ctx.apiProxy
     const request = { rpcId: randomUUID(), payload: {} }
-    const stream = channel === 'mux'
-      ? api.events.mux(request, this.abort.signal)
-      : api.events.host(request, this.abort.signal)
     try {
+      const stream = channel === 'mux'
+        ? api.events.mux(request, this.abort.signal)
+        : api.events.host(request, this.abort.signal)
       for await (const frame of stream) {
         if (this.closed) return
-        this.write({ type: 'event', channel, frame: { rpcId: frame.rpcId, payload: frame.payload } })
+        if (channel === 'mux') await this.queueLiveFrame(frame)
+        else await this.write({ type: 'event', channel, frame: { rpcId: frame.rpcId, payload: frame.payload } })
       }
     } catch (error) {
       if (!this.closed && !this.abort.signal.aborted) {
-        this.write({ type: 'diagnostic', level: 'error', message: `${channel} event stream ended: ${errorDetail(error)}` })
+        if (channel === 'mux') await this.flushLiveFrames()
+        await this.write({ type: 'diagnostic', level: 'error', message: `${channel} event stream ended: ${errorDetail(error)}` })
       }
     }
+    if (channel === 'mux' && !this.closed) await this.flushLiveFrames()
+  }
+
+  failOutput(error) {
+    if (this.closed || this.outputFailure) return
+    this.outputFailure = error instanceof Error ? error : new Error(String(error))
+    this.input?.pause()
+    this.abort.abort(this.outputFailure)
+    this.ctx.get?.('appExit')?.(1)
   }
 
   write(frame) {
-    process.stdout.write(`${JSON.stringify(frame)}\n`)
+    const write = this.writeTail.then(() => {
+      if (this.outputFailure) throw this.outputFailure
+      return writeBridgeFrame(this.output, frame, this.abort.signal)
+    })
+    this.writeTail = write.catch(() => undefined)
+    void write.catch(error => this.failOutput(error))
+    return write
   }
 
   writeFatal(error) {
-    this.write({ type: 'fatal', message: errorDetail(error) })
+    return this.write({ type: 'fatal', message: errorDetail(error) })
   }
 
   dispose() {
     this.closed = true
+    if (this.liveFlushTimer !== undefined) clearTimeout(this.liveFlushTimer)
+    this.liveFlushTimer = undefined
+    this.liveFrames = []
     this.abort.abort()
     stopSystemProxyWatch()
     this.input?.close()

@@ -453,12 +453,16 @@ export function buildTrajectoryRecords(entries: DshHistoryEntry[], locale: UiLoc
         key,
         turn,
         step,
-        recordSeq: event.seq,
-        recordTime: event.time,
+        recordSeq: entry.displayFirstChunkSeq ?? event.seq,
+        recordTime: entry.displayFirstChunkTime ?? event.time,
         startedAt: stepStarts.get(key),
         blocks: {},
         final: false,
       };
+      if (entry.displayFirstChunkSeq !== undefined && entry.displayFirstChunkSeq < state.recordSeq) {
+        state.recordSeq = entry.displayFirstChunkSeq;
+        state.recordTime = entry.displayFirstChunkTime ?? state.recordTime;
+      }
       state.blocks = {};
       const content = Array.isArray(message.content) ? message.content : [];
       content.forEach((block, index) => { state.blocks[String(index)] = block; });
@@ -631,5 +635,8 @@ export function buildTrajectoryRecords(entries: DshHistoryEntry[], locale: UiLoc
     }
   }
 
-  return order.map((key) => records.get(key)).filter((record): record is TrajectoryRecord => record !== undefined);
+  return order
+    .map((key) => records.get(key))
+    .filter((record): record is TrajectoryRecord => record !== undefined)
+    .sort((left, right) => left.seq - right.seq);
 }

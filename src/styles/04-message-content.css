@@ -7,6 +7,13 @@
   overflow-wrap: anywhere;
 }
 
+.streaming-assistant-text {
+  margin: 0;
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .message-text > :first-child {
   margin-top: 0;
 }

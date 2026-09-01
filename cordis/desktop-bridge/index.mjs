@@ -5,9 +5,14 @@ export const inject = ['apiProxy', 'pluginInventory', 'llm', 'typertGateway', 'w
 
 export function apply(ctx) {
   const bridge = new DesktopBridge(ctx)
-  void bridge.start().catch(error => {
-    bridge.writeFatal(error)
-    ctx.get('appExit')?.(1)
+  void bridge.start().catch(async error => {
+    try {
+      await bridge.writeFatal(error)
+    } catch {
+      // stdout itself may be the failure; never turn that into an unhandled rejection.
+    } finally {
+      ctx.get('appExit')?.(1)
+    }
   })
   return () => bridge.dispose()
 }

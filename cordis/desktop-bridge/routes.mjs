@@ -15,6 +15,7 @@ import {
   setUiPluginStorage,
 } from '../ui-registry/routes.mjs'
 import { loadProxySetting, resolveEffectiveProxy, setProxySetting } from './network-proxy.mjs'
+import { compactHistoryResponse } from './display-history.mjs'
 
 function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -521,7 +522,11 @@ export async function routeDesktopRequest(ctx, method, payload, signal) {
     case 'session.list': return api.sessions.list(request)
     case 'session.search': return api.sessions.search(request, signal)
     case 'session.create': return api.sessions.create(request)
-    case 'session.history': return api.sessions.history(request)
+    case 'session.history': {
+      const { display = true, ...historyPayload } = payload
+      const response = await api.sessions.history({ ...request, payload: historyPayload })
+      return display ? compactHistoryResponse(response) : response
+    }
     case 'session.models': return sessionModels(ctx, request)
     case 'reference.files': return referenceFiles(ctx, payload, signal)
     case 'reference.sessions': return referenceSessions(ctx, payload, signal)
@@ -535,7 +540,7 @@ export async function routeDesktopRequest(ctx, method, payload, signal) {
     case 'session.cancel': return api.sessions.cancel(request)
     case 'session.repairCorrupt': return repairCorruptSession(ctx, payload, signal)
     case 'subagent.list': return api.subagents.list(request, signal)
-    case 'subagent.history': return api.subagents.history(request, signal)
+    case 'subagent.history': return compactHistoryResponse(await api.subagents.history(request, signal))
     case 'subagent.prompt': return api.subagents.prompt(request, signal)
     case 'subagent.interrupt': return api.subagents.interrupt(request)
     case 'host.pickDirectory': return api.host.pickDirectory(request, signal)

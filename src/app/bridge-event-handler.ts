@@ -14,31 +14,33 @@ import {
   type DshSessionModels,
   type DshSessionSummary,
   type DshSubagentCatalog,
-} from "../lib/desktop";
-import { applyTodoSnapshot, isInjectedMessage, numberValue, readSessionStats, recordValue } from "./model";
-import { imageLimitsFromProjection } from "./ui-model";
-import { usageTokenBuckets } from "./message-model";
+} from "../lib/desktop.ts";
+import { isInjectedMessage, numberValue, readSessionStats, recordValue } from "./message-model.ts";
+import { applyTodoSnapshot } from "./workflow-model.ts";
+import { imageLimitsFromProjection } from "./ui-model.ts";
 import { markSessionError,
   removeSessionRecordEntry,
   updateSessionIndicator,
   updateSessionIndicatorForTurnEnd,
   updateSessionRunning,
   type SessionIndicator,
-} from "./session-runtime-state";
+} from "./session-runtime-state.ts";
 import { t, type UiLocale } from "./i18n.ts";
-import { sessionProjectionCache } from "./projection-cache";
-import { historyPageCache } from "./history-page-cache";
+import { sessionProjectionCache } from "./projection-cache.ts";
+import { historyPageCache } from "./history-page-cache.ts";
+import { mergeDisplayHistory } from "./display-history.ts";
 import type {
   PendingApproval,
   PendingQuestion,
   SessionStats,
   SubagentSession,
   TodoItem,
-} from "./model-types";
-import type { PetCompletionSignal } from "./pet-attention-model";
+} from "./model-types.ts";
+import type { PetCompletionSignal } from "./pet-attention-model.ts";
 
 type BridgeEventHandlerContext = {
   activeSessionRef: MutableRefObject<string | null>;
+  historyRef: MutableRefObject<DshHistoryEntry[]>;
   contextProjectionRef: MutableRefObject<boolean>;
   selectedSubagentRef: MutableRefObject<string | null>;
   subagentRequestRef: MutableRefObject<number>;
@@ -97,50 +99,47 @@ function flushQueuedSessionEvents(context: BridgeEventHandlerContext) {
   queuedSessionEvents = null;
   if (!batch || batch.length === 0) return;
   const activeSessionId = context.activeSessionRef.current;
-  context.setHistory((current) => {
-    const known = new Set<number>();
-    for (const entry of current) known.add(entry.event.seq);
-    const additions: DshHistoryEntry[] = [];
-    for (const item of batch) {
-      // Only append events that still belong to the active session (a session
-      // switch may have happened while the batch was queued) and that are not
-      // already present (a reload may have included them).
-      if (item.sessionId !== activeSessionId || known.has(item.event.seq)) continue;
-      known.add(item.event.seq);
-      additions.push({ event: item.event, view: item.view });
-    }
-    if (additions.length === 0) return current;
-    const next = [...current, ...additions];
-    const nextStats = readSessionStats(next);
-    context.setSessionStats((currentStats) => {
-      const hasContextValue = nextStats.contextTokensAvailable === true;
-      const hasTokenAggregate = nextStats.tokenUsageSource !== "none";
-      return {
-        ...currentStats,
-        ...nextStats,
-        inputTokens: hasTokenAggregate ? nextStats.inputTokens : currentStats.inputTokens,
-        outputTokens: hasTokenAggregate ? nextStats.outputTokens : currentStats.outputTokens,
-        totalTokens: hasTokenAggregate ? nextStats.totalTokens : currentStats.totalTokens,
-        reasoningTokens: hasTokenAggregate ? nextStats.reasoningTokens : currentStats.reasoningTokens,
-        uncachedInputTokens: hasTokenAggregate ? nextStats.uncachedInputTokens : currentStats.uncachedInputTokens,
-        cacheReadTokens: hasTokenAggregate ? nextStats.cacheReadTokens : currentStats.cacheReadTokens,
-        cacheWriteTokens: hasTokenAggregate ? nextStats.cacheWriteTokens : currentStats.cacheWriteTokens,
-        cacheHitRate: hasTokenAggregate ? nextStats.cacheHitRate : currentStats.cacheHitRate,
-        tokenUsageSource: hasTokenAggregate ? nextStats.tokenUsageSource : currentStats.tokenUsageSource,
-        tokenUsageAvailable: hasTokenAggregate ? nextStats.tokenUsageAvailable : currentStats.tokenUsageAvailable,
-        // History events do not carry contextPressure. A live projection must
-        // never be replaced by cumulative history usage.
-        contextTokens: context.contextProjectionRef.current
-          ? currentStats.contextTokens
-          : hasContextValue ? nextStats.contextTokens : currentStats.contextTokens,
-        contextTokensAvailable: context.contextProjectionRef.current
-          ? currentStats.contextTokensAvailable
-          : hasContextValue || currentStats.contextTokensAvailable === true,
-        contextLimit: nextStats.contextLimit > 0 ? nextStats.contextLimit : currentStats.contextLimit,
-        messages: nextStats.messages > 0 ? nextStats.messages : currentStats.messages,
-      };
-    });
-    return next;
+  const additions = batch
+    .filter((item) => item.sessionId === activeSessionId)
+    .map((item): DshHistoryEntry => ({ event: item.event, view: item.view }));
+  if (!activeSessionId || additions.length === 0) return;
+  // Keep the owner-aware ref authoritative while an initial history request is
+  // in flight, and keep React state updaters pure under StrictMode replay.
+  const next = mergeDisplayHistory(context.historyRef.current, additions);
+  if (next === context.historyRef.current || context.activeSessionRef.current !== activeSessionId) return;
+  context.historyRef.current = next;
+  context.setHistory(next);
+  const statsDirty = additions.some(({ event }) => {
+    const chunk = recordValue(event.data.chunk);
+    return event.type === "assistant/message"
+      || event.type === "user/message"
+      || event.type === "request/context"
+      || recordValue(event.data.usage) !== undefined
+      || recordValue(event.data.tokenUsage) !== undefined
+      || recordValue(chunk?.usage) !== undefined;
+  });
+  if (!statsDirty) return;
+  const projectedValues = Object.fromEntries(
+    sessionProjectionCache.snapshot(activeSessionId).map((entry) => [entry.key, entry.value]),
+  );
+  const nextStats = readSessionStats(next, { values: projectedValues });
+  context.setSessionStats((currentStats) => {
+    if (context.activeSessionRef.current !== activeSessionId) return currentStats;
+    const hasContextValue = nextStats.contextTokensAvailable === true;
+    return {
+      ...currentStats,
+      ...nextStats,
+      // History events do not carry contextPressure. A live projection must
+      // never be replaced by cumulative history usage.
+      contextTokens: context.contextProjectionRef.current
+        ? currentStats.contextTokens
+        : hasContextValue ? nextStats.contextTokens : currentStats.contextTokens,
+      contextTokensAvailable: context.contextProjectionRef.current
+        ? currentStats.contextTokensAvailable
+        : hasContextValue || currentStats.contextTokensAvailable === true,
+      contextLimit: nextStats.contextLimit > 0 ? nextStats.contextLimit : currentStats.contextLimit,
+      messages: nextStats.messages > 0 ? nextStats.messages : currentStats.messages,
+    };
   });
 }
 
@@ -221,8 +220,9 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
     }
     if (sessionId === selectedSubagentRef.current) {
       setSubagentSession((current) => {
-        if (!current || current.address.childSessionId !== sessionId || current.history.some((entry) => entry.event.seq === nextEvent.seq)) return current;
-        return { ...current, history: [...current.history, { event: nextEvent, view: payload.view }] };
+        if (!current || current.address.childSessionId !== sessionId) return current;
+        const history = mergeDisplayHistory(current.history, [{ event: nextEvent, view: payload.view }]);
+        return history === current.history ? current : { ...current, history };
       });
     }
     return;
@@ -235,55 +235,25 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
     // 通用投影缓存：所有会话（不只当前活动会话）的最新投影都登记，
     // 切换会话时由 App 端按 seq 水位叠加，避免“切换前到达但历史尚未折叠”
     // 的投影丢失，也保证其它会话的投影不会污染当前 UI。
+    let accepted = true;
     if (sessionId && key) {
       const seq = typeof payload.seq === "number" && Number.isFinite(payload.seq)
         ? payload.seq
         : typeof payload.seq === "string" && Number.isFinite(Number(payload.seq))
           ? Number(payload.seq)
           : 0;
-      sessionProjectionCache.put(sessionId, key, payload.value, seq);
+      accepted = sessionProjectionCache.put(sessionId, key, payload.value, seq);
     }
+    if (!accepted) return;
     if (sessionId === activeSessionRef.current && (projectionKey === "contextpressure" || projectionKey === "tokenusage" || projectionKey === "usage" || projectionKey === "tokens")) {
-      const projection = recordValue(payload.value);
-      if (projectionKey === "contextpressure" && projection) {
-        contextProjectionRef.current = true;
-        const projectedContext = numberValue(projection.projectedTokens ?? projection.pressureTokens);
-        const contextWindow = numberValue(projection.contextWindow);
-        setSessionStats((current) => ({
-          ...current,
-          ...(projectedContext === undefined
-            ? { contextTokens: 0, contextTokensAvailable: false }
-            : { contextTokens: projectedContext, contextTokensAvailable: true }),
-          ...(contextWindow === undefined ? {} : { contextLimit: contextWindow }),
-        }));
-      }
-      if (["tokenusage", "usage", "tokens"].includes(projectionKey) && projection) {
-        const buckets = usageTokenBuckets(projection);
-        const uncachedInput = buckets.uncachedInput;
-        const cacheRead = buckets.cacheRead;
-        const cacheWrite = buckets.cacheWrite;
-        const projectedInput = numberValue(projection.inputTokens ?? projection.input_tokens);
-        const inputTokens = projectedInput ?? (uncachedInput === undefined ? undefined : uncachedInput + (cacheRead ?? 0) + (cacheWrite ?? 0));
-        const outputTokens = numberValue(projection.outputTokens ?? projection.output_tokens);
-        const reasoningTokens = numberValue(projection.reasoningTokens ?? projection.reasoning_tokens ?? projection.reasoning);
-        setSessionStats((current) => ({
-          ...current,
-          tokenUsageSource: "projection",
-          tokenUsageAvailable: true,
-          inputTokens: inputTokens ?? current.inputTokens,
-          outputTokens: outputTokens ?? current.outputTokens,
-          reasoningTokens: reasoningTokens ?? current.reasoningTokens,
-          uncachedInputTokens: uncachedInput ?? current.uncachedInputTokens,
-          cacheReadTokens: cacheRead ?? current.cacheReadTokens,
-          cacheWriteTokens: cacheWrite ?? current.cacheWriteTokens,
-          cacheHitRate: uncachedInput !== undefined || cacheRead !== undefined || cacheWrite !== undefined
-            ? ((uncachedInput ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0)) > 0
-              ? Math.min(100, ((cacheRead ?? 0) / ((uncachedInput ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0))) * 100)
-              : 0
-            : current.cacheHitRate,
-          totalTokens: (inputTokens ?? current.inputTokens) + (outputTokens ?? current.outputTokens),
-        }));
-      }
+      if (projectionKey === "contextpressure" && recordValue(payload.value)) contextProjectionRef.current = true;
+      const projectedValues = Object.fromEntries(
+        sessionProjectionCache.snapshot(sessionId).map((entry) => [entry.key, entry.value]),
+      );
+      const nextStats = readSessionStats(context.historyRef.current, { values: projectedValues });
+      setSessionStats((current) => activeSessionRef.current === sessionId
+        ? { ...current, ...nextStats, contextLimit: nextStats.contextLimit > 0 ? nextStats.contextLimit : current.contextLimit }
+        : current);
       return;
     }
     if (projectionKey === "imagelimits" && sessionId === activeSessionRef.current) {

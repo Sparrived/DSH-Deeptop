@@ -32,8 +32,8 @@ export class SessionProjectionCache {
     return this.evictions;
   }
 
-  put(sessionId: string, key: string, value: unknown, seq = 0, receivedAt = Date.now()): void {
-    if (!sessionId || !key) return;
+  put(sessionId: string, key: string, value: unknown, seq = 0, receivedAt = Date.now()): boolean {
+    if (!sessionId || !key) return false;
     const existing = this.sessions.get(sessionId);
     if (!existing) {
       this.touch(sessionId);
@@ -41,8 +41,9 @@ export class SessionProjectionCache {
     }
     const map = this.sessions.get(sessionId)!;
     const before = map.get(key);
-    if (before && before.seq > seq) return; // 只有更新的 seq 才能覆盖（同 seq 时后写入者胜）。
+    if (before && before.seq > seq) return false; // 只有更新的 seq 才能覆盖（同 seq 时后写入者胜）。
     map.set(key, { key, value, seq, receivedAt });
+    return true;
   }
 
   get(sessionId: string, key: string): ProjectionCacheEntry | undefined {

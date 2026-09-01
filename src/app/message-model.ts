@@ -192,7 +192,7 @@ export function assistantMessageStats(entries: DshHistoryEntry[]): Map<number, M
   const result = new Map<number, MessageStats>();
   let fallbackIndex = 0;
   let fallbackKey = `fallback/${fallbackIndex}`;
-  for (const { event } of [...entries].sort((left, right) => left.event.seq - right.event.seq)) {
+  for (const { event, displayFirstTokenTime } of [...entries].sort((left, right) => left.event.seq - right.event.seq)) {
     const key = eventCoordinates(event);
     if (!key && event.type === "step/start") {
       fallbackIndex += 1;
@@ -202,6 +202,9 @@ export function assistantMessageStats(entries: DshHistoryEntry[]): Map<number, M
     const state = steps.get(keyText) ?? {};
     if (event.type === "step/start") state.stepStartTime = event.time;
     if (hasTokenDelta(event) && state.firstTokenTime === undefined) state.firstTokenTime = event.time;
+    if (state.firstTokenTime === undefined && numberValue(displayFirstTokenTime) !== undefined) {
+      state.firstTokenTime = displayFirstTokenTime;
+    }
     const usage = eventUsage(event);
     if (usage) state.usage = mergeRecords(state.usage, usage);
     steps.set(keyText, state);

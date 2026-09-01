@@ -9,6 +9,7 @@ import { eventToolResultError, isInjectedMessage, numberValue, recordValue } fro
 import { sessionElapsedMs } from "./session-events.ts";
 import { tokenUsageDashboard } from "./token-usage.ts";
 import { t, type UiLocale } from "./i18n.ts";
+import { displayEventCount } from "./display-history.ts";
 
 type SessionDashboardOptions = {
   elapsedMs?: number;
@@ -176,7 +177,7 @@ export function sessionDashboard(
 
   return {
     summary: {
-      eventCount: ordered.length,
+      eventCount: displayEventCount(ordered),
       userMessages,
       assistantMessages,
       messages: userMessages + assistantMessages,
