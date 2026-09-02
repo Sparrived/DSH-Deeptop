@@ -52,7 +52,7 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 
 ## 首次使用
 
-1. 运行 `npm run tauri:dev`，等待运行时指示器显示 DSH 已就绪。开发启动会从 `vendor/dsh` 构建并同步固定提交的内嵌运行时；应用启动不会使用 PATH 中的 `dsh`、npm 全局安装、`DSH_HOME` prefix、npm/npx 缓存或 registry。
+1. 运行 `npm run tauri:dev`，等待运行时指示器显示 DSH 已就绪。开发启动会从 `vendor/dsh` 构建、同步并校验固定提交的内嵌运行时；应用启动不会使用 PATH 中的 `dsh`、npm 全局安装、`DSH_HOME` prefix、npm/npx 缓存或 registry。
 2. 打开设置/运行台；如果当前 Profile 提供对应域，配置 Provider 和凭据。凭据通过 DSH API 写入，不要把密钥放进仓库或 Profile 补丁。
 3. 选择或创建工作区。选定目录会作为新建会话的 `cwd`，不会自动修改已有会话的工作目录。
 4. 创建会话、选择模型并发送提示。运行中需要追加上下文时，可使用 queue 或 steering 模式。输入 `@` 可通过 DSH RC8 File/Session Reference 选择文件、目录或会话；带空格的路径使用引号候选。
@@ -107,7 +107,7 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 3. 将 `cordis/` 下的内置插件按嵌套目录写入 `$DSH_HOME/profiles/node_modules/deeptop-bridge`，因此无需全局安装该 Bundle。
 4. 保留用户已有的 desktop Profile Bundle 和 `$DSH_HOME/profiles/desktop/cordis.patch.yml` 修改。
 5. 从 Tauri 安装包的压缩 `dsh-runtime.tar.gz` 和清单读取固定版本的 DSH 源码构建产物和完整依赖树。
-6. 将归档安全解压到按源码提交、平台、架构和运行时树摘要命名的应用本地数据缓存；缓存使用 `.complete` 标记，并在启动前重新计算树摘要，只有完整校验后才会复用，更新时保留旧版本缓存以便回滚。
+6. 将归档安全解压到按源码提交、平台、架构和运行时树摘要命名的应用本地数据缓存；首次物化时会重新计算树摘要，缓存使用 `.complete` 标记并检查清单、入口和完成标记后复用，更新时保留旧版本缓存以便回滚。
 7. 通过系统 Node.js 直接执行缓存中的 `@deepseek-ai/dsh/lib/bin.js`，不调用 npm、PATH 中的 `dsh`、全局安装、npm/npx 缓存或 registry。
 8. 启动内嵌 DSH 前会检查已经运行的 desktop DSH 进程及其 `DSH_HOME`；如果确认占用同一目录，应用会暂停启动并显示冲突弹窗。用户可以保持旧进程运行，或仅终止弹窗列出的 DSH 进程后继续启动 Deeptop。
 9. 安装包资源只读；Profile、会话、日志和设置仍写入 `$DSH_HOME`，然后等待 Bridge 返回 `deeptop/1` 的 `ready` 帧。
@@ -169,7 +169,7 @@ npm run version:check
 
 `npm run build` 实际执行 `tsc --noEmit && vite build`；`npm run tauri:dev` 会按 Tauri 配置先启动 Vite，`npm run tauri:build` 会构建原生应用和已启用的 bundle。准备发布时使用 `npm run version:set -- 0.2.0`，它会同步更新 npm、Bridge、Tauri 和 Cargo 清单。每次修改至少运行 `npm run build` 与 `npm test`；修改 Bridge 或重试逻辑时同时运行对应专项测试。
 
-内嵌 DSH 来自 `vendor/dsh` 子模块锁定的 DeepSeek Harness 提交；构建脚本会先构建 Host 产物，再按 `pnpm-lock.yaml` 部署生产依赖，生成无 workspace 链接的压缩 `dsh-runtime.tar.gz` 资源和配套清单，并从最终归档真实加载启动必需模块及其原生依赖。升级 DSH 时应更新子模块指针、运行时清单，并重新验证归档、缓存解压、Profile、ApiProxy 方法、Remote 契约和事件投影。
+内嵌 DSH 来自 `vendor/dsh` 子模块锁定的 DeepSeek Harness 提交；构建脚本会先构建 Host 产物，再按 `pnpm-lock.yaml` 部署生产依赖，生成无 workspace 链接的压缩 `dsh-runtime.tar.gz` 资源和配套清单。校验器会比对归档内外清单、重新计算最终归档的运行时树摘要，并真实加载启动必需模块及其原生依赖。升级 DSH 时应更新子模块指针、运行时清单，并重新验证归档、缓存解压、Profile、ApiProxy 方法、Remote 契约和事件投影。
 
 ## 扩展桌面 Profile
 

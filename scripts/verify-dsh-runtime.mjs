@@ -2,7 +2,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { isDeepStrictEqual } from "node:util";
 import { fileURLToPath } from "node:url";
+import { runtimeTreeSha256 } from "./runtime-tree-sha256.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const resourcesRoot = path.join(root, "src-tauri", "resources");
@@ -22,14 +24,15 @@ function readJson(filePath) {
 if (!fs.existsSync(archivePath) || !fs.statSync(archivePath).isFile()) {
   throw new Error(`内嵌 DSH 运行时归档不存在：${archivePath}`);
 }
+const manifestBytes = fs.readFileSync(manifestPath);
 const manifest = readJson(manifestPath);
 if (
   manifest.format !== 1 ||
-  manifest.runtimeFeatures !== 4 ||
+  manifest.runtimeFeatures !== 5 ||
   !Array.isArray(manifest.desktopRuntimePackages) ||
   !manifest.desktopRuntimePackages.includes("undici") ||
   !Array.isArray(manifest.runtimeSmokePackages) ||
-  !runtimeSmokePackages.every((name) => manifest.runtimeSmokePackages.includes(name)) ||
+  !isDeepStrictEqual(manifest.runtimeSmokePackages, runtimeSmokePackages) ||
   manifest.packageName !== "@deepseek-ai/dsh" ||
   manifest.entry !== entry ||
   manifest.platform !== process.platform ||
@@ -78,6 +81,18 @@ try {
     const detail = archiveCheck.error?.message || archiveCheck.stderr?.trim() || archiveCheck.status;
     throw new Error(`内嵌 DSH 运行时归档无法解压：${archivePath}（${detail}）`);
   }
+  const extractedManifestPath = path.join(extractedRoot, "runtime-manifest.json");
+  const extractedManifestBytes = fs.readFileSync(extractedManifestPath);
+  readJson(extractedManifestPath);
+  if (!extractedManifestBytes.equals(manifestBytes)) {
+    throw new Error(`内嵌 DSH 归档清单与外部资源清单字节不一致：${extractedManifestPath}`);
+  }
+  const actualTreeSha256 = runtimeTreeSha256(extractedRoot, { rejectCacheMetadata: true });
+  if (actualTreeSha256 !== manifest.treeSha256) {
+    throw new Error(
+      `内嵌 DSH 运行时树摘要不一致：清单 ${manifest.treeSha256}，实际 ${actualTreeSha256}`,
+    );
+  }
   if (!fs.existsSync(path.join(extractedRoot, "node_modules", "undici", "index.js"))) {
     throw new Error(`内嵌 DSH 运行时缺少桌面网络代理依赖：${archivePath}`);
   }
@@ -88,6 +103,7 @@ try {
     env: {
       ...process.env,
       NODE_PATH: "",
+      NODE_OPTIONS: "",
       SHARP_FORCE_GLOBAL_LIBVIPS: "",
       SHARP_IGNORE_GLOBAL_LIBVIPS: "1",
     },

@@ -1,8 +1,9 @@
 import fs from "node:fs";
-import { createHash } from "node:crypto";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { packageHasImportEntry } from "./runtime-package-entry.mjs";
+import { runtimeTreeSha256 } from "./runtime-tree-sha256.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourceRoot = path.join(root, "vendor", "dsh");
@@ -61,33 +62,6 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
-function treeSha256(rootPath) {
-  const hash = createHash("sha256");
-  function visit(directory, relativeDirectory = "") {
-    const entries = fs.readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
-      Buffer.from(left.name).compare(Buffer.from(right.name)),
-    );
-    for (const entry of entries) {
-      const relative = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
-      if (relative === "runtime-manifest.json" || relative === ".complete") continue;
-      const absolute = path.join(directory, entry.name);
-      const stat = fs.lstatSync(absolute);
-      if (stat.isSymbolicLink()) throw new Error(`内嵌运行时禁止符号链接：${relative}`);
-      if (stat.isDirectory()) {
-        hash.update(`D\n${relative}\n`);
-        visit(absolute, relative);
-      } else if (stat.isFile()) {
-        hash.update(`F\n${relative}\n`);
-        hash.update(fs.readFileSync(absolute));
-      } else {
-        throw new Error(`内嵌运行时包含不支持的文件类型：${relative}`);
-      }
-    }
-  }
-  visit(rootPath);
-  return hash.digest("hex");
-}
-
 function gitOutput(args) {
   const result = spawnSync("git", args, { cwd: sourceRoot, encoding: "utf8", windowsHide: true });
   if (result.error) throw result.error;
@@ -102,9 +76,10 @@ function isRuntimeReady(manifest, packageVersion) {
     !force &&
     manifest?.sourceCommit === gitOutput(["rev-parse", "HEAD"]) &&
     manifest?.packageVersion === packageVersion &&
-    manifest?.runtimeFeatures === 4 &&
+    manifest?.runtimeFeatures === 5 &&
     Array.isArray(manifest?.runtimeSmokePackages) &&
-    RUNTIME_SMOKE_PACKAGES.every((name) => manifest.runtimeSmokePackages.includes(name)) &&
+    manifest.runtimeSmokePackages.length === RUNTIME_SMOKE_PACKAGES.length &&
+    RUNTIME_SMOKE_PACKAGES.every((name, index) => manifest.runtimeSmokePackages[index] === name) &&
     manifest?.entry === entry &&
     manifest?.platform === process.platform &&
     manifest?.arch === process.arch &&
@@ -145,6 +120,10 @@ function packagePathForName(packageName) {
   return path.join(temporaryRoot, "node_modules", ...packageName.split("/"));
 }
 
+function isRuntimeBuildArtifact(filePath) {
+  return filePath.endsWith(".map") || filePath.endsWith(".tsbuildinfo");
+}
+
 function copyRuntimePackage(packageSource, packageName) {
   assertNoLinks(packageSource, `源码包 ${packageName}`, (relative) =>
     relative.split(path.sep).some((part) => ["node_modules", "tests", "src", ".cache"].includes(part)),
@@ -161,9 +140,41 @@ function copyRuntimePackage(packageSource, packageName) {
       if (parts.includes("node_modules") || parts.includes("tests") || parts.includes("src") || parts.includes(".cache")) {
         return false;
       }
+      // Source maps and TypeScript incremental state are build diagnostics, not
+      // runtime inputs. Excluding them keeps copied workspace packages from
+      // ballooning the embedded archive without changing Node resolution.
+      if (isRuntimeBuildArtifact(source)) return false;
       return parts[0] === "lib" || parts[0] === "config" || parts[0] === "bin" || parts.length === 1;
     },
   });
+}
+
+function writeTypesPackageManifest(packageRoot, packageManifest) {
+  if (fs.existsSync(path.join(packageRoot, "lib", "types"))) {
+    fs.writeFileSync(
+      path.join(packageRoot, "lib", "package.json"),
+      `${JSON.stringify(packageManifest, null, 2)}\n`,
+    );
+  }
+}
+
+function setPackageImportTarget(packageManifest, target) {
+  packageManifest.main = target;
+  if (packageManifest.exports === undefined) return;
+  const exports = packageManifest.exports;
+  const isSubpathMap =
+    exports &&
+    typeof exports === "object" &&
+    !Array.isArray(exports) &&
+    Object.keys(exports).some((key) => key.startsWith("."));
+  const rootExport = isSubpathMap ? exports["."] : exports;
+  const types =
+    rootExport && typeof rootExport === "object" && !Array.isArray(rootExport) && typeof rootExport.types === "string"
+      ? rootExport.types
+      : undefined;
+  const replacement = { ...(types ? { types } : {}), import: `./${target}`, default: `./${target}` };
+  if (isSubpathMap) packageManifest.exports["."] = replacement;
+  else packageManifest.exports = replacement;
 }
 
 function ensureRuntimePackageEntry(packageRoot, packageName) {
@@ -182,17 +193,9 @@ function ensureRuntimePackageEntry(packageRoot, packageName) {
       : 'export * from "./types/index.js";\n';
     fs.writeFileSync(hostEntry, exports);
   }
-  packageManifest.main = "lib/index.js";
-  const rootExport = packageManifest.exports?.["."];
-  if (rootExport && typeof rootExport === "object" && !Array.isArray(rootExport)) {
-    for (const key of ["default", "import", "require"]) {
-      if (key in rootExport) rootExport[key] = "./lib/index.js";
-    }
-  }
-  fs.writeFileSync(packageManifestPath, JSON.stringify(packageManifest, null, 2) + "\n");
-  if (fs.existsSync(path.join(packageRoot, "lib", "types"))) {
-    fs.writeFileSync(path.join(packageRoot, "lib", "package.json"), JSON.stringify(packageManifest, null, 2) + "\n");
-  }
+  setPackageImportTarget(packageManifest, "lib/index.js");
+  fs.writeFileSync(packageManifestPath, `${JSON.stringify(packageManifest, null, 2)}\n`);
+  writeTypesPackageManifest(packageRoot, packageManifest);
 }
 
 function copyWorkspacePackages(workspaceRoot) {
@@ -219,18 +222,13 @@ function copyWorkspacePackages(workspaceRoot) {
     const sourceGeneratedEntry = path.join(packageSource, "lib", "types", "index.js");
     const targetRoot = packagePathForName(packageManifest.name);
     const targetManifest = path.join(targetRoot, "package.json");
-    const targetMain = main ? path.join(targetRoot, main) : undefined;
-    const targetGeneratedEntry = path.join(targetRoot, "lib", "types", "index.js");
-    const targetNeedsPackage =
-      !fs.existsSync(targetManifest) ||
-      (main !== "" && !fs.existsSync(targetMain)) ||
-      (fs.existsSync(sourceGeneratedEntry) && !fs.existsSync(targetGeneratedEntry));
     if (!main) continue;
-    if (!targetNeedsPackage) {
-      if (fs.existsSync(path.join(targetRoot, "lib", "types"))) {
-        ensureRuntimePackageEntry(targetRoot, packageManifest.name);
+    if (fs.existsSync(targetManifest)) {
+      const deployedManifest = readJson(targetManifest);
+      if (packageHasImportEntry(targetRoot, deployedManifest)) {
+        writeTypesPackageManifest(targetRoot, deployedManifest);
+        continue;
       }
-      continue;
     }
     if (!fs.existsSync(sourceMain) && !fs.existsSync(sourceGeneratedEntry)) continue;
     copyRuntimePackage(packageSource, packageManifest.name);
@@ -281,7 +279,12 @@ function verifyOptionalRuntimeClosure() {
     process.execPath,
     ["--input-type=module", "-e", `for (const name of ${smokeNames}) await import(name)`],
     temporaryRoot,
-    { NODE_PATH: "", SHARP_FORCE_GLOBAL_LIBVIPS: "", SHARP_IGNORE_GLOBAL_LIBVIPS: "1" },
+    {
+      NODE_PATH: "",
+      NODE_OPTIONS: "",
+      SHARP_FORCE_GLOBAL_LIBVIPS: "",
+      SHARP_IGNORE_GLOBAL_LIBVIPS: "1",
+    },
   );
 }
 
@@ -319,6 +322,18 @@ function copyDesktopPresets() {
   }
 }
 
+function pruneRuntimeBuildArtifacts(rootPath) {
+  const stack = [rootPath];
+  while (stack.length > 0) {
+    const directory = stack.pop();
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) stack.push(absolute);
+      else if (entry.isFile() && isRuntimeBuildArtifact(absolute)) fs.rmSync(absolute);
+    }
+  }
+}
+
 function ensureClientBundleHostEntries() {
   const packageNames = [
     "@deepseek-ai/cordis",
@@ -330,42 +345,18 @@ function ensureClientBundleHostEntries() {
   ];
   for (const packageName of packageNames) {
     const packageRoot = packagePathForName(packageName);
-    const packageManifest = readJson(path.join(packageRoot, "package.json"));
-    const hostEntry = path.join(packageRoot, "lib", "index.js");
-    const generatedEntry = path.join(packageRoot, "lib", "types", "index.js");
-    if (!fs.existsSync(hostEntry)) {
-      if (!fs.existsSync(generatedEntry)) {
-        throw new Error(`内嵌运行时缺少 ${packageName} 的可执行 Host 入口`);
-      }
-      const typeOnlyPackage = new Set([
-        "@deepseek-ai/cordis",
-        "@deepseek-ai/cosmokit",
-        "@deepseek-ai/dsh-typert-protocol",
-      ]).has(packageName);
-      const exports = typeOnlyPackage
-        ? 'export * from "./types/index.js";\n'
-        : 'export * from "./types/index.js";\nexport { default } from "./types/index.js";\n';
-      fs.writeFileSync(hostEntry, exports);
+    const packageManifestPath = path.join(packageRoot, "package.json");
+    const packageManifest = readJson(packageManifestPath);
+    if (!packageHasImportEntry(packageRoot, packageManifest)) {
+      ensureRuntimePackageEntry(packageRoot, packageName);
+    } else {
+      writeTypesPackageManifest(packageRoot, packageManifest);
     }
     const invariant = path.join(packageRoot, "lib", "invariant.js");
     const generatedInvariant = path.join(packageRoot, "lib", "types", "invariant.js");
     if (!fs.existsSync(invariant) && fs.existsSync(generatedInvariant)) {
       fs.writeFileSync(invariant, 'export * from "./types/invariant.js";\n');
     }
-    packageManifest.main = "lib/index.js";
-    if (packageName === "@deepseek-ai/schemastery") {
-      packageManifest.module = "lib/index.js";
-      packageManifest.exports = {
-        ".": {
-          types: "./lib/types/index.d.ts",
-          import: "./lib/index.js",
-          require: "./lib/index.js",
-        },
-        "./src/*": "./src/*",
-        "./package.json": "./package.json",
-      };
-    }
-    fs.writeFileSync(path.join(packageRoot, "package.json"), `${JSON.stringify(packageManifest, null, 2)}\n`);
   }
 }
 
@@ -522,6 +513,7 @@ try {
   copyDesktopRuntimePackages();
   copyDesktopPresets();
   ensureClientBundleHostEntries();
+  pruneRuntimeBuildArtifacts(temporaryRoot);
   verifyOptionalRuntimeClosure();
 
   const runtimePackage = {
@@ -545,8 +537,8 @@ try {
 
   const manifest = {
     format: 1,
-    // Feature 4 pins the deploy to pnpm-lock.yaml and smokes native startup imports.
-    runtimeFeatures: 4,
+    // Feature 5 adds unambiguous tree hashing and strict final-archive validation.
+    runtimeFeatures: 5,
     packageName: "@deepseek-ai/dsh",
     packageVersion,
     sourceRepository: "https://github.com/deepseek-ai/deepseek-harness.git",
@@ -555,7 +547,7 @@ try {
     platform: process.platform,
     arch: process.arch,
     entry,
-    treeSha256: treeSha256(temporaryRoot),
+    treeSha256: runtimeTreeSha256(temporaryRoot, { rejectCacheMetadata: true }),
     optionalPackages: OPTIONAL_RUNTIME_PACKAGES.map(({ name }) => name),
     desktopRuntimePackages: DESKTOP_RUNTIME_PACKAGES.map(({ name }) => name),
     runtimeSmokePackages: RUNTIME_SMOKE_PACKAGES,

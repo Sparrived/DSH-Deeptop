@@ -233,6 +233,8 @@ const BUNDLED_DSH_ARCHIVE: &str = "dsh-runtime.tar.gz";
 const BUNDLED_DSH_MANIFEST: &str = "dsh-runtime-manifest.json";
 const RUNTIME_ARCHIVE_MANIFEST: &str = "runtime-manifest.json";
 const BUNDLED_DSH_ENTRY: &str = "node_modules/@deepseek-ai/dsh/lib/bin.js";
+const BUNDLED_DSH_RUNTIME_FEATURES: u64 = 5;
+const BUNDLED_DSH_RUNTIME_SMOKE_PACKAGES: &[&str] = &["@deepseek-ai/dsh-attachment-local"];
 const RUNTIME_CACHE_MARKER: &str = ".complete";
 const NODEJS_DOWNLOAD_URL: &str = "https://nodejs.org/en/download";
 const BRIDGE_TIMEOUT: Duration = Duration::from_secs(45);
@@ -263,6 +265,8 @@ const BRIDGE_UI_ROUTES: &str = include_str!("../../cordis/ui-registry/routes.mjs
 const BRIDGE_SKILL_INSTALLER: &str = include_str!("../../cordis/skill-installer/installer.mjs");
 const BRIDGE_SKILL_INSTALL_PLUGIN: &str = include_str!("../../cordis/skill-installer/index.mjs");
 const BRIDGE_PLUGIN_CONFIG: &str = include_str!("../../cordis/desktop-bridge/plugin-config.mjs");
+const BRIDGE_PROFILE_PATCH: &str = include_str!("../../cordis/desktop-bridge/profile-patch.mjs");
+const BRIDGE_TOOL_CONFIG: &str = include_str!("../../cordis/desktop-bridge/tool-config.mjs");
 const BRIDGE_NETWORK_PROXY: &str = include_str!("../../cordis/desktop-bridge/network-proxy.mjs");
 const BRIDGE_THEME_SETTINGS: &str = include_str!("../../cordis/theme-settings/index.mjs");
 const PROFILE_TEMPLATE: &str = include_str!("../../cordis/desktop-profile.json");
@@ -1056,7 +1060,7 @@ fn migrate_desktop_profile_patch(path: &Path) -> Result<(), String> {
     write_text(path, &format!("{}{newline}", filtered.join(newline)))
 }
 
-fn bundled_bridge_files() -> [(&'static str, &'static str); 19] {
+fn bundled_bridge_files() -> [(&'static str, &'static str); 21] {
     [
         ("package.json", BRIDGE_PACKAGE_JSON),
         ("cordis.patch.yml", BRIDGE_PATCH),
@@ -1078,6 +1082,8 @@ fn bundled_bridge_files() -> [(&'static str, &'static str); 19] {
         ("skill-installer/installer.mjs", BRIDGE_SKILL_INSTALLER),
         ("skill-installer/index.mjs", BRIDGE_SKILL_INSTALL_PLUGIN),
         ("desktop-bridge/plugin-config.mjs", BRIDGE_PLUGIN_CONFIG),
+        ("desktop-bridge/profile-patch.mjs", BRIDGE_PROFILE_PATCH),
+        ("desktop-bridge/tool-config.mjs", BRIDGE_TOOL_CONFIG),
         ("desktop-bridge/network-proxy.mjs", BRIDGE_NETWORK_PROXY),
         ("theme-settings/index.mjs", BRIDGE_THEME_SETTINGS),
     ]
@@ -1339,8 +1345,8 @@ fn is_runtime_reparse_point(path: &Path) -> bool {
 fn is_safe_runtime_entry(name: &str) -> bool {
     !name.is_empty()
         && !name.contains('\\')
+        && !name.contains(':')
         && !name.starts_with('/')
-        && !(name.len() >= 2 && name.as_bytes()[1] == b':')
         && !Path::new(name).components().any(|component| {
             matches!(
                 component,
@@ -1349,22 +1355,42 @@ fn is_safe_runtime_entry(name: &str) -> bool {
         })
 }
 
+fn is_safe_runtime_path_segment(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.contains('/')
+        && !name.contains('\\')
+        && !name.contains(':')
+}
+
+fn update_tree_record(hash: &mut Sha256, kind: u8, relative: &str) {
+    hash.update([kind]);
+    hash.update((relative.len() as u64).to_be_bytes());
+    hash.update(relative.as_bytes());
+}
+
 fn update_tree_digest(hash: &mut Sha256, root: &Path, relative: &str) -> Result<(), String> {
     let mut entries = fs::read_dir(root)
         .map_err(|error| format!("无法读取 DSH 运行时缓存目录 {}：{error}", root.display()))?
         .map(|entry| {
-            entry
-                .map(|entry| {
-                    let name = entry.file_name().to_string_lossy().into_owned();
-                    (name, entry)
-                })
-                .map_err(|error| format!("无法读取 DSH 运行时缓存条目：{error}"))
+            let entry = entry.map_err(|error| format!("无法读取 DSH 运行时缓存条目：{error}"))?;
+            let name = entry.file_name().into_string().map_err(|_| {
+                format!(
+                    "DSH 运行时缓存包含非 UTF-8 路径：{}",
+                    entry.path().display()
+                )
+            })?;
+            if !is_safe_runtime_path_segment(&name) {
+                return Err(format!("DSH 运行时缓存包含不安全的路径段：{name}"));
+            }
+            Ok((name, entry))
         })
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Result<Vec<_>, String>>()?;
     entries.sort_by(|left, right| left.0.as_bytes().cmp(right.0.as_bytes()));
     for (name, entry) in entries {
         if relative.is_empty()
-            && (name == "runtime-manifest.json"
+            && (name == RUNTIME_ARCHIVE_MANIFEST
                 || name == RUNTIME_CACHE_MARKER
                 || name == ".complete.tmp")
         {
@@ -1387,13 +1413,18 @@ fn update_tree_digest(hash: &mut Sha256, root: &Path, relative: &str) -> Result<
             ));
         }
         if file_type.is_dir() {
-            hash.update(format!("D\n{child_relative}\n").as_bytes());
+            update_tree_record(hash, b'D', &child_relative);
             update_tree_digest(hash, &entry.path(), &child_relative)?;
         } else {
-            hash.update(format!("F\n{child_relative}\n").as_bytes());
+            update_tree_record(hash, b'F', &child_relative);
+            let metadata = entry.metadata().map_err(|error| {
+                format!("无法读取 DSH 运行时文件元数据 {child_relative}：{error}")
+            })?;
+            hash.update(metadata.len().to_be_bytes());
             let mut file = fs::File::open(entry.path())
                 .map_err(|error| format!("无法读取 DSH 运行时文件 {child_relative}：{error}"))?;
             let mut buffer = [0_u8; 64 * 1024];
+            let mut total = 0_u64;
             loop {
                 let count = file.read(&mut buffer).map_err(|error| {
                     format!("无法读取 DSH 运行时文件 {child_relative}：{error}")
@@ -1401,7 +1432,13 @@ fn update_tree_digest(hash: &mut Sha256, root: &Path, relative: &str) -> Result<
                 if count == 0 {
                     break;
                 }
+                total = total.saturating_add(count as u64);
                 hash.update(&buffer[..count]);
+            }
+            if total != metadata.len() {
+                return Err(format!(
+                    "DSH 运行时文件在摘要期间发生变化：{child_relative}"
+                ));
             }
         }
     }
@@ -1410,6 +1447,7 @@ fn update_tree_digest(hash: &mut Sha256, root: &Path, relative: &str) -> Result<
 
 fn runtime_tree_sha256(root: &Path) -> Result<String, String> {
     let mut hash = Sha256::new();
+    hash.update(b"deeptop-runtime-tree-v2\0");
     update_tree_digest(&mut hash, root, "")?;
     Ok(format!("{:x}", hash.finalize()))
 }
@@ -1445,6 +1483,20 @@ fn is_runtime_cache_ready(root: &Path, manifest: &Value) -> bool {
             .is_some_and(|cached| cached == *manifest)
         && root.join(BUNDLED_DSH_ENTRY).is_file()
         && dsh_package_available_at(root)
+}
+
+fn runtime_archive_is_cache_metadata(entry_path: &Path) -> bool {
+    let names = entry_path
+        .components()
+        .filter_map(|component| match component {
+            Component::Normal(name) => Some(name),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    names.first().is_some_and(|name| {
+        *name == std::ffi::OsStr::new(RUNTIME_CACHE_MARKER)
+            || *name == std::ffi::OsStr::new(".complete.tmp")
+    })
 }
 
 fn runtime_archive_target(destination: &Path, entry_path: &Path) -> Result<PathBuf, String> {
@@ -1498,6 +1550,9 @@ fn extract_runtime_archive(archive_path: &Path, destination: &Path) -> Result<()
         if !is_safe_runtime_entry(entry_name) {
             return Err(format!("拒绝不安全的 DSH 运行时归档路径：{entry_name}"));
         }
+        if runtime_archive_is_cache_metadata(entry_path.as_ref()) {
+            return Err(format!("拒绝归档携带 DSH 运行时缓存标记：{entry_name}"));
+        }
         let entry_type = entry.header().entry_type();
         if !(entry_type.is_dir() || entry_type.is_file()) {
             return Err(format!("拒绝 DSH 运行时归档中的特殊文件：{entry_name}"));
@@ -1537,11 +1592,10 @@ fn materialize_bundled_runtime(app: &AppHandle) -> Result<PathBuf, String> {
     let resource_dir = runtime_resource_dir(app)?;
     let archive_path = resource_dir.join(BUNDLED_DSH_ARCHIVE);
     let manifest_path = resource_dir.join(BUNDLED_DSH_MANIFEST);
-    let manifest: Value = serde_json::from_str(
-        &fs::read_to_string(&manifest_path)
-            .map_err(|error| format!("无法读取内嵌 DSH 运行时清单：{error}"))?,
-    )
-    .map_err(|error| format!("内嵌 DSH 运行时清单无效：{error}"))?;
+    let manifest_bytes = fs::read(&manifest_path)
+        .map_err(|error| format!("无法读取内嵌 DSH 运行时清单：{error}"))?;
+    let manifest: Value = serde_json::from_slice(&manifest_bytes)
+        .map_err(|error| format!("内嵌 DSH 运行时清单无效：{error}"))?;
     if !is_bundled_runtime_manifest(&manifest) || !runtime_manifest_matches_host(&manifest) {
         return Err("内嵌 DSH 运行时版本、平台或入口清单不匹配，请重新安装 Deeptop".to_string());
     }
@@ -1573,31 +1627,26 @@ fn materialize_bundled_runtime(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|error| format!("无法创建 DSH 运行时临时缓存：{error}"))?;
     let result = (|| {
         extract_runtime_archive(&archive_path, &temporary)?;
-        // The manifest is bundled as a separate Tauri resource and was already
-        // validated above. Materialize that authoritative copy explicitly after
-        // extraction so a tar implementation/path quirk cannot leave the cache
-        // without its completion metadata on Windows.
+        // Validate the archive-owned manifest before materializing the separate,
+        // authoritative Tauri resource copy into the cache.
         let extracted_manifest_path = temporary.join(RUNTIME_ARCHIVE_MANIFEST);
-        let serialized_manifest = serde_json::to_vec_pretty(&manifest)
-            .map_err(|error| format!("无法编码内嵌 DSH 运行时清单：{error}"))?;
-        fs::write(&extracted_manifest_path, serialized_manifest).map_err(|error| {
+        let extracted_manifest_bytes = fs::read(&extracted_manifest_path).map_err(|error| {
+            format!(
+                "解压后的 DSH 清单无法读取 {}：{error}",
+                extracted_manifest_path.display()
+            )
+        })?;
+        serde_json::from_slice::<Value>(&extracted_manifest_bytes)
+            .map_err(|error| format!("解压后的 DSH 清单无效：{error}"))?;
+        if extracted_manifest_bytes != manifest_bytes {
+            return Err("解压后的 DSH 清单与资源清单字节不一致".to_string());
+        }
+        fs::write(&extracted_manifest_path, &manifest_bytes).map_err(|error| {
             format!(
                 "无法写入解压后的 DSH 清单 {}：{error}",
                 extracted_manifest_path.display()
             )
         })?;
-        let extracted: Value = serde_json::from_str(
-            &fs::read_to_string(&extracted_manifest_path).map_err(|error| {
-                format!(
-                    "解压后的 DSH 清单无法读取 {}：{error}",
-                    extracted_manifest_path.display()
-                )
-            })?,
-        )
-        .map_err(|error| format!("解压后的 DSH 清单无效：{error}"))?;
-        if extracted != manifest {
-            return Err("解压后的 DSH 清单与资源清单不一致".to_string());
-        }
         let validation_message = runtime_cache_validation_message(&temporary, &manifest);
         if !validation_message.is_empty() {
             return Err(format!("解压后的 DSH 运行时校验失败：{validation_message}"));
@@ -1739,7 +1788,20 @@ fn bundled_dsh_launch(app: &AppHandle) -> Result<DshLaunch, String> {
 }
 
 fn is_bundled_runtime_manifest(manifest: &Value) -> bool {
+    let smoke_packages_match = manifest
+        .get("runtimeSmokePackages")
+        .and_then(Value::as_array)
+        .is_some_and(|packages| {
+            packages.len() == BUNDLED_DSH_RUNTIME_SMOKE_PACKAGES.len()
+                && packages
+                    .iter()
+                    .zip(BUNDLED_DSH_RUNTIME_SMOKE_PACKAGES.iter())
+                    .all(|(actual, expected)| actual.as_str() == Some(*expected))
+        });
     manifest.get("format").and_then(Value::as_u64) == Some(1)
+        && manifest.get("runtimeFeatures").and_then(Value::as_u64)
+            == Some(BUNDLED_DSH_RUNTIME_FEATURES)
+        && smoke_packages_match
         && manifest.get("packageName").and_then(Value::as_str) == Some(BUNDLED_DSH_PACKAGE)
         && manifest.get("packageVersion").and_then(Value::as_str) == Some(BUNDLED_DSH_VERSION)
         && manifest.get("entry").and_then(Value::as_str) == Some(BUNDLED_DSH_ENTRY)
@@ -5274,11 +5336,11 @@ mod tests {
         dsh_homes_match, extract_runtime_archive, format_log_line, format_utc_datetime,
         is_bundled_runtime_manifest, is_dsh_package_manifest, is_file_path, is_safe_runtime_entry,
         process_command_line_matches_dsh, prune_old_runtime_caches, runtime_arch,
-        runtime_cache_validation_message, runtime_platform, runtime_tree_sha256,
-        sniff_image_media_type, tray_menu_text, tray_session_label, validate_tray_session_menu,
-        validated_connection_url, DshRuntimeLog, LogStore, TraySessionMenuItem,
-        TraySessionMenuSnapshot, TraySessionStatus, MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES,
-        RUNTIME_CACHE_MARKER,
+        runtime_archive_is_cache_metadata, runtime_cache_validation_message, runtime_platform,
+        runtime_tree_sha256, sniff_image_media_type, tray_menu_text, tray_session_label,
+        validate_tray_session_menu, validated_connection_url, DshRuntimeLog, LogStore,
+        TraySessionMenuItem, TraySessionMenuSnapshot, TraySessionStatus, MAX_LOG_ENTRIES,
+        MAX_LOG_TEXT_BYTES, RUNTIME_CACHE_MARKER,
     };
 
     /// ACL 防漂移守卫：invoke_handler 注册的每个命令都必须出现在 build.rs 的
@@ -5534,7 +5596,20 @@ mod tests {
         assert!(!is_safe_runtime_entry("../escape"));
         assert!(!is_safe_runtime_entry("/absolute"));
         assert!(!is_safe_runtime_entry("C:/escape"));
+        assert!(!is_safe_runtime_entry("node_modules/a:b"));
         assert!(!is_safe_runtime_entry(r"node_modules\\escape"));
+        assert!(runtime_archive_is_cache_metadata(std::path::Path::new(
+            ".complete"
+        )));
+        assert!(runtime_archive_is_cache_metadata(std::path::Path::new(
+            "./.complete.tmp"
+        )));
+        assert!(runtime_archive_is_cache_metadata(std::path::Path::new(
+            ".complete/child"
+        )));
+        assert!(!runtime_archive_is_cache_metadata(std::path::Path::new(
+            "nested/.complete"
+        )));
     }
 
     #[test]
@@ -5619,23 +5694,56 @@ mod tests {
     }
 
     #[test]
-    fn runtime_tree_digest_changes_when_runtime_content_changes() {
+    fn runtime_tree_digest_matches_js_and_ignores_root_metadata() {
         let root =
             std::env::temp_dir().join(format!("deeptop-runtime-tree-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(root.join("nested")).expect("create digest test directory");
-        std::fs::write(root.join("nested/file.js"), "one").expect("write digest test file");
-        let first = runtime_tree_sha256(&root).expect("hash first tree");
-        std::fs::write(root.join("nested/file.js"), "two").expect("rewrite digest test file");
-        let second = runtime_tree_sha256(&root).expect("hash second tree");
-        assert_ne!(first, second);
-        std::fs::write(root.join("runtime-manifest.json"), "ignored").expect("write manifest");
-        std::fs::write(root.join(RUNTIME_CACHE_MARKER), "ignored").expect("write marker");
+        std::fs::create_dir_all(root.join("dir")).expect("create digest test directory");
+        std::fs::write(root.join("a.txt"), "alpha").expect("write digest text file");
+        std::fs::write(root.join("dir/b.bin"), [0_u8, 1]).expect("write digest binary file");
+        std::fs::write(root.join("runtime-manifest.json"), "first").expect("write manifest");
+        std::fs::write(root.join(RUNTIME_CACHE_MARKER), "first").expect("write marker");
+        std::fs::write(root.join(".complete.tmp"), "first").expect("write temporary marker");
+        let digest = runtime_tree_sha256(&root).expect("hash first tree");
         assert_eq!(
-            second,
+            digest,
+            "ebe07cc2bd582638ab0d85745bef551e537b2e0bc6a95869256824484f0232c9"
+        );
+        std::fs::write(root.join("runtime-manifest.json"), "second").expect("rewrite manifest");
+        std::fs::write(root.join(RUNTIME_CACHE_MARKER), "second").expect("rewrite marker");
+        std::fs::write(root.join(".complete.tmp"), "second").expect("rewrite temporary marker");
+        assert_eq!(
+            digest,
             runtime_tree_sha256(&root).expect("hash metadata tree")
         );
+        std::fs::write(root.join("dir/runtime-manifest.json"), "nested")
+            .expect("write nested manifest");
+        assert_ne!(
+            digest,
+            runtime_tree_sha256(&root).expect("hash nested metadata tree")
+        );
         std::fs::remove_dir_all(root).expect("remove digest test directory");
+    }
+
+    #[test]
+    fn runtime_tree_digest_separates_file_boundaries() {
+        let parent = std::env::temp_dir().join(format!(
+            "deeptop-runtime-tree-boundary-test-{}",
+            std::process::id()
+        ));
+        let first = parent.join("first");
+        let second = parent.join("second");
+        let _ = std::fs::remove_dir_all(&parent);
+        std::fs::create_dir_all(&first).expect("create first digest tree");
+        std::fs::create_dir_all(&second).expect("create second digest tree");
+        std::fs::write(first.join("a"), "F\nb\nX").expect("write joined-looking file");
+        std::fs::write(second.join("a"), "").expect("write empty file");
+        std::fs::write(second.join("b"), "X").expect("write second file");
+        assert_ne!(
+            runtime_tree_sha256(&first).expect("hash first boundary tree"),
+            runtime_tree_sha256(&second).expect("hash second boundary tree")
+        );
+        std::fs::remove_dir_all(parent).expect("remove boundary trees");
     }
 
     #[test]
@@ -5647,6 +5755,8 @@ mod tests {
     fn accepts_only_the_pinned_bundled_runtime_manifest() {
         let manifest = serde_json::json!({
             "format": 1,
+            "runtimeFeatures": 5,
+            "runtimeSmokePackages": ["@deepseek-ai/dsh-attachment-local"],
             "packageName": "@deepseek-ai/dsh",
             "packageVersion": "0.1.1-rc.2",
             "entry": "node_modules/@deepseek-ai/dsh/lib/bin.js",
@@ -5656,6 +5766,17 @@ mod tests {
             "treeSha256": "0123456789012345678901234567890123456789012345678901234567890123",
         });
         assert!(is_bundled_runtime_manifest(&manifest));
+        for key in ["runtimeFeatures", "runtimeSmokePackages"] {
+            let mut invalid = manifest.clone();
+            invalid
+                .as_object_mut()
+                .expect("manifest object")
+                .remove(key);
+            assert!(!is_bundled_runtime_manifest(&invalid));
+        }
+        let mut invalid_smoke = manifest.clone();
+        invalid_smoke["runtimeSmokePackages"] = serde_json::json!(["other-package"]);
+        assert!(!is_bundled_runtime_manifest(&invalid_smoke));
         assert!(!is_bundled_runtime_manifest(&serde_json::json!({
             "format": 1,
             "packageName": "@deepseek-ai/dsh",
