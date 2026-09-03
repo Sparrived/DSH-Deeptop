@@ -17,7 +17,7 @@ export type DefaultPermissionOption = {
 export const DEFAULT_PERMISSION_OPTIONS: DefaultPermissionOption[] = [
   { value: "read-only", name: "只读", nameKey: "permission.readOnly", description: "可读取和分析内容，不写入文件。", descriptionKey: "permission.readOnly.desc" },
   { value: "workspace-write", name: "工作区可写", nameKey: "permission.workspaceWrite", description: "可读取并修改当前工作区文件，限制工作区外操作。", descriptionKey: "permission.workspaceWrite.desc" },
-  { value: "danger-full-access", name: "完全访问", nameKey: "permission.fullAccess", description: "可执行不受限制的文件与外部操作。", descriptionKey: "permission.fullAccess.desc" },
+  { value: "danger-full-access", name: "完全访问", nameKey: "permission.fullAccess", description: "可执行不受限制的文件与外部操作；此模式不弹审批弹窗，Skill 安装无需确认直接执行，其余需要审批的操作会被自动拒绝。", descriptionKey: "permission.fullAccess.desc" },
 ];
 
 export function isDefaultPermission(value: unknown): value is DefaultPermission {
