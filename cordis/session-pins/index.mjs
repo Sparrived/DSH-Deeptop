@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { Service } from '@deepseek-ai/cordis'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import { z } from 'zod'
+import { resolveDshHome } from '../desktop-bridge/dsh-home.mjs'
 import { normalizeSessionPinIds, parseLegacySessionPinStore, pinnedForWorkspace } from './model.mjs'
 
 const sessionPinRowSchema = z.object({
@@ -28,8 +29,8 @@ const sessionPinDomainSpec = defineDomain({
 })
 
 function legacyStorePath(ctx) {
-  const home = ctx.get?.('dshHome') || process.env.DSH_HOME
-  if (typeof home !== 'string' || !home.trim()) throw new Error('session pins require DSH_HOME')
+  const home = resolveDshHome(ctx)
+  if (home === undefined) throw new Error('session pins require DSH_HOME')
   return join(home, 'profiles', 'desktop', 'session-pins.json')
 }
 

@@ -267,6 +267,7 @@ const BRIDGE_SKILL_REGISTRY: &str =
     include_str!("../../cordis/skill-installer/managed-registry.mjs");
 const BRIDGE_SKILL_INSTALL_PLUGIN: &str = include_str!("../../cordis/skill-installer/index.mjs");
 const BRIDGE_PLUGIN_CONFIG: &str = include_str!("../../cordis/desktop-bridge/plugin-config.mjs");
+const BRIDGE_DSH_HOME: &str = include_str!("../../cordis/desktop-bridge/dsh-home.mjs");
 const BRIDGE_PROFILE_PATCH: &str = include_str!("../../cordis/desktop-bridge/profile-patch.mjs");
 const BRIDGE_TOOL_CONFIG: &str = include_str!("../../cordis/desktop-bridge/tool-config.mjs");
 const BRIDGE_NETWORK_PROXY: &str = include_str!("../../cordis/desktop-bridge/network-proxy.mjs");
@@ -1062,7 +1063,7 @@ fn migrate_desktop_profile_patch(path: &Path) -> Result<(), String> {
     write_text(path, &format!("{}{newline}", filtered.join(newline)))
 }
 
-fn bundled_bridge_files() -> [(&'static str, &'static str); 22] {
+fn bundled_bridge_files() -> [(&'static str, &'static str); 23] {
     [
         ("package.json", BRIDGE_PACKAGE_JSON),
         ("cordis.patch.yml", BRIDGE_PATCH),
@@ -1088,6 +1089,7 @@ fn bundled_bridge_files() -> [(&'static str, &'static str); 22] {
         ),
         ("skill-installer/index.mjs", BRIDGE_SKILL_INSTALL_PLUGIN),
         ("desktop-bridge/plugin-config.mjs", BRIDGE_PLUGIN_CONFIG),
+        ("desktop-bridge/dsh-home.mjs", BRIDGE_DSH_HOME),
         ("desktop-bridge/profile-patch.mjs", BRIDGE_PROFILE_PATCH),
         ("desktop-bridge/tool-config.mjs", BRIDGE_TOOL_CONFIG),
         ("desktop-bridge/network-proxy.mjs", BRIDGE_NETWORK_PROXY),

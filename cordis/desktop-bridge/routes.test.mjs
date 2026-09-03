@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { constants, zstdCompressSync, zstdDecompressSync } from 'node:zlib'
 import { routeDesktopRequest } from './routes.mjs'
+import { resolveDshHome } from './dsh-home.mjs'
 import { bridgeErrorFrame, DesktopBridge, writeBridgeFrame } from './bridge.mjs'
 import { applyProxy, initNetworkProxy, loadProxySetting, normalizeProxyOverride, parseWindowsProxyServer, setProxySetting, stopSystemProxyWatch } from './network-proxy.mjs'
 import { describePluginConfig, mutatePluginConfig } from './plugin-config.mjs'
@@ -333,6 +334,60 @@ test('routes plugin inventory and config methods through the desktop bridge', as
     assert.deepEqual(config.plugins, [])
   } finally {
     await removePath(root, { recursive: true, force: true })
+  }
+})
+
+test('resolves the harness home from the boot-provided dshHomePath accessor', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-boot-home-'))
+  try {
+    // Shape of the real mounted context: app-boot provides `dshHomePath` on the
+    // root context before any profile entry mounts and never provides a
+    // `dshHome` service, so the bridge must resolve the home through it.
+    const ctx = {
+      get: key => key === 'dshHomePath' ? ((...segments) => join(root, ...segments)) : undefined,
+      apiProxy: { host: { openPath: async () => ({}) } },
+    }
+    const config = await routeDesktopRequest(ctx, 'plugin.config.describe', {}, signal)
+    assert.deepEqual(config.plugins, [])
+    assert.equal(config.path, join(root, 'profiles', 'desktop', 'deeptop-plugins.json'))
+    const tools = await routeDesktopRequest(ctx, 'tool.settings.describe', {}, signal)
+    assert.deepEqual(tools.skills.entries, [])
+    assert.deepEqual(tools.mcp.servers, [])
+    const capabilities = await routeDesktopRequest(ctx, 'desktop.capabilities', {}, signal)
+    assert.equal(capabilities.services.tools, true)
+  } finally {
+    await removePath(root, { recursive: true, force: true })
+  }
+})
+
+test('resolveDshHome prefers mounted accessors and keeps a context from reading the ambient home', () => {
+  const previousHome = process.env.DSH_HOME
+  const bootHome = join(tmpdir(), 'deeptop-resolve-boot-home')
+  const slotHome = join(tmpdir(), 'deeptop-resolve-slot-home')
+  process.env.DSH_HOME = join(tmpdir(), 'deeptop-resolve-env-home')
+  try {
+    assert.equal(resolveDshHome({ get: key => key === 'dshHomePath' ? ((...segments) => join(bootHome, ...segments)) : undefined }), bootHome)
+    assert.equal(
+      resolveDshHome({
+        get: key => key === 'dshHomePath'
+          ? ((...segments) => join(bootHome, ...segments))
+          : key === 'dshHome' ? slotHome : undefined,
+      }),
+      bootHome,
+      'the boot accessor wins over a launcher-provided home slot',
+    )
+    assert.equal(resolveDshHome({ get: key => key === 'dshHome' ? ` ${slotHome} ` : undefined }), slotHome)
+    assert.equal(
+      resolveDshHome({ get: () => undefined }),
+      undefined,
+      'a mounted context that reports no home must not fall back to the ambient DSH_HOME',
+    )
+    assert.equal(resolveDshHome(undefined), process.env.DSH_HOME)
+    assert.equal(resolveDshHome({}), process.env.DSH_HOME)
+    assert.equal(resolveDshHome({ get: key => key === 'dshHome' ? '   ' : undefined }), undefined)
+  } finally {
+    if (previousHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previousHome
   }
 })
 

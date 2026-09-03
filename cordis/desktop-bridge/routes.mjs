@@ -3,6 +3,7 @@ import { mkdtemp, open, readFile, rename, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import { repairCorruptLog } from './session-repair.mjs'
+import { resolveDshHome } from './dsh-home.mjs'
 import { parseGitHubSource } from '../skill-installer/installer.mjs'
 import { describePluginConfig, filterInventory, mutatePluginConfig } from './plugin-config.mjs'
 import {
@@ -38,8 +39,7 @@ function codedError(code, message, details) {
 }
 
 function requireToolSettings(ctx, { nativeDirectory = false } = {}) {
-  const home = typeof ctx?.get === 'function' ? ctx.get('dshHome') : process.env.DSH_HOME
-  if (typeof home !== 'string' || !home.trim()) {
+  if (resolveDshHome(ctx) === undefined) {
     throw codedError('tools-unavailable', '工具设置需要可用的 DSH_HOME', { capability: 'tools' })
   }
   if (nativeDirectory && typeof ctx?.apiProxy?.host?.openPath !== 'function') {
@@ -527,10 +527,7 @@ function probeDesktopCapabilities(ctx) {
   const api = ctx.apiProxy
   const get = typeof ctx.get === 'function' ? ctx.get : () => undefined
   const has = (value, method) => value !== undefined && value !== null && (method === undefined || typeof value[method] === 'function')
-  const configuredHome = get('dshHome')
-  const home = typeof ctx?.get === 'function'
-    ? (typeof configuredHome === 'string' && configuredHome.trim() ? configuredHome.trim() : undefined)
-    : (typeof process.env.DSH_HOME === 'string' && process.env.DSH_HOME.trim() ? process.env.DSH_HOME.trim() : undefined)
+  const home = resolveDshHome(ctx)
   const services = {
     bootstrap: true,
     sessions: has(api?.sessions, 'list') && (get('sessions') !== undefined || get('agents') !== undefined),

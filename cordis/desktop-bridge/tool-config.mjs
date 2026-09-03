@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { installSkillFromSource, MANAGED_SKILL_MARKER, parseGitHubSource, SKILL_MUTATION_LOCK_KEY, validateGitRef, validateRelativeRepoPath, validateSkillName } from '../skill-installer/installer.mjs'
 import { managedSkillRecordMatches, readManagedSkillRegistry, removeManagedSkillRegistration } from '../skill-installer/managed-registry.mjs'
 import { locateManagedBlock, normalizeProfilePatchDocument, withProfilePatchLock } from './profile-patch.mjs'
+import { resolveDshHome } from './dsh-home.mjs'
 
 const MCP_CONFIG_FILE = 'deeptop-mcp.json'
 const PROFILE_PATCH_FILE = 'cordis.patch.yml'
@@ -67,12 +68,12 @@ function errorSummary(error) {
 }
 
 function dshHome(ctx) {
-  // A mounted Cordis context is authoritative. Do not silently fall back to a
-  // process-wide home when the Host explicitly reports that this capability is
-  // unavailable; that could make one Profile mutate another user's files.
-  const home = typeof ctx?.get === 'function' ? ctx.get('dshHome') : process.env.DSH_HOME
-  if (typeof home !== 'string' || !home.trim()) throw new Error('工具设置需要 DSH_HOME')
-  return resolve(home.trim())
+  // A mounted Cordis context is authoritative. When it reports no home, do not
+  // fall back to a process-wide one: that could make one Profile mutate another
+  // user's files.
+  const home = resolveDshHome(ctx)
+  if (home === undefined) throw new Error('工具设置需要 DSH_HOME')
+  return home
 }
 
 export function managedSkillDirectory(ctx) {

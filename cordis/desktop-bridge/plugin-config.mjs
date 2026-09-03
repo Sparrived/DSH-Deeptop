@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { chmod, lstat, mkdir, open, readFile, rename, rm } from 'node:fs/promises'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
+import { resolveDshHome } from './dsh-home.mjs'
 import { DEEPTOP_PROFILE_ENTRY_IDS, locateManagedBlock, normalizeProfilePatchDocument, withProfilePatchLock } from './profile-patch.mjs'
 
 const CONFIG_FILE = 'deeptop-plugins.json'
@@ -33,11 +34,11 @@ function isRecord(value) {
 }
 
 function configPath(ctx) {
-  const home = typeof ctx?.get === 'function' ? ctx.get('dshHome') : process.env.DSH_HOME
-  if (typeof home !== 'string' || !home.trim()) {
+  const home = resolveDshHome(ctx)
+  if (home === undefined) {
     throw new Error('插件配置需要 DSH_HOME')
   }
-  return join(resolve(home.trim()), 'profiles', 'desktop', CONFIG_FILE)
+  return join(home, 'profiles', 'desktop', CONFIG_FILE)
 }
 
 async function assertSafeDirectoryAncestors(path, label) {
