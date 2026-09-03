@@ -56,6 +56,37 @@ export function validateGitRef(value) {
   return ref
 }
 
+/**
+ * The approval gate for one Skill install, folded from the session's durable
+ * `approval/policy` events and the approval service's configured default.
+ *
+ * - `'ask'` — prompt through the approval service (per-session consent).
+ * - `'skip'` — the user's own `'never'` policy (e.g. the danger-full-access
+ *   preset) already records global consent, so installs proceed without a
+ *   one-shot prompt.
+ * - `'reject'` — a delegation-pinned `'never'` must not install unattended;
+ *   deterministic rejection keeps the delegated child inside its scope.
+ *
+ * The last event wins; an event without `source: 'delegation'` is a runtime or
+ * initialization switch, i.e. user intent.
+ * @param events - the agent session's durable events in log order.
+ * @param defaultPolicy - the approval service's configured policy when the
+ *   log records no override.
+ * @returns the gate decision for this install.
+ */
+export function skillInstallGate(events, defaultPolicy) {
+  let policy
+  let delegated = false
+  for (const event of events ?? []) {
+    if (event?.type !== 'approval/policy') continue
+    policy = event.data?.policy
+    delegated = event.data?.source === 'delegation'
+  }
+  const effective = policy ?? defaultPolicy ?? 'ask'
+  if (effective === 'never') return delegated ? 'reject' : 'skip'
+  return 'ask'
+}
+
 function githubHeaders(accept = 'application/vnd.github+json') {
   const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
   return {

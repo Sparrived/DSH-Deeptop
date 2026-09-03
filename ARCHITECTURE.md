@@ -78,7 +78,9 @@ The entry module does not contain protocol details. `cordis/desktop-bridge/bridg
 stdout, JSONL validation, event streams and cancellation. `cordis/desktop-bridge/routes.mjs` owns the
 allowlisted desktop method map, including `remote.invoke` and `skill.install`.
 The separate `cordis/skill-installer/` plugin registers the approval-gated model
-tool `skill-install`. Both surfaces call its shared GitHub installer and leave
+tool `skill-install` (the one-shot prompt is skipped when the user's own
+approval policy is `never`, e.g. under the full-access preset, and rejected
+deterministically when `never` was pinned by delegation). Both surfaces call its shared GitHub installer and leave
 catalog refresh to the official skill filesystem watcher. Adding an exposed API
 should therefore touch the route map and the TypeScript contract together,
 instead of growing the plugin lifecycle code.

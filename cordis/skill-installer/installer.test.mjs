@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import test from 'node:test'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { installSkillFromSource, validateGitRef } from './installer.mjs'
+import { installSkillFromSource, skillInstallGate, validateGitRef } from './installer.mjs'
 
 function crc32(bytes) {
   let crc = 0xffffffff
@@ -73,6 +73,25 @@ test('rejects unsafe Git refs while preserving legal branch and commit forms', (
   for (const ref of ['@', '+foo', 'feature/.hidden', 'release.lock', 'feature/.lock', 'feature//branch', 'feature..branch', 'feature@{1}', 'feature~x', 'feature^x', 'feature:x', 'feature?x', 'feature*x', 'feature[x]', 'feature\\x', 'feature x']) {
     assert.throws(() => validateGitRef(ref), error => error.code === 'invalid-ref')
   }
+})
+
+test('gates Skill install on the session approval policy', () => {
+  const policy = (policy, source) => ({ type: 'approval/policy', data: source === undefined ? { policy } : { policy, source } })
+  const unrelated = { type: 'turn/start', data: {} }
+  // Default ask: interactive approval.
+  assert.equal(skillInstallGate([], undefined), 'ask')
+  assert.equal(skillInstallGate([policy('ask')], undefined), 'ask')
+  // A user-chosen never (e.g. the full-access preset) is global consent: skip the prompt.
+  assert.equal(skillInstallGate([policy('never')], 'ask'), 'skip')
+  assert.equal(skillInstallGate([policy('never')], undefined), 'skip')
+  // A never policy from the approval service default is deployment/user intent too.
+  assert.equal(skillInstallGate([], 'never'), 'skip')
+  // A delegation-pinned never must not install unattended.
+  assert.equal(skillInstallGate([policy('never', 'delegation')], 'ask'), 'reject')
+  assert.equal(skillInstallGate([policy('never', 'delegation')], undefined), 'reject')
+  // The last override wins.
+  assert.equal(skillInstallGate([policy('never', 'delegation'), policy('ask')], undefined), 'ask')
+  assert.equal(skillInstallGate([policy('never', 'delegation'), unrelated, policy('never')], undefined), 'skip')
 })
 
 test('downloads, validates, copies, and marks a Skill before the commit rename', async () => {

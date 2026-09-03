@@ -1,5 +1,5 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { installSkillFromSource } from './installer.mjs'
+import { installSkillFromSource, skillInstallGate } from './installer.mjs'
 
 export const name = 'skill-installer'
 export const inject = ['tools']
@@ -57,14 +57,27 @@ export function apply(ctx) {
       if (!exec.agent) throw new Error('skill-install requires an active agent session')
       const approval = ctx.get('approval')
       if (!approval?.request) throw new Error('skill-install requires the DSH approval service')
-      const outcome = await approval.request({
-        agent: exec.agent,
-        toolName: 'skill-install',
-        callId: exec.callId,
-        reason: `Install Skill from ${args.source}`,
-        signal: exec.signal,
-      })
-      if (outcome !== 'allowed-once') throw new Error(`Skill installation was ${outcome}`)
+      const gate = skillInstallGate(exec.agent.session.events, approval.config?.policy)
+      if (gate === 'reject') {
+        throw new Error('Skill installation was rejected because approval prompts are disabled for delegated sessions; report this limitation to the parent instead of retrying.')
+      }
+      if (gate === 'ask') {
+        const outcome = await approval.request({
+          agent: exec.agent,
+          toolName: 'skill-install',
+          callId: exec.callId,
+          reason: `Install Skill from ${args.source}`,
+          signal: exec.signal,
+        })
+        if (outcome !== 'allowed-once') {
+          const cause = outcome === 'unavailable'
+            ? 'no approval answerer is available in this deployment'
+            : `the request was ${outcome}`
+          throw new Error(`Skill installation was not approved (${cause}). Ask the user to approve, or install the Skill from Deeptop Settings → Tools → Skills, which does not require approval.`)
+        }
+      }
+      // gate === 'skip': the user's own never-approval policy (e.g. the
+      // full-access preset) already grants global consent, so no prompt.
       let committed = false
       const result = await installSkillFromSource(args, {
         signal: exec.signal,

@@ -8,7 +8,7 @@ This directory is the source of the embedded `deeptop-bridge` runtime package. T
 | `message-annotations/` | Durable message-annotation Cordis service |
 | `message-annotations-ui/` | Host registration for the built-in message-annotation Client Plugin |
 | `session-pins/` | Durable workspace session-pin service and its pure model |
-| `skill-installer/` | Approval-gated Skill installer plugin and shared installer implementation |
+| `skill-installer/` | Skill installer plugin (approval-gated; the prompt is skipped under a user-chosen never-approval policy such as the full-access preset) and shared installer implementation |
 | `theme-settings/` | Host registration for desktop theme and locale settings |
 | `ui-registry/` | UI Plugin registry, manifest validation, scoped routes and storage |
 
