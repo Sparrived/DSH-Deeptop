@@ -142,10 +142,13 @@ test('describes an empty plugin config without requiring a browser dialog', asyn
 test('mutates plugin config and rejects duplicate ids before writing', async () => {
   const root = await mkdtemp(join(tmpdir(), 'deeptop-plugin-config-'))
   const ctx = { get: key => key === 'dshHome' ? root : undefined }
+  // Keep the module path platform-absolute: a Windows drive letter is not
+  // absolute on POSIX and would fall into the npm-package rejection.
+  const pluginPath = join(tmpdir(), 'plugins', 'local-tools', 'index.ts')
   try {
     const result = await mutatePluginConfig(ctx, {
       expectedRevision: 0,
-      plugins: [{ id: 'local-tools', name: 'D:/plugins/local-tools/index.ts', enabled: true }],
+      plugins: [{ id: 'local-tools', name: pluginPath, enabled: true }],
     })
     assert.equal(result.changed, true)
     assert.equal(result.restartRequired, true)
@@ -154,7 +157,7 @@ test('mutates plugin config and rejects duplicate ids before writing', async () 
       mutatePluginConfig(ctx, {
         expectedRevision: result.revision,
         plugins: [
-          { id: 'local-tools', name: 'D:/plugins/local-tools/index.ts', enabled: true },
+          { id: 'local-tools', name: pluginPath, enabled: true },
           { id: 'local-tools', name: '@scope/other', enabled: true },
         ],
       }),
