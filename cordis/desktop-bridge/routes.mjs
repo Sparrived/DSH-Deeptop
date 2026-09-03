@@ -2,9 +2,18 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { mkdtemp, open, readFile, rename, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
-import { installSkillFromSource } from '../skill-installer/installer.mjs'
 import { repairCorruptLog } from './session-repair.mjs'
+import { parseGitHubSource } from '../skill-installer/installer.mjs'
 import { describePluginConfig, filterInventory, mutatePluginConfig } from './plugin-config.mjs'
+import {
+  cancelManagedSkillInstall,
+  describeToolSettings,
+  ensureManagedSkillDirectory,
+  installManagedSkill,
+  managedSkillInstallStatus,
+  mutateMcpSettings,
+  removeManagedSkill,
+} from './tool-config.mjs'
 import {
   deleteUiPluginStorage,
   getUiPluginBundle,
@@ -19,6 +28,23 @@ import { compactHistoryResponse } from './display-history.mjs'
 
 function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function codedError(code, message, details) {
+  const error = new Error(message)
+  error.code = code
+  if (details !== undefined) error.details = details
+  return error
+}
+
+function requireToolSettings(ctx, { nativeDirectory = false } = {}) {
+  const home = typeof ctx?.get === 'function' ? ctx.get('dshHome') : process.env.DSH_HOME
+  if (typeof home !== 'string' || !home.trim()) {
+    throw codedError('tools-unavailable', '工具设置需要可用的 DSH_HOME', { capability: 'tools' })
+  }
+  if (nativeDirectory && typeof ctx?.apiProxy?.host?.openPath !== 'function') {
+    throw codedError('host-unavailable', '打开 Skills 目录需要 Host 原生目录服务', { capability: 'host.openPath' })
+  }
 }
 
 async function invokeRemote(ctx, payload, signal) {
@@ -490,24 +516,36 @@ async function hostModels(ctx, request) {
   return enrichModelCatalog(ctx, await ctx.apiProxy.llm.models(request), false)
 }
 
+async function openManagedSkillDirectory(ctx, signal) {
+  requireToolSettings(ctx, { nativeDirectory: true })
+  const path = await ensureManagedSkillDirectory(ctx)
+  return ctx.apiProxy.host.openPath({ rpcId: randomUUID(), payload: { path } }, signal)
+}
+
 /** Probe which official Host capabilities are mounted in the current profile. */
 function probeDesktopCapabilities(ctx) {
   const api = ctx.apiProxy
   const get = typeof ctx.get === 'function' ? ctx.get : () => undefined
-  const has = (value, method) => value !== undefined && (method === undefined || typeof value[method] === 'function')
+  const has = (value, method) => value !== undefined && value !== null && (method === undefined || typeof value[method] === 'function')
+  const configuredHome = get('dshHome')
+  const home = typeof ctx?.get === 'function'
+    ? (typeof configuredHome === 'string' && configuredHome.trim() ? configuredHome.trim() : undefined)
+    : (typeof process.env.DSH_HOME === 'string' && process.env.DSH_HOME.trim() ? process.env.DSH_HOME.trim() : undefined)
   const services = {
-    sessions: has(api?.sessions) && (get('sessions') !== undefined || get('agents') !== undefined),
-    workspace: has(api?.workspace) && has(get('workspaceRegistry'), 'get'),
+    bootstrap: true,
+    sessions: has(api?.sessions, 'list') && (get('sessions') !== undefined || get('agents') !== undefined),
+    workspace: has(api?.workspace, 'list') && has(get('workspaceRegistry'), 'get'),
     references: has(get('fileReferences'), 'list') && has(get('sessionReferenceResolver'), 'remoteExportCandidates'),
     annotations: has(get('messageAnnotations'), 'list'),
-    subagents: has(api?.subagents),
-    skills: has(api?.skills),
-    agentPresets: has(api?.agentPresets),
-    goals: has(api?.goals),
-    settings: has(api?.settings),
-    credentials: has(api?.credentials),
-    llm: has(api?.llm) || has(ctx.llm, 'resolveModelInfo'),
+    subagents: has(api?.subagents, 'list'),
+    skills: has(api?.skills, 'list'),
+    agentPresets: has(api?.agentPresets, 'list'),
+    goals: has(api?.goals, 'create'),
+    settings: has(api?.settings, 'describe'),
+    credentials: has(api?.credentials, 'describe'),
+    llm: has(api?.llm, 'providers') || has(ctx.llm, 'resolveModelInfo'),
     plugins: has(ctx.pluginInventory, 'list'),
+    tools: home !== undefined && has(api?.host, 'openPath'),
     sessionExport: has(api?.downloads, 'sessionLog'),
     commands: has(get('typertGateway'), 'invoke'),
     uiPlugins: has(get('deeptopUiRegistry'), 'list'),
@@ -561,7 +599,14 @@ export async function routeDesktopRequest(ctx, method, payload, signal) {
     case 'messageAnnotations.put': return messageAnnotations(ctx).put(payload)
     case 'messageAnnotations.delete': return messageAnnotations(ctx).delete(payload)
     case 'skill.list': return api.skills.list(request)
-    case 'skill.install': return installSkillFromSource(payload, { signal })
+    case 'skill.install': parseGitHubSource(payload); throw codedError('approval-required', 'Skill 安装必须通过 DSH skill-install 工具并完成审批')
+    case 'tool.settings.describe': requireToolSettings(ctx); return describeToolSettings(ctx)
+    case 'skill.settings.install': requireToolSettings(ctx); return installManagedSkill(ctx, payload, signal)
+    case 'skill.settings.installStatus': requireToolSettings(ctx); return managedSkillInstallStatus(ctx, payload)
+    case 'skill.settings.cancelInstall': requireToolSettings(ctx); return cancelManagedSkillInstall(ctx, payload)
+    case 'skill.settings.remove': requireToolSettings(ctx); return removeManagedSkill(ctx, payload, signal)
+    case 'skill.settings.openDirectory': return openManagedSkillDirectory(ctx, signal)
+    case 'mcp.settings.mutate': requireToolSettings(ctx); return mutateMcpSettings(ctx, payload, signal)
     case 'agentPreset.list': return api.agentPresets.list(request)
     case 'agentPreset.select': return api.agentPresets.select(request)
     case 'agentPreset.read': return api.agentPresets.read(request)
@@ -597,7 +642,7 @@ export async function routeDesktopRequest(ctx, method, payload, signal) {
     case 'ui.plugin.storage.delete': return deleteUiPluginStorage(ctx, payload)
     case 'plugin.list': return filterInventory(await ctx.pluginInventory.list())
     case 'plugin.config.describe': return describePluginConfig(ctx)
-    case 'plugin.config.mutate': return mutatePluginConfig(ctx, payload)
+    case 'plugin.config.mutate': return mutatePluginConfig(ctx, payload, signal)
     case 'network.getProxy': {
       const explicit = await loadProxySetting()
       const effective = await resolveEffectiveProxy()

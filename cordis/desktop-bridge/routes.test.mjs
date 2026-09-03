@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { createServer } from 'node:http'
-import { mkdtemp, readdir, readFile, rm as removePath, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm as removePath, stat, writeFile } from 'node:fs/promises'
 import test from 'node:test'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -164,6 +164,163 @@ test('mutates plugin config and rejects duplicate ids before writing', async () 
   }
 })
 
+test('describes and mutates MCP settings without exposing literal secrets', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-tool-config-'))
+  const ctx = { get: key => key === 'dshHome' ? root : undefined }
+  try {
+    const empty = await routeDesktopRequest(ctx, 'tool.settings.describe', {}, signal)
+    assert.deepEqual(empty.mcp.servers, [])
+    const server = {
+      id: 'github',
+      serverName: 'github',
+      transport: 'stdio',
+      enabled: false,
+      command: 'node',
+      args: ['server.mjs'],
+      env: [
+        { name: 'TOKEN', source: 'literal', value: 'super-secret' },
+        { name: 'HOME', source: 'env', value: 'HOME', prefix: '' },
+      ],
+      toolCallTimeoutMs: 60_000,
+      reconnect: { enabled: true, initialDelayMs: 500, maxDelayMs: 30_000, maxAttempts: 10 },
+    }
+    const saved = await routeDesktopRequest(ctx, 'mcp.settings.mutate', { expectedRevision: 0, servers: [server] }, signal)
+    assert.equal(saved.mcp.revision, 1)
+    assert.equal(saved.mcp.servers[0].env[0].value, '')
+    assert.equal(saved.mcp.servers[0].env[0].redacted, true)
+    assert.equal(JSON.stringify(saved).includes('super-secret'), false)
+    const persisted = await readFile(join(root, 'profiles', 'desktop', 'deeptop-mcp.json'), 'utf8')
+    assert.match(persisted, /super-secret/)
+    await assert.rejects(
+      routeDesktopRequest(ctx, 'mcp.settings.mutate', { servers: saved.mcp.servers }, signal),
+      error => error?.code === 'invalid-payload',
+    )
+    await assert.rejects(
+      routeDesktopRequest(ctx, 'mcp.settings.mutate', { expectedRevision: 0, servers: saved.mcp.servers }, signal),
+      error => error?.code === 'revision-conflict',
+    )
+    const preserved = await routeDesktopRequest(ctx, 'mcp.settings.mutate', { expectedRevision: 1, servers: saved.mcp.servers }, signal)
+    assert.equal(preserved.changed, false)
+    assert.equal(preserved.mcp.servers[0].env[0].value, '')
+    assert.equal((await readFile(join(root, 'profiles', 'desktop', 'deeptop-mcp.json'), 'utf8')).includes('super-secret'), true)
+  } finally {
+    await removePath(root, { recursive: true, force: true })
+  }
+})
+
+test('replaces a literal MCP secret while rejecting an ambiguous clear request', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-tool-secret-'))
+  const ctx = { get: key => key === 'dshHome' ? root : undefined }
+  const server = (value) => ({
+    id: 'secret-server',
+    serverName: 'secret-server',
+    transport: 'stdio',
+    enabled: false,
+    command: 'node',
+    args: ['server.mjs'],
+    env: [{ name: 'TOKEN', source: 'literal', value }],
+    toolCallTimeoutMs: 60_000,
+    reconnect: { enabled: true, initialDelayMs: 500, maxDelayMs: 30_000, maxAttempts: 10 },
+  })
+  try {
+    const first = await routeDesktopRequest(ctx, 'mcp.settings.mutate', {
+      expectedRevision: 0,
+      servers: [server('first-secret')],
+    }, signal)
+    assert.equal(first.mcp.revision, 1)
+    assert.deepEqual(first.mcp.servers[0].env[0], {
+      name: 'TOKEN',
+      source: 'literal',
+      value: '',
+      redacted: true,
+    })
+
+    const replaced = await routeDesktopRequest(ctx, 'mcp.settings.mutate', {
+      expectedRevision: first.mcp.revision,
+      servers: [server('replacement-secret')],
+    }, signal)
+    assert.equal(replaced.mcp.revision, 2)
+    assert.equal(replaced.mcp.servers[0].env[0].value, '')
+    const configPath = join(root, 'profiles', 'desktop', 'deeptop-mcp.json')
+    const afterReplacement = await readFile(configPath, 'utf8')
+    assert.equal(afterReplacement.includes('first-secret'), false)
+    assert.equal(afterReplacement.includes('replacement-secret'), true)
+
+    // The redacted form returned by describe means “keep the stored literal”; it
+    // is deliberately not an empty-value delete operation.
+    const preserved = await routeDesktopRequest(ctx, 'mcp.settings.mutate', {
+      expectedRevision: replaced.mcp.revision,
+      servers: replaced.mcp.servers,
+    }, signal)
+    assert.equal(preserved.changed, false)
+    assert.equal((await readFile(configPath, 'utf8')).includes('replacement-secret'), true)
+
+    await assert.rejects(
+      routeDesktopRequest(ctx, 'mcp.settings.mutate', {
+        expectedRevision: preserved.mcp.revision,
+        servers: [server('')],
+      }, signal),
+      /value 不能为空/,
+    )
+    const afterRejectedClear = JSON.parse(await readFile(configPath, 'utf8'))
+    assert.equal(afterRejectedClear.revision, preserved.mcp.revision)
+    assert.equal(afterRejectedClear.servers[0].env[0].value, 'replacement-secret')
+
+    const clearDraft = structuredClone(preserved.mcp.servers)
+    clearDraft[0].env[0] = { name: 'TOKEN', source: 'literal', value: '', redacted: true, clearSecret: true }
+    const cleared = await routeDesktopRequest(ctx, 'mcp.settings.mutate', {
+      expectedRevision: preserved.mcp.revision,
+      servers: clearDraft,
+    }, signal)
+    assert.equal(cleared.mcp.revision, preserved.mcp.revision + 1)
+    assert.deepEqual(cleared.mcp.servers[0].env, [])
+    const afterClear = await readFile(configPath, 'utf8')
+    assert.equal(afterClear.includes('replacement-secret'), false)
+    assert.equal(afterClear.includes('clearSecret'), false)
+  } finally {
+    await removePath(root, { recursive: true, force: true })
+  }
+})
+
+test('serializes concurrent MCP mutations and rejects the stale revision without a partial publish', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-tool-lock-'))
+  const ctx = { get: key => key === 'dshHome' ? root : undefined }
+  const server = (id) => ({
+    id,
+    serverName: id,
+    transport: 'streamable-http',
+    enabled: true,
+    url: `https://${id}.example.test/mcp`,
+    headers: [],
+    toolCallTimeoutMs: 60_000,
+    reconnect: { enabled: true, initialDelayMs: 500, maxDelayMs: 30_000, maxAttempts: 10 },
+  })
+  try {
+    const outcomes = await Promise.allSettled([
+      routeDesktopRequest(ctx, 'mcp.settings.mutate', { expectedRevision: 0, servers: [server('first')] }, signal),
+      routeDesktopRequest(ctx, 'mcp.settings.mutate', { expectedRevision: 0, servers: [server('second')] }, signal),
+    ])
+    const successes = outcomes.filter(outcome => outcome.status === 'fulfilled')
+    const failures = outcomes.filter(outcome => outcome.status === 'rejected')
+    assert.equal(successes.length, 1)
+    assert.equal(failures.length, 1)
+    assert.equal(failures[0].reason?.code, 'revision-conflict')
+
+    const described = await routeDesktopRequest(ctx, 'tool.settings.describe', {}, signal)
+    assert.equal(described.mcp.revision, 1)
+    assert.equal(described.mcp.servers.length, 1)
+    const persisted = JSON.parse(await readFile(join(root, 'profiles', 'desktop', 'deeptop-mcp.json'), 'utf8'))
+    assert.equal(persisted.revision, 1)
+    assert.equal(persisted.servers.length, 1)
+    const patch = await readFile(join(root, 'profiles', 'desktop', 'cordis.patch.yml'), 'utf8')
+    assert.match(patch, /# BEGIN DEEPTOP MANAGED MCP/)
+    assert.match(patch, /# END DEEPTOP MANAGED MCP/)
+    assert.match(patch, new RegExp(`deeptop-mcp-${persisted.servers[0].id}`))
+  } finally {
+    await removePath(root, { recursive: true, force: true })
+  }
+})
+
 test('routes plugin inventory and config methods through the desktop bridge', async () => {
   const root = await mkdtemp(join(tmpdir(), 'deeptop-plugin-route-'))
   try {
@@ -308,6 +465,7 @@ test('probes official Host capabilities without failing when services are missin
       credentials: { describe: async () => ({}) },
       llm: { providers: async () => [] },
       downloads: { sessionLog: async () => ({ ok: true }) },
+      host: { openPath: async () => ({ ok: true }) },
     },
     get: key => key === 'agents' ? { get: () => agent }
       : key === 'workspaceRegistry' ? { get: () => ({}) }
@@ -315,6 +473,7 @@ test('probes official Host capabilities without failing when services are missin
       : key === 'sessionReferenceResolver' ? { remoteExportCandidates: async () => [] }
       : key === 'messageAnnotations' ? { list: async () => [], put: async () => ({}), delete: async () => ({}) }
       : key === 'typertGateway' ? { invoke: async () => ({}) }
+      : key === 'dshHome' ? '/tmp/deeptop-capabilities-test'
       : undefined,
     pluginInventory: { list: async () => ({ entries: [] }) },
   }
@@ -322,6 +481,7 @@ test('probes official Host capabilities without failing when services are missin
   const result = await routeDesktopRequest(ctx, 'desktop.capabilities', {}, signal)
   assert.equal(typeof result.probedAt, 'number')
   assert.deepEqual(result.services, {
+    bootstrap: true,
     sessions: true,
     workspace: true,
     references: true,
@@ -334,10 +494,20 @@ test('probes official Host capabilities without failing when services are missin
     credentials: true,
     llm: true,
     plugins: true,
+    tools: true,
     sessionExport: true,
     commands: true,
     uiPlugins: false,
   })
+})
+
+test('reports Tools unavailable when home or native directory opening is missing', async () => {
+  const emptyHome = await routeDesktopRequest({ apiProxy: { host: { openPath: async () => ({}) } }, get: key => key === 'dshHome' ? '   ' : undefined }, 'desktop.capabilities', {}, signal)
+  assert.equal(emptyHome.services.tools, false)
+  const noHost = await routeDesktopRequest({ get: key => key === 'dshHome' ? '/tmp/deeptop-capabilities-test' : undefined }, 'desktop.capabilities', {}, signal)
+  assert.equal(noHost.services.tools, false)
+  const incompleteSkills = await routeDesktopRequest({ apiProxy: { skills: {} }, get: key => key === 'dshHome' ? '/tmp/deeptop-capabilities-test' : undefined }, 'desktop.capabilities', {}, signal)
+  assert.equal(incompleteSkills.services.skills, false)
 })
 
 test('keeps typed error codes in the bridge error frame and plain text otherwise', () => {
@@ -903,6 +1073,184 @@ test('rejects methods outside the bridge allowlist', async () => {
   )
 })
 
+test('lists, opens, and removes a user Skill through the settings routes', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-skill-settings-'))
+  const skillDir = join(root, 'skills', 'demo-skill')
+  await writeFile(join(root, 'placeholder'), 'x')
+  await mkdir(skillDir, { recursive: true })
+  await writeFile(join(skillDir, 'SKILL.md'), '---\nname: demo-skill\ndescription: Demo\n---\n')
+  const installationId = '11111111-1111-4111-8111-111111111111'
+  await writeFile(join(skillDir, '.dsh-managed-skill.json'), JSON.stringify({
+    version: 1,
+    owner: 'deeptop',
+    directoryName: 'demo-skill',
+    skillName: 'demo-skill',
+    source: 'https://github.com/acme/demo-skill/tree/main',
+    ref: 'main',
+    path: '.',
+    installationId,
+  }))
+  await mkdir(join(root, 'profiles', 'desktop'), { recursive: true })
+  await writeFile(join(root, 'profiles', 'desktop', 'deeptop-managed-skills.json'), JSON.stringify({
+    version: 1,
+    entries: [{
+      directoryName: 'demo-skill',
+      skillName: 'demo-skill',
+      source: 'https://github.com/acme/demo-skill/tree/main',
+      ref: 'main',
+      path: '.',
+      installationId,
+    }],
+  }))
+  const opened = []
+  const ctx = {
+    get: key => key === 'dshHome' ? root : undefined,
+    apiProxy: { host: { openPath: async request => { opened.push(request.payload.path); return { opened: true } } } },
+  }
+  try {
+    const description = await routeDesktopRequest(ctx, 'tool.settings.describe', {}, signal)
+    assert.equal(description.skills.entries[0].name, 'demo-skill')
+    await routeDesktopRequest(ctx, 'skill.settings.openDirectory', {}, signal)
+    assert.deepEqual(opened, [join(root, 'skills')])
+    const removed = await routeDesktopRequest(ctx, 'skill.settings.remove', { directoryName: 'demo-skill' }, signal)
+    assert.equal(removed.skills.entries.length, 0)
+    await assert.rejects(routeDesktopRequest(ctx, 'skill.settings.remove', { directoryName: '../outside' }, signal), /Skill name 无效/)
+  } finally {
+    await removePath(root, { recursive: true, force: true })
+  }
+})
+
+test('does not allow settings to delete an untracked user Skill', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-skill-untracked-'))
+  const skillDir = join(root, 'skills', 'manual-skill')
+  const ctx = { get: key => key === 'dshHome' ? root : undefined }
+  try {
+    await mkdir(skillDir, { recursive: true })
+    await writeFile(join(skillDir, 'SKILL.md'), '---\nname: manual-skill\ndescription: Manual\n---\n')
+    const description = await routeDesktopRequest(ctx, 'tool.settings.describe', {}, signal)
+    assert.equal(description.skills.entries[0].removable, false)
+    await assert.rejects(
+      routeDesktopRequest(ctx, 'skill.settings.remove', { directoryName: 'manual-skill' }, signal),
+      /由 Deeptop 安装并登记/,
+    )
+    await stat(join(skillDir, 'SKILL.md'))
+  } finally {
+    await removePath(root, { recursive: true, force: true })
+  }
+})
+
+test('does not authorize a handwritten managed marker without its registry record', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-skill-forged-marker-'))
+  const skillDir = join(root, 'skills', 'manual-skill')
+  const ctx = { get: key => key === 'dshHome' ? root : undefined }
+  try {
+    await mkdir(skillDir, { recursive: true })
+    await writeFile(join(skillDir, 'SKILL.md'), '---\nname: manual-skill\ndescription: Manual\n---\n')
+    await writeFile(join(skillDir, '.dsh-managed-skill.json'), JSON.stringify({
+      version: 1,
+      owner: 'deeptop',
+      directoryName: 'manual-skill',
+      skillName: 'manual-skill',
+      source: 'https://github.com/acme/manual-skill/tree/main',
+      ref: 'main',
+      path: '.',
+      installationId: '33333333-3333-4333-8333-333333333333',
+    }))
+    const description = await routeDesktopRequest(ctx, 'tool.settings.describe', {}, signal)
+    assert.equal(description.skills.entries[0].removable, false)
+    await assert.rejects(
+      routeDesktopRequest(ctx, 'skill.settings.remove', { directoryName: 'manual-skill' }, signal),
+      /由 Deeptop 安装并登记/,
+    )
+    await stat(join(skillDir, 'SKILL.md'))
+  } finally {
+    await removePath(root, { recursive: true, force: true })
+  }
+})
+
+test('finishes an interrupted Skill deletion from its tombstone without restoring it', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-skill-recovery-'))
+  const skills = join(root, 'skills')
+  const tombstoneName = '.remove-demo-skill-11111111-1111-1111-1111-111111111111'
+  try {
+    await mkdir(join(skills, tombstoneName), { recursive: true })
+    await writeFile(join(skills, tombstoneName, 'partial.txt'), 'partial')
+    await writeFile(join(skills, '.dsh-skill-removal.json'), JSON.stringify({
+      version: 1,
+      directoryName: 'demo-skill',
+      trashName: tombstoneName,
+      phase: 'moved',
+    }))
+    const result = await routeDesktopRequest({ get: key => key === 'dshHome' ? root : undefined }, 'tool.settings.describe', {}, signal)
+    assert.deepEqual(result.skills.entries, [])
+    await assert.rejects(stat(join(skills, tombstoneName)), { code: 'ENOENT' })
+    await assert.rejects(stat(join(skills, '.dsh-skill-removal.json')), { code: 'ENOENT' })
+
+    const orphanName = '.remove-user-notes-22222222-2222-2222-2222-222222222222'
+    await mkdir(join(skills, orphanName), { recursive: true })
+    await writeFile(join(skills, orphanName, 'keep.txt'), 'keep')
+    const afterOrphan = await routeDesktopRequest({ get: key => key === 'dshHome' ? root : undefined }, 'tool.settings.describe', {}, signal)
+    assert.deepEqual(afterOrphan.skills.entries, [])
+    assert.equal(await readFile(join(skills, orphanName, 'keep.txt'), 'utf8'), 'keep')
+  } finally {
+    await removePath(root, { recursive: true, force: true })
+  }
+})
+
+test('quarantines a malformed Skill deletion journal without blocking inventory', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-skill-journal-invalid-'))
+  const skills = join(root, 'skills')
+  try {
+    await mkdir(skills, { recursive: true })
+    await writeFile(join(skills, '.dsh-skill-removal.json'), '{not json')
+    const result = await routeDesktopRequest({ get: key => key === 'dshHome' ? root : undefined }, 'tool.settings.describe', {}, signal)
+    assert.deepEqual(result.skills.entries, [])
+    const names = await readdir(skills)
+    assert.ok(names.some(name => name.startsWith('.dsh-skill-removal.invalid-')))
+  } finally {
+    await removePath(root, { recursive: true, force: true })
+  }
+})
+
+test('rejects Tools settings routes when DSH_HOME is unavailable', async () => {
+  const methods = [
+    'tool.settings.describe',
+    'skill.settings.installStatus',
+    'skill.settings.cancelInstall',
+    'skill.settings.remove',
+    'mcp.settings.mutate',
+  ]
+  for (const method of methods) {
+    const payload = method === 'skill.settings.remove'
+      ? { directoryName: 'demo-skill' }
+      : method === 'mcp.settings.mutate'
+        ? { expectedRevision: 0, servers: [] }
+        : { operationId: 'operation-1' }
+    await assert.rejects(
+      routeDesktopRequest({ get: () => undefined }, method, payload, signal),
+      error => error?.code === 'tools-unavailable',
+    )
+  }
+  await assert.rejects(
+    routeDesktopRequest({ get: () => undefined }, 'skill.settings.openDirectory', {}, signal),
+    error => error?.code === 'tools-unavailable',
+  )
+})
+
+test('rejects opening the Skills directory when Host directory service is unavailable', async () => {
+  await assert.rejects(
+    routeDesktopRequest({ get: key => key === 'dshHome' ? tmpdir() : undefined, apiProxy: {} }, 'skill.settings.openDirectory', {}, signal),
+    error => error?.code === 'host-unavailable',
+  )
+})
+
+test('does not expose the direct Skill install route without approval', async () => {
+  await assert.rejects(
+    routeDesktopRequest({}, 'skill.install', { source: 'https://github.com/acme/skill' }, signal),
+    error => error?.code === 'approval-required',
+  )
+})
+
 test('validates GitHub skill install sources before any network request', async () => {
   await assert.rejects(
     routeDesktopRequest({}, 'skill.install', { source: 'https://example.com/acme/skill' }, signal),
@@ -923,6 +1271,28 @@ test('parses Codex-compatible GitHub repository and tree sources', () => {
     ref: 'main',
     path: undefined,
   })
+  assert.deepEqual(parseGitHubSource({
+    source: 'https://github.com/acme/repo/tree/feature/foo/skills/demo',
+    ref: 'feature/foo',
+  }), {
+    owner: 'acme',
+    repo: 'repo',
+    ref: 'feature/foo',
+    path: 'skills/demo',
+  })
+  assert.deepEqual(parseGitHubSource({
+    source: 'https://github.com/acme/repo/tree/feature%2Ffoo/skills/demo',
+    ref: 'feature/foo',
+  }), {
+    owner: 'acme',
+    repo: 'repo',
+    ref: 'feature/foo',
+    path: 'skills/demo',
+  })
+  assert.throws(
+    () => parseGitHubSource({ source: 'https://github.com/acme/repo/tree/feature/foo/skills/demo' }),
+    /未编码斜杠/,
+  )
   assert.throws(() => validateRelativeRepoPath('../outside'), /仓库内的相对路径/)
 })
 

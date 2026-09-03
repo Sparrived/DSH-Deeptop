@@ -23,6 +23,12 @@ import type {
   DshNetworkProxySnapshot,
   DshSkill,
   DshSkillInstallResult,
+  DshManagedSkillMutation,
+  DshManagedSkillInstallOperation,
+  DshMcpServerConfig,
+  DshMcpSettingsMutation,
+  DshToolSettingsDescription,
+  DshHostCapabilities,
   DshSubagentCatalog,
   DshWorkspace,
 } from "./desktop";
@@ -265,8 +271,43 @@ const skills = {
   },
   "skill.install": {
     requires: "skills",
-    payload: {} as { source: string; ref?: string; name?: string; method?: string },
+    payload: {} as { source: string; path?: string; ref?: string; name?: string; method?: "auto" | "download" | "git" },
     value: {} as DshSkillInstallResult,
+  },
+  "tool.settings.describe": {
+    requires: "tools",
+    payload: {} as Record<string, never>,
+    value: {} as DshToolSettingsDescription,
+  },
+  "skill.settings.install": {
+    requires: "tools",
+    payload: {} as { operationId: string; source: string; path?: string; ref?: string; name?: string; method?: "auto" | "download" | "git" },
+    value: {} as Extract<DshManagedSkillInstallOperation, { status: "running" }>,
+  },
+  "skill.settings.installStatus": {
+    requires: "tools",
+    payload: {} as { operationId: string },
+    value: {} as DshManagedSkillInstallOperation,
+  },
+  "skill.settings.cancelInstall": {
+    requires: "tools",
+    payload: {} as { operationId: string },
+    value: {} as { cancelled: boolean },
+  },
+  "skill.settings.remove": {
+    requires: "tools",
+    payload: {} as { directoryName: string },
+    value: {} as DshManagedSkillMutation,
+  },
+  "skill.settings.openDirectory": {
+    requires: "tools",
+    payload: {} as Record<string, never>,
+    value: {} as unknown,
+  },
+  "mcp.settings.mutate": {
+    requires: "tools",
+    payload: {} as { expectedRevision: number; servers: DshMcpServerConfig[] },
+    value: {} as DshMcpSettingsMutation,
   },
 } as const satisfies Record<string, BridgeMethodContract>;
 
@@ -426,6 +467,11 @@ const host = {
 } as const satisfies Record<string, BridgeMethodContract>;
 
 const desktop = {
+  "desktop.capabilities": {
+    requires: "bootstrap",
+    payload: {} as Record<string, never>,
+    value: {} as DshHostCapabilities,
+  },
   "respond": {
     requires: "sessions",
     payload: {} as {

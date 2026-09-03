@@ -263,8 +263,12 @@ const BRIDGE_UI_PLUGIN_MANIFEST: &str = include_str!("../../cordis/ui-registry/m
 const BRIDGE_UI_REGISTRY: &str = include_str!("../../cordis/ui-registry/index.mjs");
 const BRIDGE_UI_ROUTES: &str = include_str!("../../cordis/ui-registry/routes.mjs");
 const BRIDGE_SKILL_INSTALLER: &str = include_str!("../../cordis/skill-installer/installer.mjs");
+const BRIDGE_SKILL_REGISTRY: &str =
+    include_str!("../../cordis/skill-installer/managed-registry.mjs");
 const BRIDGE_SKILL_INSTALL_PLUGIN: &str = include_str!("../../cordis/skill-installer/index.mjs");
 const BRIDGE_PLUGIN_CONFIG: &str = include_str!("../../cordis/desktop-bridge/plugin-config.mjs");
+const BRIDGE_PROFILE_PATCH: &str = include_str!("../../cordis/desktop-bridge/profile-patch.mjs");
+const BRIDGE_TOOL_CONFIG: &str = include_str!("../../cordis/desktop-bridge/tool-config.mjs");
 const BRIDGE_NETWORK_PROXY: &str = include_str!("../../cordis/desktop-bridge/network-proxy.mjs");
 const BRIDGE_THEME_SETTINGS: &str = include_str!("../../cordis/theme-settings/index.mjs");
 const PROFILE_TEMPLATE: &str = include_str!("../../cordis/desktop-profile.json");
@@ -1058,7 +1062,7 @@ fn migrate_desktop_profile_patch(path: &Path) -> Result<(), String> {
     write_text(path, &format!("{}{newline}", filtered.join(newline)))
 }
 
-fn bundled_bridge_files() -> [(&'static str, &'static str); 19] {
+fn bundled_bridge_files() -> [(&'static str, &'static str); 22] {
     [
         ("package.json", BRIDGE_PACKAGE_JSON),
         ("cordis.patch.yml", BRIDGE_PATCH),
@@ -1078,8 +1082,14 @@ fn bundled_bridge_files() -> [(&'static str, &'static str); 19] {
         ("ui-registry/index.mjs", BRIDGE_UI_REGISTRY),
         ("ui-registry/routes.mjs", BRIDGE_UI_ROUTES),
         ("skill-installer/installer.mjs", BRIDGE_SKILL_INSTALLER),
+        (
+            "skill-installer/managed-registry.mjs",
+            BRIDGE_SKILL_REGISTRY,
+        ),
         ("skill-installer/index.mjs", BRIDGE_SKILL_INSTALL_PLUGIN),
         ("desktop-bridge/plugin-config.mjs", BRIDGE_PLUGIN_CONFIG),
+        ("desktop-bridge/profile-patch.mjs", BRIDGE_PROFILE_PATCH),
+        ("desktop-bridge/tool-config.mjs", BRIDGE_TOOL_CONFIG),
         ("desktop-bridge/network-proxy.mjs", BRIDGE_NETWORK_PROXY),
         ("theme-settings/index.mjs", BRIDGE_THEME_SETTINGS),
     ]

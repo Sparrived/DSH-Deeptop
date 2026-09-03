@@ -19,6 +19,7 @@ export const DEGRADABLE_CAPABILITIES: readonly DshCapabilityKey[] = [
   "goals",
   "agentPresets",
   "plugins",
+  "tools",
   "workspace",
 ] as const;
 
@@ -32,6 +33,7 @@ export interface CapabilityFeatures {
   goals: boolean;
   agentPresets: boolean;
   plugins: boolean;
+  tools: boolean;
   workspace: boolean;
 }
 
@@ -61,6 +63,7 @@ export function capabilityStatus(capabilities: DshHostCapabilities | null): Capa
 
 /** 能力名文案 key（文案资源见 locales/zh.json · capability.*）。 */
 export const CAPABILITY_LABELS: Record<DshCapabilityKey, string> = {
+  bootstrap: "capability.bootstrap",
   sessions: "capability.sessions",
   workspace: "capability.workspace",
   references: "capability.references",
@@ -73,6 +76,7 @@ export const CAPABILITY_LABELS: Record<DshCapabilityKey, string> = {
   credentials: "capability.credentials",
   llm: "capability.llm",
   plugins: "capability.plugins",
+  tools: "capability.tools",
   sessionExport: "capability.sessionExport",
   commands: "capability.commands",
   uiPlugins: "capability.uiPlugins",

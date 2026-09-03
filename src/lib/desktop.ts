@@ -435,6 +435,95 @@ export interface DshSkillInstallResult {
   warnings: string[];
 }
 
+/** One user-scoped Skill bundle managed from `$DSH_HOME/skills`. */
+export interface DshManagedSkill {
+  name: string;
+  /** First-level directory or flat Markdown filename under the user Skills root. */
+  directoryName: string;
+  kind: "directory" | "file";
+  /** Only safe first-level directory bundles can be removed from the app. */
+  removable: boolean;
+  description: string;
+  valid: boolean;
+  error?: string;
+}
+
+/** Literal value or host-environment binding used by an MCP server. */
+export interface DshMcpValueBinding {
+  name: string;
+  source: "literal" | "env";
+  /** Literal secrets are redacted in renderer-facing descriptions. */
+  value: string;
+  /** Present only when a literal value is stored on the Host and not returned. */
+  redacted?: boolean;
+  /** Explicitly remove the Host-side literal instead of preserving a redacted value. */
+  clearSecret?: boolean;
+  prefix?: string;
+}
+
+export interface DshMcpReconnectConfig {
+  enabled: boolean;
+  initialDelayMs: number;
+  maxDelayMs: number;
+  maxAttempts: number;
+}
+
+/** Persisted desktop configuration for one external MCP server. */
+export interface DshMcpServerConfig {
+  id: string;
+  serverName: string;
+  transport: "stdio" | "streamable-http";
+  enabled: boolean;
+  command?: string;
+  args?: string[];
+  cwd?: string;
+  env?: DshMcpValueBinding[];
+  url?: string;
+  headers?: DshMcpValueBinding[];
+  toolCallTimeoutMs: number;
+  reconnect: DshMcpReconnectConfig;
+}
+
+/** Skills and MCP configuration projected by the desktop Bridge. */
+export interface DshToolSettingsDescription {
+  skills: {
+    directory: string;
+    entries: DshManagedSkill[];
+  };
+  mcp: {
+    revision: number;
+    path: string;
+    servers: DshMcpServerConfig[];
+  };
+}
+
+export interface DshMcpSettingsMutation extends DshToolSettingsDescription {
+  changed: boolean;
+  restartRequired: boolean;
+  newSessionRequired: boolean;
+}
+
+export interface DshManagedSkillMutation {
+  /** Present when the post-mutation inventory refresh succeeded. */
+  skills?: DshToolSettingsDescription["skills"];
+  removed?: boolean;
+  refreshError?: { message: string; code?: string; details?: unknown };
+  result?: DshSkillInstallResult;
+}
+
+export type DshManagedSkillInstallOperation =
+  | { operationId: string; status: "running" }
+  | {
+      operationId: string;
+      status: "completed";
+      result: DshSkillInstallResult;
+      skills?: DshToolSettingsDescription["skills"];
+      refreshError?: { message: string; code?: string; details?: unknown };
+    }
+  | { operationId: string; status: "cancelled" }
+  | { operationId: string; status: "failed"; error: { message: string; code?: string; details?: unknown } }
+  | { operationId: string; status: "not-found" };
+
 export type DshSubagentEntry =
   | {
     kind: "child";
@@ -565,6 +654,7 @@ export interface DshPluginConfigMutation extends DshPluginConfigDescription {
  * 一一对应，`desktop.capabilities` 探测结果按此键查询。
  */
 export type DshCapabilityKey =
+  | "bootstrap"
   | "sessions"
   | "workspace"
   | "references"
@@ -577,6 +667,7 @@ export type DshCapabilityKey =
   | "credentials"
   | "llm"
   | "plugins"
+  | "tools"
   | "sessionExport"
   | "commands"
   | "uiPlugins";

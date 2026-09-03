@@ -20,6 +20,8 @@ import { SettingsPetPanel } from "./components/SettingsPetPanel";
 // @deeptop-pets:end app-settings-import
 import { SettingsPluginsPanel } from "./components/SettingsPluginsPanel";
 import { SettingsPresetPanel } from "./components/SettingsPresetPanel";
+import { SettingsToolsPanel } from "./components/SettingsToolsPanel";
+import { SkillInstallDialog } from "./components/SkillInstallDialog";
 import { QueueDock } from "./components/QueueDock";
 import { SessionSidebar, type WorkspaceGroup } from "./components/SessionSidebar";
 import { SubagentDock } from "./components/SubagentDock";
@@ -40,6 +42,7 @@ import { DockPinLayersProvider, type DockPinLayerElements, type DockPinLayerSide
 import { PopupDialog } from "./components/PopupDialog";
 import { PluginInstallDialog, type PluginInstallDraft } from "./components/PluginInstallDialog";
 import { useProviderSettings } from "./app/useProviderSettings";
+import { useToolSettings } from "./app/useToolSettings";
 import { useWindowControls } from "./app/useWindowControls";
 import { normalizeWindowBehavior } from "./app/window-behavior";
 import { clearQueuedSessionEvents, routeBridgeEvent } from "./app/bridge-event-handler";
@@ -103,7 +106,6 @@ import {
   isSessionLogCorruption,
   repairCorruptSession,
   missingAgentPresetInfo,
-  queryHostCapabilities,
   type DshBridgeEvent,
   type DshGoalProjection,
   type DshHistoryEntry,
@@ -543,6 +545,7 @@ function AppContent() {
   const [pluginConfigSaving, setPluginConfigSaving] = useState(false);
   const [pluginInstallOpen, setPluginInstallOpen] = useState(false);
   const [pluginPickingEntry, setPluginPickingEntry] = useState(false);
+  const [skillInstallOpen, setSkillInstallOpen] = useState(false);
   const [showInspector, setShowInspector] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
   const [appearanceSection, setAppearanceSection] = useState<AppearanceSection>("theme");
@@ -586,6 +589,8 @@ function AppContent() {
   const [presetView, setPresetView] = useState<{ id: string; content: string } | null>(null);
   const [presetCopy, setPresetCopy] = useState<{ from: string; id: string; name: string } | null>(null);
   const [surfaceLoading, setSurfaceLoading] = useState(false);
+  const surfaceRequestRef = useRef(0);
+  const surfaceAbortRef = useRef<AbortController | null>(null);
   const [updateChannel, setUpdateChannel] = useState<UpdateChannel>(DEEPTOP_VERSION.includes("-") ? "development" : "stable");
   const [updateState, setUpdateState] = useState<UpdateCheckState>({ status: "idle", channel: updateChannel });
   const [updateDownloadState, setUpdateDownloadState] = useState<UpdateDownloadState>({ status: "idle" });
@@ -679,6 +684,8 @@ function AppContent() {
   }
   const creatingSessionRef = useRef<Promise<string> | null>(null);
   const sessionLoadRequestRef = useRef(0);
+  const skillsRequestRef = useRef(0);
+  const skillsAbortRef = useRef<AbortController | null>(null);
   const retryingMessageRef = useRef<number | null>(null);
   const retryingSessionRef = useRef<string | null>(null);
   const imageAttachmentCacheRef = useRef(new ImageAttachmentCache());
@@ -974,6 +981,43 @@ function AppContent() {
     loadRuntimeDetails,
     locale,
   });
+  const loadCurrentSessionSkills = useCallback(async (requestedSessionId = activeSessionRef.current) => {
+    const requestId = ++skillsRequestRef.current;
+    skillsAbortRef.current?.abort(new Error("新的 Skill 列表请求已开始"));
+    const controller = new AbortController();
+    skillsAbortRef.current = controller;
+    if (!desktop || !requestedSessionId || !capabilityFeatures.skills) {
+      controller.abort();
+      setSkills([]);
+      return;
+    }
+    try {
+      const result = await desktopRequest("skill.list", { sessionId: requestedSessionId }, controller.signal, { waitForReconnect: true });
+      if (controller.signal.aborted || requestId !== skillsRequestRef.current || activeSessionRef.current !== requestedSessionId) return;
+      setSkills(result.skills);
+    } catch (error) {
+      if (controller.signal.aborted || requestId !== skillsRequestRef.current || activeSessionRef.current !== requestedSessionId) return;
+      setSkills([]);
+      setErrorNotice(errorText(error, locale));
+    } finally {
+      if (skillsAbortRef.current === controller) skillsAbortRef.current = null;
+    }
+  }, [capabilityFeatures.skills, desktop, locale, setErrorNotice]);
+
+  const toolSettings = useToolSettings({
+    desktop,
+    runtimeAvailable: status.runtimeAvailable,
+    visible: showInspector && settingsSection === "tools" && capabilityFeatures.tools,
+    locale,
+    onNotice: setNotice,
+    onError: setErrorNotice,
+    onSkillsChanged: () => loadCurrentSessionSkills(),
+  });
+  useEffect(() => {
+    if (desktop && showInspector && settingsSection === "tools" && capabilityFeatures.tools && !toolSettings.loaded && !toolSettings.loading && !toolSettings.loadAttempted) {
+      void toolSettings.load();
+    }
+  }, [capabilityFeatures.tools, desktop, settingsSection, showInspector, toolSettings.load, toolSettings.loadAttempted, toolSettings.loaded, toolSettings.loading]);
   const activeSession = sessions.find((session) => session.sessionId === activeSessionId);
   const activeRunning = Boolean(activeSession?.running);
 
@@ -1251,10 +1295,66 @@ function AppContent() {
     };
   }, [workspaceMenuOpen]);
 
+  const inspectorPanelRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!showInspector) return;
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const panel = inspectorPanelRef.current;
+    const focusableSelector = [
+      "button:not([disabled])",
+      "a[href]",
+      "input:not([disabled]):not([type=\"hidden\"])",
+      "select:not([disabled])",
+      "textarea:not([disabled])",
+      "[contenteditable=\"true\"]",
+      "[tabindex]:not([tabindex=\"-1\"])",
+    ].join(",");
+    const getFocusable = () => {
+      if (!panel) return [];
+      return Array.from(panel.querySelectorAll<HTMLElement>(focusableSelector)).filter((element) => {
+        if (element.hidden || element.getAttribute("aria-hidden") === "true") return false;
+        if (element.getAttribute("aria-disabled") === "true") return false;
+        const style = window.getComputedStyle(element);
+        return style.display !== "none" && style.visibility !== "hidden";
+      });
+    };
+    const frame = window.requestAnimationFrame(() => {
+      const first = getFocusable()[0];
+      if (first) first.focus();
+      else panel?.focus();
+    });
+    // A nested PopupDialog owns the focus loop while it is open; skip the
+    // inspector trap so the two handlers do not fight over Tab.
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Tab" || document.querySelector(".popup-modal")) return;
+      const focusable = getFocusable();
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const activeElement = document.activeElement;
+      if (!panel?.contains(activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("keydown", handleKeyDown);
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
+    };
+  }, [showInspector]);
+
   useEffect(() => {
     if (!showInspector && !settingsDraft && !presetCopy && !presetView) return;
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || skillInstallOpen) return;
       if (settingsDraft) {
         setSettingsDraft(null);
       } else if (presetCopy) {
@@ -1267,7 +1367,7 @@ function AppContent() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [presetCopy, presetView, settingsDraft, showInspector]);
+  }, [presetCopy, presetView, settingsDraft, showInspector, skillInstallOpen]);
 
   useEffect(() => {
     if (!subagentPanelOpen && !subagentDockOpen) return;
@@ -1866,7 +1966,7 @@ function AppContent() {
       desktopRequest("llm.models"),
       desktopRequest("plugin.list"),
       desktopRequest("plugin.config.describe"),
-      queryHostCapabilities(),
+      desktopRequest("desktop.capabilities"),
     ]);
     if (hostResult.status === "fulfilled") setRuntimeDetails(hostResult.value);
     if (presetResult.status === "fulfilled") {
@@ -1988,13 +2088,12 @@ function AppContent() {
     setPermissionSelect(null);
     setPlan(null);
     void loadSubagents();
-    if (activeSessionId) {
-      void loadCommands(activeSessionId);
-      void desktopRequest("skill.list", { sessionId: activeSessionId })
-        .then((result) => setSkills(result.skills))
-        .catch(() => undefined);
-    }
-  }, [activeSessionId]);
+    void loadCurrentSessionSkills(activeSessionId);
+    if (activeSessionId) void loadCommands(activeSessionId);
+    return () => {
+      skillsAbortRef.current?.abort(new Error("会话已切换"));
+    };
+  }, [activeSessionId, loadCurrentSessionSkills]);
 
   useEffect(() => {
     setComposerCandidateIndex(0);
@@ -2003,28 +2102,37 @@ function AppContent() {
 
   async function loadSurface(tab: SurfaceTab) {
     if (!desktop || !activeSessionId && ["skills", "subagents", "goal"].includes(tab)) return;
+    const requestId = ++surfaceRequestRef.current;
+    surfaceAbortRef.current?.abort(new Error("新的页面请求已开始"));
+    const controller = new AbortController();
+    surfaceAbortRef.current = controller;
+    const current = () => !controller.signal.aborted && requestId === surfaceRequestRef.current;
     setSurfaceLoading(true);
     try {
       if (tab === "skills" && activeSessionId) {
-        const result = await desktopRequest("skill.list", { sessionId: activeSessionId });
-        setSkills(result.skills);
+        const result = await desktopRequest("skill.list", { sessionId: activeSessionId }, controller.signal, { waitForReconnect: true });
+        if (current() && activeSessionRef.current === activeSessionId) setSkills(result.skills);
       }
       if (tab === "subagents" && activeSessionId) {
-        setSubagents(await desktopRequest("subagent.list", { parentSessionId: activeSessionId }));
+        const result = await desktopRequest("subagent.list", { parentSessionId: activeSessionId }, controller.signal);
+        if (current() && activeSessionRef.current === activeSessionId) setSubagents(result);
       }
       if (tab === "runtime" && activeSessionId) {
         await loadCommands(activeSessionId);
       }
       if (tab === "goal" && activeSessionId) {
-        const historyResult = await desktopRequest("session.history", { sessionId: activeSessionId, maxMessages: 100 });
-        setGoal((historyResult.projections?.values.goal as DshGoalProjection | null | undefined) ?? null);
+        const historyResult = await desktopRequest("session.history", { sessionId: activeSessionId, maxMessages: 100 }, controller.signal);
+        if (current() && activeSessionRef.current === activeSessionId) {
+          setGoal((historyResult.projections?.values.goal as DshGoalProjection | null | undefined) ?? null);
+        }
       }
       if (tab === "settings") {
         const [settingsResult, pluginResult, pluginConfigResult] = await Promise.allSettled([
-          desktopRequest("settings.describe"),
-          desktopRequest("plugin.list"),
-          desktopRequest("plugin.config.describe"),
+          desktopRequest("settings.describe", undefined, controller.signal),
+          desktopRequest("plugin.list", undefined, controller.signal),
+          desktopRequest("plugin.config.describe", undefined, controller.signal),
         ]);
+        if (!current()) return;
         if (settingsResult.status === "fulfilled") setSettings(settingsResult.value);
         if (pluginResult.status === "fulfilled") {
           setPluginInventory(pluginResult.value.entries);
@@ -2033,9 +2141,12 @@ function AppContent() {
         if (pluginConfigResult.status === "fulfilled") applyPluginConfig(pluginConfigResult.value);
       }
     } catch (error) {
-      setErrorNotice(errorText(error, locale));
+      if (current()) setErrorNotice(errorText(error, locale));
     } finally {
-      setSurfaceLoading(false);
+      if (current()) {
+        setSurfaceLoading(false);
+        if (surfaceAbortRef.current === controller) surfaceAbortRef.current = null;
+      }
     }
   }
 
@@ -2848,6 +2959,9 @@ function AppContent() {
         void (async () => {
           const loadedSessions = await loadSessions(true);
           await loadRuntimeDetails(loadedSessions);
+          // The active session id can remain unchanged across a runtime restart,
+          // so its Skill projection effect will not necessarily run again.
+          await loadCurrentSessionSkills(activeSessionRef.current);
           if (recovered) {
             setLoading(false);
             if (loadedSessions) {
@@ -4542,6 +4656,13 @@ function AppContent() {
   }
 
   function closeSettings() {
+    surfaceRequestRef.current += 1;
+    surfaceAbortRef.current?.abort(new Error("设置页面已关闭"));
+    surfaceAbortRef.current = null;
+    // The hook owns the renderer/Host cancellation handshake. An uncertain
+    // install remains recoverable and is reopened with its Retry/Dismiss actions.
+    toolSettings.close(new Error("设置页面已关闭"));
+    setSkillInstallOpen(false);
     updateCheckRequestRef.current += 1;
     updateDownloadRequestRef.current += 1;
     updateDownloadReleaseRef.current = null;
@@ -4644,6 +4765,7 @@ function AppContent() {
     }
     setSettingsSection("appearance");
     setShowInspector(true);
+    setSkillInstallOpen(toolSettings.skillInstallOperation !== null);
     void loadSurface("settings");
   }
 
@@ -5069,7 +5191,7 @@ function AppContent() {
          {showInspector && (
           <div className="inspector-modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="inspector-title">
             <button className="inspector-backdrop" onClick={closeSettings} aria-label={t("settings.closeAria", locale)} />
-            <aside className="inspector-panel">
+            <aside className="inspector-panel" ref={inspectorPanelRef} tabIndex={-1}>
             <div className="inspector-header"><strong id="inspector-title">{t("settings.title", locale)}</strong><button onClick={closeSettings} title={t("settings.closeAria", locale)}>×</button></div>
             {surfaceLoading && <div className="surface-loading">{t("settings.loadingSurface", locale)}</div>}
 
@@ -5123,7 +5245,10 @@ function AppContent() {
                   <button className={settingsSection === "presets" ? "selected" : ""} onClick={() => setSettingsSection("presets")}>
                     <strong>{t("settings.presets", locale)}</strong><small>{t("settings.presets.hint", locale)}</small>
                   </button>
-                  <button className={settingsSection === "plugins" ? "selected" : ""} onClick={() => setSettingsSection("plugins")}>
+                  <button className={settingsSection === "tools" ? "selected" : ""} onClick={() => { setSettingsSection("tools"); if (!toolSettings.description && capabilityFeatures.tools) void toolSettings.load(); }}>
+                     <strong>{t("settings.tools", locale)}</strong><small>{t("settings.tools.hint", locale)}</small>
+                   </button>
+                   <button className={settingsSection === "plugins" ? "selected" : ""} onClick={() => setSettingsSection("plugins")}>
                     <strong>{t("settings.plugins", locale)}</strong><small>{t("settings.plugins.hint", locale)}</small>
                   </button>
                 <button className={settingsSection === "about" ? "selected" : ""} onClick={() => setSettingsSection("about")}>
@@ -5276,7 +5401,27 @@ function AppContent() {
                     onOpenNamespace={openSettingsNamespace}
                   />}
 
-                  {settingsSection === "plugins" && <SettingsPluginsPanel
+                  {settingsSection === "tools" && <SettingsToolsPanel
+                     locale={locale}
+                     available={capabilityFeatures.tools}
+                     description={toolSettings.description}
+                     mcpDraft={toolSettings.mcpDraft}
+                     loading={toolSettings.loading}
+                      loadError={toolSettings.loadError}
+                     mcpSaving={toolSettings.mcpSaving}
+                     skillRemoving={toolSettings.skillRemoving}
+                     skillInstallOperation={toolSettings.skillInstallOperation}
+                     lastSkillInstall={toolSettings.lastSkillInstall}
+                     onRefresh={toolSettings.load}
+                     onOpenSkillDirectory={toolSettings.openSkillDirectory}
+                     onBeginSkillInstall={() => setSkillInstallOpen(true)}
+                     onRemoveSkill={toolSettings.removeSkill}
+                     onMcpDraftChange={toolSettings.setMcpDraft}
+                     onResetMcpDraft={toolSettings.resetMcpDraft}
+                     onSaveMcp={toolSettings.saveMcp}
+                   />}
+
+                   {settingsSection === "plugins" && <SettingsPluginsPanel
                     locale={locale}
                     inventory={pluginInventory}
                      excludedPlugins={excludedPlugins}
@@ -5342,6 +5487,15 @@ function AppContent() {
             onCreate={createGoal}
           />
         </PopupDialog>}
+        {skillInstallOpen && <SkillInstallDialog
+          locale={locale}
+          operation={toolSettings.skillInstallOperation}
+          onClose={() => { if (!toolSettings.skillInstallOperation || toolSettings.skillInstallOperation.uncertain) setSkillInstallOpen(false); }}
+          onCancelInstall={toolSettings.cancelSkillInstall}
+          onRetryInstall={toolSettings.retrySkillInstall}
+          onDismissInstall={() => { toolSettings.dismissSkillInstall(); setSkillInstallOpen(false); }}
+          onInstall={toolSettings.installSkill}
+        />}
         {pluginInstallOpen && <PluginInstallDialog
          locale={locale}
          existingIds={pluginConfigDraft.map((plugin) => plugin.id)}

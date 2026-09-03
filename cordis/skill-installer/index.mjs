@@ -65,12 +65,25 @@ export function apply(ctx) {
         signal: exec.signal,
       })
       if (outcome !== 'allowed-once') throw new Error(`Skill installation was ${outcome}`)
-      const result = await installSkillFromSource(args, { signal: exec.signal })
+      let committed = false
+      const result = await installSkillFromSource(args, {
+        signal: exec.signal,
+        onCommit: () => { committed = true },
+      })
       const skills = ctx.get('skills')
-      const visibleInCurrentSession = skills
-        ? (await skills.list({ cwd: exec.agent.session.header.cwd, signal: exec.signal, scope: exec.agent })).some(skill => skill.name === result.skillName)
-        : false
-      return { ...result, visibleInCurrentSession }
+      try {
+        const visibleInCurrentSession = skills
+          ? (await skills.list({ cwd: exec.agent.session.header.cwd, signal: exec.signal, scope: exec.agent })).some(skill => skill.name === result.skillName)
+          : false
+        return { ...result, visibleInCurrentSession }
+      } catch (error) {
+        if (!committed) throw error
+        return {
+          ...result,
+          visibleInCurrentSession: false,
+          warnings: [...result.warnings, '当前会话 Skill 列表未能刷新；请开始新会话或手动刷新。'],
+        }
+      }
     },
     presentCall: args => ({
       card: 'generic',

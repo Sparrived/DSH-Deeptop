@@ -1,6 +1,7 @@
-import { createHash } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { createHash, randomUUID } from 'node:crypto'
+import { chmod, lstat, mkdir, open, readFile, rename, rm } from 'node:fs/promises'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { DEEPTOP_PROFILE_ENTRY_IDS, locateManagedBlock, normalizeProfilePatchDocument, withProfilePatchLock } from './profile-patch.mjs'
 
 const CONFIG_FILE = 'deeptop-plugins.json'
 const PATCH_FILE = 'cordis.patch.yml'
@@ -13,6 +14,11 @@ const SYSTEM_PLUGIN_PREFIXES = [
   'deeptop-bridge',
 ]
 const REQUIRED_PLUGIN_IDS = new Set(['desktop-bridge', 'plugin-inventory'])
+const MAX_REVISION = 2_147_483_647
+const MAX_PLUGINS = 1024
+const CONFIG_FIELDS = new Set(['version', 'revision', 'plugins'])
+const PLUGIN_FIELDS = new Set(['id', 'name', 'enabled'])
+const PACKAGE_NAME = /^(?:@[A-Za-z0-9][A-Za-z0-9._-]*\/)?[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/
 const DESKTOP_UNSUPPORTED_PATTERNS = [
   /^dsh-client(?:-|$)/,
   /^@deepseek-ai\/dsh-client(?:-|$)/,
@@ -27,11 +33,32 @@ function isRecord(value) {
 }
 
 function configPath(ctx) {
-  const home = ctx?.get?.('dshHome') || process.env.DSH_HOME
+  const home = typeof ctx?.get === 'function' ? ctx.get('dshHome') : process.env.DSH_HOME
   if (typeof home !== 'string' || !home.trim()) {
     throw new Error('插件配置需要 DSH_HOME')
   }
-  return join(home, 'profiles', 'desktop', CONFIG_FILE)
+  return join(resolve(home.trim()), 'profiles', 'desktop', CONFIG_FILE)
+}
+
+async function assertSafeDirectoryAncestors(path, label) {
+  let current = path
+  for (;;) {
+    const info = await lstat(current).catch(error => {
+      if (error?.code === 'ENOENT') return undefined
+      throw error
+    })
+    if (info?.isSymbolicLink()) throw new Error(`${label} 及其父级不能是符号链接或 junction`)
+    if (info !== undefined && !info.isDirectory()) throw new Error(`${label} 必须是目录`)
+    const parent = dirname(current)
+    if (parent === current) break
+    current = parent
+  }
+}
+
+async function ensureProfileDirectory(path) {
+  await assertSafeDirectoryAncestors(path, 'desktop Profile 目录')
+  await mkdir(path, { recursive: true })
+  await assertSafeDirectoryAncestors(path, 'desktop Profile 目录')
 }
 
 function normalizeId(value) {
@@ -44,17 +71,37 @@ function normalizeId(value) {
 function normalizeName(value) {
   if (typeof value !== 'string' || !value.trim()) throw new Error('插件模块路径不能为空')
   const name = value.trim()
-  if (name.length > 2048 || name.includes('\0')) throw new Error('插件模块路径无效')
+  if (name.length > 2048 || /[\u0000-\u001f\u007f]/.test(name)) throw new Error('插件模块路径无效')
+  // Local plugins must be explicit absolute paths; package plugins use a
+  // package/subpath specifier. Refuse relative paths and URL-like loaders so
+  // the Profile cannot resolve a renderer-controlled path unexpectedly.
+  if (isAbsolute(name)) return name
+  if (!PACKAGE_NAME.test(name)) throw new Error('插件模块必须是绝对路径或合法 npm 包名')
   return name
 }
 
+function assertAvailablePluginId(id) {
+  if (DEEPTOP_PROFILE_ENTRY_IDS.has(id) || id.startsWith('deeptop-mcp-')) {
+    throw new Error(`插件 id 被 desktop Profile 保留：${id}`)
+  }
+}
+
+function assertKnownFields(value, allowed, label) {
+  for (const field of Object.keys(value)) {
+    if (!allowed.has(field)) throw new Error(`${label} 包含未知字段：${field}`)
+  }
+}
+
 function normalizePlugins(value) {
-  if (!Array.isArray(value)) throw new Error('插件列表必须是数组')
+  if (!Array.isArray(value) || value.length > MAX_PLUGINS) throw new Error(`插件列表必须是至多 ${MAX_PLUGINS} 项的数组`)
   const seen = new Set()
   return value.map((item) => {
     if (!isRecord(item)) throw new Error('插件条目必须是对象')
+    assertKnownFields(item, PLUGIN_FIELDS, '插件条目')
     const id = normalizeId(item.id)
+    assertAvailablePluginId(id)
     const name = normalizeName(item.name)
+    if (item.enabled !== undefined && typeof item.enabled !== 'boolean') throw new Error('插件 enabled 必须是 boolean')
     if (seen.has(id)) throw new Error(`插件 id 重复：${id}`)
     seen.add(id)
     return { id, name, enabled: item.enabled !== false }
@@ -83,51 +130,101 @@ function defaultConfig() {
 }
 
 function parsePatchPlugins(raw) {
+  const block = locateManagedBlock(raw, PATCH_START, PATCH_END, 'desktop Profile 中的插件受管配置')
+  if (block === null) return []
+  const lines = String(raw).slice(block.start, block.end).split(/\r?\n/)
+  const body = lines.slice(1, -1)
+  const meaningful = body.filter(line => line.trim() !== '')
+  if (meaningful.length === 0 || (meaningful.length === 1 && meaningful[0] === '# No user plugins are enabled in Deeptop.')) return []
+  if (meaningful[0] !== '- insert:') throw new Error('插件受管配置必须是 Deeptop 生成的 insert 列表')
   const plugins = []
-  let pendingId = null
-  for (const line of String(raw).split(/\r?\n/)) {
-    const idMatch = line.match(/^\s+-\s+id:\s*([A-Za-z0-9][A-Za-z0-9._-]{0,95})\s*$/)
-    if (idMatch) {
-      pendingId = idMatch[1]
-      continue
-    }
-    const nameMatch = line.match(/^\s+name:\s*['\"](.*)['\"]\s*$/)
-    if (pendingId && nameMatch) {
-      plugins.push({ id: pendingId, name: nameMatch[1].replaceAll("''", "'"), enabled: true })
-      pendingId = null
-    }
+  let index = 1
+  while (index < meaningful.length) {
+    const idMatch = meaningful[index].match(/^    - id: ([A-Za-z0-9][A-Za-z0-9._-]{0,95})$/)
+    const nameMatch = meaningful[index + 1]?.match(/^      name: ('(?:''|[^'])*')$/)
+    if (!idMatch || !nameMatch) throw new Error('插件受管配置条目格式无效')
+    const quoted = nameMatch[1]
+    plugins.push({
+      id: idMatch[1],
+      name: quoted.slice(1, -1).replaceAll("''", "'"),
+      enabled: true,
+    })
+    index += 2
   }
   return normalizePlugins(plugins)
 }
 
-async function readConfig(ctx) {
-  const path = configPath(ctx)
-  try {
-    const raw = await readFile(path, 'utf8')
-    const parsed = JSON.parse(raw)
-    if (!isRecord(parsed)) throw new Error('插件配置格式无效')
-    return {
-      version: VERSION,
-      revision: Number.isInteger(parsed.revision) && parsed.revision >= 0 ? parsed.revision : 0,
-      plugins: normalizePlugins(parsed.plugins || []),
-    }
-  } catch (error) {
-    if (error?.code !== 'ENOENT') throw new Error(`无法读取 Deeptop 插件配置：${error.message}`)
-    const patch = await readFile(join(dirname(path), PATCH_FILE), 'utf8').catch((patchError) => {
-      if (patchError?.code === 'ENOENT') return ''
-      throw patchError
-    })
-    return { ...defaultConfig(), plugins: parsePatchPlugins(patch) }
-  }
+async function readOptionalText(path) {
+  const info = await lstat(path).catch(error => {
+    if (error?.code === 'ENOENT') return undefined
+    throw error
+  })
+  if (info?.isSymbolicLink()) throw new Error(`配置文件不能是符号链接：${path}`)
+  if (info !== undefined && !info.isFile()) throw new Error(`配置路径必须是普通文件：${path}`)
+  if (info === undefined) return { exists: false, content: '' }
+  return { exists: true, content: await readFile(path, 'utf8') }
 }
 
-async function writeConfig(ctx, config) {
+async function readConfig(ctx) {
   const path = configPath(ctx)
-  const tempPath = `${path}.tmp-${process.pid}-${Date.now()}`
-  const content = `${JSON.stringify(config, null, 2)}\n`
-  await mkdir(dirname(path), { recursive: true })
-  await writeFile(tempPath, content, 'utf8')
-  await rename(tempPath, path)
+  await assertSafeDirectoryAncestors(dirname(path), 'desktop Profile 目录')
+  const file = await readOptionalText(path).catch(error => {
+    throw new Error(`无法读取 Deeptop 插件配置：${error.message}`)
+  })
+  if (file.exists) {
+    try {
+      const parsed = JSON.parse(file.content)
+      if (!isRecord(parsed)) throw new Error('插件配置必须是对象')
+      assertKnownFields(parsed, CONFIG_FIELDS, '插件配置')
+      if (parsed.version !== VERSION) throw new Error('插件配置 version 无效')
+      if (!Number.isSafeInteger(parsed.revision) || parsed.revision < 0 || parsed.revision > MAX_REVISION) {
+        throw new Error('插件配置 revision 无效')
+      }
+      if (!Array.isArray(parsed.plugins)) throw new Error('插件配置 plugins 必须是数组')
+      return {
+        version: VERSION,
+        revision: parsed.revision,
+        plugins: normalizePlugins(parsed.plugins),
+      }
+    } catch (error) {
+      throw new Error(`无法读取 Deeptop 插件配置：${error.message}`)
+    }
+  }
+  const patch = await readOptionalText(join(dirname(path), PATCH_FILE))
+  return { ...defaultConfig(), plugins: parsePatchPlugins(patch.content) }
+}
+
+async function writeTemp(path, content) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const tempPath = `${path}.tmp-${process.pid}-${randomUUID()}`
+    let handle
+    try {
+      handle = await open(tempPath, 'wx', 0o600)
+      await handle.writeFile(content, 'utf8')
+      await handle.close()
+      return tempPath
+    } catch (error) {
+      await handle?.close().catch(() => undefined)
+      await rm(tempPath, { force: true }).catch(() => undefined)
+      if (error?.code !== 'EEXIST' || attempt === 4) throw error
+    }
+  }
+  throw new Error('无法创建安全的临时配置文件')
+}
+
+async function restoreText(path, previous) {
+  if (!previous.exists) {
+    await rm(path, { force: true })
+    return
+  }
+  const rollback = await writeTemp(path, previous.content)
+  let published = false
+  try {
+    await rename(rollback, path)
+    published = true
+  } finally {
+    if (!published) await rm(rollback, { force: true }).catch(() => undefined)
+  }
 }
 
 function toProfilePatch(config) {
@@ -140,12 +237,9 @@ function quoteYaml(value) {
   return `'${String(value).replaceAll("'", "''")}'`
 }
 
-async function syncProfilePatch(ctx, config) {
+async function buildProfilePatch(ctx, config) {
   const path = join(dirname(configPath(ctx)), PATCH_FILE)
-  const current = await readFile(path, 'utf8').catch((error) => {
-    if (error?.code === 'ENOENT') return ''
-    throw error
-  })
+  const current = (await readOptionalText(path)).content
   const enabled = config.plugins.filter((plugin) => plugin.enabled)
   const block = [PATCH_START]
   if (enabled.length > 0) {
@@ -159,18 +253,50 @@ async function syncProfilePatch(ctx, config) {
   }
   block.push(PATCH_END)
   const managed = block.join('\n')
-  const start = current.indexOf(PATCH_START)
-  const end = current.indexOf(PATCH_END)
-  let next
-  if (start >= 0 && end >= start) {
-    next = `${current.slice(0, start).trimEnd()}\n${managed}${current.slice(end + PATCH_END.length)}`
-  } else {
-    next = `${current.trimEnd()}\n\n${managed}\n`
+  const located = locateManagedBlock(current, PATCH_START, PATCH_END, 'desktop Profile 中的插件受管配置')
+  const merged = located === null
+    ? `${current.trimEnd()}${current.trim() ? '\n\n' : ''}${managed}\n`
+    : `${current.slice(0, located.start)}${managed}${current.slice(located.end)}`
+  return normalizeProfilePatchDocument(merged)
+}
+
+async function writePluginTransaction(ctx, config, patchContent) {
+  const configFilePath = configPath(ctx)
+  const patchPath = join(dirname(configFilePath), PATCH_FILE)
+  await ensureProfileDirectory(dirname(configFilePath))
+  const previousConfig = await readOptionalText(configFilePath)
+  const previousPatch = await readOptionalText(patchPath)
+  let configTemp
+  let patchTemp
+  try {
+    configTemp = await writeTemp(configFilePath, `${JSON.stringify(config, null, 2)}\n`)
+    patchTemp = await writeTemp(patchPath, patchContent)
+  } catch (error) {
+    await rm(configTemp, { force: true }).catch(() => undefined)
+    await rm(patchTemp, { force: true }).catch(() => undefined)
+    throw error
   }
-  const tempPath = `${path}.tmp-${process.pid}-${Date.now()}`
-  await mkdir(dirname(path), { recursive: true })
-  await writeFile(tempPath, next, 'utf8')
-  await rename(tempPath, path)
+  let configPublished = false
+  let patchPublished = false
+  try {
+    await rename(configTemp, configFilePath)
+    configPublished = true
+    await chmod(configFilePath, 0o600).catch(error => {
+      if (process.platform !== 'win32') throw error
+    })
+    await rename(patchTemp, patchPath)
+    patchPublished = true
+  } catch (error) {
+    await rm(configTemp, { force: true }).catch(() => undefined)
+    await rm(patchTemp, { force: true }).catch(() => undefined)
+    try {
+      if (patchPublished) await restoreText(patchPath, previousPatch)
+      if (configPublished) await restoreText(configFilePath, previousConfig)
+    } catch (rollbackError) {
+      throw new Error(`插件配置写入失败且回滚失败：${error.message}；${rollbackError.message}`)
+    }
+    throw error
+  }
 }
 
 function inventoryCompatibility(entry) {
@@ -211,31 +337,39 @@ export async function describePluginConfig(ctx) {
   }
 }
 
-export async function mutatePluginConfig(ctx, payload) {
+export async function mutatePluginConfig(ctx, payload, signal) {
   if (!isRecord(payload) || !Array.isArray(payload.plugins)) {
     throw new Error('plugin.config.mutate requires plugins')
   }
-  const current = await readConfig(ctx)
-  if (payload.expectedRevision !== undefined && payload.expectedRevision !== current.revision) {
-    throw new Error(`插件列表已被其他操作更新，请刷新后重试（当前 revision ${current.revision}）`)
-  }
-  const plugins = normalizePlugins(payload.plugins)
-  for (const plugin of plugins) {
-    if (isSystemPlugin(plugin)) throw new Error(`不能编辑 Deeptop 内置插件：${plugin.id}`)
-    const compatibility = desktopCompatibility(plugin)
-    if (!compatibility.supported) throw new Error(`${plugin.id} 不兼容 Deeptop：${compatibility.reason}`)
-  }
-  for (const plugin of plugins) {
-    if (REQUIRED_PLUGIN_IDS.has(plugin.id)) throw new Error(`不能覆盖 Deeptop 内置插件：${plugin.id}`)
-  }
-  const next = { version: VERSION, revision: current.revision + 1, plugins }
-  await writeConfig(ctx, next)
-  await syncProfilePatch(ctx, next)
-  return {
-    ...(await describePluginConfig(ctx)),
-    changed: true,
-    restartRequired: true,
-  }
+  const patchPath = join(dirname(configPath(ctx)), PATCH_FILE)
+  return withProfilePatchLock(patchPath, async () => {
+    if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new Error('插件配置操作已取消')
+    const current = await readConfig(ctx)
+    if (payload.expectedRevision !== undefined && (!Number.isSafeInteger(payload.expectedRevision) || payload.expectedRevision < 0 || payload.expectedRevision > MAX_REVISION || payload.expectedRevision !== current.revision)) {
+      const conflict = new Error(`插件列表已被其他操作更新，请刷新后重试（当前 revision ${current.revision}）`)
+      conflict.code = 'revision-conflict'
+      conflict.details = { revision: current.revision }
+      throw conflict
+    }
+    const plugins = normalizePlugins(payload.plugins)
+    for (const plugin of plugins) {
+      if (isSystemPlugin(plugin)) throw new Error(`不能编辑 Deeptop 内置插件：${plugin.id}`)
+      const compatibility = desktopCompatibility(plugin)
+      if (!compatibility.supported) throw new Error(`${plugin.id} 不兼容 Deeptop：${compatibility.reason}`)
+    }
+    for (const plugin of plugins) {
+      if (REQUIRED_PLUGIN_IDS.has(plugin.id)) throw new Error(`不能覆盖 Deeptop 内置插件：${plugin.id}`)
+    }
+    if (current.revision >= MAX_REVISION) throw new Error('插件配置 revision 已达到上限')
+    const next = { version: VERSION, revision: current.revision + 1, plugins }
+    if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new Error('插件配置操作已取消')
+    await writePluginTransaction(ctx, next, await buildProfilePatch(ctx, next))
+    return {
+      ...(await describePluginConfig(ctx)),
+      changed: true,
+      restartRequired: true,
+    }
+  }, signal)
 }
 
 export function readConfiguredPluginIds(config) {

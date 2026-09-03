@@ -6,6 +6,7 @@ function capabilities(services) {
   return {
     probedAt: 1,
     services: {
+      bootstrap: true,
       sessions: true,
       workspace: true,
       references: true,
@@ -18,6 +19,7 @@ function capabilities(services) {
       credentials: true,
       llm: true,
       plugins: true,
+      tools: true,
       sessionExport: true,
       commands: true,
       ...services,
