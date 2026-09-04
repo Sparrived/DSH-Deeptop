@@ -483,7 +483,7 @@ export function SettingsToolsPanel({
                         <span>
                           <strong id={serverLabelId}>{server.serverName || t("tools.mcp.unnamed", locale)}</strong>
                           <small>
-                            {server.transport === "stdio" ? "STDIO" : "STREAMABLE HTTP"} · mcp__{server.serverName || "…"}__*
+                            {server.transport === "stdio" ? "STDIO" : "STREAMABLE HTTP"} · {server.serverName || "…"} · *
                           </small>
                         </span>
                         <b aria-hidden="true">⌄</b>

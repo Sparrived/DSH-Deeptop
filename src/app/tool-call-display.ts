@@ -31,6 +31,8 @@ const DELEGATION_TOOLS = new Set(["subagent", "subagent_fork", "workflow", "ralp
 const FALLBACK_SUMMARY_FIELDS = ["file_path", "path", "url", "command", "query", "prompt", "objective", "pattern", "name", "id"];
 const SUMMARY_MAX_CHARS = 180;
 
+const MCP_TOOL_NAME_PATTERN = /^mcp__(.+?)__(.+)$/u;
+
 const TOOL_ARG_PROFILES: Record<string, ToolArgsProfile> = {
   bash: { layout: "terminal", order: ["command", "workdir", "timeoutMs", "run_in_background", "sandbox_permissions", "justification"], primary: ["command"], summary: ["command"] },
   pwsh: { layout: "terminal", order: ["command", "workdir", "timeoutMs", "run_in_background", "sandbox_permissions", "justification"], primary: ["command"], summary: ["command"] },
@@ -162,6 +164,21 @@ export function visibleToolArguments(toolName: string | undefined, args: ToolArg
     ? new Set(["description", "old_string", "new_string"])
     : new Set(["description"]);
   return Object.entries(args).filter(([key, value]) => !hidden.has(key) || (key === "description" && typeof value !== "string"));
+}
+
+/**
+ * Format MCP's internal server/tool name for user-facing surfaces.
+ *
+ * Runtime registration keeps `mcp__<server>__<tool>` for uniqueness. The UI
+ * drops that transport prefix and uses a plain text separator instead.
+ *
+ * @param toolName - The runtime or ordinary tool name.
+ * @returns The name intended for user-facing display.
+ */
+export function displayToolName(toolName: string | undefined): string {
+  const value = toolName?.trim() ?? "";
+  const match = MCP_TOOL_NAME_PATTERN.exec(value);
+  return match ? `${match[1]} · ${match[2]}` : value;
 }
 
 /**

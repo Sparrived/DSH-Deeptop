@@ -65,11 +65,11 @@ test("records are ordered by event seq and turn grouping is stable", () => {
 test("tool result patches the original tool call record", () => {
   const entries = [
     event(1, "turn/start", { turn: 1 }),
-    event(2, "tool/call", { turn: 1, callId: "call-1", name: "read", arguments: { path: "a.txt" } }),
+    event(2, "tool/call", { turn: 1, callId: "call-1", name: "mcp__vendor__read", arguments: { path: "a.txt" } }),
     event(3, "tool/result", {
       turn: 1,
       callId: "call-1",
-      name: "read",
+      name: "mcp__vendor__read",
       content: [{ type: "tool-result", toolCallId: "call-1", content: "文件内容" }],
     }, { view: { kind: "file", path: "a.txt", content: "x".repeat(2000) } }),
     event(4, "turn/end", { turn: 1, reason: { kind: "completed" } }),
@@ -78,6 +78,7 @@ test("tool result patches the original tool call record", () => {
   const tools = records.filter((record) => record.kind === "tool");
   assert.equal(tools.length, 1);
   assert.equal(tools[0].status, "complete");
+  assert.equal(tools[0].title, "vendor · read");
   assert.equal(tools[0].resultText, "文件内容");
   assert.ok(tools[0].detail.includes("呈现视图"), "tool detail keeps the view snapshot");
 });

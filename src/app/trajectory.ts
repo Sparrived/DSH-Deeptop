@@ -1,5 +1,6 @@
 import type { DshHistoryEntry, DshSessionEvent } from "../lib/desktop";
 import { toolApprovalLabel, type ToolApprovalOutcome } from "./permission-audit.ts";
+import { displayToolName } from "./tool-call-display.ts";
 import { t, type UiLocale } from "./i18n.ts";
 
 export type TrajectoryKind = "system" | "user" | "context" | "assistant" | "tool" | "turn" | "approval";
@@ -306,7 +307,7 @@ function buildApprovalRecord(state: ApprovalState, locale: UiLocale = "zh"): Tra
     time: state.time,
     kind: "approval",
     status: outcome ? APPROVAL_OUTCOMES[outcome] : "running",
-    title: state.toolName,
+    title: displayToolName(state.toolName),
     summary: `${label}${state.reason ? ` · ${preview(state.reason)}` : ""}`,
     detail: pretty({ toolName: state.toolName, callId: state.callId, reason: state.reason, outcome }),
     turn: state.turn,
@@ -486,7 +487,7 @@ export function buildTrajectoryRecords(entries: DshHistoryEntry[], locale: UiLoc
         time: event.time,
         kind: "tool",
         status: "running",
-        title: name,
+        title: displayToolName(name),
         summary: t("trajectory.tool.waitingResult", locale),
         detail: pretty({ name, callId, arguments: data.arguments, view: entry.view }),
         turn,
@@ -514,7 +515,7 @@ export function buildTrajectoryRecords(entries: DshHistoryEntry[], locale: UiLoc
           time: event.time,
           kind: "tool",
           status: result.error ? "error" : "complete",
-          title: name,
+          title: displayToolName(name),
           summary: result.error ? t("trajectory.tool.error", locale) : preview(result.text),
           detail: pretty({ callId, result: result.raw, view: entry.view }),
           turn,

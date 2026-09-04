@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { hasVisibleToolArguments, isPrimaryToolArgument, orderedToolArguments, parseToolArgs, toolArgsLayout, toolCallDescription, toolCallEditDiff, toolCallSummary, toolTodoItems, visibleToolArguments } from "./tool-call-display.ts";
+import { displayToolName, hasVisibleToolArguments, isPrimaryToolArgument, orderedToolArguments, parseToolArgs, toolArgsLayout, toolCallDescription, toolCallEditDiff, toolCallSummary, toolTodoItems, visibleToolArguments } from "./tool-call-display.ts";
+
+test("formats MCP tool names without the internal prefix", () => {
+  assert.equal(displayToolName("mcp__vendor__read"), "vendor · read");
+  assert.equal(displayToolName("mcp__server__tool__with__underscores"), "server · tool__with__underscores");
+  assert.equal(displayToolName(" read "), "read");
+  assert.equal(displayToolName(undefined), "");
+});
 
 test("extracts a durable tool-call description and omits it from parameter rows", () => {
   const args = parseToolArgs(JSON.stringify({ command: "git status", description: "检查工作区状态", workdir: "D:\\Code" }));

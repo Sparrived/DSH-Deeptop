@@ -6,6 +6,7 @@ import {
   type SubagentSession,
   type TranscriptItem,
 } from "../app/model";
+import { displayToolName } from "../app/tool-call-display";
 import { t, type UiLocale } from "../app/i18n";
 import type { DshSubagentAddress } from "../lib/desktop";
 
@@ -82,7 +83,7 @@ export function SubagentPanel({
               <div className="subagent-history">
                 {transcript.map((item) => item.kind === "tool" ? (
                   <details className={`subagent-tool-entry ${item.toolResultError ? "error" : ""}`} key={item.key} open={item.toolResultText !== undefined}>
-                    <summary><span className="subagent-tool-state" /><strong>{item.toolName}</strong><em>{item.toolResultError ? t("subagent.toolError", locale) : item.toolResultText !== undefined ? t("subagent.toolReturned", locale) : t("subagent.toolRunning", locale)}</em></summary>
+                    <summary><span className="subagent-tool-state" /><strong>{displayToolName(item.toolName)}</strong><em>{item.toolResultError ? t("subagent.toolError", locale) : item.toolResultText !== undefined ? t("subagent.toolReturned", locale) : t("subagent.toolRunning", locale)}</em></summary>
                     <div className="subagent-tool-content"><pre>{item.text}</pre>{item.toolResultText !== undefined && <div className="subagent-tool-result"><span>{t("subagent.toolResult", locale)}</span><pre>{item.toolResultText}</pre></div>}</div>
                   </details>
                 ) : (

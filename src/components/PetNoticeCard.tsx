@@ -1,5 +1,6 @@
 import type { FormEvent } from "react";
 import type { PetAttention, PetSessionTarget } from "../lib/desktop";
+import { displayToolName } from "../app/tool-call-display";
 import { t, type UiLocale } from "../app/i18n";
 
 interface PetNoticeCardProps {
@@ -105,7 +106,7 @@ export function PetNoticeCard({
       <p className="pet-notice-message">
         {attention?.message ?? t("pet.notice.appendMessageHint", locale)}
       </p>
-      {attention?.toolName && <code className="pet-notice-tool">{attention.toolName}</code>}
+      {attention?.toolName && <code className="pet-notice-tool">{displayToolName(attention.toolName)}</code>}
       {isApproval && (
         <div className="pet-notice-actions pet-notice-approval-actions">
           <button type="button" onClick={() => onApproval(false)} disabled={busy}>{t("pet.notice.skip", locale)}</button>

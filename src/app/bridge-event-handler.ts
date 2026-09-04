@@ -18,6 +18,7 @@ import {
 import { isInjectedMessage, numberValue, readSessionStats, recordValue } from "./message-model.ts";
 import { applyTodoSnapshot } from "./workflow-model.ts";
 import { imageLimitsFromProjection } from "./ui-model.ts";
+import { displayToolName } from "./tool-call-display.ts";
 import { markSessionError,
   removeSessionRecordEntry,
   updateSessionIndicator,
@@ -333,7 +334,7 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
         reason: typeof payload.reason === "string" ? payload.reason : undefined,
       },
     }));
-    void sendSystemNotification(t("notice.approvalRequired", locale), t("notice.approvalRequestedBody", locale, { session: sessionId.slice(-8), tool: toolName }), sessionId);
+    void sendSystemNotification(t("notice.approvalRequired", locale), t("notice.approvalRequestedBody", locale, { session: sessionId.slice(-8), tool: displayToolName(toolName) }), sessionId);
     return;
   }
   if (type === "approval/resolved") {

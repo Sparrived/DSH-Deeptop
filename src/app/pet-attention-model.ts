@@ -1,6 +1,7 @@
 import type { DshHistoryEntry, PetActivityUpdate, PetAttention, PetSessionTarget } from "../lib/desktop";
 import type { PendingApproval, PendingQuestion } from "./model-types";
 import { eventContent } from "./message-model.ts";
+import { displayToolName } from "./tool-call-display.ts";
 import { t, type UiLocale } from "./i18n.ts";
 
 export const MAX_PET_ACTIVITIES = 12;
@@ -65,10 +66,10 @@ function approvalAttention(approval: PendingApproval, title: string, locale: UiL
     sessionId: approval.sessionId,
     title: boundedText(title, MAX_PET_TITLE_CHARS),
     message: boundedText(
-      approval.reason?.trim() || t("pet.attention.approvalNeedConfirm", locale, { tool: approval.toolName }),
+      approval.reason?.trim() || t("pet.attention.approvalNeedConfirm", locale, { tool: displayToolName(approval.toolName) }),
       MAX_PET_MESSAGE_CHARS,
     ),
-    toolName: boundedText(approval.toolName, MAX_PET_TOOL_NAME_CHARS),
+    toolName: boundedText(displayToolName(approval.toolName), MAX_PET_TOOL_NAME_CHARS),
     options: [],
     canReply: false,
   };

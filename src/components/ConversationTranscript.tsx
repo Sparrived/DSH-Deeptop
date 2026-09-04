@@ -8,7 +8,7 @@ import { MarkdownContent } from "../lib/markdown";
 import { TrajectoryView } from "./TrajectoryView";
 import { isResultDomainCard, toolDomainCard, type ToolDomainCard } from "../app/tool-domain";
 import { ToolArgsView } from "../app/tool-args-render";
-import { hasVisibleToolArguments, parseToolArgs, toolArgsLayout, toolCallEditDiff, toolCallSummary } from "../app/tool-call-display";
+import { displayToolName, hasVisibleToolArguments, parseToolArgs, toolArgsLayout, toolCallEditDiff, toolCallSummary } from "../app/tool-call-display";
 import { ToolResultView } from "../app/tool-result-render";
 import { entityHost } from "../lib/message-entities";
 import { isWithinSelector, TRANSCRIPT_CONTEXT_MENU_SELECTOR, TRANSCRIPT_TEXT_SELECTOR } from "../app/context-menu";
@@ -138,10 +138,11 @@ function ToolEntryView({
   const argsLayout = toolArgsLayout(item.toolName, args ?? {});
   const hasVisibleArgs = hasVisibleToolArguments(item.toolName, args) || (args === undefined && Boolean(item.text.trim()));
   const editDiff = args ? toolCallEditDiff(item.toolName, args) : undefined;
+  const displayName = displayToolName(item.toolName);
   return (
     <details className={`tool-entry tool-layout-${argsLayout} ${hasToolResult && hasVisibleArgs ? "tool-paired" : ""} ${!hasVisibleArgs ? "tool-result-only" : ""} ${item.toolResultError ? "tool-error" : ""}`} open={item.toolResultError || undefined}>
       <summary>
-        <span className="tool-summary-main"><span className="tool-state" aria-hidden="true" /><span className="tool-name">{item.toolName}</span></span>
+        <span className="tool-summary-main"><span className="tool-state" aria-hidden="true" /><span className="tool-name">{displayName}</span></span>
         {description && <span className="tool-description">{description}</span>}
         {diff && <span className="tool-diff-badge" key={`${item.key}-diff-${diff.added}-${diff.removed}`} aria-label={t("conversation.tool.diffAria", locale, { added: diff.added, removed: diff.removed })}><b>+{diff.added}</b><b>-{diff.removed}</b></span>}
         <span className={`tool-status ${toolStatus}`}><span className="tool-status-dot" aria-hidden="true" />{item.toolResultError ? t("conversation.tool.error", locale) : hasToolResult ? t("conversation.tool.returned", locale) : t("conversation.tool.running", locale)}</span>

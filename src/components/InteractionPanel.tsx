@@ -1,6 +1,7 @@
 import { MarkdownContent } from "../lib/markdown";
 import { planReviewOf, type PlanReviewQuestion } from "../app/ui-model";
 import type { PendingApproval, PendingQuestion } from "../app/model";
+import { displayToolName } from "../app/tool-call-display";
 import { t, type UiLocale } from "../app/i18n";
 
 type ApprovalOutcome = "allowed-once" | "rejected";
@@ -66,7 +67,7 @@ export function InteractionPanel({
     <section className="interaction-panel">
       {approval && (
         <div className="approval-request">
-          <div><strong>{t("interaction.requiresApproval", locale)}</strong><span>{approval.toolName}</span><p>{approval.reason || t("interaction.defaultReason", locale)}</p></div>
+          <div><strong>{t("interaction.requiresApproval", locale)}</strong><span>{displayToolName(approval.toolName)}</span><p>{approval.reason || t("interaction.defaultReason", locale)}</p></div>
           <div className="interaction-actions"><button onClick={() => void onApproval("rejected")}>{t("interaction.reject", locale)}</button><button className="confirm" onClick={() => void onApproval("allowed-once")}>{t("interaction.allowOnce", locale)}</button></div>
         </div>
       )}
