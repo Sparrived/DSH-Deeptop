@@ -7,7 +7,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourceRoot = path.join(root, "vendor", "dsh");
 const publicBase = "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e";
 const publicTag = "dsh-v0.1.1-rc.2";
-const patchedCommit = "7f4408325ff7dece0b98a13185dd3576d0605f60";
+const patchedCommit = "8d43a2c98da919ca01d0283320214cc29505d9ac";
 const upstream = "https://github.com/deepseek-ai/deepseek-harness.git";
 
 // The vendored runtime ships three local commits on top of the public RC2 tag.
@@ -66,6 +66,30 @@ const patches = [
       "解析 Store app execution alias 的当前包目标，跳过已确认悬空的别名，并在每次命令启动前重新探测自动路径。",
       "保留显式 pwshPath 与 ACL 阻止目标检查时的 alias 支持，更新中英文 README 和决策记录。",
       "验证：pwsh-local 与 pwsh-sandbox 专项测试 54 通过、5 平台跳过；包类型检查、lint、文档配对及链接检查通过。",
+      "",
+    ].join("\n"),
+  },
+  {
+    file: "dsh-storage-json-retry.patch",
+    commit: "8d43a2c98da919ca01d0283320214cc29505d9ac",
+    authorName: "Sparrived",
+    authorEmail: "sparrived@outlook.com",
+    authorDate: "2026-09-04T15:03:25+08:00",
+    committerDate: "2026-09-04T15:03:25+08:00",
+    message: [
+      "fix(storage-json): Windows 原子替换遇短暂锁定时有界重试",
+      "",
+      "改动：writeAtomic 最终 rename 失败仅在 Windows 且错误码为 EACCES/EBUSY/EPERM",
+      "时重试同一个已关闭并同步的临时文件，每次递增 50 ms，最多十次；目标是已有",
+      "目录时立即抛出，其余错误与超限保留最后错误。失败路径仍清理临时文件并回滚",
+      "内存状态。补充双语 Agent Note 与 README 说明。",
+      "",
+      "原因：Defender/索引器等短暂持有 workspace.json 时，Windows 拒绝替换并使",
+      "工作区排序等写入失败；重试吸收瞬时锁，永久权限问题仍快速失败。",
+      "",
+      "验证：storage-json 专项测试 24 通过（新增 5 个 atomic 用例）；storage-domain",
+      "23 通过；workspace.spec 除两个 Windows symlink 环境限制外全部通过；tsc 与",
+      "oxlint 通过。",
       "",
     ].join("\n"),
   },
