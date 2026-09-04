@@ -165,6 +165,7 @@ export function SettingsToolsPanel({
     [description, mcpDraft],
   );
   const issue = useMemo(() => mcpDraftIssue(mcpDraft), [mcpDraft]);
+  const nativeMcpServers = description?.mcp.nativeServers ?? [];
   const skillMutationBusy = skillRemoving !== null || skillInstallOperation !== null;
   const draftBusy = loading || mcpSaving || skillMutationBusy;
 
@@ -328,7 +329,7 @@ export function SettingsToolsPanel({
           onKeyDown={(event) => handleTabKeyDown(event, "mcp")}
         >
           <strong>MCP</strong>
-          <small>{mcpDraft.length}</small>
+          <small>{mcpDraft.length + nativeMcpServers.length}</small>
         </button>
       </div>
 
@@ -449,7 +450,37 @@ export function SettingsToolsPanel({
             <strong>{t("tools.mcp.trustTitle", locale)}</strong>
             <span>{t("tools.mcp.trustHint", locale)}</span>
           </div>
-          {mcpDraft.length === 0 ? (
+          {nativeMcpServers.length > 0 && (
+            <div className="mcp-native-section">
+              <div className="mcp-native-heading">
+                <div>
+                  <strong>{t("tools.mcp.native.title", locale)}</strong>
+                  <small>{t("tools.mcp.native.hint", locale)}</small>
+                </div>
+                <span>{t("tools.mcp.native.readOnly", locale)}</span>
+              </div>
+              <div className="mcp-server-list">
+                {nativeMcpServers.map((server) => (
+                  <article
+                    className="mcp-server-card native"
+                    key={server.entryId}
+                  >
+                    <div className="mcp-server-header mcp-native-header">
+                      <span className="mcp-server-state" aria-hidden="true" />
+                      <span>
+                        <strong>{server.serverName ?? t("tools.mcp.unnamed", locale)}</strong>
+                        <small>
+                          {server.transport === "stdio" ? "STDIO" : server.transport === "streamable-http" ? "STREAMABLE HTTP" : "MCP"} · {server.entryId}
+                        </small>
+                      </span>
+                      <em>{t("tools.mcp.native.readOnly", locale)}</em>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </div>
+          )}
+          {mcpDraft.length === 0 && nativeMcpServers.length === 0 ? (
             <div className="tools-empty-state">
               <span aria-hidden="true">M</span>
               <div>
@@ -458,7 +489,7 @@ export function SettingsToolsPanel({
               </div>
               <button disabled={draftBusy} onClick={addServer}>{t("tools.mcp.add", locale)}</button>
             </div>
-          ) : (
+          ) : mcpDraft.length > 0 ? (
             <div className="mcp-server-list">
               {mcpDraft.map((server) => {
                 const open = expandedServer === server.id;
@@ -724,25 +755,27 @@ export function SettingsToolsPanel({
                 );
               })}
             </div>
+          ) : null}
+          {(mcpDraft.length > 0 || dirty) && (
+            <div className="mcp-save-bar">
+              <div>
+                <strong>{dirty ? t("tools.mcp.unsaved", locale) : t("tools.mcp.savedState", locale)}</strong>
+                <small>
+                  {issue ? t(`tools.mcp.validation.${issue}`, locale) : t("tools.mcp.applyHint", locale)}
+                </small>
+              </div>
+              <div>
+                <button disabled={!dirty || draftBusy} onClick={onResetMcpDraft}>{t("common.cancel", locale)}</button>
+                <button
+                  className="primary"
+                  disabled={!dirty || Boolean(issue) || draftBusy}
+                  onClick={() => void onSaveMcp()}
+                >
+                  {mcpSaving ? t("tools.mcp.saving", locale) : t("common.save", locale)}
+                </button>
+              </div>
+            </div>
           )}
-          <div className="mcp-save-bar">
-            <div>
-              <strong>{dirty ? t("tools.mcp.unsaved", locale) : t("tools.mcp.savedState", locale)}</strong>
-              <small>
-                {issue ? t(`tools.mcp.validation.${issue}`, locale) : t("tools.mcp.applyHint", locale)}
-              </small>
-            </div>
-            <div>
-              <button disabled={!dirty || draftBusy} onClick={onResetMcpDraft}>{t("common.cancel", locale)}</button>
-              <button
-                className="primary"
-                disabled={!dirty || Boolean(issue) || draftBusy}
-                onClick={() => void onSaveMcp()}
-              >
-                {mcpSaving ? t("tools.mcp.saving", locale) : t("common.save", locale)}
-              </button>
-            </div>
-          </div>
         </section>
       )}
 

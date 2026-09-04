@@ -484,6 +484,15 @@ export interface DshMcpServerConfig {
   reconnect: DshMcpReconnectConfig;
 }
 
+/** Read-only summary of an MCP client already loaded by the DSH Profile. */
+export interface DshNativeMcpServer {
+  /** Full Loader entry id, including any parent group ids. */
+  entryId: string;
+  /** Omitted when a native expression cannot be safely displayed. */
+  serverName?: string;
+  transport?: "stdio" | "streamable-http";
+}
+
 /** Skills and MCP configuration projected by the desktop Bridge. */
 export interface DshToolSettingsDescription {
   skills: {
@@ -493,7 +502,10 @@ export interface DshToolSettingsDescription {
   mcp: {
     revision: number;
     path: string;
+    /** Deeptop-managed entries only; these are the editable draft. */
     servers: DshMcpServerConfig[];
+    /** Effective native DSH MCP entries; never accepted by mcp.settings.mutate. */
+    nativeServers?: DshNativeMcpServer[];
   };
 }
 

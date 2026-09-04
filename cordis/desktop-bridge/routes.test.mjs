@@ -174,6 +174,7 @@ test('describes and mutates MCP settings without exposing literal secrets', asyn
   try {
     const empty = await routeDesktopRequest(ctx, 'tool.settings.describe', {}, signal)
     assert.deepEqual(empty.mcp.servers, [])
+    assert.deepEqual(empty.mcp.nativeServers, [])
     const server = {
       id: 'github',
       serverName: 'github',
@@ -207,6 +208,127 @@ test('describes and mutates MCP settings without exposing literal secrets', asyn
     assert.equal(preserved.changed, false)
     assert.equal(preserved.mcp.servers[0].env[0].value, '')
     assert.equal((await readFile(join(root, 'profiles', 'desktop', 'deeptop-mcp.json'), 'utf8')).includes('super-secret'), true)
+  } finally {
+    await removePath(root, { recursive: true, force: true })
+  }
+})
+
+test('projects native MCP entries separately without exposing their configuration values', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-native-mcp-'))
+  const ctx = {
+    get: key => key === 'dshHome' ? root : key === 'loader' ? {
+      *entries() {
+        yield {
+          id: 'mcp-codegraph',
+          options: {
+            id: 'mcp-codegraph',
+            name: '@deepseek-ai/dsh-mcp-client',
+            config: { serverName: 'codegraph', transport: 'stdio' },
+          },
+          fiber: {
+            config: {
+              serverName: 'codegraph',
+              transport: 'stdio',
+              args: ['serve', '--mcp', '--token=top-secret'],
+              env: { CODEGRAPH_TOKEN: 'top-secret' },
+            },
+          },
+        }
+        yield {
+          id: 'mcp-expression',
+          options: {
+            id: 'mcp-expression',
+            name: '@deepseek-ai/dsh-mcp-client',
+            config: { serverName: { __jsExpr: 'process.env.MCP_NAME' }, transport: 'stdio' },
+          },
+          fiber: { config: { serverName: 'must-not-render', transport: 'stdio' } },
+        }
+        yield {
+          id: 'deeptop-mcp-managed',
+          options: {
+            id: 'deeptop-mcp-managed',
+            name: '@deepseek-ai/dsh-mcp-client',
+            config: { serverName: 'managed', transport: 'stdio' },
+          },
+          fiber: { config: { serverName: 'managed', transport: 'stdio', args: ['top-secret'] } },
+        }
+      },
+    } : undefined,
+  }
+  try {
+    const result = await routeDesktopRequest(ctx, 'tool.settings.describe', {}, signal)
+    assert.deepEqual(result.mcp.servers, [])
+    assert.deepEqual(result.mcp.nativeServers, [
+      { entryId: 'mcp-codegraph', serverName: 'codegraph', transport: 'stdio' },
+      { entryId: 'mcp-expression', transport: 'stdio' },
+    ])
+    assert.equal(JSON.stringify(result).includes('top-secret'), false)
+    assert.equal(JSON.stringify(result).includes('must-not-render'), false)
+  } finally {
+    await removePath(root, { recursive: true, force: true })
+  }
+})
+
+test('preserves native MCP patch text and rejects enabled namespace collisions', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-native-mcp-save-'))
+  const profile = join(root, 'profiles', 'desktop')
+  const nativePatch = [
+    '# Native CodeGraph MCP',
+    '- insert:',
+    '    - id: mcp-codegraph',
+    "      name: '@deepseek-ai/dsh-mcp-client'",
+    '      config:',
+    '        serverName: codegraph',
+    '        transport: stdio',
+    '        command: codegraph',
+    "        args: ['serve', '--mcp']",
+    '',
+  ].join('\n')
+  const ctx = {
+    get: key => key === 'dshHome' ? root : key === 'loader' ? {
+      *entries() {
+        yield {
+          id: 'mcp-codegraph',
+          options: { id: 'mcp-codegraph', name: '@deepseek-ai/dsh-mcp-client' },
+          fiber: { config: { serverName: 'codegraph', transport: 'stdio' } },
+        }
+      },
+    } : undefined,
+  }
+  const server = (id, serverName = id) => ({
+    id,
+    serverName,
+    transport: 'stdio',
+    enabled: true,
+    command: 'node',
+    args: ['server.mjs'],
+    env: [],
+    toolCallTimeoutMs: 60_000,
+    reconnect: { enabled: true, initialDelayMs: 500, maxDelayMs: 30_000, maxAttempts: 10 },
+  })
+  try {
+    await mkdir(profile, { recursive: true })
+    await writeFile(join(profile, 'cordis.patch.yml'), nativePatch, 'utf8')
+    await assert.rejects(
+      routeDesktopRequest(ctx, 'mcp.settings.mutate', {
+        expectedRevision: 0,
+        servers: [server('duplicate', 'codegraph')],
+      }, signal),
+      error => error?.code === 'native-conflict',
+    )
+    assert.equal(await readFile(join(profile, 'cordis.patch.yml'), 'utf8'), nativePatch)
+    await assert.rejects(stat(join(profile, 'deeptop-mcp.json')), error => error?.code === 'ENOENT')
+
+    const saved = await routeDesktopRequest(ctx, 'mcp.settings.mutate', {
+      expectedRevision: 0,
+      servers: [server('github')],
+    }, signal)
+    assert.equal(saved.changed, true)
+    const patch = await readFile(join(profile, 'cordis.patch.yml'), 'utf8')
+    assert.equal(patch.includes(nativePatch.trim()), true)
+    assert.match(patch, /deeptop-mcp-github/)
+    const stored = JSON.parse(await readFile(join(profile, 'deeptop-mcp.json'), 'utf8'))
+    assert.deepEqual(stored.servers.map(item => item.serverName), ['github'])
   } finally {
     await removePath(root, { recursive: true, force: true })
   }

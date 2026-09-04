@@ -1234,6 +1234,16 @@
 }
 .mcp-server-card.enabled { border-left: 3px solid var(--good); }
 .mcp-server-card.open { box-shadow: var(--shadow-sm); }
+.mcp-native-section { display: grid; gap: 9px; }
+.mcp-native-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.mcp-native-heading > div { display: grid; gap: 3px; }
+.mcp-native-heading strong { color: var(--ink-strong); font-size: 12px; }
+.mcp-native-heading small { color: var(--ink-faint); font-size: 10px; line-height: 1.4; }
+.mcp-native-heading > span, .mcp-native-header > em { color: var(--ink-faint); font-size: 10px; font-style: normal; white-space: nowrap; }
+.mcp-server-header.mcp-native-header { min-height: 58px; display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; align-items: center; gap: 11px; padding: 10px 12px; }
+.mcp-native-header > span:nth-child(2) { min-width: 0; display: grid; gap: 4px; }
+.mcp-native-header strong { overflow: hidden; color: var(--ink-strong); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.mcp-native-header small { overflow: hidden; color: var(--ink-faint); font: 10px/1.4 var(--mono); text-overflow: ellipsis; white-space: nowrap; }
 .mcp-server-header { min-height: 58px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
 .mcp-server-expand {
   min-width: 0;

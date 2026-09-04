@@ -10,6 +10,8 @@ const MCP_CONFIG_FILE = 'deeptop-mcp.json'
 const PROFILE_PATCH_FILE = 'cordis.patch.yml'
 const MCP_PATCH_START = '# BEGIN DEEPTOP MANAGED MCP'
 const MCP_PATCH_END = '# END DEEPTOP MANAGED MCP'
+const MCP_CLIENT_PACKAGE = '@deepseek-ai/dsh-mcp-client'
+const MANAGED_MCP_ENTRY_PREFIX = 'deeptop-mcp-'
 const MCP_CONFIG_VERSION = 1
 const SERVER_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/
 const SERVER_NAME = /^[A-Za-z0-9_-]{1,32}$/
@@ -794,6 +796,61 @@ function redactMcpServers(servers) {
   }))
 }
 
+function nativeMcpServerForEntry(entry) {
+  const options = entry?.options
+  if (!isRecord(options)
+    || options.name !== MCP_CLIENT_PACKAGE
+    || typeof options.id !== 'string'
+    || options.id.startsWith(MANAGED_MCP_ENTRY_PREFIX)) return undefined
+  // The Loader has already applied all Profile layers to options. Keep only
+  // literal scalar fields so rendering neither evaluates nor exposes !!js.
+  const config = isRecord(options.config) ? options.config : {}
+  const entryId = typeof entry.id === 'string' ? entry.id : options.id
+  return {
+    entryId,
+    ...(typeof config.serverName === 'string' && SERVER_NAME.test(config.serverName) ? { serverName: config.serverName } : {}),
+    ...(config.transport === 'stdio' || config.transport === 'streamable-http' ? { transport: config.transport } : {}),
+  }
+}
+
+/** Project effective native DSH MCP entries without exposing their configuration values. */
+export function describeNativeMcpServers(ctx) {
+  const loader = ctx?.get?.('loader')
+  if (!loader || typeof loader.entries !== 'function') return []
+  const seen = new Set()
+  const servers = []
+  for (const entry of loader.entries()) {
+    const server = nativeMcpServerForEntry(entry)
+    if (!server || seen.has(server.entryId)) continue
+    seen.add(server.entryId)
+    servers.push(server)
+  }
+  return servers
+}
+
+function activeNativeMcpServerNames(ctx) {
+  const loader = ctx?.get?.('loader')
+  if (!loader || typeof loader.entries !== 'function') return new Set()
+  const names = new Set()
+  for (const entry of loader.entries()) {
+    if (entry?.options?.disabled === true || nativeMcpServerForEntry(entry) === undefined) continue
+    const resolvedName = entry?.fiber?.config?.serverName
+    const serverName = typeof resolvedName === 'string' ? resolvedName : entry?.options?.config?.serverName
+    if (typeof serverName === 'string' && SERVER_NAME.test(serverName)) names.add(serverName)
+  }
+  return names
+}
+
+function assertNativeMcpNamesAvailable(ctx, servers) {
+  const names = activeNativeMcpServerNames(ctx)
+  for (const server of servers) {
+    if (!server.enabled || !names.has(server.serverName)) continue
+    const error = new Error(`MCP serverName 与原生 DSH 配置重复：${server.serverName}`)
+    error.code = 'native-conflict'
+    throw error
+  }
+}
+
 function quoteYaml(value) {
   return `'${String(value).replaceAll("'", "''")}'`
 }
@@ -976,7 +1033,12 @@ async function writeMcpTransaction(ctx, config, patchContent) {
 
 export async function describeMcpSettings(ctx) {
   const config = await readMcpConfig(ctx)
-  return { revision: config.revision, path: mcpConfigPath(ctx), servers: redactMcpServers(config.servers) }
+  return {
+    revision: config.revision,
+    path: mcpConfigPath(ctx),
+    servers: redactMcpServers(config.servers),
+    nativeServers: describeNativeMcpServers(ctx),
+  }
 }
 
 export async function describeToolSettings(ctx) {
@@ -1001,6 +1063,7 @@ export async function mutateMcpSettings(ctx, payload, signal) {
       throw error
     }
     const servers = normalizeMcpServers(payload.servers, { preserveSecretsFrom: current.servers })
+    assertNativeMcpNamesAvailable(ctx, servers)
     if (JSON.stringify(servers) === JSON.stringify(current.servers)) {
       return {
         ...(await describeToolSettings(ctx)),
