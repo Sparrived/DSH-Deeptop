@@ -20,6 +20,7 @@ const ERROR_KEYS: Record<string, string> = {
   "bridge-timeout": "settings.error.bridgeTimeout",
   "bridge-unavailable": "settings.error.bridgeUnavailable",
   "bridge-disconnected": "settings.error.bridgeDisconnected",
+  "native-conflict": "settings.error.mcpNativeConflict",
   "workspace-unavailable": "settings.error.workspaceUnavailable",
 };
 

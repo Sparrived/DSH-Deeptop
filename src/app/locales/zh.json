@@ -1432,6 +1432,7 @@
   "settings.error.imagesTooLarge": "本条消息的图片总大小超过当前部署限制",
   "settings.error.invalidTimezone": "客户端时区无效，请重试",
   "settings.error.modelUnavailable": "当前模型不可用，请检查 Provider 配置或切换模型",
+  "settings.error.mcpNativeConflict": "该工具命名空间已由 DSH Profile 原生 MCP 配置占用，请改用一个不重复的命名空间",
   "settings.error.notJsonObject": "设置内容必须是 JSON 对象",
   "settings.error.referenceUnavailable": "引用服务当前不可用",
   "settings.error.requestTimeout": "DSH 请求超时，请重试",

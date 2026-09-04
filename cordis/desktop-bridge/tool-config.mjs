@@ -796,6 +796,12 @@ function redactMcpServers(servers) {
   }))
 }
 
+// vendored FiberState.ACTIVE (cordis/src/fiber.ts): the mcp-client has reached
+// a settled, running fiber. Disabled entries (static, ancestor-group or !!js)
+// never get a fiber, so consulting the getter would re-evaluate !!js; a fiber
+// in any other state has released its serverName effect already.
+const ACTIVE_FIBER_STATE = 2
+
 function nativeMcpServerForEntry(entry) {
   const options = entry?.options
   if (!isRecord(options)
@@ -833,9 +839,8 @@ function activeNativeMcpServerNames(ctx) {
   if (!loader || typeof loader.entries !== 'function') return new Set()
   const names = new Set()
   for (const entry of loader.entries()) {
-    if (entry?.options?.disabled === true || nativeMcpServerForEntry(entry) === undefined) continue
-    const resolvedName = entry?.fiber?.config?.serverName
-    const serverName = typeof resolvedName === 'string' ? resolvedName : entry?.options?.config?.serverName
+    if (nativeMcpServerForEntry(entry) === undefined || entry?.fiber?.state !== ACTIVE_FIBER_STATE) continue
+    const serverName = entry?.fiber?.config?.serverName
     if (typeof serverName === 'string' && SERVER_NAME.test(serverName)) names.add(serverName)
   }
   return names

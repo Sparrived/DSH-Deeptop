@@ -226,6 +226,7 @@ test('projects native MCP entries separately without exposing their configuratio
             config: { serverName: 'codegraph', transport: 'stdio' },
           },
           fiber: {
+            state: 2,
             config: {
               serverName: 'codegraph',
               transport: 'stdio',
@@ -290,7 +291,17 @@ test('preserves native MCP patch text and rejects enabled namespace collisions',
         yield {
           id: 'mcp-codegraph',
           options: { id: 'mcp-codegraph', name: '@deepseek-ai/dsh-mcp-client' },
-          fiber: { config: { serverName: 'codegraph', transport: 'stdio' } },
+          fiber: { state: 2, config: { serverName: 'codegraph', transport: 'stdio' } },
+        }
+        yield {
+          id: 'mcp-disabled',
+          options: {
+            id: 'mcp-disabled',
+            name: '@deepseek-ai/dsh-mcp-client',
+            disabled: true,
+            config: { serverName: 'disabled-native', transport: 'stdio' },
+          },
+          fiber: { state: 3, config: { serverName: 'disabled-native', transport: 'stdio' } },
         }
       },
     } : undefined,
@@ -321,14 +332,14 @@ test('preserves native MCP patch text and rejects enabled namespace collisions',
 
     const saved = await routeDesktopRequest(ctx, 'mcp.settings.mutate', {
       expectedRevision: 0,
-      servers: [server('github')],
+      servers: [server('github'), server('disabled-native')],
     }, signal)
     assert.equal(saved.changed, true)
     const patch = await readFile(join(profile, 'cordis.patch.yml'), 'utf8')
     assert.equal(patch.includes(nativePatch.trim()), true)
     assert.match(patch, /deeptop-mcp-github/)
     const stored = JSON.parse(await readFile(join(profile, 'deeptop-mcp.json'), 'utf8'))
-    assert.deepEqual(stored.servers.map(item => item.serverName), ['github'])
+    assert.deepEqual(stored.servers.map(item => item.serverName), ['github', 'disabled-native'])
   } finally {
     await removePath(root, { recursive: true, force: true })
   }

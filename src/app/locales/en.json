@@ -1432,6 +1432,7 @@
   "settings.error.imagesTooLarge": "Total image size for this message exceeds this deployment's limits.",
   "settings.error.invalidTimezone": "Invalid client timezone. Please try again.",
   "settings.error.modelUnavailable": "The current model is unavailable. Check the Provider config or switch models.",
+  "settings.error.mcpNativeConflict": "This tool namespace is already used by a native DSH Profile MCP server. Use a different namespace.",
   "settings.error.notJsonObject": "Settings content must be a JSON object",
   "settings.error.referenceUnavailable": "The reference service is currently unavailable.",
   "settings.error.requestTimeout": "DSH request timed out. Please try again.",
