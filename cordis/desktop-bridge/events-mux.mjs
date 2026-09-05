@@ -203,11 +203,13 @@ export class MuxEventSynthesizer {
       return
     }
     if (frame.type === 'queue') {
-      this.emitQueues([[frame.sessionId, frame.items]])
+      // A drained queue (items: []) must reach the desktop so the pending
+      // dock can clear; only the live replacement is forwarded.
+      this.emitQueues([[frame.sessionId, frame.items]], { includeEmpty: true })
       return
     }
     if (frame.type === 'jobs') {
-      this.emitJobs([[frame.sessionId, frame.jobs]])
+      this.emitJobs([[frame.sessionId, frame.jobs]], { includeEmpty: true })
       return
     }
     if (frame.type === 'projection') {
@@ -215,9 +217,13 @@ export class MuxEventSynthesizer {
     }
   }
 
-  emitQueues(entries) {
+  // A live replacement to an empty list is the only fact that tells the
+  // desktop a pending item was consumed (claimed, removed, or edited away).
+  // Baseline entries may stay empty-skipped: the frontend already starts
+  // cleared, and emitting every empty queue/jobs pair would flood the stream.
+  emitQueues(entries, { includeEmpty = false } = {}) {
     for (const [sessionId, items] of entries) {
-      if (!Array.isArray(items) || items.length === 0) continue
+      if (!Array.isArray(items) || (items.length === 0 && !includeEmpty)) continue
       this.emit({
         rpcId: randomUUID(),
         payload: { type: 'session/queue', sessionId, items },
@@ -225,9 +231,9 @@ export class MuxEventSynthesizer {
     }
   }
 
-  emitJobs(entries) {
+  emitJobs(entries, { includeEmpty = false } = {}) {
     for (const [sessionId, jobs] of entries) {
-      if (!Array.isArray(jobs) || jobs.length === 0) continue
+      if (!Array.isArray(jobs) || (jobs.length === 0 && !includeEmpty)) continue
       this.emit({
         rpcId: randomUUID(),
         payload: { type: 'session/jobs', sessionId, jobs },
