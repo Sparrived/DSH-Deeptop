@@ -60,6 +60,10 @@ export class MuxEventSynthesizer {
 
     this.disposers.push(ctx.on('session/event', (session, event) => {
       if (!session || !event) return
+      const tails = ctx.get?.('deeptopSessionTails')
+      if (typeof session.id === 'string' && Number.isSafeInteger(event.seq)) {
+        tails?.remember?.(session.id, event.seq)
+      }
       push({
         rpcId: randomUUID(),
         payload: {

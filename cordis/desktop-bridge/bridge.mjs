@@ -5,6 +5,7 @@ import { initNetworkProxy, stopSystemProxyWatch } from './network-proxy.mjs'
 import { compactLiveEventFrames } from './display-history.mjs'
 import { MuxEventSynthesizer } from './events-mux.mjs'
 import { HostEventSynthesizer } from './events-host.mjs'
+import { createSessionTailRegistry } from './session-tails.mjs'
 
 const PROTOCOL = 'deeptop/1'
 const LIVE_EVENT_FLUSH_MS = 16
@@ -86,6 +87,16 @@ export class DesktopBridge {
     if (this.closed) return
     if (this.ctx.get('sessionController') === undefined || this.ctx.get('workspaceController') === undefined) {
       throw new Error('deeptop-bridge requires @deepseek-ai/dsh-api-session-controller and @deepseek-ai/dsh-api-workspace-controller')
+    }
+
+    // Live session/event frames keep the registry fresh; cold history reads
+    // fall back to one observation when a session tail is not cached.
+    this.sessionTails = createSessionTailRegistry()
+    try {
+      this.ctx.provide?.('deeptopSessionTails', this.sessionTails)
+    } catch {
+      // A duplicate provide (bridge restarted in the same fiber) keeps the
+      // earlier registry; history requests still resolve via the shared ctx.
     }
 
     // 在开始读取请求前安装已保存的代理，避免重启后的首个模型请求绕过代理。
@@ -217,6 +228,7 @@ export class DesktopBridge {
     this.liveFrames = []
     this.muxEvents?.dispose()
     this.hostEvents?.dispose()
+    this.sessionTails?.clear()
     this.abort.abort()
     stopSystemProxyWatch()
     this.input?.close()

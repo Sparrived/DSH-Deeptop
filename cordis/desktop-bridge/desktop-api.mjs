@@ -34,6 +34,98 @@ function addressForSession(sessionId) {
   return { kind: 'session', sessionId }
 }
 
+// ── rc.1 history page cuts ─────────────────────────────────────────────────
+//
+// `sessionController.page()` rejects a missing/negative throughSeq: the value
+// must be an inclusive seq that exists in the durable log. The desktop has no
+// follow stream to learn that cut from, so the bridge keeps a per-session tail
+// registry (fed by live session/event frames in events-mux) and resolves cold
+// sessions with one read-only observation of the log tail.
+
+function historyTailRegistry(ctx) {
+  return ctx.get?.('deeptopSessionTails')
+}
+
+function pastCursorPageError(error) {
+  return error instanceof Error
+    && error.code === 'gateway/bad-request'
+    && typeof error.message === 'string'
+    && error.message.includes('past cursor')
+}
+
+function tailErrorCode(addressKind) {
+  return addressKind === 'subagent' ? 'subagent/not-found' : 'session-not-found'
+}
+
+function tailErrorMessage(addressKind, sessionId) {
+  return addressKind === 'subagent'
+    ? 'subagent is unavailable'
+    : `session "${sessionId}" not found`
+}
+
+function tailErrorDetails(addressKind, sessionId, request) {
+  return addressKind === 'subagent'
+    ? { parentSessionId: request.parentSessionId, childSessionId: sessionId, reason: 'unavailable' }
+    : { sessionId }
+}
+
+/**
+ * Resolve the current durable tail seq of one session (or null for an empty
+ * log) with one cold-safe observation. Mirrors the official page() source
+ * read: no activation, no projection computation, not-found becomes the same
+ * wire code the official controller would throw.
+ */
+async function observeDurableTailSeq(ctx, sessionId, signal, addressKind, request) {
+  const sessionQuery = requireService(ctx, 'sessionQuery', 'gateway/internal', 'sessionQuery service is unavailable')
+  let observation
+  try {
+    observation = await sessionQuery.observeSession(sessionId, { signal, projectionMode: 'none' })
+  } catch (error) {
+    if (error instanceof Error && error.code === 'SESSION_QUERY_SESSION_NOT_FOUND') {
+      throw codedError(
+        tailErrorCode(addressKind),
+        tailErrorMessage(addressKind, sessionId),
+        tailErrorDetails(addressKind, sessionId, request),
+      )
+    }
+    throw error
+  }
+  try {
+    return observation.events.at(-1)?.seq ?? null
+  } finally {
+    observation[Symbol.dispose]?.()
+  }
+}
+
+/**
+ * Run one page() with a real durable cut. Prefers the per-session tail cache;
+ * a cold miss resolves the tail by observation. When a stale cached cut is
+ * rejected because the durable log shrank (repair/rollback), evict the cache
+ * and retry once with a fresh observation.
+ */
+async function pageWithDurableCut(ctx, sessionId, sessionController, request, signal, addressKind) {
+  const registry = historyTailRegistry(ctx)
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const cached = registry?.tailOf?.(sessionId)
+    let tail = cached
+    if (tail === undefined) {
+      tail = await observeDurableTailSeq(ctx, sessionId, signal, addressKind, request)
+      if (tail === null) return { records: [], hasMore: false }
+      registry?.remember?.(sessionId, tail)
+    }
+    try {
+      return await sessionController.page({ ...request, throughSeq: tail }, signal)
+    } catch (error) {
+      if (attempt === 0 && cached !== undefined && pastCursorPageError(error)) {
+        registry?.drop?.(sessionId)
+        continue
+      }
+      throw error
+    }
+  }
+  throw new Error('unreachable: pageWithDurableCut bounded retry loop exhausted')
+}
+
 // ── sessions.* ──────────────────────────────────────────────────────────────
 
 export async function sessionList(ctx, payload, signal) {
@@ -59,20 +151,20 @@ export async function sessionCreate(ctx, payload) {
 }
 
 /**
- * One message-aligned history page. rc.1 page() takes a durable address, a
- * required log cut (`throughSeq`; -1 means the durable tail) and an optional
- * backward cursor. The value shape is the frontend contract:
- * { events, hasMore } with every event wrapped like the desktop wire entry.
+ * One message-aligned history page. rc.1 page() takes a durable address, an
+ * inclusive real log cut (`throughSeq`, from the session's current durable
+ * tail) and an optional backward cursor. The value shape is the frontend
+ * contract: { events, hasMore } with every event wrapped like the desktop wire
+ * entry.
  */
 export async function sessionHistory(ctx, payload, signal) {
   const sessionId = sessionIdOf(payload, 'session.history')
   const sessionController = controller(ctx, 'sessionController')
-  const page = await sessionController.page({
+  const page = await pageWithDurableCut(ctx, sessionId, sessionController, {
     address: { kind: 'session', sessionId },
-    throughSeq: -1,
     ...(isRecord(payload) && typeof payload.beforeSeq === 'number' ? { beforeSeq: payload.beforeSeq } : {}),
     ...(isRecord(payload) && typeof payload.maxMessages === 'number' ? { maxMessages: payload.maxMessages } : {}),
-  }, signal)
+  }, signal, 'session')
   return {
     events: unfoldRecords(page.records).map(event => ({ event })),
     hasMore: page.hasMore === true,
@@ -276,17 +368,16 @@ export async function subagentHistory(ctx, payload, signal) {
     throw codedError('bad-request', 'subagent.history requires parentSessionId and childSessionId', {})
   }
   const sessionController = controller(ctx, 'sessionController')
-  const page = await sessionController.page({
+  const page = await pageWithDurableCut(ctx, childSessionId, sessionController, {
     address: {
       kind: 'subagent',
       parentSessionId: request.parentSessionId,
       childSessionId,
       mode: request.mode ?? 'continuable',
     },
-    throughSeq: -1,
     ...(typeof request.beforeSeq === 'number' ? { beforeSeq: request.beforeSeq } : {}),
     ...(typeof request.maxMessages === 'number' ? { maxMessages: request.maxMessages } : {}),
-  }, signal)
+  }, signal, 'subagent')
   return {
     events: unfoldRecords(page.records).map(event => ({ event })),
     hasMore: page.hasMore === true,

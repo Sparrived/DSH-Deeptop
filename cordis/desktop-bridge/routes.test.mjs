@@ -13,11 +13,36 @@ import { applyProxy, initNetworkProxy, loadProxySetting, normalizeProxyOverride,
 import { describePluginConfig, mutatePluginConfig } from './plugin-config.mjs'
 import { parseGitHubSource, selectSkillPath, validateRelativeRepoPath } from '../skill-installer/installer.mjs'
 import { reconstructContiguous, rowSeqs, scanZstdFrames, verifyReadable } from './session-repair.mjs'
+import { createSessionTailRegistry } from './session-tails.mjs'
 
 const signal = new AbortController().signal
 
 function historyEntry(seq, type, data = {}) {
   return { event: { seq, time: 1_000 + seq, type, data } }
+}
+
+/** Minimal ctx for session.history route tests: tail registry + page mock. */
+function historyCtx({ page, tail, sessionQuery }) {
+  const registry = createSessionTailRegistry()
+  if (tail !== undefined) registry.remember('session-1', tail)
+  return {
+    get: key => {
+      if (key === 'sessionController') return { page }
+      if (key === 'deeptopSessionTails') return registry
+      if (key === 'sessionQuery') return sessionQuery
+      return undefined
+    },
+  }
+}
+
+/** Fake sessionQuery.observeSession over raw events (for cold tail reads). */
+function observingSessionQuery(events) {
+  return {
+    observeSession: async () => ({
+      events,
+      [Symbol.dispose]: () => {},
+    }),
+  }
 }
 
 test('waits for stdout drain when the bridge writer applies backpressure', async () => {
@@ -93,15 +118,15 @@ test('compacts session history before crossing the desktop bridge', async () => 
       chunk: { type: 'text-delta', index: 0, text: 'x' },
     })),
   ]
-  const response = await routeDesktopRequest({
-    get: key => key === 'sessionController' ? {
-      page: async request => {
-        assert.deepEqual(request.address, { kind: 'session', sessionId: 'session-1' })
-        assert.equal(request.throughSeq, -1)
-        return { records: raw, hasMore: false }
-      },
-    } : undefined,
-  }, 'session.history', { sessionId: 'session-1' }, signal)
+  const ctx = historyCtx({
+    tail: 2_001,
+    page: async request => {
+      assert.deepEqual(request.address, { kind: 'session', sessionId: 'session-1' })
+      assert.equal(request.throughSeq, 2_001)
+      return { records: raw, hasMore: false }
+    },
+  })
+  const response = await routeDesktopRequest(ctx, 'session.history', { sessionId: 'session-1' }, signal)
 
   assert.equal(response.events.length, 2)
   assert.equal(response.events[1].event.data.chunk.text.length, 2_000)
@@ -114,19 +139,170 @@ test('keeps raw session history for diagnostics and JSON export', async () => {
     historyEntry(2, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'b' } }),
   ]
   let forwardedPayload
-  const response = await routeDesktopRequest({
-    get: key => key === 'sessionController' ? {
-      page: async request => {
-        forwardedPayload = { sessionId: request.address.sessionId, maxMessages: request.maxMessages }
-        return { records: raw, hasMore: false }
-      },
-    } : undefined,
-  }, 'session.history', { sessionId: 'session-1', display: false }, signal)
+  const ctx = historyCtx({
+    tail: 2,
+    page: async request => {
+      forwardedPayload = { sessionId: request.address.sessionId, throughSeq: request.throughSeq, maxMessages: request.maxMessages }
+      return { records: raw, hasMore: false }
+    },
+  })
+  const response = await routeDesktopRequest(ctx, 'session.history', { sessionId: 'session-1', display: false }, signal)
 
-  assert.deepEqual(forwardedPayload, { sessionId: 'session-1', maxMessages: undefined })
+  assert.deepEqual(forwardedPayload, { sessionId: 'session-1', throughSeq: 2, maxMessages: undefined })
   assert.equal(response.events.length, 2)
   assert.equal(response.events[0].event.seq, 1)
   assert.equal(response.events[1].event.seq, 2)
+  assert.equal(response.hasMore, false)
+})
+
+test('resolves a cold session history cut from one log observation', async () => {
+  const log = [
+    { seq: 3, time: 1_003, type: 'assistant/message', data: { turn: 1, step: 1 } },
+    { seq: 4, time: 1_004, type: 'user/message', data: { turn: 2, step: 1 } },
+  ]
+  const raw = [
+    historyEntry(3, 'assistant/message', { turn: 1, step: 1 }),
+    historyEntry(4, 'user/message', { turn: 2, step: 1 }),
+  ]
+  let observed = false
+  const ctx = historyCtx({
+    sessionQuery: {
+      observeSession: async (sessionId, options) => {
+        observed = true
+        assert.equal(sessionId, 'session-1')
+        assert.deepEqual(options, { signal, projectionMode: 'none' })
+        return { events: log, [Symbol.dispose]: () => {} }
+      },
+    },
+    page: async request => {
+      assert.equal(request.throughSeq, 4)
+      assert.equal(request.beforeSeq, 3)
+      return { records: raw, hasMore: false }
+    },
+  })
+  const response = await routeDesktopRequest(ctx, 'session.history', {
+    sessionId: 'session-1',
+    beforeSeq: 3,
+    maxMessages: 20,
+  }, signal)
+
+  assert.equal(observed, true)
+  assert.equal(response.events.length, 2)
+  assert.equal(response.hasMore, false)
+})
+
+test('short-circuits an empty cold session without calling page', async () => {
+  let pageCalls = 0
+  const ctx = historyCtx({
+    sessionQuery: observingSessionQuery([]),
+    page: async () => {
+      pageCalls += 1
+      return { records: [], hasMore: false }
+    },
+  })
+  const response = await routeDesktopRequest(ctx, 'session.history', { sessionId: 'session-1' }, signal)
+
+  assert.equal(pageCalls, 0)
+  assert.deepEqual(response.events, [])
+  assert.equal(response.hasMore, false)
+})
+
+test('maps an unknown cold session to session-not-found', async () => {
+  const ctx = historyCtx({
+    sessionQuery: {
+      observeSession: async () => {
+        const error = new Error('session "session-1" not found')
+        error.code = 'SESSION_QUERY_SESSION_NOT_FOUND'
+        throw error
+      },
+    },
+    page: async () => {
+      throw new Error('page must not run for an unknown session')
+    },
+  })
+
+  await assert.rejects(
+    routeDesktopRequest(ctx, 'session.history', { sessionId: 'session-1' }, signal),
+    error => error?.code === 'session-not-found' && /session-1/.test(error.message),
+  )
+})
+
+test('evicts a stale cached cut and retries once after a past-cursor rejection', async () => {
+  const calls = []
+  const ctx = historyCtx({
+    tail: 10,
+    sessionQuery: observingSessionQuery([
+      { seq: 1, time: 1_001, type: 'user/message', data: { turn: 1, step: 1 } },
+      { seq: 5, time: 1_005, type: 'assistant/message', data: { turn: 1, step: 2 } },
+    ]),
+    page: async request => {
+      calls.push(request.throughSeq)
+      if (request.throughSeq === 10) {
+        const error = new Error('session page through seq 10 is past cursor 5')
+        error.code = 'gateway/bad-request'
+        throw error
+      }
+      return { records: [historyEntry(5, 'assistant/message', { turn: 1, step: 2 })], hasMore: false }
+    },
+  })
+  const response = await routeDesktopRequest(ctx, 'session.history', { sessionId: 'session-1' }, signal)
+
+  assert.deepEqual(calls, [10, 5])
+  assert.equal(response.events.length, 1)
+  assert.equal(response.events[0].event.seq, 5)
+  assert.equal(response.hasMore, false)
+})
+
+test('keeps the history route cut registry fresh from the live tail registry', async () => {
+  const raw = [
+    historyEntry(7, 'assistant/message', { turn: 1, step: 2 }),
+    historyEntry(8, 'user/message', { turn: 2, step: 1 }),
+  ]
+  const ctx = historyCtx({
+    tail: 8,
+    page: async request => {
+      assert.equal(request.throughSeq, 8)
+      return { records: raw, hasMore: true }
+    },
+  })
+  const response = await routeDesktopRequest(ctx, 'session.history', { sessionId: 'session-1' }, signal)
+
+  assert.equal(response.events.length, 2)
+  assert.equal(response.hasMore, true)
+})
+
+test('pages subagent history through the child durable tail cut', async () => {
+  const raw = [
+    historyEntry(2, 'user/message', { turn: 1, step: 1 }),
+    historyEntry(3, 'assistant/message', { turn: 1, step: 1 }),
+  ]
+  const registry = createSessionTailRegistry()
+  registry.remember('child-1', 3)
+  const ctx = {
+    get: key => {
+      if (key === 'sessionController') return {
+        page: async request => {
+          assert.deepEqual(request.address, {
+            kind: 'subagent',
+            parentSessionId: 'parent-1',
+            childSessionId: 'child-1',
+            mode: 'continuable',
+          })
+          assert.equal(request.throughSeq, 3)
+          return { records: raw, hasMore: false }
+        },
+      }
+      if (key === 'deeptopSessionTails') return registry
+      return undefined
+    },
+  }
+  const response = await routeDesktopRequest(ctx, 'subagent.history', {
+    parentSessionId: 'parent-1',
+    childSessionId: 'child-1',
+  }, signal)
+
+  assert.equal(response.events.length, 2)
+  assert.equal(response.events[1].event.seq, 3)
   assert.equal(response.hasMore, false)
 })
 
