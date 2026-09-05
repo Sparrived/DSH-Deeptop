@@ -1,4 +1,3 @@
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import Schema from '@deepseek-ai/schemastery'
 
 /**
@@ -26,7 +25,7 @@ export function apply(ctx) {
     preference: preferenceSchema,
   })
 
-  ctx.settings.register(settingsNamespace('ui-theme'), themeSchema)
+  ctx.settings.register('ui-theme', themeSchema)
 
   const localeSchema = Schema.object({
     preference: Schema.union([
@@ -35,5 +34,5 @@ export function apply(ctx) {
     ]).required(false),
   })
 
-  ctx.settings.register(settingsNamespace('locale'), localeSchema)
+  ctx.settings.register('locale', localeSchema)
 }
