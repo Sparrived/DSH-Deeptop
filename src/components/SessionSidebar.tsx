@@ -1,4 +1,4 @@
-import { useMemo, useState, type RefObject } from "react";
+import { useCallback, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useFloatingMenuPosition } from "../app/useFloatingMenuPosition";
 import type { DesktopUiRuntime } from "../lib/desktop-ui-runtime/client-runtime";
@@ -27,6 +27,27 @@ export type WorkspaceGroup = {
 };
 
 type SidebarView = "sessions" | "active" | "archive";
+
+function SidebarViewButton({
+  view,
+  target,
+  onChange,
+  children,
+}: {
+  view: SidebarView;
+  target: SidebarView;
+  onChange: (next: SidebarView) => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      className={`sidebar-view-button${view === target ? " selected" : ""}`}
+      type="button"
+      aria-pressed={view === target}
+      onClick={() => onChange(target)}
+    >{children}</button>
+  );
+}
 
 type DragPreview = {
   order: string[];
@@ -133,8 +154,24 @@ export function SessionSidebar({
   onSessionContextMenu,
 }: SessionSidebarProps) {
   const [view, setView] = useState<SidebarView>("sessions");
+  const [activeViewIds, setActiveViewIds] = useState<ReadonlySet<string>>(() => new Set());
   const archiveOpen = view === "archive";
   const activeOpen = view === "active";
+  const isActiveEligible = useMemo(() => (session: DshSessionSummary) => {
+    if (activeViewIds.size === 0) return false;
+    return activeViewIds.has(session.sessionId) || session.running;
+  }, [activeViewIds]);
+  const handleViewChange = useCallback((next: SidebarView) => {
+    setView((current) => {
+      if (current === next) return current;
+      if (next === "active") {
+        setActiveViewIds(new Set(activeSessionView.pinned.flatMap((group) => group.sessions.map((session) => session.sessionId))
+          .concat(activeSessionView.working.flatMap((group) => group.sessions.map((session) => session.sessionId)))));
+      }
+      if (next === "sessions") setActiveViewIds(new Set());
+      return next;
+    });
+  }, [activeSessionView]);
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const [dragCommitPending, setDragCommitPending] = useState(false);
   const { menuRef: sessionMenuRef, menuAt: sessionMenuAt } = useFloatingMenuPosition(sessionContextMenu);
@@ -198,6 +235,7 @@ export function SessionSidebar({
     active={session.sessionId === activeSessionId}
     indicator={sessionIndicators[session.sessionId] ?? "idle"}
     pending={pendingSessionIds.has(session.sessionId)}
+    snapshotStale={crossWorkspace && !session.running && !activeViewIds.has(session.sessionId)}
     snippet={crossWorkspace ? undefined : searchResultById.get(session.sessionId)}
     pinned={Boolean(workspaceBySessionId.get(session.sessionId)?.pinnedSessionIds?.includes(session.sessionId))}
     canPin={Boolean(workspaceBySessionId.get(session.sessionId)) && (crossWorkspace || !search.trim())}
@@ -229,6 +267,10 @@ export function SessionSidebar({
       {groups.map(renderActiveWorkspaceGroup)}
     </section>;
   };
+  const liveActiveCount = activeOpen
+    ? activeSessionView.pinned.reduce((total, group) => total + group.sessions.length, 0)
+      + activeSessionView.working.reduce((total, group) => total + group.sessions.filter(isActiveEligible).length, 0)
+    : 0;
   const renderArchivedSession = (session: DshSessionSummary) => (
     <div
       className={`archived-session-row session-status-${session.running ? "running" : "archived"}`}
@@ -268,19 +310,21 @@ export function SessionSidebar({
 
       <div className="sidebar-heading">
         {archiveOpen ? (
-          <div className="sidebar-heading-title"><button className="sidebar-back-button" type="button" onClick={() => setView("sessions")} title={t("sidebar.backToSessions", locale)} aria-label={t("sidebar.backToSessions", locale)}>←</button><span>{t("sidebar.archive", locale)}</span></div>
+          <div className="sidebar-heading-title"><button className="sidebar-back-button" type="button" onClick={() => handleViewChange("sessions")} title={t("sidebar.backToSessions", locale)} aria-label={t("sidebar.backToSessions", locale)}>←</button><span>{t("sidebar.archive", locale)}</span></div>
         ) : <span>{t(activeOpen ? "sidebar.active" : "sidebar.sessions", locale)}</span>}
         <div className="sidebar-heading-actions">
-          <span>{archiveOpen ? archivedSessions.length : activeOpen ? activeSessionView.total : (search.trim() ? visibleSessions.length : (selectedWorkspaceGroup.sessions.length > 0 ? selectedWorkspaceGroup.sessions.length : ""))}</span>
+          <span>{archiveOpen ? archivedSessions.length : activeOpen ? liveActiveCount : (search.trim() ? visibleSessions.length : (selectedWorkspaceGroup.sessions.length > 0 ? selectedWorkspaceGroup.sessions.length : ""))}</span>
           {!archiveOpen && <>
-            <button
-              className={`sidebar-view-button${activeOpen ? " selected" : ""}`}
-              type="button"
-              aria-pressed={activeOpen}
-              onClick={() => setView(activeOpen ? "sessions" : "active")}
-              title={t("sidebar.openActive", locale)}
-            >{t("sidebar.active", locale)}</button>
-            <button className="sidebar-view-button" type="button" onClick={() => setView("archive")} title={t("sidebar.openArchive", locale)}>{t("sidebar.archive", locale)}</button>
+            <SidebarViewButton
+              view={view}
+              target="active"
+              onChange={handleViewChange}
+            >{t("sidebar.active", locale)}</SidebarViewButton>
+            <SidebarViewButton
+              view={view}
+              target="archive"
+              onChange={handleViewChange}
+            >{t("sidebar.archive", locale)}</SidebarViewButton>
           </>}
         </div>
       </div>
@@ -288,9 +332,9 @@ export function SessionSidebar({
         {archiveOpen ? (
           archivedSessions.length === 0 ? <div className="sidebar-empty">{t("sidebar.archiveEmpty", locale)}</div> : archivedSessions.map(renderArchivedSession)
         ) : activeOpen ? (
-          activeSessionView.total === 0 ? <div className="sidebar-empty">{t("sidebar.activeEmpty", locale)}</div> : <>
+          activeViewIds.size === 0 ? <div className="sidebar-empty">{t("sidebar.activeEmpty", locale)}</div> : <>
             {renderActiveSection("pinned", activeSessionView.pinned)}
-            {renderActiveSection("working", activeSessionView.working)}
+            {renderActiveSection("working", activeSessionView.working.filter((group) => group.sessions.filter(isActiveEligible).length > 0).map((group) => ({ ...group, sessions: group.sessions.filter(isActiveEligible) })))}
           </>
         ) : search.trim() ? (
           visibleSessions.length === 0 ? <div className="sidebar-empty">{t("sidebar.searchEmpty", locale)}</div> : visibleSessions.map((session) => renderSessionRow(session))

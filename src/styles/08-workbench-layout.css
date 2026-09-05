@@ -870,6 +870,19 @@ textarea:focus-visible {
   grid-template-columns: 18px minmax(0, 1fr) 26px;
 }
 
+/* 活跃侧栏快照：切走后结束/出错的会话不再出现在新快照里，但已在当前快照中
+   的会保留；保留行不再活跃时调暗，新活跃行保持醒目。 */
+.session-row.session-status-idle.active-snapshot-stale {
+  opacity: .55;
+  filter: saturate(.55);
+  transition: opacity 300ms ease, filter 300ms ease;
+}
+
+.session-row.session-status-idle.active-snapshot-stale .session-row-grip,
+.session-row.session-status-idle.active-snapshot-stale .session-row-pin {
+  opacity: .35;
+}
+
 .session-row-grip {
   width: 18px;
   min-height: 24px;

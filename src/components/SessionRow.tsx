@@ -70,6 +70,8 @@ interface SessionRowProps {
   canDrag: boolean;
   dragDisabled: boolean;
   dragOver: boolean;
+  /** 活跃侧栏快照中的保留行：切走后才结束，已不在当前快照成员里。 */
+  snapshotStale?: boolean;
   draggedSessionRef: RefObject<string | null>;
   onOpen: (session: DshSessionSummary) => void | Promise<unknown>;
   onTogglePin: (session: DshSessionSummary) => void | Promise<unknown>;
@@ -91,6 +93,7 @@ export function SessionRow({
   canDrag,
   dragDisabled,
   dragOver,
+  snapshotStale = false,
   draggedSessionRef,
   onOpen,
   onTogglePin,
@@ -248,7 +251,7 @@ export function SessionRow({
 
   return <>
     <div
-      className={`session-row session-status-${status}${active ? " active" : ""}${dragOver ? " drag-over" : ""}${canPin ? " has-pin" : ""}${canDrag ? " is-draggable" : ""}${dragDisabled ? " drag-disabled" : ""}${pressed ? " pressed" : ""}${dragging ? " dragging" : ""}`}
+      className={`session-row session-status-${status}${active ? " active" : ""}${dragOver ? " drag-over" : ""}${canPin ? " has-pin" : ""}${canDrag ? " is-draggable" : ""}${dragDisabled ? " drag-disabled" : ""}${pressed ? " pressed" : ""}${dragging ? " dragging" : ""}${snapshotStale && status === "idle" ? " active-snapshot-stale" : ""}`}
       data-session-id={session.sessionId}
       data-session-pinned={pinned ? "true" : "false"}
       data-session-status={status}
