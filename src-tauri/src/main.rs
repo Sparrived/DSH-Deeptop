@@ -251,6 +251,13 @@ const BRIDGE_PATCH: &str = include_str!("../../cordis/cordis.patch.yml");
 const BRIDGE_ENTRY: &str = include_str!("../../cordis/desktop-bridge/index.mjs");
 const BRIDGE_RUNTIME: &str = include_str!("../../cordis/desktop-bridge/bridge.mjs");
 const BRIDGE_ROUTES: &str = include_str!("../../cordis/desktop-bridge/routes.mjs");
+const BRIDGE_API: &str = include_str!("../../cordis/desktop-bridge/api.mjs");
+const BRIDGE_DESKTOP_API: &str = include_str!("../../cordis/desktop-bridge/desktop-api.mjs");
+const BRIDGE_EVENTS_HOST: &str = include_str!("../../cordis/desktop-bridge/events-host.mjs");
+const BRIDGE_EVENTS_MUX: &str = include_str!("../../cordis/desktop-bridge/events-mux.mjs");
+const BRIDGE_SESSION_RECORDS: &str =
+    include_str!("../../cordis/desktop-bridge/session-records.mjs");
+const BRIDGE_ZIP_WRITER: &str = include_str!("../../cordis/desktop-bridge/zip-writer.mjs");
 const BRIDGE_DISPLAY_HISTORY: &str =
     include_str!("../../cordis/desktop-bridge/display-history.mjs");
 const BRIDGE_SESSION_REPAIR: &str = include_str!("../../cordis/desktop-bridge/session-repair.mjs");
@@ -1063,13 +1070,19 @@ fn migrate_desktop_profile_patch(path: &Path) -> Result<(), String> {
     write_text(path, &format!("{}{newline}", filtered.join(newline)))
 }
 
-fn bundled_bridge_files() -> [(&'static str, &'static str); 23] {
+fn bundled_bridge_files() -> [(&'static str, &'static str); 29] {
     [
         ("package.json", BRIDGE_PACKAGE_JSON),
         ("cordis.patch.yml", BRIDGE_PATCH),
         ("desktop-bridge/index.mjs", BRIDGE_ENTRY),
         ("desktop-bridge/bridge.mjs", BRIDGE_RUNTIME),
         ("desktop-bridge/routes.mjs", BRIDGE_ROUTES),
+        ("desktop-bridge/api.mjs", BRIDGE_API),
+        ("desktop-bridge/desktop-api.mjs", BRIDGE_DESKTOP_API),
+        ("desktop-bridge/events-host.mjs", BRIDGE_EVENTS_HOST),
+        ("desktop-bridge/events-mux.mjs", BRIDGE_EVENTS_MUX),
+        ("desktop-bridge/session-records.mjs", BRIDGE_SESSION_RECORDS),
+        ("desktop-bridge/zip-writer.mjs", BRIDGE_ZIP_WRITER),
         ("desktop-bridge/display-history.mjs", BRIDGE_DISPLAY_HISTORY),
         ("desktop-bridge/session-repair.mjs", BRIDGE_SESSION_REPAIR),
         ("message-annotations/index.mjs", BRIDGE_MESSAGE_ANNOTATIONS),
