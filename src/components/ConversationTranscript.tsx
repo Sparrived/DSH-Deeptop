@@ -7,6 +7,12 @@ import { SlotOutlet } from "./SlotOutlet";
 import { TurnRail } from "./TurnRail";
 import type { TurnRailItem } from "../app/turn-rail-model";
 import { MarkdownContent } from "../lib/markdown";
+
+type MarkdownEntityActions = {
+  onOpenPath?: (path: string) => void | Promise<void>;
+  onCheckPath?: (path: string) => Promise<boolean>;
+  onOpenUrl?: (url: string) => void | Promise<void>;
+};
 import { TrajectoryView } from "./TrajectoryView";
 import { isResultDomainCard, toolDomainCard, type ToolDomainCard } from "../app/tool-domain";
 import { ToolArgsView } from "../app/tool-args-render";
@@ -441,13 +447,11 @@ function useIncrementalText(text: string, enabled = true) {
   return setBodyRef;
 }
 
-// Markdown is parsed once after assistant/message finalizes. During streaming,
-// append only the new plain-text slice so a growing response does not reparse
-// and replace its complete DOM tree on every token batch.
-export const StreamingAssistantText = memo(function StreamingAssistantText({ text }: { text: string }) {
-  const bodyRef = useIncrementalText(text);
-  return <pre aria-live="off" className="message-text streaming-assistant-text" ref={bodyRef} />;
-}, (previous, next) => previous.text === next.text);
+// Parse the growing response as Markdown too; ReactMarkdown safely handles
+// incomplete fences/lists and keeps the conversation readable during a stream.
+export const StreamingAssistantText = memo(function StreamingAssistantText({ text, locale, onOpenPath, onCheckPath, onOpenUrl }: { text: string; locale: UiLocale } & MarkdownEntityActions) {
+  return <MarkdownContent text={text} className="message-text streaming-assistant-text" locale={locale} onOpenPath={onOpenPath} onCheckPath={onCheckPath} onOpenUrl={onOpenUrl} />;
+}, (previous, next) => previous.text === next.text && previous.locale === next.locale);
 
 function reasoningSummary(text: string, streaming: boolean) {
   if (!text) return "";
@@ -805,7 +809,7 @@ function TranscriptArticleView({
             </div>
           </details>
         ) : streamingAssistant ? (
-          <StreamingAssistantText text={item.text} />
+          <StreamingAssistantText text={item.text} locale={locale} onOpenPath={onOpenPath} onCheckPath={onCheckPath} onOpenUrl={onOpenUrl} />
         ) : <MarkdownContent text={item.text} locale={locale} onOpenPath={onOpenPath} onCheckPath={onCheckPath} onOpenUrl={onOpenUrl} />}
         {item.kind === "assistant" && <MessageStatsLine stats={item.stats} locale={locale} />}
         {(item.kind === "user" || item.kind === "assistant") && (

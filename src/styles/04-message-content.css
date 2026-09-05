@@ -8,10 +8,27 @@
 }
 
 .streaming-assistant-text {
+  position: relative;
   margin: 0;
-  font: inherit;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.streaming-assistant-text::after {
+  content: "";
+  display: inline-block;
+  width: .42em;
+  height: 1.05em;
+  margin-left: .18em;
+  vertical-align: -.16em;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: .8;
+  animation: streaming-caret 900ms ease-in-out infinite;
+}
+
+@keyframes streaming-caret {
+  0%, 100% { opacity: .18; transform: scaleY(.72); }
+  50% { opacity: .9; transform: scaleY(1); }
 }
 
 .message-text > :first-child {
