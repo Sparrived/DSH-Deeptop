@@ -114,6 +114,11 @@ const session = {
     payload: {} as { sessionId: string; provider: string; model: string; reasoningEffort?: string },
     value: {} as unknown,
   },
+  "session.turnOutline": {
+    requires: "sessions",
+    payload: {} as { sessionId: string },
+    value: {} as { sessionId: string; entries: Array<{ turn: number; seq: number; prompt: string; response: string }> },
+  },
   "session.rename": {
     requires: "sessions",
     payload: {} as { sessionId: string; title: string },

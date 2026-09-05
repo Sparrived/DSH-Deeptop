@@ -47,6 +47,7 @@ import { useWindowControls } from "./app/useWindowControls";
 import { normalizeWindowBehavior } from "./app/window-behavior";
 import { clearQueuedSessionEvents, routeBridgeEvent } from "./app/bridge-event-handler";
 import { compactDisplayHistory, displayHistoryStartSeq, loadCompleteDisplayHistory, mergeDisplayHistory } from "./app/display-history";
+import { loadedTurnFacts, mergeTurnRailItems, EMPTY_RAIL_ITEMS, type TurnRailItem } from "./app/turn-rail-model";
 import { trackAsyncCleanup } from "./lib/async-cleanup";
 import { ImageAttachmentCache } from "./app/image-attachment-cache";
 import { BoundedClaimSet } from "./app/bounded-claim-set";
@@ -461,6 +462,12 @@ function AppContent() {
   const historyRef = useRef<DshHistoryEntry[]>([]);
   const [historyHasMore, setHistoryHasMore] = useState(false);
   const [historyLoadingOlder, setHistoryLoadingOlder] = useState(false);
+  // 轮次导航：完整轮次大纲（turnOutline 投影）与正在翻页加载的轮次。
+  const [turnOutline, setTurnOutline] = useState<unknown>([]);
+  const [turnOutlineSessionId, setTurnOutlineSessionId] = useState<string | null>(null);
+  const [turnBusy, setTurnBusy] = useState<number | null>(null);
+  const [navigatedTurn, setNavigatedTurn] = useState<number | null>(null);
+  const turnOutlineRequestRef = useRef(0);
   // 对话框只保留分页窗口；看板单独缓存完整会话，避免统计口径随滚动位置变化。
   const [dashboardHistory, setDashboardHistory] = useState<DshHistoryEntry[]>([]);
   const [dashboardHistorySessionId, setDashboardHistorySessionId] = useState<string | null>(null);
@@ -2837,6 +2844,141 @@ function AppContent() {
     }
   }
 
+  // ── 轮次导航（turn rail） ────────────────────────────────────────────────
+  // 会话切换时拉取整场轮次大纲；成功后按会话隔离状态。
+  useEffect(() => {
+    if (!desktop || activeSessionId === null) {
+      if (turnOutlineSessionId !== null) {
+        turnOutlineRequestRef.current += 1;
+        setTurnOutline([]);
+        setTurnOutlineSessionId(null);
+        setTurnBusy(null);
+        setNavigatedTurn(null);
+      }
+      return;
+    }
+    if (turnOutlineSessionId === activeSessionId) return;
+    const request = turnOutlineRequestRef.current + 1;
+    turnOutlineRequestRef.current = request;
+    const controller = new AbortController();
+    void desktopRequest("session.turnOutline", { sessionId: activeSessionId }, controller.signal, { waitForReconnect: true })
+      .then((value) => {
+        if (request !== turnOutlineRequestRef.current) return;
+        setTurnOutline(Array.isArray(value?.entries) ? value.entries : []);
+        setTurnOutlineSessionId(activeSessionId);
+      })
+      .catch((error) => {
+        if (request === turnOutlineRequestRef.current && !controller.signal.aborted) {
+          // 大纲不可用（profile 未挂单元/会话缺失）时静默降级：仅隐藏 rail。
+          setTurnOutline([]);
+          setTurnOutlineSessionId(activeSessionId);
+        }
+      });
+    return () => { controller.abort(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionId, turnOutlineSessionId]);
+
+  // 已加载窗口内派生 loaded 轮次 + 合并大纲 → rail 阶梯。
+  const railItems = useMemo(() => {
+    if (turnOutlineSessionId !== activeSessionId) return EMPTY_RAIL_ITEMS;
+    return mergeTurnRailItems(loadedTurnFacts(history), turnOutline);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [history, turnOutline, turnOutlineSessionId, activeSessionId]);
+
+  // active：最新跳转目标优先；否则已加载窗口内的最大轮次。
+  const railActiveTurn = useMemo(() => {
+    if (navigatedTurn !== null && railItems.some((item) => item.turn === navigatedTurn)) return navigatedTurn;
+    let max = 0;
+    for (const item of railItems) if (item.turn > max) max = item.turn;
+    return max === 0 ? null : max;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [railItems, navigatedTurn]);
+
+  // 滚动 transcript 到包含某 seq 的首条消息行。翻页完成后 DOM 尚未提交时
+  // 下一帧再定位一次，保证新加载的条目能被滚到。
+  const scrollTranscriptToSeq = useCallback((seq: number) => {
+    const locate = (scroller: HTMLElement) => {
+      const target = scroller.querySelector<HTMLElement>(`[data-seq="${seq}"]`);
+      if (target) {
+        target.scrollIntoView({ block: "start" });
+        return true;
+      }
+      return false;
+    };
+    const scroller = transcriptScroll.current;
+    if (!scroller) return;
+    if (!locate(scroller)) {
+      requestAnimationFrame(() => {
+        const next = transcriptScroll.current;
+        if (next) locate(next);
+      });
+    }
+  }, []);
+
+  // 把历史翻页到覆盖目标 seq（unloaded 轮次跳转）：逐页拉取直到窗口
+  // 起点不晚于目标 seq 或没有更早页；页面缓存避免重复请求。
+  const loadHistoryThroughSeq = useCallback(async (targetSeq: number): Promise<boolean> => {
+    const sessionId = activeSessionId;
+    if (!sessionId || sessionId !== activeSessionRef.current) return false;
+    const startSeq = displayHistoryStartSeq(historyRef.current);
+    if (startSeq !== undefined && startSeq <= targetSeq) return true;
+    if (!historyHasMore) return false;
+    try {
+      while (true) {
+        const currentStart = displayHistoryStartSeq(historyRef.current);
+        if (currentStart !== undefined && currentStart <= targetSeq) return true;
+        const beforeSeq = currentStart;
+        if (beforeSeq === undefined) return false;
+        const cached = historyPageCache.get(sessionId, beforeSeq);
+        let pageEntries: DshHistoryEntry[];
+        let pageHasMore: boolean;
+        if (cached) {
+          pageEntries = cached.entries;
+          pageHasMore = cached.hasMore;
+        } else {
+          const result = await desktopRequest("session.history", {
+            sessionId,
+            beforeSeq,
+            maxMessages: HISTORY_PAGE_SIZE,
+          }, undefined, { waitForReconnect: true });
+          pageEntries = result.events;
+          pageHasMore = result.hasMore === true;
+          historyPageCache.put(sessionId, beforeSeq, pageEntries, pageHasMore);
+        }
+        const merged = mergeDisplayHistory(historyRef.current, pageEntries);
+        historyRef.current = merged;
+        setHistory(merged);
+        setHistoryHasMore(pageHasMore);
+        if (!pageHasMore) {
+          const start = displayHistoryStartSeq(merged);
+          return start !== undefined && start <= targetSeq;
+        }
+      }
+    } finally {
+      setTurnBusy(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionId, historyHasMore]);
+
+  // rail 点击：loaded → 滚动到锚点；unloaded → 先翻页到其 seq 再滚动。
+  const handleTurnNavigate = useCallback((item: TurnRailItem) => {
+    const sessionId = activeSessionRef.current;
+    if (!sessionId) return;
+    setNavigatedTurn(item.turn);
+    if (item.anchor.kind === "loaded") {
+      scrollTranscriptToSeq(item.anchor.seq);
+      return;
+    }
+    setTurnBusy(item.turn);
+    void loadHistoryThroughSeq(item.anchor.seq)
+      .then((covered) => {
+        if (covered) scrollTranscriptToSeq(item.anchor.seq);
+        else setErrorNotice(t("chat.turnNavigation.loadFailed", locale));
+      })
+      .finally(() => setTurnBusy(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadHistoryThroughSeq, scrollTranscriptToSeq]);
+
   async function handleExternalLaunch(request: ExternalLaunchRequest) {
     const path = request.cwd.trim();
     if (!path) throw new Error(t("err.launchWithoutWorkdir", locale));
@@ -5047,6 +5189,10 @@ function AppContent() {
                onOpenUrl={openMessageUrl}
                onOpenWorkflowMember={openWorkflowChild}
                              onOpenSessionPath={openSessionPath}
+              turnItems={railItems}
+              turnActiveTurn={railActiveTurn}
+              turnBusyTurn={turnBusy}
+              onTurnNavigate={handleTurnNavigate}
             />}
             <SessionDashboard
               entries={dashboardEntries}

@@ -1980,5 +1980,10 @@
   "workspace.unpinAria": "取消置顶“{name}”",
   "workspace.unpinnedListAria": "未置顶工作区列表",
   "workspace.unpinnedSection": "未置顶工作区（{count}）",
-  "workspace.unregistered": "未注册工作区的会话"
+  "workspace.unregistered": "未注册工作区的会话",
+  "chat.turnNavigation.jump": "跳转到第 {turn} 轮",
+  "chat.turnNavigation.jumpLoad": "跳转到第 {turn} 轮（加载更早历史）",
+  "chat.turnNavigation.label": "轮次导航",
+  "chat.turnNavigation.loadFailed": "无法加载该轮次的更早历史。",
+  "chat.turnNavigation.turn": "第 {turn} 轮"
 }

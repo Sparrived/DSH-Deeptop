@@ -4,6 +4,8 @@ import { isFilePath, type DshHistoryEntry, type DshPreset, type DshSessionSummar
 import type { DesktopUiRuntime } from "../lib/desktop-ui-runtime/client-runtime";
 import type { UiHostActions } from "../lib/desktop-ui-runtime/types";
 import { SlotOutlet } from "./SlotOutlet";
+import { TurnRail } from "./TurnRail";
+import type { TurnRailItem } from "../app/turn-rail-model";
 import { MarkdownContent } from "../lib/markdown";
 import { TrajectoryView } from "./TrajectoryView";
 import { isResultDomainCard, toolDomainCard, type ToolDomainCard } from "../app/tool-domain";
@@ -66,6 +68,14 @@ type ConversationTranscriptProps = {
   onOpenUrl: (url: string) => void | Promise<void>;
   /** Open a workflow member's child session (childId → subagent history). */
   onOpenWorkflowMember?: (childId: string, label: string) => void | Promise<void>;
+  /** Optional turn rail ladder (whole-log turn navigation). Omit to hide. */
+  turnItems?: readonly TurnRailItem[];
+  /** Current (latest / navigated) turn whose rail mark is highlighted. */
+  turnActiveTurn?: number | null;
+  /** Turn whose jump is still paging history in; its rail mark pulses. */
+  turnBusyTurn?: number | null;
+  /** Navigate to one rail turn (scroll when loaded, page history first when not). */
+  onTurnNavigate?: (item: TurnRailItem) => void;
 };
 
 function diffTextLines(text: string) {
@@ -730,6 +740,7 @@ function TranscriptArticleView({
   return (
     <article
       className={`message-row ${item.kind}${item.injected ? " context-row" : ""}${item.kind === "tool" ? " tool-row" : ""}`}
+      data-seq={item.seq}
       onContextMenu={(event) => {
         if (event.target instanceof Element && event.target.closest("button, a, input, select, textarea")) return;
         if (!isWithinSelector(event.target, TRANSCRIPT_TEXT_SELECTOR)) return;
@@ -887,6 +898,10 @@ export function ConversationTranscript({
   onOpenSessionPath,
   onOpenUrl,
   onOpenWorkflowMember,
+  turnItems,
+  turnActiveTurn = null,
+  turnBusyTurn = null,
+  onTurnNavigate,
 }: ConversationTranscriptProps) {
   const [previewGallery, setPreviewGallery] = useState<PreviewGallery | null>(null);
 
@@ -945,6 +960,9 @@ export function ConversationTranscript({
   return (
     <>
     <div className="transcript" ref={scrollRef} aria-live={trajectoryOpen ? undefined : "polite"} onScroll={handleScroll}>
+      {!trajectoryOpen && turnItems !== undefined && onTurnNavigate !== undefined && (
+        <TurnRail items={turnItems} activeTurn={turnActiveTurn} busyTurn={turnBusyTurn} onNavigate={onTurnNavigate} locale={locale} />
+      )}
       {!trajectoryOpen && historyHasMore && (
         <button className="history-load-more" type="button" disabled={historyLoadingOlder} onClick={() => void onLoadOlder()}>
           {historyLoadingOlder ? t("conversation.history.loadingOlder", locale) : t("conversation.history.loadOlder", locale)}

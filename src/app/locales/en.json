@@ -1980,5 +1980,10 @@
   "workspace.unpinAria": "Unpin “{name}”",
   "workspace.unpinnedListAria": "Unpinned workspaces list",
   "workspace.unpinnedSection": "Unpinned workspaces ({count})",
-  "workspace.unregistered": "Sessions of an unregistered workspace"
+  "workspace.unregistered": "Sessions of an unregistered workspace",
+  "chat.turnNavigation.jump": "Jump to turn {turn}",
+  "chat.turnNavigation.jumpLoad": "Jump to turn {turn} (load earlier history)",
+  "chat.turnNavigation.label": "Turn navigation",
+  "chat.turnNavigation.loadFailed": "Failed to load earlier history for this turn.",
+  "chat.turnNavigation.turn": "Turn {turn}"
 }

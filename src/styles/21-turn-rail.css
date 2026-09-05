@@ -1,0 +1,177 @@
+/* Turn rail (轮次导航刻度轨): floats over the transcript's right gutter as
+   a fixed-pitch ladder of every known turn. Mirrors the official web chat
+   rail: marks advance one step per turn, the frame scrolls when the ladder
+   outgrows the viewport band, and the band ends fade when scrollable. */
+
+.turn-rail-slot {
+  position: sticky;
+  top: 8px;
+  z-index: 6; /* above message code banners, below floating menus */
+  height: 0;
+  width: 0;
+  margin-left: auto;
+  pointer-events: none;
+}
+
+.turn-rail-frame {
+  --turn-rail-band: min(
+    var(--turn-natural-height),
+    max(120px, calc(100vh - 220px))
+  );
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 30px;
+  height: var(--turn-rail-band);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-mask-image: none;
+}
+
+.turn-rail-frame::-webkit-scrollbar {
+  display: none;
+}
+
+.turn-rail-frame.turn-rail-fade-top {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 24px, #000 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 24px, #000 100%);
+}
+
+.turn-rail-frame.turn-rail-fade-bottom {
+  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 24px), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 24px), transparent 100%);
+}
+
+.turn-rail-frame.turn-rail-fade-top.turn-rail-fade-bottom {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 24px,
+    #000 calc(100% - 24px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 24px,
+    #000 calc(100% - 24px),
+    transparent 100%
+  );
+}
+
+.turn-rail-marks {
+  position: relative;
+}
+
+.turn-rail-mark-position {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 10px;
+  transform: translateY(-50%);
+}
+
+/* The rail owns pointer input for the whole column: a mark is a keyboard
+   destination that paints one tick, not a mouse target of its own. */
+.turn-rail-mark {
+  position: absolute;
+  inset: 0;
+  width: 20px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  cursor: pointer;
+  outline: none;
+}
+
+/* One tick: a short vertical dash at the frame's right edge. */
+.turn-rail-mark::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 0;
+  width: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--line-strong);
+  transform: translateY(-50%);
+  transition: background 120ms ease;
+}
+
+.turn-rail-mark-unloaded::before {
+  width: 5px;
+  height: 1px;
+  background: var(--line);
+}
+
+.turn-rail-mark:hover::before,
+.turn-rail-mark-preview::before {
+  background: var(--faint);
+  width: 10px;
+}
+
+.turn-rail-mark-active::before {
+  background: var(--accent);
+  width: 12px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.turn-rail-mark-busy::before {
+  animation: turn-rail-pulse 900ms ease-in-out infinite;
+}
+
+@keyframes turn-rail-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Focus ring wraps the tick: keyboard users reach marks in turn order. */
+.turn-rail-mark:focus-visible::before {
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* Preview tooltip: prompt above, response below, both clamped by the
+   projection budgets (50 / 120 chars) on the data side. */
+.turn-rail-preview {
+  position: absolute;
+  right: 24px;
+  width: 250px;
+  max-height: 104px;
+  overflow: hidden;
+  display: grid;
+  gap: 4px;
+  padding: 7px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+  font-size: 11px;
+  line-height: 1.45;
+  pointer-events: none;
+  text-align: left;
+}
+
+.turn-rail-preview-prompt {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.turn-rail-preview-response {
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
