@@ -482,11 +482,7 @@ const desktop = {
     payload: {} as {
       type: "client-response";
       rpcId: string;
-      result: {
-        ok: boolean;
-        value?: Record<string, unknown>;
-        error?: { code: string; message: string; details?: unknown };
-      };
+      answer: Record<string, unknown>;
     },
     value: {} as unknown,
   },

@@ -164,6 +164,7 @@ export class MuxEventSynthesizer {
     }
     signal?.addEventListener('abort', entry.onAbort, { once: true })
     entry.settled = false
+    entry.settle = settle
     this.pendingAnswers.set(entry.rpcId, entry)
     // The frame's rpcId IS the answerable id: the frontend answers via
     // respond() with event.frame.rpcId, which must match the pending key.

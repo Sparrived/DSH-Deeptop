@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { composerReferenceText, detectComposerTrigger, droppedImageMediaType, imageBatchLimitError, imageDimensionLimitError, imageLimitsFromProjection, insertComposerCandidate, modelPickerGroups, modelSupportsImages, promptContentParts, referenceComposerCandidates, relativeWorkspacePath, insertComposerText, formatRuntimeLog, formatRuntimeLogs, runtimeLogMatches, questionAnswerItems, sessionPath, planEffectiveTarget, planReviewOf, sessionIsVisible, subagentTreeKey, subagentTreeChildId, subagentTreeParentId } from "./ui-model.ts";
+import { composerReferenceText, detectComposerTrigger, droppedImageMediaType, imageBatchLimitError, imageDimensionLimitError, imageLimitsFromProjection, insertComposerCandidate, modelPickerGroups, modelSupportsImages, promptContentParts, referenceComposerCandidates, relativeWorkspacePath, insertComposerText, formatRuntimeLog, formatRuntimeLogs, runtimeLogMatches, questionAnswerItems, firstUnansweredQuestionIndex, sessionPath, planEffectiveTarget, planReviewOf, sessionIsVisible, subagentTreeKey, subagentTreeChildId, subagentTreeParentId } from "./ui-model.ts";
 
 test("keeps ordinary fork sessions visible while hiding subagents", () => {
   const base = { sessionId: "session-1", updatedAt: 1, running: false, blank: false, cwd: "C:\\temp" };
@@ -98,6 +98,15 @@ test("encodes official DSH custom answers for optioned and optionless questions"
     { id: "multi", selected: ["A"], custom: "补充" },
     { id: "free", selected: [], custom: "自由文本" },
   ]);
+});
+
+test("finds the first unanswered question", () => {
+  const questions = [
+    { id: "choice", question: "选择", options: [{ label: "A" }] },
+    { id: "free", question: "补充" },
+  ];
+  assert.equal(firstUnansweredQuestionIndex(questions, { choice: ["A"] }, {}), 1);
+  assert.equal(firstUnansweredQuestionIndex(questions, { choice: ["A"] }, { free: "说明" }), -1);
 });
 
 test("allows image prompts when the provider omits modality metadata", () => {

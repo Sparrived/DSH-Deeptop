@@ -836,6 +836,34 @@ test('routes an allowlisted API method with a generated RPC id', async () => {
   })
 })
 
+test('respond forwards the top-level answer payload to its pending request', async () => {
+  const calls = []
+  const ctx = {
+    get: key => key === 'deeptopAnswerRegistry' ? {
+      resolve: async (rpcId, answer) => { calls.push({ rpcId, answer }) },
+    } : undefined,
+  }
+
+  assert.deepEqual(
+    await routeDesktopRequest(ctx, 'respond', {
+      type: 'client-response',
+      rpcId: 'question-1',
+      answer: { answer: { answers: [{ id: 'mode', selected: ['Fast'] }] } },
+    }, signal),
+    { accepted: true },
+  )
+  assert.deepEqual(calls, [{
+    rpcId: 'question-1',
+    answer: { answer: { answers: [{ id: 'mode', selected: ['Fast'] }] } },
+  }])
+  await assert.rejects(
+    routeDesktopRequest(ctx, 'respond', {
+      type: 'client-response',
+      rpcId: 'question-1',
+      result: { ok: true, value: {} },
+    }, signal),
+    /requires an answer payload/,
+  )
 test('probes official Host capabilities without failing when services are missing', async () => {
   const agent = { id: 'session-target' }
   const registry = { list: () => [], get: () => ({}) }

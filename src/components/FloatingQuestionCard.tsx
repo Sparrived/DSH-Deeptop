@@ -3,6 +3,7 @@ import { MarkdownContent } from "../lib/markdown";
 import type { DshQuestion } from "../lib/desktop";
 import type { PendingQuestion } from "../app/model";
 import { t, type UiLocale } from "../app/i18n";
+import { firstUnansweredQuestionIndex } from "../app/ui-model";
 
 type FloatingQuestionCardProps = {
   /** 界面语言：按钮标签与占位文本按语言渲染。 */
@@ -15,6 +16,7 @@ type FloatingQuestionCardProps = {
   customAnswers: Record<string, string>;
   onToggleAnswer: (questionId: string, value: string, multiSelect: boolean | undefined) => void;
   onCustomAnswerChange: (questionId: string, value: string) => void;
+  onCopyQuestion: (text: string) => void | Promise<void>;
   onCancel: () => void | Promise<void>;
   onSubmit: () => void | Promise<void>;
   /**
@@ -41,6 +43,7 @@ function QuestionBody({
   customAnswers,
   onToggleAnswer,
   onCustomAnswerChange,
+  onCopyQuestion,
   locale,
 }: {
   item: DshQuestion;
@@ -49,6 +52,7 @@ function QuestionBody({
   customAnswers: Record<string, string>;
   onToggleAnswer: FloatingQuestionCardProps["onToggleAnswer"];
   onCustomAnswerChange: FloatingQuestionCardProps["onCustomAnswerChange"];
+  onCopyQuestion: FloatingQuestionCardProps["onCopyQuestion"];
   locale: UiLocale;
 }) {
   const hasOptions = (item.options ?? []).length > 0;
@@ -57,6 +61,7 @@ function QuestionBody({
       <div className="floating-question-prompt">
         <strong>{item.header || t("interaction.defaultQuestionTitle", locale)}</strong>
         <p>{item.question}</p>
+        <button type="button" className="floating-question-copy" onClick={() => void onCopyQuestion(item.question)}>{t("common.copy", locale)}</button>
         {item.detail && <div className="question-detail"><MarkdownContent text={item.detail} locale={locale} /></div>}
       </div>
       {hasOptions && (
@@ -65,7 +70,7 @@ function QuestionBody({
             const checked = (item.multiSelect === true || !customAnswers[item.id]?.trim()) && (answers[item.id] ?? []).includes(option.label);
             const display = parseRecommendedLabel(option.label);
             return (
-              <button className={checked ? "checked" : ""} key={option.label} onClick={() => onToggleAnswer(item.id, option.label, multiSelectOverride)}>
+              <button type="button" className={checked ? "checked" : ""} key={option.label} onClick={() => onToggleAnswer(item.id, option.label, multiSelectOverride)}>
                 <span>{checked ? "✓" : "○"}</span>
                 <span className="question-option-copy"><strong>{display.label}</strong>{option.description && <small>{option.description}</small>}{display.recommended && <small className="recommended">{t("interaction.recommended", locale)}</small>}</span>
               </button>
@@ -116,6 +121,7 @@ export function FloatingQuestionCard({
   customAnswers,
   onToggleAnswer,
   onCustomAnswerChange,
+  onCopyQuestion,
   onCancel,
   onSubmit,
   onMinimizedChange,
@@ -159,6 +165,14 @@ export function FloatingQuestionCard({
   }
   function goNext() {
     if (safeIndex < total - 1) setIndex(safeIndex + 1);
+  }
+  function submit() {
+    const unanswered = firstUnansweredQuestionIndex(items, answers, customAnswers);
+    if (unanswered !== -1) {
+      setIndex(unanswered);
+      return;
+    }
+    void onSubmit();
   }
 
   // 单选 + 选项数 == 1 + 没自定义文本 → 自动跳下一题
@@ -211,6 +225,7 @@ export function FloatingQuestionCard({
               customAnswers={customAnswers}
               onToggleAnswer={handleSingleToggle}
               onCustomAnswerChange={onCustomAnswerChange}
+               onCopyQuestion={onCopyQuestion}
               locale={locale}
             />
           </div>
@@ -221,7 +236,7 @@ export function FloatingQuestionCard({
               <button type="button" onClick={goNext} disabled={isLast}>›</button>
             </div>
             <div className="floating-question-actions">
-              <button type="button" className="confirm" onClick={() => void onSubmit()}>{t("interaction.submitAnswer", locale)}</button>
+              <button type="button" className="confirm" onClick={submit}>{t("interaction.submitAnswer", locale)}</button>
             </div>
           </div>
         </div>

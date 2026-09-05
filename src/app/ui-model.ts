@@ -60,6 +60,16 @@ export function questionAnswerItems(
   });
 }
 
+export function firstUnansweredQuestionIndex(
+  questions: DshQuestion[],
+  selectedById: Record<string, string[]>,
+  customById: Record<string, string>,
+) {
+  return questions.findIndex((item) => (
+    (selectedById[item.id]?.length ?? 0) === 0 && !customById[item.id]?.trim()
+  ));
+}
+
 /** Recursive subagent tree keys: `parentSessionId\u0000childSessionId`. */
 export function subagentTreeKey(parentSessionId: string, childSessionId: string): string {
   return `${parentSessionId}\u0000${childSessionId}`;

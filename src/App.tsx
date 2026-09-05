@@ -4367,12 +4367,8 @@ function AppContent() {
       await desktopRequest("respond", {
         type: "client-response",
         rpcId: request.rpcId,
-        result: {
-          ok: true,
-          value: {
-            sessionId: request.sessionId,
-            answer: { answers: [{ id: review.item.id, selected: [label] }] },
-          },
+        answer: {
+          answer: { answers: [{ id: review.item.id, selected: [label] }] },
         },
       });
       setPendingQuestions((current) => {
@@ -4625,10 +4621,7 @@ function AppContent() {
       await desktopRequest("respond", {
         type: "client-response",
         rpcId: request.rpcId,
-        result: {
-          ok: true,
-          value: { sessionId: request.sessionId, approvalId: request.approvalId, outcome },
-        },
+        answer: { outcome },
       });
       setPendingApprovals((current) => {
         if (current[request.sessionId]?.rpcId !== request.rpcId) return current;
@@ -4671,15 +4664,15 @@ function AppContent() {
     const request = question;
     const answers = questionAnswersBySession[request.sessionId] ?? {};
     const customAnswers = questionCustomAnswersBySession[request.sessionId] ?? {};
-    const answer = {
-      answers: questionAnswerItems(request.questions, answers, customAnswers),
-    };
+    const answerItems = questionAnswerItems(request.questions, answers, customAnswers);
+    if (answerItems.some((item) => item.selected.length === 0 && !item.custom)) return;
+    const answer = { answers: answerItems };
     if (!claimRespond(request.rpcId)) return;
     try {
       await desktopRequest("respond", {
         type: "client-response",
         rpcId: request.rpcId,
-        result: { ok: true, value: { sessionId: request.sessionId, answer } },
+        answer: { answer },
       });
       setPendingQuestions((current) => {
         if (current[request.sessionId]?.rpcId !== request.rpcId) return current;
@@ -4711,10 +4704,7 @@ function AppContent() {
       await desktopRequest("respond", {
         type: "client-response",
         rpcId: request.rpcId,
-        result: {
-          ok: false,
-          error: { code: "cancelled", message: t("err.questionCancelled", locale), details: {} },
-        },
+        answer: {},
       });
       setPendingQuestions((current) => {
         if (current[request.sessionId]?.rpcId !== request.rpcId) return current;
@@ -4747,10 +4737,7 @@ function AppContent() {
       await desktopRequest("respond", {
         type: "client-response",
         rpcId: request.rpcId,
-        result: {
-          ok: true,
-          value: { sessionId: request.sessionId, approvalId: request.approvalId, outcome },
-        },
+        answer: { outcome },
       });
     } catch (error) {
       releaseRespondClaim(request.rpcId);
@@ -4779,7 +4766,7 @@ function AppContent() {
       await desktopRequest("respond", {
         type: "client-response",
         rpcId: request.rpcId,
-        result: { ok: true, value: { sessionId: request.sessionId, answer } },
+        answer: { answer },
       });
     } catch (error) {
       releaseRespondClaim(request.rpcId);
@@ -5369,6 +5356,7 @@ function AppContent() {
                 }));
               }}
               onCancel={cancelQuestion}
+              onCopyQuestion={copySelection}
               onSubmit={respondToQuestion}
             />
           )}

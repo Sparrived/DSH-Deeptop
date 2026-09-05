@@ -2162,6 +2162,19 @@ body.pin-layer-resizing * {
   font-size: 13px;
   line-height: 1.55;
 }
+.floating-question-copy {
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-deep);
+  cursor: pointer;
+  font: 600 11px/1 var(--mono);
+}
+.floating-question-copy:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 .floating-question-body .question-detail {
   margin-top: 4px;
   color: var(--ink-muted);
