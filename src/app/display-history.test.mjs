@@ -11,6 +11,7 @@ import {
   compactDisplayHistory,
   displayEventCount,
   displayHistoryStartSeq,
+  loadCompleteDisplayHistory,
   mergeDisplayHistory,
 } from "./display-history.ts";
 import { transcriptFromHistory } from "./conversation-model.ts";
@@ -46,6 +47,28 @@ test("shares one display-history implementation between Bridge and React", () =>
   assert.equal(mergeDisplayHistory, mergeHistoryEntries);
   assert.equal(displayEventCount, displayHistoryEventCount);
   assert.equal(displayHistoryStartSeq, displayHistoryStartSequence);
+});
+
+test("loads complete display history from paged tail responses", async () => {
+  const requested = [];
+  const pages = [
+    { events: [entry(4, "user/message"), entry(5, "assistant/message")], hasMore: true },
+    { events: [entry(1, "turn/start"), entry(2, "user/message"), entry(3, "turn/end")], hasMore: false },
+  ];
+  const history = await loadCompleteDisplayHistory(async (beforeSeq) => {
+    requested.push(beforeSeq);
+    return pages.shift();
+  });
+
+  assert.deepEqual(requested, [undefined, 4]);
+  assert.deepEqual(history.map((item) => item.event.seq), [1, 2, 3, 4, 5]);
+});
+
+test("rejects a stalled complete-history cursor", async () => {
+  await assert.rejects(
+    loadCompleteDisplayHistory(async () => ({ events: [], hasMore: true })),
+    /pagination stalled/,
+  );
 });
 
 test("folds a large active stream into one lossless display delta", () => {

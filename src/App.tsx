@@ -46,7 +46,7 @@ import { useToolSettings } from "./app/useToolSettings";
 import { useWindowControls } from "./app/useWindowControls";
 import { normalizeWindowBehavior } from "./app/window-behavior";
 import { clearQueuedSessionEvents, routeBridgeEvent } from "./app/bridge-event-handler";
-import { compactDisplayHistory, displayHistoryStartSeq, mergeDisplayHistory } from "./app/display-history";
+import { compactDisplayHistory, displayHistoryStartSeq, loadCompleteDisplayHistory, mergeDisplayHistory } from "./app/display-history";
 import { trackAsyncCleanup } from "./lib/async-cleanup";
 import { ImageAttachmentCache } from "./app/image-attachment-cache";
 import { BoundedClaimSet } from "./app/bounded-claim-set";
@@ -461,6 +461,11 @@ function AppContent() {
   const historyRef = useRef<DshHistoryEntry[]>([]);
   const [historyHasMore, setHistoryHasMore] = useState(false);
   const [historyLoadingOlder, setHistoryLoadingOlder] = useState(false);
+  // 对话框只保留分页窗口；看板单独缓存完整会话，避免统计口径随滚动位置变化。
+  const [dashboardHistory, setDashboardHistory] = useState<DshHistoryEntry[]>([]);
+  const [dashboardHistorySessionId, setDashboardHistorySessionId] = useState<string | null>(null);
+  const [dashboardHistoryLoading, setDashboardHistoryLoading] = useState(false);
+  const [dashboardHistoryError, setDashboardHistoryError] = useState<string | null>(null);
   const [todos, setTodos] = useState<TodoItem[] | null>(null);
   const [trajectoryOpen, setTrajectoryOpen] = useState(false);
   const [sessionDashboardOpen, setSessionDashboardOpen] = useState(false);
@@ -629,6 +634,8 @@ function AppContent() {
   const draggedSessionRef = useRef<string | null>(null);
   const sidebarResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const historyLoadingOlderRef = useRef(false);
+  const dashboardHistoryRequestRef = useRef(0);
+  const dashboardHistoryAbortRef = useRef<AbortController | null>(null);
   const [transcriptFollowing, setTranscriptFollowing] = useState(true);
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -692,6 +699,16 @@ function AppContent() {
   const externalLaunchQueueRef = useRef<ExternalLaunchRequest[]>([]);
   const externalLaunchFlushRef = useRef<Promise<void> | null>(null);
   const externalLaunchBootedRef = useRef(false);
+
+  function clearDashboardHistory() {
+    dashboardHistoryAbortRef.current?.abort();
+    dashboardHistoryAbortRef.current = null;
+    dashboardHistoryRequestRef.current += 1;
+    setDashboardHistory([]);
+    setDashboardHistorySessionId(null);
+    setDashboardHistoryLoading(false);
+    setDashboardHistoryError(null);
+  }
 
   const loadImageAttachment = useCallback((attachmentId: string) => {
     const sessionId = activeSessionRef.current;
@@ -1415,6 +1432,48 @@ function AppContent() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [renameTarget]);
 
+  const loadDashboardHistory = useCallback(async () => {
+    const sessionId = activeSessionRef.current;
+    if (!desktop || !sessionId) return;
+    const request = dashboardHistoryRequestRef.current + 1;
+    const generation = sessionLoadRequestRef.current;
+    dashboardHistoryRequestRef.current = request;
+    dashboardHistoryAbortRef.current?.abort();
+    const controller = new AbortController();
+    dashboardHistoryAbortRef.current = controller;
+    setDashboardHistoryLoading(true);
+    setDashboardHistoryError(null);
+    const stillOwnsDashboard = () => !controller.signal.aborted
+      && request === dashboardHistoryRequestRef.current
+      && generation === sessionLoadRequestRef.current
+      && activeSessionRef.current === sessionId;
+    try {
+      const entries = await loadCompleteDisplayHistory(
+        (beforeSeq) => desktopRequest("session.history", {
+          sessionId,
+          maxMessages: 100,
+          ...(beforeSeq === undefined ? {} : { beforeSeq }),
+        }, controller.signal, { waitForReconnect: true }),
+        stillOwnsDashboard,
+      );
+      if (!entries || !stillOwnsDashboard()) return;
+      setDashboardHistory(mergeDisplayHistory(entries, historyRef.current));
+      setDashboardHistorySessionId(sessionId);
+    } catch (error) {
+      if (stillOwnsDashboard()) setDashboardHistoryError(errorText(error, locale));
+    } finally {
+      if (request === dashboardHistoryRequestRef.current) {
+        dashboardHistoryAbortRef.current = null;
+        setDashboardHistoryLoading(false);
+      }
+    }
+  }, [desktop, locale]);
+
+  useEffect(() => {
+    if (!sessionDashboardOpen || !activeSessionId || !desktop || dashboardHistoryLoading || dashboardHistoryError || dashboardHistorySessionId === activeSessionId) return;
+    void loadDashboardHistory();
+  }, [activeSessionId, dashboardHistoryError, dashboardHistoryLoading, dashboardHistorySessionId, desktop, loadDashboardHistory, sessionDashboardOpen]);
+
   const transcript = useMemo(() => transcriptFromHistory(history, locale), [history, locale]);
   const subagentTranscript = useMemo(() => subagentSession ? transcriptFromHistory(subagentSession.history, locale) : [], [subagentSession, locale]);
   const turnTiming = useMemo(() => turnTimingFromHistory(history), [history]);
@@ -1423,6 +1482,35 @@ function AppContent() {
     () => sessionElapsedMs(history, activeRunning ? jobNow : undefined),
     [history, jobNow, activeRunning],
   );
+  const dashboardEntries = useMemo(
+    () => dashboardHistorySessionId === activeSessionId ? mergeDisplayHistory(dashboardHistory, history) : history,
+    [activeSessionId, dashboardHistory, dashboardHistorySessionId, history],
+  );
+  const dashboardHistoryStats = useMemo(() => readSessionStats(dashboardEntries), [dashboardEntries]);
+  const dashboardSessionStats = useMemo(() => sessionStats.tokenUsageSource === "projection"
+    ? { ...sessionStats, messages: dashboardHistoryStats.messages }
+    : {
+        ...sessionStats,
+        inputTokens: dashboardHistoryStats.inputTokens,
+        outputTokens: dashboardHistoryStats.outputTokens,
+        totalTokens: dashboardHistoryStats.totalTokens,
+        reasoningTokens: dashboardHistoryStats.reasoningTokens,
+        uncachedInputTokens: dashboardHistoryStats.uncachedInputTokens,
+        cacheReadTokens: dashboardHistoryStats.cacheReadTokens,
+        cacheWriteTokens: dashboardHistoryStats.cacheWriteTokens,
+        cacheHitRate: dashboardHistoryStats.cacheHitRate,
+        tokenUsageSource: dashboardHistoryStats.tokenUsageSource,
+        tokenUsageAvailable: dashboardHistoryStats.tokenUsageAvailable,
+        messages: dashboardHistoryStats.messages,
+      }, [dashboardHistoryStats, sessionStats]);
+  const dashboardRunningMs = useMemo(
+    () => sessionElapsedMs(dashboardEntries, activeRunning ? jobNow : undefined),
+    [activeRunning, dashboardEntries, jobNow],
+  );
+  const dashboardAwaitingHistory = activeSessionId !== null
+    && dashboardHistorySessionId !== activeSessionId
+    && dashboardHistoryError === null;
+  const dashboardLoading = dashboardHistoryLoading || dashboardAwaitingHistory;
 
   // 窗口失焦时停摆装饰动画（用户看不到，且让出渲染资源）。
   useEffect(() => {
@@ -2462,6 +2550,7 @@ function AppContent() {
     historyRef.current = [];
     setHistory([]);
     setHistoryHasMore(false);
+    clearDashboardHistory();
     setSessionStats(emptySessionStats());
     historyLoadingOlderRef.current = false;
     setHistoryLoadingOlder(false);
@@ -3339,6 +3428,7 @@ function AppContent() {
     historyRef.current = [];
     setHistory([]);
     setHistoryHasMore(false);
+    clearDashboardHistory();
     setHistoryLoadingOlder(false);
     setTranscriptFollowing(true);
     setTodos(null);
@@ -4959,15 +5049,18 @@ function AppContent() {
                              onOpenSessionPath={openSessionPath}
             />}
             <SessionDashboard
-              entries={history}
-              sessionStats={sessionStats}
+              entries={dashboardEntries}
+              sessionStats={dashboardSessionStats}
               session={activeSession ?? null}
               active={sessionDashboardOpen}
+              loading={dashboardLoading}
+              loadError={dashboardHistoryError}
               running={activeRunning}
-              elapsedMs={sessionRunningMs}
+              elapsedMs={dashboardRunningMs}
               provider={models?.current.provider}
               model={models?.current.model}
               locale={locale}
+              onRetryLoad={() => { void loadDashboardHistory(); }}
               onOpenPricingSource={openModelsDevPricing}
             />
 

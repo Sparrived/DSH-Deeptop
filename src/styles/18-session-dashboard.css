@@ -43,6 +43,31 @@
   margin-bottom: 16px;
 }
 
+.session-dashboard-load-state {
+  display: grid;
+  min-height: 240px;
+  place-items: center;
+  align-content: center;
+  text-align: center;
+}
+
+.session-dashboard-load-state strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.session-dashboard-load-state p {
+  max-width: 320px;
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.session-dashboard-load-state button {
+  margin-top: 14px;
+}
+
 .session-dashboard-title > span,
 .session-panel-heading > div > span,
 .session-section-head > div > span,

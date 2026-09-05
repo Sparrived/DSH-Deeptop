@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readSessionStats } from "./message-model.ts";
 import { sessionDashboard } from "./session-dashboard.ts";
+import { mergeDisplayHistory } from "./display-history.ts";
 import { tokenUsageDashboard, tokenUsageTotals } from "./token-usage.ts";
 
 function entry(seq, type, data, time = 1_700_000_000_000 + seq * 1000) {
@@ -230,6 +231,43 @@ test("aggregates session lifecycle, activity, tools, and tokens by turn", () => 
     { label: "第 1 轮", durationMs: 7_000, totalTokens: 100, signals: ["user", "tool", "assistant"] },
     { label: "第 2 轮", durationMs: 6_000, totalTokens: 150, signals: ["user", "tool", "error", "assistant"] },
   ]);
+});
+
+test("aggregates dashboard metrics across paged session history", () => {
+  const pages = [
+    [
+      entry(11, "turn/start", { turn: 3 }),
+      entry(12, "user/message", { turn: 3, content: "third", source: { kind: "user" } }),
+      entry(13, "tool/call", { turn: 3, step: 1, name: "read" }),
+      entry(14, "assistant/message", { turn: 3, step: 1, usage: { input_tokens: 30, output_tokens: 3 } }),
+      entry(15, "turn/end", { turn: 3 }),
+    ],
+    [
+      entry(6, "turn/start", { turn: 2 }),
+      entry(7, "user/message", { turn: 2, content: "second", source: { kind: "user" } }),
+      entry(8, "tool/call", { turn: 2, step: 1, name: "read" }),
+      entry(9, "assistant/message", { turn: 2, step: 1, usage: { input_tokens: 20, output_tokens: 2 } }),
+      entry(10, "turn/end", { turn: 2 }),
+    ],
+    [
+      entry(1, "turn/start", { turn: 1 }),
+      entry(2, "user/message", { turn: 1, content: "first", source: { kind: "user" } }),
+      entry(3, "tool/call", { turn: 1, step: 1, name: "read" }),
+      entry(4, "assistant/message", { turn: 1, step: 1, usage: { input_tokens: 10, output_tokens: 1 } }),
+      entry(5, "turn/end", { turn: 1 }),
+    ],
+  ];
+  const complete = pages.reduce((history, page) => mergeDisplayHistory(history, page), []);
+  const dashboard = sessionDashboard(complete, stats());
+
+  assert.equal(dashboard.summary.eventCount, 15);
+  assert.equal(dashboard.summary.messages, 6);
+  assert.equal(dashboard.summary.toolCalls, 3);
+  assert.equal(dashboard.summary.turns, 3);
+  assert.equal(dashboard.summary.elapsedMs, 14_000);
+  assert.equal(dashboard.token.points.length, 3);
+  assert.equal(dashboard.token.totals.totalTokens, 66);
+  assert.deepEqual(dashboard.turns.map((turn) => turn.turn), [1, 2, 3]);
 });
 
 test("keeps injected context out of human message aggregates", () => {

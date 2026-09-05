@@ -20,11 +20,14 @@ export type SessionDashboardProps = {
   sessionStats: SessionStats;
   session: DshSessionSummary | null;
   active: boolean;
+  loading?: boolean;
+  loadError?: string | null;
   running: boolean;
   elapsedMs: number;
   provider?: string;
   model?: string;
   locale?: UiLocale;
+  onRetryLoad?: () => void;
   onOpenPricingSource?: () => void | Promise<void>;
 };
 
@@ -212,11 +215,14 @@ export function SessionDashboard({
   sessionStats,
   session,
   active,
+  loading = false,
+  loadError,
   running,
   elapsedMs,
   provider,
   model,
   locale = "zh",
+  onRetryLoad,
   onOpenPricingSource,
 }: SessionDashboardProps) {
   const [range, setRange] = useState<"all" | "recent">("all");
@@ -236,6 +242,17 @@ export function SessionDashboard({
   const estimatedCost = useMemo(() => estimateTokenCost(totals, pricing), [pricing, totals]);
   const contextPercent = sessionStats.contextLimit > 0 ? Math.min(100, (sessionStats.contextTokens / sessionStats.contextLimit) * 100) : 0;
   if (!active) return null;
+  if (loading || loadError) return <section className="session-dashboard session-dashboard-loading" aria-label={t("sessionDashboard.dashboardAria", locale)} aria-busy={loading}>
+    <div className="session-dashboard-head">
+      <div className="session-dashboard-title"><span>{t("sessionDashboard.kicker", locale)}</span><h2>{t("sessionDashboard.title", locale)}</h2><p>{t("sessionDashboard.subtitle", locale)}</p></div>
+      <div className="session-dashboard-state"><span className={running ? "running" : "idle"}>{running ? t("sessionDashboard.status.running", locale) : t("sessionDashboard.status.idle", locale)}</span><strong>{session ? displayTitle(session, locale) : t("header.newSession", locale)}</strong><small>{provider && model ? `${provider} / ${model}` : t("token.pricing.noModel", locale)}</small></div>
+    </div>
+    <div className="session-dashboard-load-state" role="status">
+      <strong>{loadError ? t("sessionDashboard.load.errorTitle", locale) : t("sessionDashboard.load.title", locale)}</strong>
+      <p>{loadError ?? t("sessionDashboard.load.hint", locale)}</p>
+      {loadError && onRetryLoad && <button type="button" onClick={onRetryLoad}>{t("common.retry", locale)}</button>}
+    </div>
+  </section>;
 
   return <section className="session-dashboard" aria-label={t("sessionDashboard.dashboardAria", locale)}>
     <div className="session-dashboard-head">
