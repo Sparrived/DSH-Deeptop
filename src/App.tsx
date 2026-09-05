@@ -2894,25 +2894,50 @@ function AppContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [railItems, navigatedTurn]);
 
-  // 滚动 transcript 到包含某 seq 的首条消息行。翻页完成后 DOM 尚未提交时
-  // 下一帧再定位一次，保证新加载的条目能被滚到。
+  // 滚动 transcript 到包含某 seq 的首条消息行。优先精确匹配行的 event
+  // seq；否则找覆盖该 seq 的折叠行（data-seq-from ≤ seq ≤ data-seq）；
+  // 仍无则落到首个不早于该 seq 的行（turn/start 等无独立行的 seq 落到
+  // 本轮首条可见消息）。翻页后 React 提交可能晚于首帧，因此有界地逐帧
+  // 重查（约 10 帧），目标行一出现即滚到。
   const scrollTranscriptToSeq = useCallback((seq: number) => {
     const locate = (scroller: HTMLElement) => {
-      const target = scroller.querySelector<HTMLElement>(`[data-seq="${seq}"]`);
+      const exact = scroller.querySelector<HTMLElement>(`[data-seq="${seq}"]`);
+      if (exact) {
+        exact.scrollIntoView({ block: "start" });
+        return true;
+      }
+      let covering: HTMLElement | null = null;
+      let next: HTMLElement | null = null;
+      let nextSeq = Number.POSITIVE_INFINITY;
+      for (const row of scroller.querySelectorAll<HTMLElement>("[data-seq]")) {
+        const rowSeq = row.dataset.seq === undefined ? NaN : Number(row.dataset.seq);
+        const from = row.dataset.seqFrom === undefined ? rowSeq : Number(row.dataset.seqFrom);
+        if (!Number.isFinite(rowSeq)) continue;
+        if (from <= seq && seq <= rowSeq) {
+          covering = row;
+          break;
+        }
+        if (rowSeq >= seq && rowSeq < nextSeq) {
+          next = row;
+          nextSeq = rowSeq;
+        }
+      }
+      const target = covering ?? next;
       if (target) {
         target.scrollIntoView({ block: "start" });
         return true;
       }
       return false;
     };
-    const scroller = transcriptScroll.current;
-    if (!scroller) return;
-    if (!locate(scroller)) {
+    const retry = (scroller: HTMLElement, framesLeft: number) => {
+      if (locate(scroller) || framesLeft <= 0) return;
       requestAnimationFrame(() => {
         const next = transcriptScroll.current;
-        if (next) locate(next);
+        if (next) retry(next, framesLeft - 1);
       });
-    }
+    };
+    const scroller = transcriptScroll.current;
+    if (scroller) retry(scroller, 10);
   }, []);
 
   // 把历史翻页到覆盖目标 seq（unloaded 轮次跳转）：逐页拉取直到窗口

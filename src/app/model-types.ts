@@ -82,6 +82,9 @@ export type TranscriptItem = {
   label: string;
   text: string;
   seq?: number;
+  /** Earliest raw event seq this row represents (compacted ranges head);
+   *  rows are addressable by any seq within `[seqFrom, seq]`. */
+  seqFrom?: number;
   messageId?: string;
   /** Original durable user content, retained for lossless retry. */
   content?: unknown;

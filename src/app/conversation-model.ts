@@ -34,6 +34,15 @@ function turnEndText(reason: unknown, kind: string, locale: UiLocale = "zh") {
   return t("conversation.turnFailed", locale);
 }
 
+/** Earliest raw seq one history entry renders as a transcript row. */
+function entryStartOf(entry: DshHistoryEntry): number | undefined {
+  const ranges = entry.compactedEventSeqRanges ?? entry.event?.compactedEventSeqRanges;
+  const first = Array.isArray(ranges) ? ranges[0] : undefined;
+  if (Array.isArray(first) && typeof first[0] === "number") return first[0];
+  if (entry.displayFirstChunkSeq !== undefined) return entry.displayFirstChunkSeq;
+  return entry.event?.seq;
+}
+
 export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLocale = "zh"): TranscriptItem[] {
   const items: TranscriptItem[] = [];
   const streams = new Map<string, { text: string; reasoning: string; seq: number; time: number; streaming: boolean }>();
@@ -90,6 +99,7 @@ export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLoca
           images: segments.images,
           content: event.data.content,
           seq: event.seq,
+          seqFrom: entryStartOf(entry),
           messageId,
           time: event.time,
           source: provenance?.label,
@@ -108,8 +118,10 @@ export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLoca
       const segments = contentSegments(assistantContent(event));
       const reasoning = segments.reasoning || stream?.reasoning || "";
       const text = segments.text || stream?.text || "";
-      if (reasoning) items.push({ key: `reasoning-${event.seq}`, kind: "reasoning", label: "Think", text: reasoning, seq: stream?.seq ?? entry.displayFirstChunkSeq ?? event.seq, time: event.time });
-      if (text || segments.images.length > 0) items.push({ key: `event-${event.seq}`, kind: "assistant", label: "DSH", text, images: segments.images, seq: event.seq, messageId, time: event.time, stats: messageStats.get(event.seq) });
+      const reasoningSeq = stream?.seq ?? entry.displayFirstChunkSeq ?? event.seq;
+      const reasoningFrom = entryStartOf(entry);
+      if (reasoning) items.push({ key: `reasoning-${event.seq}`, kind: "reasoning", label: "Think", text: reasoning, seq: reasoningSeq, seqFrom: reasoningFrom === undefined ? undefined : Math.min(reasoningFrom, reasoningSeq), time: event.time });
+      if (text || segments.images.length > 0) items.push({ key: `event-${event.seq}`, kind: "assistant", label: "DSH", text, images: segments.images, seq: event.seq, seqFrom: entryStartOf(entry), messageId, time: event.time, stats: messageStats.get(event.seq) });
       streams.delete(streamKey(event));
       continue;
     }
@@ -122,6 +134,7 @@ export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLoca
         label: eventToolName(event),
         text: eventToolText(event, locale),
         seq: event.seq,
+        seqFrom: entryStartOf(entry),
         time: event.time,
         toolName: eventToolName(event),
         toolCallId: eventToolCallId(event),

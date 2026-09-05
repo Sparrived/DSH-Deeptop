@@ -6,6 +6,10 @@
    band ends fade when scrollable. */
 
 .turn-rail-slot {
+  --turn-rail-band: min(
+    var(--turn-natural-height),
+    max(160px, calc(100vh - 200px))
+  );
   position: sticky;
   top: 50%;
   z-index: 6; /* above message code banners, below floating menus */
@@ -15,25 +19,23 @@
   pointer-events: none;
 }
 
-/* The anchor is the zero-size point the whole rail centers on; frame and
-   preview stay top-aligned inside it so their content coordinates agree. */
-.turn-rail-anchor {
+/* The frame and its preview seat share one top edge, shifted up by half the
+   band so the band's middle sits on the sticky slot point (viewport middle);
+   top-aligned children keep frame-content and preview coordinates identical. */
+.turn-rail-frame,
+.turn-rail-preview-seat {
   position: absolute;
   right: 0;
-  top: 0;
+  top: calc(var(--turn-rail-band) / -2);
+}
+
+.turn-rail-preview-seat {
   width: 0;
   height: 0;
-  transform: translateY(-50%);
+  pointer-events: none;
 }
 
 .turn-rail-frame {
-  --turn-rail-band: min(
-    var(--turn-natural-height),
-    max(160px, calc(100vh - 200px))
-  );
-  position: absolute;
-  right: 0;
-  top: 0;
   width: 40px;
   height: var(--turn-rail-band);
   overflow-y: auto;

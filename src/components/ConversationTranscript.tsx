@@ -312,6 +312,7 @@ function sameItemFields(left: TranscriptItem, right: TranscriptItem) {
     && left.label === right.label
     && left.text === right.text
     && left.seq === right.seq
+    && left.seqFrom === right.seqFrom
     && left.messageId === right.messageId
     && left.time === right.time
     && left.toolName === right.toolName
@@ -745,6 +746,7 @@ function TranscriptArticleView({
     <article
       className={`message-row ${item.kind}${item.injected ? " context-row" : ""}${item.kind === "tool" ? " tool-row" : ""}`}
       data-seq={item.seq}
+      {...(item.seqFrom !== undefined && item.seqFrom !== item.seq ? { "data-seq-from": item.seqFrom } : {})}
       onContextMenu={(event) => {
         if (event.target instanceof Element && event.target.closest("button, a, input, select, textarea")) return;
         if (!isWithinSelector(event.target, TRANSCRIPT_TEXT_SELECTOR)) return;

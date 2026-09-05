@@ -186,8 +186,12 @@ test("keeps finalized reasoning at its first chunk position around tool events",
   ];
   const compacted = compactHistoryEntries(history);
 
-  assert.deepEqual(transcriptFromHistory(compacted), transcriptFromHistory(history));
+  // 折叠不得改变可见渲染；seqFrom 是折叠行补上的 DOM 定位元数据
+  // （覆盖被折叠 chunk 的起始 seq），原始行没有折叠因此不需要它。
+  const withoutSeqFrom = (items) => items.map(({ seqFrom: _omit, ...item }) => item);
+  assert.deepEqual(withoutSeqFrom(transcriptFromHistory(compacted)), withoutSeqFrom(transcriptFromHistory(history)));
   assert.deepEqual(transcriptFromHistory(compacted).map(item => item.seq), [2, 3, 5]);
+  assert.equal(transcriptFromHistory(compacted).find(item => item.kind === "reasoning")?.seqFrom, 2);
 });
 
 test("preserves non-overlapping compacted pages that lack per-token lengths", () => {
