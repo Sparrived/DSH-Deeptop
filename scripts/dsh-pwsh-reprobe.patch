@@ -1,184 +1,5 @@
-diff --git a/.agents/notes/implemented/bug-fix/2026-08-12-resolve-store-pwsh-aliases.md b/.agents/notes/implemented/bug-fix/2026-08-12-resolve-store-pwsh-aliases.md
-deleted file mode 100644
-index 20fe58e15e..0000000000
---- a/.agents/notes/implemented/bug-fix/2026-08-12-resolve-store-pwsh-aliases.md
-+++ /dev/null
-@@ -1,23 +0,0 @@
--# Agent Note: Resolve Microsoft Store pwsh aliases
--
--Status: implemented
--
--English | [中文](2026-08-12-resolve-store-pwsh-aliases.zh.md)
--
--## Problem
--
--`resolvePwshPath` documented that Microsoft Store installs resolve through PATH, but its existence probe was `existsSync`, which stats a candidate and therefore follows reparse points. The Store's `%LOCALAPPDATA%\Microsoft\WindowsApps\pwsh.exe` is an app execution alias whose target directory ACL refuses stat (EACCES), so `existsSync` missed it and resolution silently fell through to Windows PowerShell 5.1 on hosts whose only PowerShell 7 is a Store install.
--
--## Decision
--
--`candidateExists` accepts a candidate that stats as a file or that lstat sees as a link-shaped reparse point, and `resolvePwshPath` uses it. Spawning the alias path works because CreateProcess resolves app execution aliases. A dangling link-shaped candidate is accepted so a broken pwsh fails loudly at spawn instead of silently downgrading to 5.1.
--
--## Alternatives considered
--
--**Probe the WindowsApps package directory directly.** The Store package path is versioned and ACL-hidden; hard-coding it duplicates packaging knowledge that PATH plus the alias already owns.
--
--**Keep the 5.1 fallback for stat failures.** Rejected: it silently runs a different shell than the one installed, which is the defect this note fixes.
--
--## Consequences
--
--Store-installed PowerShell 7 now resolves ahead of the 5.1 fallback on Windows; real-file candidates and non-Windows behavior are unchanged. The dangling-symlink unit test pins the stat/lstat split on every platform.
-diff --git a/.agents/notes/implemented/bug-fix/2026-08-12-resolve-store-pwsh-aliases.zh.md b/.agents/notes/implemented/bug-fix/2026-08-12-resolve-store-pwsh-aliases.zh.md
-deleted file mode 100644
-index bbfa461612..0000000000
---- a/.agents/notes/implemented/bug-fix/2026-08-12-resolve-store-pwsh-aliases.zh.md
-+++ /dev/null
-@@ -1,23 +0,0 @@
--# Agent Note: 解析 Microsoft Store 的 pwsh 别名
--
--Status: implemented
--
--[English](2026-08-12-resolve-store-pwsh-aliases.md) | 中文
--
--## 问题
--
--`resolvePwshPath` 声称 Store 安装经 PATH 解析，但它的存在性探测用的是 `existsSync`，会对候选做 stat、从而跟随重解析点。Store 的 `%LOCALAPPDATA%\Microsoft\WindowsApps\pwsh.exe` 是 app execution alias，其目标目录的 ACL 拒绝 stat（EACCES），于是 `existsSync` 看不到它，解析静默落到 Windows PowerShell 5.1——在这类「唯一的 PowerShell 7 是 Store 安装」的机器上就用了错误的 shell。
--
--## 决策
--
--`candidateExists` 接受「stat 为文件」或「lstat 为链接形态重解析点」的候选，`resolvePwshPath` 改用它。spawn 别名路径可以工作，因为 CreateProcess 会解析 app execution alias。悬空的链接形态候选同样被接受，让损坏的 pwsh 在 spawn 时响亮失败，而不是静默降级到 5.1。
--
--## 考虑过的替代方案
--
--**直接探测 WindowsApps 包目录。** Store 包路径带版本且被 ACL 隐藏；硬编码它只是重复了 PATH 加别名已经拥有的打包知识。
--
--**对 stat 失败继续走 5.1 回退。** 否决：它静默运行了一个并非所装的 shell，这正是本 note 修复的缺陷。
--
--## 后果
--
--Windows 上 Store 安装的 PowerShell 7 现在先于 5.1 回退被解析；普通文件候选和非 Windows 平台行为不变。悬空 symlink 单元测试在全部平台上钉住 stat/lstat 的分裂行为。
-diff --git a/.agents/notes/implemented/bug-fix/2026-08-12-resolve-store-pwsh-aliases.i18n.yaml b/.agents/notes/implemented/bug-fix/2026-09-01-reprobe-store-pwsh-executable.i18n.yaml
-similarity index 56%
-rename from .agents/notes/implemented/bug-fix/2026-08-12-resolve-store-pwsh-aliases.i18n.yaml
-rename to .agents/notes/implemented/bug-fix/2026-09-01-reprobe-store-pwsh-executable.i18n.yaml
-index 140c7b9ae7..57ef8fe836 100644
---- a/.agents/notes/implemented/bug-fix/2026-08-12-resolve-store-pwsh-aliases.i18n.yaml
-+++ b/.agents/notes/implemented/bug-fix/2026-09-01-reprobe-store-pwsh-executable.i18n.yaml
-@@ -1,6 +1,6 @@
- # Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
- # side as of the last confirmed-consistent state. Both languages carry equal authority;
- # after editing either side, bring the other along and re-record with:
--#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-12-resolve-store-pwsh-aliases.md
--2026-08-12-resolve-store-pwsh-aliases.md: 20fe58e15e75462dc0a9ba76c7a1a94939f8a004
--2026-08-12-resolve-store-pwsh-aliases.zh.md: bbfa4616127a9dbdb6609fe2973283663de55b31
-+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-01-reprobe-store-pwsh-executable.md
-+2026-09-01-reprobe-store-pwsh-executable.md: 430b37beb96780c1cb10766feb48675c7bb0b842
-+2026-09-01-reprobe-store-pwsh-executable.zh.md: 92f4450cdc9e2a4af44ccf20dadef9baea640ffa
-diff --git a/.agents/notes/implemented/bug-fix/2026-09-01-reprobe-store-pwsh-executable.md b/.agents/notes/implemented/bug-fix/2026-09-01-reprobe-store-pwsh-executable.md
-new file mode 100644
-index 0000000000..430b37beb9
---- /dev/null
-+++ b/.agents/notes/implemented/bug-fix/2026-09-01-reprobe-store-pwsh-executable.md
-@@ -0,0 +1,27 @@
-+# Agent Note: Re-probe the Microsoft Store pwsh executable
-+
-+Status: implemented
-+
-+English | [中文](2026-09-01-reprobe-store-pwsh-executable.zh.md)
-+
-+## Problem
-+
-+A Store app execution alias is a mutable indirection to a versioned package executable. Accepting every link-shaped PATH entry and caching its path for the executor lifetime lets a dangling alias reach `spawn`, and an alias or package replacement after host startup leaves the executor on stale filesystem state. The resulting `ENOENT` is reported as a missing `pwsh` tool even when a viable PowerShell 7 package executable or a repaired alias exists.
-+
-+## Decision
-+
-+Automatic Windows resolution validates each link-shaped candidate's target before selection. A readable Store alias resolves to its current package executable, target inspection denied by ACL retains the alias for CreateProcess, and a missing target falls through to the next candidate. An explicit `pwshPath` remains authoritative without probing.
-+
-+`PwshLocalExecutor.pwshPath` repeats automatic resolution for every spawn instead of caching it at construction. Each call therefore observes Store package updates, alias repair, and legacy fallback availability while preserving explicit configuration and sandbox argv wrapping.
-+
-+## Alternatives considered
-+
-+**Accept every link-shaped candidate and fail at spawn.** Rejected because a dangling alias can mask viable later candidates and because a repaired installation remains unusable until the long-lived executor reloads.
-+
-+**Always fall through to Windows PowerShell 5.1 when alias target inspection fails.** Rejected because Store package directories may intentionally deny target inspection even though CreateProcess can use the alias; that would silently select a different shell.
-+
-+**Probe the versioned WindowsApps package directory independently of the alias.** Rejected because the alias already owns package selection and exposes its current target without duplicating Store package naming or version policy.
-+
-+## Consequences
-+
-+A valid readable Store install launches its concrete PowerShell 7 package executable, a protected valid alias remains supported, and a confirmed dangling alias cannot shadow later candidates. Automatic resolution performs a small synchronous filesystem probe per spawn; explicit `pwshPath` avoids it. Pure tests cover readable targets, dangling targets, and repair between consecutive resolutions, while the real-process suite still verifies the selected executable through the subprocess service.
-diff --git a/.agents/notes/implemented/bug-fix/2026-09-01-reprobe-store-pwsh-executable.zh.md b/.agents/notes/implemented/bug-fix/2026-09-01-reprobe-store-pwsh-executable.zh.md
-new file mode 100644
-index 0000000000..92f4450cdc
---- /dev/null
-+++ b/.agents/notes/implemented/bug-fix/2026-09-01-reprobe-store-pwsh-executable.zh.md
-@@ -0,0 +1,27 @@
-+# Agent Note: 重新探测 Microsoft Store 的 pwsh 可执行文件
-+
-+Status: implemented
-+
-+[English](2026-09-01-reprobe-store-pwsh-executable.md) | 中文
-+
-+## 问题
-+
-+Store app execution alias 是指向版本化包内可执行文件的可变间接引用。接受每个链接形态的 PATH 条目并在执行器生命周期内缓存其路径，会让悬空别名进入 `spawn`；宿主启动后替换别名或包时，执行器也会继续使用过期的文件系统状态。由此产生的 `ENOENT` 会被报告为缺少 `pwsh` 工具，即使此时已有可用的 PowerShell 7 包内可执行文件或已修复的别名。
-+
-+## 决策
-+
-+Windows 自动解析会先验证每个链接形态候选的目标再选择。可读的 Store 别名解析为其当前包内可执行文件；目标检查被 ACL 拒绝时保留别名供 CreateProcess 使用；目标缺失时继续探测下一个候选。显式 `pwshPath` 仍作为权威值，不进行探测。
-+
-+`PwshLocalExecutor.pwshPath` 在每次 spawn 时重复自动解析，不在构造时缓存。每次调用都能看到 Store 包更新、别名修复和遗留兜底的可用性，同时保留显式配置与沙箱 argv 包装。
-+
-+## 考虑过的替代方案
-+
-+**接受每个链接形态候选，并在 spawn 时失败。** 否决，因为悬空别名可能遮蔽后续可用候选，而且安装修复后长期运行的执行器仍需重载才能恢复。
-+
-+**目标检查失败时总是回退 Windows PowerShell 5.1。** 否决，因为 Store 包目录可能有意拒绝目标检查，但 CreateProcess 仍能使用别名；这种做法会静默选中不同的 shell。
-+
-+**绕过别名，独立探测版本化 WindowsApps 包目录。** 否决，因为别名已经负责包选择并公开当前目标，无需复制 Store 包命名与版本策略。
-+
-+## 后果
-+
-+有效且可读的 Store 安装会启动具体的 PowerShell 7 包内可执行文件，受保护但有效的别名仍受支持，已确认悬空的别名不能遮蔽后续候选。自动解析会在每次 spawn 时进行少量同步文件系统探测；显式 `pwshPath` 可避免该开销。纯函数测试覆盖可读目标、悬空目标与两次连续解析之间的修复，真实进程套件继续通过 subprocess 服务验证选中的可执行文件。
-diff --git a/packages/shell/pwsh-local/README.i18n.yaml b/packages/shell/pwsh-local/README.i18n.yaml
-index a7712c1df6..9ae1fb2239 100644
---- a/packages/shell/pwsh-local/README.i18n.yaml
-+++ b/packages/shell/pwsh-local/README.i18n.yaml
-@@ -2,5 +2,5 @@
- # side as of the last confirmed-consistent state. Both languages carry equal authority;
- # after editing either side, bring the other along and re-record with:
- #   pnpm run verify-translation-pairing --write packages/shell/pwsh-local/README.md
--README.md: 2eccc59b919d1f729eef52a42581f4da0f1d9e60
--README.zh.md: b7072ebd9be4e148cedd4edd6c20b12536814856
-+README.md: 68997dc53980af1ee17d00dfd5a54a2f1d8c15a5
-+README.zh.md: 8df86b030c72674101b866aef736ad24de80a8fa
-diff --git a/packages/shell/pwsh-local/README.md b/packages/shell/pwsh-local/README.md
-index 2eccc59b91..68997dc539 100644
---- a/packages/shell/pwsh-local/README.md
-+++ b/packages/shell/pwsh-local/README.md
-@@ -30,7 +30,7 @@ The Windows counterpart of `dsh-bash-local`, deliberately mirroring its semantic
- - **Spawn per call, no shell state** — every call is a fresh non-interactive `pwsh -Command` (deterministic; no profile files). The `-NoLogo -NoProfile -NonInteractive` flags disable startup banners, profile loading, and prompts that would garble tool output.
- - **The composition entry is a layer, not the last word** — when a settings provider is composed, this executor registers the capability's [`bash` namespace](../shell/README.md) with the entry above as its base, so a user section in `settings.yaml` layers over it and the next command runs with the new budgets. The namespace is shared with the POSIX family because a host composes exactly one provider of `ctx.shell`; a document written on either platform keeps resolving on the other. Values the schema cannot judge (positive and finite, the `graceMs` timer bound) are refused at the write, leaving the running executor on its last good section.
- - **UTF-8 output pinned** — every command runs with `[Console]::OutputEncoding` and `$OutputEncoding` set to UTF-8 first, so the Windows PowerShell 5.1 fallback (or any host whose console code page is not UTF-8) cannot garble non-ASCII output: the subprocess collector decodes bytes as UTF-8. Input encoding is left at the host default; pwsh 7 defaults to UTF-8 and is unaffected.
--- **Executable resolution** — `resolvePwshPath` prefers an explicit `pwshPath`, then on Windows probes PowerShell 7's install location, every PATH entry (Microsoft Store installs; surrounding quotes stripped), and Windows PowerShell 5.1 as a legacy last resort, checking each candidate with an lstat probe that accepts a real file or a link-shaped reparse point (a Store app execution alias stat-fails against its target's ACL, but lstat sees the alias itself); elsewhere it falls back to a bare `pwsh` resolved through PATH. Resolution is a pure function of `(configured, env, platform)`; it runs at construction and again only when a stored `pwshPath` differs from the one the current executable was resolved from, so an unrelated settings change never re-probes the filesystem.
-+- **Executable resolution** — `resolvePwshPath` prefers an explicit `pwshPath`, then on Windows probes PowerShell 7's install location, every PATH entry (Microsoft Store installs; surrounding quotes stripped), and Windows PowerShell 5.1 as a legacy last resort. Real files are accepted directly; a link-shaped Store app execution alias resolves to its current package executable when readable, remains usable through the alias when target inspection is denied, and is skipped when its target is missing. Elsewhere resolution falls back to a bare `pwsh` through PATH. Automatic resolution is a pure function of `(configured, env, platform)` and runs for every spawn, so a long-lived host observes Store package updates and repaired aliases without reloading the executor.
- - **Configured budgets over managed groups** — `resolve()` fills `workdir`/`timeoutMs`/`stdoutMaxBytes` from config, and every spawn hands the service explicit byte caps, spill cap, and `graceMs`. The grace must be positive, finite, and no greater than [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md), so Node can represent it with one timer. Tree termination (taskkill on Windows, process-group signals on POSIX), the post-exit pipe-drain grace, tail-keep truncation, and bounded spill files are [`dsh-subprocess-local`](../../subprocess/subprocess-local/README.md) mechanics. A foreground `ShellExecRequest.stdoutMaxBytes` can raise stdout's capture budget for one trusted caller; stderr and background runs still use `maxOutputBytes`.
- - **Timeout and cancel classification** — `run()` fuses its config-clamped timeout with the caller's signal through one deadline; only the executor's own timeout reports `timedOut`, an upstream cancel reports `aborted`, and a self-terminated command reports neither ([timeout-library Agent Note](../../../.agents/notes/implemented/architecture/2026-07-06-timeout-deadline-library.md)). Windows reports forced termination as exit 1 without a signal, so signal-stamped facts (`signal`, `killed` status) are POSIX-only there; the timeout/abort classification is platform-independent.
- - **Model-friendly terminal env** — `NO_COLOR=1 PAGER=cat GIT_PAGER=cat` (no `TERM=dumb`: that is a POSIX concept; `NO_COLOR` is honored by modern PowerShell renderers) merged as ordinary env under the service's credential scrub and `DSH_*` channel rules; an explicit caller entry still wins.
-diff --git a/packages/shell/pwsh-local/README.zh.md b/packages/shell/pwsh-local/README.zh.md
-index b7072ebd9b..8df86b030c 100644
---- a/packages/shell/pwsh-local/README.zh.md
-+++ b/packages/shell/pwsh-local/README.zh.md
-@@ -30,7 +30,7 @@
- - **每次调用新建进程，无 shell 状态**——每次调用都是全新的非交互 `pwsh -Command`（确定性；不加载 profile 文件）。`-NoLogo -NoProfile -NonInteractive` 关闭启动横幅、profile 加载与会干扰工具输出的提示符。
- - **组装条目是一层，而不是最终值**——当组装中存在 settings 提供方时，本执行器以上面的条目为 base 注册该能力的 [`bash` 命名空间](../shell/README.zh.md)，因此 `settings.yaml` 中的用户段会叠加其上，下一条命令即按新预算运行。该命名空间与 POSIX 家族共用，因为一个宿主只组装一个 `ctx.shell` 提供方；在任一平台写下的文档在另一平台仍能解析。schema 无法判定的值（正有限、`graceMs` 的定时器上界）会在写入时被拒绝，运行中的执行器保持它最后一份可用的段。
- - **UTF-8 输出固定**——每条命令都先以 UTF-8 设置 `[Console]::OutputEncoding` 与 `$OutputEncoding`，因此 Windows PowerShell 5.1 兜底（或任何控制台代码页非 UTF-8 的主机）不会破坏非 ASCII 输出：subprocess 收集器以 UTF-8 解码字节。输入编码保持宿主默认；pwsh 7 默认为 UTF-8，不受影响。
--- **可执行文件解析**——`resolvePwshPath` 优先显式 `pwshPath`，然后在 Windows 上依次探测 PowerShell 7 安装位置、每个 PATH 条目（Microsoft Store 安装；剥离两端引号）以及作为遗留兜底的 Windows PowerShell 5.1，逐一用 lstat 探测检查（接受真实文件或链接形态的重解析点：Store 的 app execution alias 对其目标 stat 会因 ACL 失败，但 lstat 能看到别名本身）；其他平台回退为通过 PATH 解析的裸 `pwsh`。解析是 `(configured, env, platform)` 的纯函数；它在构造时执行，此后仅当存储的 `pwshPath` 与当前可执行文件所依据的值不同才再次执行，因此无关的设置变更绝不会重新探测文件系统。
-+- **可执行文件解析**——`resolvePwshPath` 优先显式 `pwshPath`，然后在 Windows 上依次探测 PowerShell 7 安装位置、每个 PATH 条目（Microsoft Store 安装；剥离两端引号）以及作为遗留兜底的 Windows PowerShell 5.1。真实文件直接采用；链接形态的 Store app execution alias 在可读时解析到当前包内可执行文件，在目标检查被拒绝时仍通过别名使用，目标缺失时则跳过。其他平台回退为通过 PATH 解析的裸 `pwsh`。自动解析是 `(configured, env, platform)` 的纯函数，并在每次 spawn 时执行，因此长期运行的宿主无需重载执行器即可识别 Store 包更新和修复后的别名。
- - **受管进程组之上的配置预算**——`resolve()` 从配置填充 `workdir`/`timeoutMs`/`stdoutMaxBytes`，每次 spawn 都向服务提供显式字节上限、spill 上限与 `graceMs`。该宽限期须为正有限值，且不得大于 [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.zh.md)，这样 Node 就能用一个定时器表示它。进程树终止（Windows 用 taskkill，POSIX 用进程组信号）、退出后管道排空宽限、保尾截断与有界 spill 文件是 [`dsh-subprocess-local`](../../subprocess/subprocess-local/README.zh.md) 的机制。前台 `ShellExecRequest.stdoutMaxBytes` 可为单个受信调用方提高 stdout 捕获预算；stderr 与后台运行仍使用 `maxOutputBytes`。
- - **超时与取消分类**——`run()` 通过一个 deadline 融合按配置上限截取的超时与调用方信号；只有执行器自身超时报告 `timedOut`，上游取消报告 `aborted`，自我终止的命令两者都不报告（见 [timeout 库 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-06-timeout-deadline-library.zh.md)）。Windows 将强制终止报告为退出码 1 且无信号，因此带信号标记的事实（`signal`、`killed` 状态）在那里仅限 POSIX；超时/取消分类与平台无关。
- - **面向模型的终端环境**——`NO_COLOR=1 PAGER=cat GIT_PAGER=cat`（没有 `TERM=dumb`：那是 POSIX 概念；现代 PowerShell 渲染器遵循 `NO_COLOR`），作为普通 env 在服务的凭据清理与 `DSH_*` 通道规则之下合并；显式调用方条目仍然优先。
 diff --git a/packages/shell/pwsh-local/src/index.ts b/packages/shell/pwsh-local/src/index.ts
-index b7a2d9f915..d35913ed49 100644
+index 93133b37af..ca17bc3fde 100644
 --- a/packages/shell/pwsh-local/src/index.ts
 +++ b/packages/shell/pwsh-local/src/index.ts
 @@ -141,20 +141,18 @@ export class PwshLocalExecutor extends ShellExecutor {
@@ -208,31 +29,32 @@ index b7a2d9f915..d35913ed49 100644
    }
  
    constructor(ctx: Context, config: Config) {
-@@ -163,21 +161,14 @@ export class PwshLocalExecutor extends ShellExecutor {
+@@ -163,22 +161,15 @@ export class PwshLocalExecutor extends ShellExecutor {
      const entry = config as ResolvedConfig
      assertServiceablePwshConfig(entry)
      this.source = () => entry
 -    this.declaredPwshPath = entry.pwshPath
 -    this.resolvedPwshPath = resolvePwshPath(entry.pwshPath)
-     installSettingsSection(ctx, SHELL_SETTINGS_NAMESPACE, PwshLocalExecutor.Config, entry, {
-       validate: assertServiceablePwshConfig,
-       setSource: (current) => {
-         this.source = current as () => ResolvedConfig
-       },
--      // Probing the filesystem is the one fact derived from the source: every
--      // other field is read through the getter at each command.
--      onChange: () => {
--        const declared = this.source().pwshPath
--        if (declared === this.declaredPwshPath) return
--        this.declaredPwshPath = declared
--        this.resolvedPwshPath = resolvePwshPath(declared)
--      },
-+      // Every field, including automatic executable resolution, is read
-+      // through a getter at each command.
-+      onChange: () => {},
+     ctx.inject(['settings'], (settingsCtx) => {
+       settingsCtx.settings.installSection(ctx, SHELL_SETTINGS_NAMESPACE, PwshLocalExecutor.Config, entry, {
+         validate: assertServiceablePwshConfig,
+         setSource: (current) => {
+           this.source = current as () => ResolvedConfig
+         },
+-        // Probing the filesystem is the one fact derived from the source: every
+-        // other field is read through the getter at each command.
+-        onChange: () => {
+-          const declared = this.source().pwshPath
+-          if (declared === this.declaredPwshPath) return
+-          this.declaredPwshPath = declared
+-          this.resolvedPwshPath = resolvePwshPath(declared)
+-        },
++        // Every field, including automatic executable resolution, is read
++        // through a getter at each command.
++        onChange: () => {},
+       })
      })
    }
- 
 diff --git a/packages/shell/pwsh-local/src/resolve.ts b/packages/shell/pwsh-local/src/resolve.ts
 index 191abba963..60ce88e961 100644
 --- a/packages/shell/pwsh-local/src/resolve.ts
@@ -306,7 +128,7 @@ index 191abba963..60ce88e961 100644
    }
    return 'pwsh'
 diff --git a/packages/shell/pwsh-local/tests/executor.spec.ts b/packages/shell/pwsh-local/tests/executor.spec.ts
-index e26211b268..581a3000cf 100644
+index 53047a62c8..7f94277d2e 100644
 --- a/packages/shell/pwsh-local/tests/executor.spec.ts
 +++ b/packages/shell/pwsh-local/tests/executor.spec.ts
 @@ -9,7 +9,7 @@
@@ -318,9 +140,9 @@ index e26211b268..581a3000cf 100644
  import { tmpdir } from 'node:os'
  import { join } from 'node:path'
  import { spawnSync } from 'node:child_process'
-@@ -28,6 +28,19 @@ const spillDir = mkdtempSync(join(tmpdir(), 'dsh-pwsh-exec-spec-'))
- // Windows are found even when bare `pwsh` is not on PATH).
- const hasPwsh = spawnSync(resolvePwshPath(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'], { encoding: 'utf8' }).status === 0
+@@ -24,6 +24,19 @@ import type { ShellProcess } from '@deepseek-ai/dsh-shell'
+ 
+ const spillDir = mkdtempSync(join(tmpdir(), 'dsh-pwsh-exec-spec-'))
  
 +function storeAliasFixture(): { alias: string; target: string } | undefined {
 +  if (process.platform !== 'win32' || process.env.LOCALAPPDATA === undefined) return undefined
@@ -335,10 +157,10 @@ index e26211b268..581a3000cf 100644
 +
 +const storeAlias = storeAliasFixture()
 +
- /** Normalize PowerShell's platform line endings (CRLF on Windows, LF elsewhere). */
- const lf = (text: string): string => text.replace(/\r\n/g, '\n')
- 
-@@ -127,16 +140,59 @@ describe('resolvePwshPath and candidatePwshPaths (pure, every platform)', () =>
+ // The probe follows the executor's own resolution (Program Files installs on
+ // Windows are found even when bare `pwsh` is not on PATH).
+ const hasPwsh = spawnSync(resolvePwshPath(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'], { encoding: 'utf8' }).status === 0
+@@ -127,16 +140,61 @@ describe('resolvePwshPath and candidatePwshPaths (pure, every platform)', () =>
        .toBe('pwsh')
    })
  
@@ -346,14 +168,16 @@ index e26211b268..581a3000cf 100644
 -    // Store app execution aliases stat as EACCES but lstat as a link; a
 -    // dangling symlink reproduces that split on every platform.
 +  it.skipIf(process.platform === 'win32')('resolves a link-shaped PATH candidate to its executable target', () => {
++    // Store app execution aliases reject stat through the alias (EACCES) but
++    // expose their package target through readlink; a symlink to a real file
++    // reproduces that split on every non-Windows platform.
      const dir = mkdtempSync(join(tmpdir(), 'dsh-pwsh-resolve-link-'))
      const store = join(dir, 'store')
 +    const target = join(dir, 'package', 'pwsh.exe')
 +    mkdirSync(store, { recursive: true })
 +    mkdirSync(join(dir, 'package'), { recursive: true })
 +    writeFileSync(target, '')
-+    const link = join(store, 'pwsh.exe')
-+    symlinkSync(target, link)
++    symlinkSync(target, join(store, 'pwsh.exe'))
 +    expect(resolvePwshPath(undefined, {
 +      ProgramFiles: join(dir, 'missing'),
 +      PATH: store,
@@ -403,7 +227,7 @@ index e26211b268..581a3000cf 100644
    })
  
    it('skips a directory candidate and falls through to the PATH-resolution default', () => {
-@@ -187,6 +243,38 @@ describe('spawn construction (pure, every platform)', () => {
+@@ -187,6 +245,38 @@ describe('spawn construction (pure, every platform)', () => {
      expect(ENCODING_PREAMBLE).toContain('[Console]::OutputEncoding')
      expect(ENCODING_PREAMBLE).toContain('$OutputEncoding')
    })

@@ -15,19 +15,6 @@
     - id: code-runtime
       name: '@deepseek-ai/dsh-code-runtime-worker-thread'
 
-    - id: storage
-      name: '@deepseek-ai/dsh-storage'
-
-    - id: storage-json
-      name: '@deepseek-ai/dsh-storage-json'
-      config:
-        root: !!js dshHomePath('storages')
-
-    - id: storage-domain
-      name: '@deepseek-ai/dsh-storage-domain'
-      config:
-        backend: json
-
     - id: message-feedback
       name: '@deepseek-ai/dsh-message-feedback'
       config:
@@ -48,22 +35,24 @@
     - id: workspace
       name: '@deepseek-ai/dsh-workspace'
 
-    - id: session-projection-cache
-      name: '@deepseek-ai/dsh-session-projection-cache'
-      config:
-        writeEveryEvents: 200
-        writeIntervalMs: 5000
-
     - id: directory-picker
       name: '@deepseek-ai/dsh-host-directory-picker-native'
 
     - id: plugin-inventory
       name: '@deepseek-ai/dsh-host-plugin-inventory'
 
-    - id: api-gateway
-      name: '@deepseek-ai/dsh-host-apiproxy'
-      config:
-        nativeOpen: true
+    # Session commands, cold reads, and live control over Typert Remote.
+    - id: session-controller
+      name: '@deepseek-ai/dsh-api-session-controller'
+
+    # Configuration-surface reads and writes over Typert Remote. Each method
+    # reports an actionable error when its settings-domain provider is absent.
+    - id: settings-controller
+      name: '@deepseek-ai/dsh-api-settings-controller'
+
+    # Workspace commands and reconnect-safe projection over Typert Remote.
+    - id: workspace-controller
+      name: '@deepseek-ai/dsh-api-workspace-controller'
 
     - id: cordis-host-runner
       name: '@deepseek-ai/dsh-cordis-host-runner'

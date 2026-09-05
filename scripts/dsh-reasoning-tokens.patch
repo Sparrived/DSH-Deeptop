@@ -1,8 +1,8 @@
 diff --git a/packages/llm/llm-pi-ai/src/stream.ts b/packages/llm/llm-pi-ai/src/stream.ts
-index d45df45a39..51fac8f7b9 100644
+index 203e639052..dfa60e2fa4 100644
 --- a/packages/llm/llm-pi-ai/src/stream.ts
 +++ b/packages/llm/llm-pi-ai/src/stream.ts
-@@ -15,9 +15,10 @@ import type { AssistantMessage, AssistantMessageEvent, Usage as PiUsage } from '
+@@ -16,10 +16,11 @@ import type { AssistantMessage, AssistantMessageEvent, Usage as PiUsage } from '
  import { toPiReplayState } from './replay.ts'
  
  /**
@@ -10,13 +10,15 @@ index d45df45a39..51fac8f7b9 100644
 + * Map pi-ai usage to harness counts. pi-ai folds reasoning into output and
 + * reports the reasoning share separately when the provider exposed it.
   * @param usage - cumulative usage from the terminal pi-ai event.
-- * @returns harness counts; cache fields appear only when non-zero (pi-ai reports zeros, not absence).
-+ * @returns harness counts; cache and reasoning fields appear only when non-zero (pi-ai reports zeros, not absence).
+- * @returns harness counts with pi-ai's exact total; cache fields appear only
+- *   when non-zero (pi-ai reports zeros, not absence).
++ * @returns harness counts with pi-ai's exact total; cache and reasoning
++ *   fields appear only when non-zero (pi-ai reports zeros, not absence).
   */
  export function mapUsage(usage: PiUsage): TokenUsage {
    return {
-@@ -25,6 +26,7 @@ export function mapUsage(usage: PiUsage): TokenUsage {
-     outputTokens: usage.output,
+@@ -28,6 +29,7 @@ export function mapUsage(usage: PiUsage): TokenUsage {
+     totalTokens: usage.totalTokens,
      ...usage.cacheRead > 0 ? { cacheReadTokens: usage.cacheRead } : {},
      ...usage.cacheWrite > 0 ? { cacheWriteTokens: usage.cacheWrite } : {},
 +    ...usage.reasoning !== undefined && usage.reasoning > 0 ? { reasoningTokens: usage.reasoning } : {},
@@ -24,7 +26,7 @@ index d45df45a39..51fac8f7b9 100644
  }
  
 diff --git a/packages/llm/llm-pi-ai/tests/convert.spec.ts b/packages/llm/llm-pi-ai/tests/convert.spec.ts
-index c540f2d50b..bd4845bc10 100644
+index c80df43df1..30e7aeba95 100644
 --- a/packages/llm/llm-pi-ai/tests/convert.spec.ts
 +++ b/packages/llm/llm-pi-ai/tests/convert.spec.ts
 @@ -8,12 +8,13 @@ import { toPiContext } from '../src/context.ts'
@@ -42,7 +44,7 @@ index c540f2d50b..bd4845bc10 100644
      totalTokens: input + output + cacheRead + cacheWrite,
      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
    }
-@@ -874,14 +875,16 @@ describe('mapStopReason / mapUsage', () => {
+@@ -886,15 +887,17 @@ describe('mapStopReason / mapUsage', () => {
      })
    })
  
@@ -52,12 +54,13 @@ index c540f2d50b..bd4845bc10 100644
 +    expect(mapUsage(usage(10, 5, 8, 2, 4))).toEqual({
        inputTokens: 10,
        outputTokens: 5,
+       totalTokens: 25,
        cacheReadTokens: 8,
        cacheWriteTokens: 2,
 +      reasoningTokens: 4,
      })
-     expect(mapUsage(usage(10, 5))).toEqual({ inputTokens: 10, outputTokens: 5 })
-+    expect(mapUsage(usage(10, 5, 0, 0, 0))).toEqual({ inputTokens: 10, outputTokens: 5 })
+     expect(mapUsage(usage(10, 5))).toEqual({ inputTokens: 10, outputTokens: 5, totalTokens: 15 })
++    expect(mapUsage(usage(10, 5, 0, 0, 0))).toEqual({ inputTokens: 10, outputTokens: 5, totalTokens: 15 })
    })
  })
  

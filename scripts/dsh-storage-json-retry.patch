@@ -1,124 +1,8 @@
-diff --git a/.agents/notes/implemented/bug-fix/2026-09-04-retry-transient-win32-json-replacements.i18n.yaml b/.agents/notes/implemented/bug-fix/2026-09-04-retry-transient-win32-json-replacements.i18n.yaml
-new file mode 100644
-index 0000000000..36796d6949
---- /dev/null
-+++ b/.agents/notes/implemented/bug-fix/2026-09-04-retry-transient-win32-json-replacements.i18n.yaml
-@@ -0,0 +1,6 @@
-+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-+# side as of the last confirmed-consistent state. Both languages carry equal authority;
-+# after editing either side, bring the other along and re-record with:
-+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-04-retry-transient-win32-json-replacements.md
-+2026-09-04-retry-transient-win32-json-replacements.md: cbe68a946793d96957ed30e42eec1140983606c2
-+2026-09-04-retry-transient-win32-json-replacements.zh.md: 6b4de3c0511f8993a45feccc72b7fde5610e3486
-diff --git a/.agents/notes/implemented/bug-fix/2026-09-04-retry-transient-win32-json-replacements.md b/.agents/notes/implemented/bug-fix/2026-09-04-retry-transient-win32-json-replacements.md
-new file mode 100644
-index 0000000000..cbe68a9467
---- /dev/null
-+++ b/.agents/notes/implemented/bug-fix/2026-09-04-retry-transient-win32-json-replacements.md
-@@ -0,0 +1,29 @@
-+# Agent Note: Retry transient Windows JSON replacement locks
-+
-+Status: implemented
-+
-+English | [中文](2026-09-04-retry-transient-win32-json-replacements.zh.md)
-+
-+## Problem
-+
-+`dsh-storage-json` publishes a complete unit by renaming a synced temporary file over the previous JSON file. Windows can reject that replacement with `EACCES`, `EBUSY`, or `EPERM` while a short-lived reader, indexer, or security scanner holds the target. The rejection reaches workspace mutations, rolls back the pending in-memory state, and makes an otherwise valid operation fail.
-+
-+## Decision
-+
-+`writeAtomic` retries the same closed and synced temporary file only on Windows when final replacement returns `EACCES`, `EBUSY`, or `EPERM`. It waits 50 ms more after each failure for at most ten retries, rejects an existing directory target immediately, and otherwise preserves the final filesystem error. The existing failure path removes the unpublished temporary file and leaves the caller's rollback behavior unchanged.
-+
-+Focused storage tests inject transient, terminal, and exhausted rename failures. They verify the published bytes, retry cadence, temporary-file cleanup, and the unchanged prior file after a terminal failure.
-+
-+## Alternatives considered
-+
-+**Retry the domain mutation.** Rejected because retrying a completed mutation pipeline would widen its semantics and could replay a caller-visible operation rather than only retrying the unopened replacement step.
-+
-+**Add a cross-process JSON writer lock.** Rejected because locking only replacement cannot repair each process's stale in-memory snapshot or the documented last-write-wins behavior. A correct multi-process protocol needs a separate read-modify-write design.
-+
-+**Use `ReplaceFileW` or the JSONL new-file publisher.** Rejected because those helpers implement DACL-preserving editor writes or no-replacement publication, not this whole-file replace operation.
-+
-+**Retry indefinitely.** Rejected because a permanent ACL or held handle must remain visible and must not block a domain write chain forever.
-+
-+## Consequences
-+
-+A transient Windows target lock can delay one JSON unit replacement by up to 2.75 seconds before later same-domain writes proceed. Permanent permissions, a directory at the target path, and exhausted retries still fail loud. The retry does not add write-through durability or cross-process coordination.
-diff --git a/.agents/notes/implemented/bug-fix/2026-09-04-retry-transient-win32-json-replacements.zh.md b/.agents/notes/implemented/bug-fix/2026-09-04-retry-transient-win32-json-replacements.zh.md
-new file mode 100644
-index 0000000000..6b4de3c051
---- /dev/null
-+++ b/.agents/notes/implemented/bug-fix/2026-09-04-retry-transient-win32-json-replacements.zh.md
-@@ -0,0 +1,29 @@
-+# Agent Note: 重试 Windows JSON 替换时的短暂锁定
-+
-+Status: implemented
-+
-+[English](2026-09-04-retry-transient-win32-json-replacements.md) | 中文
-+
-+## 问题
-+
-+`dsh-storage-json` 通过将已同步的临时文件重命名覆盖旧 JSON 文件来发布完整单元。短暂读取者、索引器或安全扫描器持有目标时，Windows 可能以 `EACCES`、`EBUSY` 或 `EPERM` 拒绝替换。该拒绝会传到工作区变更，回滚待提交的内存状态，并使原本有效的操作失败。
-+
-+## 决策
-+
-+只有 Windows 最终替换返回 `EACCES`、`EBUSY` 或 `EPERM` 时，`writeAtomic` 才重试同一个已关闭且已同步的临时文件。每次失败后等待时间增加 50 ms，最多重试十次；目标是已有目录时立即拒绝，其余情况保留最终文件系统错误。既有失败路径会删除未发布的临时文件，并保持调用方的回滚行为不变。
-+
-+专项存储测试注入短暂、终态和耗尽的重命名失败，验证发布的字节、重试节奏、临时文件清理，以及终态失败后未改变的原文件。
-+
-+## 考虑过的替代方案
-+
-+**重试领域变更。** 不采用，因为重试已完成的变更流水线会扩大其语义，并且可能重放调用方可见的操作，而非只重试尚未打开的替换步骤。
-+
-+**新增跨进程 JSON 写锁。** 不采用，因为只锁定替换无法修复各进程陈旧的内存快照或文档化的 last-write-wins 行为。正确的多进程协议需要单独设计读-改-写流程。
-+
-+**采用 `ReplaceFileW` 或 JSONL 的新文件发布器。** 不采用，因为这些辅助函数分别实现保留 DACL 的编辑器写入或不覆盖目标的发布，不适合该整文件替换操作。
-+
-+**无限重试。** 不采用，因为永久 ACL 或持续持有的句柄必须保持可见，且不能无限阻塞领域写链。
-+
-+## 后果
-+
-+短暂 Windows 目标锁最多可让一个 JSON 单元替换延迟 2.75 秒，此后同一领域的后续写入才能继续。永久权限、目标路径上的目录和耗尽的重试仍会快速失败。该重试不增加 write-through 持久性或跨进程协调。
-diff --git a/packages/storage/storage-json/README.i18n.yaml b/packages/storage/storage-json/README.i18n.yaml
-index 109bafd8f5..736e8ba00e 100644
---- a/packages/storage/storage-json/README.i18n.yaml
-+++ b/packages/storage/storage-json/README.i18n.yaml
-@@ -2,5 +2,5 @@
- # side as of the last confirmed-consistent state. Both languages carry equal authority;
- # after editing either side, bring the other along and re-record with:
- #   pnpm run verify-translation-pairing --write packages/storage/storage-json/README.md
--README.md: 3a079da3f516af4a3f7bc13dcf0115589fa42ff3
--README.zh.md: f9b2ffb7444893a27a2da1d3dcd324c73452cc92
-+README.md: 7755b35f90e6bd1a98e67f55ed4fe26c69f6a499
-+README.zh.md: ee374709bc4a103c7c4d6f782ee7540565a5672b
-diff --git a/packages/storage/storage-json/README.md b/packages/storage/storage-json/README.md
-index 3a079da3f5..7755b35f90 100644
---- a/packages/storage/storage-json/README.md
-+++ b/packages/storage/storage-json/README.md
-@@ -34,5 +34,5 @@ None — the backend never touches live request prefixes.
- 
- ## Known Limitations and Deferred Work
- 
--- Windows durability relies on libuv's `rename()` (`MoveFileExW` with replacement) without an explicit write-through flag; the session-log backend's stricter Win32 write-through publish helper is planned to move down here when the append-log facet lands (see the Agent Note's migration section).
-+- Windows durability relies on libuv's `rename()` (`MoveFileExW` with replacement) without an explicit write-through flag. Replacement retries transient `EACCES`/`EBUSY`/`EPERM` target locks ten times at 50 ms increasing intervals; an existing directory and the final error still fail loud. The session-log backend's stricter Win32 write-through publish helper is planned to move down here when the append-log facet lands (see the Agent Note's migration section).
- - No cross-process write locking: two processes writing the same root can interleave whole-file replacements (last write wins). Single-host-process deployments are the current consumer; the multi-process story is deferred per the Agent Note's out-of-scope table.
-diff --git a/packages/storage/storage-json/README.zh.md b/packages/storage/storage-json/README.zh.md
-index f9b2ffb744..ee374709bc 100644
---- a/packages/storage/storage-json/README.zh.md
-+++ b/packages/storage/storage-json/README.zh.md
-@@ -34,5 +34,5 @@
- 
- ## 已知限制与暂缓事项
- 
--- Windows 持久性依赖 libuv 的 `rename()`（调用 `MoveFileExW` 并启用替换），没有显式 write-through 标志；追加日志分面落地时，计划把会话日志后端更严格的 Win32 write-through 发布辅助函数下移到此处（见 Agent Note 的迁移章节）。
-+- Windows 持久性依赖 libuv 的 `rename()`（调用 `MoveFileExW` 并启用替换），没有显式 write-through 标志。替换遇到短暂的 `EACCES`/`EBUSY`/`EPERM` 目标锁时，按递增的 50 ms 间隔最多重试十次；已有目录和最终错误仍会快速失败。追加日志分面落地时，计划把会话日志后端更严格的 Win32 write-through 发布辅助函数下移到此处（见 Agent Note 的迁移章节）。
- - 没有跨进程写锁：两个进程写入同一根目录时，可能交错执行整文件替换（最后写入者胜出）。当前消费方采用单一宿主进程部署；多进程方案按 Agent Note 的范围外事项表暂缓。
 diff --git a/packages/storage/storage-json/src/atomic.ts b/packages/storage/storage-json/src/atomic.ts
-index 94691ffbc4..167d9b1b92 100644
+index 94691ffbc4..44f4bcac06 100644
 --- a/packages/storage/storage-json/src/atomic.ts
 +++ b/packages/storage/storage-json/src/atomic.ts
-@@ -3,18 +3,46 @@
+@@ -3,18 +3,47 @@
   *
   * Publish protocol: write a same-directory temp file, fsync it, then
   * `rename()` over the target. Rename is an atomic replace on POSIX and on
@@ -139,10 +23,11 @@ index 94691ffbc4..167d9b1b92 100644
  import { dirname, join } from 'node:path'
  import { randomUUID } from 'node:crypto'
  
-+// ponytail: bounded at ten retries; add caller-controlled cancellation only if real locks outlive this window.
++// Bounded at ten retries; permanent ACLs or sustained handles still fail loud.
 +const WIN32_RENAME_RETRY_LIMIT = 10
 +const WIN32_RENAME_RETRY_DELAY_MS = 50
 +
++/** Whether a rename failure is a transient Windows target lock worth retrying. */
 +async function isRetryableWin32RenameError(error: unknown, path: string): Promise<boolean> {
 +  const code = (error as NodeJS.ErrnoException | null)?.code
 +  if (process.platform !== 'win32' || (code !== 'EACCES' && code !== 'EBUSY' && code !== 'EPERM')) return false
@@ -168,7 +53,7 @@ index 94691ffbc4..167d9b1b92 100644
  /**
   * Durably replace `path` with `data`.
   * @param path - Absolute target file path.
-@@ -31,7 +59,7 @@ export async function writeAtomic(path: string, data: string): Promise<void> {
+@@ -31,7 +60,7 @@ export async function writeAtomic(path: string, data: string): Promise<void> {
      } finally {
        await handle.close()
      }

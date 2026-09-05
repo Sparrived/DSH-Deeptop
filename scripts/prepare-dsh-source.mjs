@@ -5,91 +5,88 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourceRoot = path.join(root, "vendor", "dsh");
-const publicBase = "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e";
-const publicTag = "dsh-v0.1.1-rc.2";
-const patchedCommit = "8d43a2c98da919ca01d0283320214cc29505d9ac";
+const publicBase = "a66e4702047846cdaa10c66c9d3df3951f5ea70d";
+const publicTag = "dsh-v0.1.2-rc.1";
+const patchedCommit = "0cfa6ad94b941613734f0efa31351819a9f86a5e";
 const upstream = "https://github.com/deepseek-ai/deepseek-harness.git";
 
-// The vendored runtime ships three local commits on top of the public RC2 tag.
+// The vendored runtime ships four local commits on top of the public RC1 tag.
 // Each entry reproduces one of them deterministically from its patch file:
 // identical tree, parents, message, and author/committer identity reproduce
 // the exact commit id pinned by src-tauri/src/main.rs.
 const patches = [
   {
     file: "dsh-fork-migration.patch",
-    commit: "c71b89977a95c3de951f9360225851e1f479e129",
+    commit: "594424bbe023d4dfabd858acf249e1849c6d7401",
     authorName: "Sparrived",
     authorEmail: "sparrived@outlook.com",
-    authorDate: "2026-08-20T10:47:25+0800",
-    committerDate: "2026-08-22T10:56:03+08:00",
+    authorDate: "2026-09-05T01:07:47+08:00",
+    committerDate: "2026-09-05T01:07:47+08:00",
     message: [
       "feat(session): 支持显式 preset 迁移副本",
       "",
-      "改动：为 session.fork 增加 agentPreset 迁移模式，完整复制源历史并在新会话记录替代 preset；补充 RPC 文档、Agent Note 和成功/拒绝测试。",
+      "改动：为 session.fork 增加 agentPreset 迁移模式，完整复制源历史、在新 preset 下组合子会话，并记录 agent-preset/selected 事件；无 roster 部署与未知 preset 拒绝迁移。移植 rc.2 补丁到 0.1.2-rc.1 的 session-controller。",
       "",
       "原因：删除会话原 Agent Preset 后，用户需要在明确知情的前提下恢复会话，且原会话必须保持不变。",
       "",
-      "验证：npm exec -- tsc -b tsconfig.host.json --pretty false；npm exec -- vitest run packages/host/apiproxy/tests/api-proxy-fork.spec.ts packages/host/apiproxy/tests/api-proxy-agent-preset.spec.ts packages/host/apiproxy/tests/rpc-schemas.spec.ts",
+      "验证：commands-create-fork.host.spec.ts 16 通过；session-controller 全套 430 通过；tsc -b host face 干净。",
       "",
     ].join("\n"),
   },
   {
     file: "dsh-reasoning-tokens.patch",
-    commit: "9270fce86d6a068e00b1cae955273220ceffa1a5",
-    authorName: "deeptop",
-    authorEmail: "deeptop@local",
-    authorDate: "2026-08-21T22:09:38+0800",
-    committerDate: "2026-08-22T10:56:15+08:00",
+    commit: "a1d266a9aa6eba55f00fb3aab3a4808c3e32ad6f",
+    authorName: "Sparrived",
+    authorEmail: "sparrived@outlook.com",
+    authorDate: "2026-09-05T01:08:04+08:00",
+    committerDate: "2026-09-05T01:08:04+08:00",
     message: [
       "fix(llm-pi-ai): usage 透出 provider 上报的思考 tokens",
       "",
-      "pi-ai 仅在 provider 上报 completion_tokens_details.reasoning_tokens 时提供思考拆分；",
-      "mapUsage 丢弃了该字段，导致即使 wire 上有思考数（think 内容早已通过",
-      "reasoning-delta 流出），harness usage 也始终没有 reasoningTokens。现将该字段",
-      "映射进 harness TokenUsage，作为输出的子集，与 llm-deepseek 适配器对齐。",
+      "pi-ai 仅在 provider 上报 reasoning 时提供思考拆分；mapUsage 丢弃了该字段，",
+      "导致即使 wire 上有思考数（think 内容早已通过 reasoning-delta 流出），harness",
+      "usage 也始终没有 reasoningTokens。现将该字段映射进 harness TokenUsage，作为",
+      "输出的子集，与 llm-deepseek 适配器对齐。移植 rc.2 补丁到 0.1.2-rc.1。",
       "",
-      "验证：llm-pi-ai vitest 237/237 通过（含更新的 mapUsage 用例），",
-      "tsc -b 与 tsdown bundle 已重建。",
+      "验证：convert.spec.ts 74 通过。",
       "",
     ].join("\n"),
   },
   {
     file: "dsh-pwsh-reprobe.patch",
-    commit: "7f4408325ff7dece0b98a13185dd3576d0605f60",
+    commit: "ffb1d5ffab43f8be33321f51fce99b25948f8400",
     authorName: "Sparrived",
     authorEmail: "sparrived@outlook.com",
-    authorDate: "2026-09-01T14:32:52+08:00",
-    committerDate: "2026-09-01T14:32:52+08:00",
+    authorDate: "2026-09-05T01:08:22+08:00",
+    committerDate: "2026-09-05T01:08:22+08:00",
     message: [
-      "fix(pwsh): 重新探测 Store 可执行文件",
+      "fix(pwsh): 每次 spawn 前重新探测 Store 可执行文件",
       "",
       "解析 Store app execution alias 的当前包目标，跳过已确认悬空的别名，并在每次命令启动前重新探测自动路径。",
-      "保留显式 pwshPath 与 ACL 阻止目标检查时的 alias 支持，更新中英文 README 和决策记录。",
-      "验证：pwsh-local 与 pwsh-sandbox 专项测试 54 通过、5 平台跳过；包类型检查、lint、文档配对及链接检查通过。",
+      "保留显式 pwshPath 与 ACL 阻止目标检查时的 alias 支持。移植 rc.2 补丁到 0.1.2-rc.1。",
+      "验证：executor.spec.ts 40 通过、3 平台跳过（含本机 Store alias 实测解析）。",
       "",
     ].join("\n"),
   },
   {
     file: "dsh-storage-json-retry.patch",
-    commit: "8d43a2c98da919ca01d0283320214cc29505d9ac",
+    commit: "0cfa6ad94b941613734f0efa31351819a9f86a5e",
     authorName: "Sparrived",
     authorEmail: "sparrived@outlook.com",
-    authorDate: "2026-09-04T15:03:25+08:00",
-    committerDate: "2026-09-04T15:03:25+08:00",
+    authorDate: "2026-09-05T01:08:38+08:00",
+    committerDate: "2026-09-05T01:08:38+08:00",
     message: [
       "fix(storage-json): Windows 原子替换遇短暂锁定时有界重试",
       "",
       "改动：writeAtomic 最终 rename 失败仅在 Windows 且错误码为 EACCES/EBUSY/EPERM",
       "时重试同一个已关闭并同步的临时文件，每次递增 50 ms，最多十次；目标是已有",
       "目录时立即抛出，其余错误与超限保留最后错误。失败路径仍清理临时文件并回滚",
-      "内存状态。补充双语 Agent Note 与 README 说明。",
+      "内存状态。移植 rc.2 补丁到 0.1.2-rc.1，补充独立 atomic.spec.ts。",
       "",
       "原因：Defender/索引器等短暂持有 workspace.json 时，Windows 拒绝替换并使",
       "工作区排序等写入失败；重试吸收瞬时锁，永久权限问题仍快速失败。",
       "",
-      "验证：storage-json 专项测试 24 通过（新增 5 个 atomic 用例）；storage-domain",
-      "23 通过；workspace.spec 除两个 Windows symlink 环境限制外全部通过；tsc 与",
-      "oxlint 通过。",
+      "验证：storage-json 36 通过（新增 5 个 atomic 用例）。",
       "",
     ].join("\n"),
   },
@@ -141,7 +138,7 @@ if (!fs.existsSync(path.join(sourceRoot, ".git"))) {
 }
 
 // The patches are generated against LF worktree files. Git for Windows may
-// inherit core.autocrlf=true, which changes the public RC2 checkout before
+// inherit core.autocrlf=true, which changes the public RC1 checkout before
 // git apply. Pin the temporary source checkout to LF on every platform.
 sourceGit(["config", "core.autocrlf", "false"]);
 sourceGit(["config", "core.eol", "lf"]);
@@ -155,7 +152,7 @@ if (current === patchedCommit) {
 
 sourceGit(["fetch", "--depth=1", "origin", "tag", publicTag]);
 sourceGit(["checkout", "--detach", publicBase]);
-if (sourceGit(["status", "--porcelain"])) throw new Error("公开 RC2 基线工作区不干净");
+if (sourceGit(["status", "--porcelain"])) throw new Error("公开 RC1 基线工作区不干净");
 
 for (const patch of patches) {
   // The repository patch itself can be checked out as CRLF by Git for Windows.
@@ -193,4 +190,4 @@ for (const patch of patches) {
   sourceGit(["reset", "--hard", commit]);
 }
 if (sourceGit(["status", "--porcelain"])) throw new Error("DSH 补丁应用后工作区不干净");
-console.log("✅ 已从公开 RC2 基线重建 DSH 补丁链：" + patchedCommit);
+console.log("✅ 已从公开 RC1 基线重建 DSH 补丁链：" + patchedCommit);
