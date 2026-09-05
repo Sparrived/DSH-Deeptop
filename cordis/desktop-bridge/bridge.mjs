@@ -3,6 +3,8 @@ import { createInterface } from 'node:readline'
 import { routeDesktopRequest } from './routes.mjs'
 import { initNetworkProxy, stopSystemProxyWatch } from './network-proxy.mjs'
 import { compactLiveEventFrames } from './display-history.mjs'
+import { MuxEventSynthesizer } from './events-mux.mjs'
+import { HostEventSynthesizer } from './events-host.mjs'
 
 const PROTOCOL = 'deeptop/1'
 const LIVE_EVENT_FLUSH_MS = 16
@@ -82,8 +84,8 @@ export class DesktopBridge {
   async start() {
     await this.ctx.get('loader')?.await()
     if (this.closed) return
-    if (this.ctx.get('apiProxy') === undefined) {
-      throw new Error('deeptop-bridge requires @deepseek-ai/dsh-host-apiproxy')
+    if (this.ctx.get('sessionController') === undefined || this.ctx.get('workspaceController') === undefined) {
+      throw new Error('deeptop-bridge requires @deepseek-ai/dsh-api-session-controller and @deepseek-ai/dsh-api-workspace-controller')
     }
 
     // 在开始读取请求前安装已保存的代理，避免重启后的首个模型请求绕过代理。
@@ -103,8 +105,14 @@ export class DesktopBridge {
       if (!this.closed) this.abort.abort()
     })
 
-    void this.forwardEvents('mux').catch(error => this.failOutput(error))
-    void this.forwardEvents('host').catch(error => this.failOutput(error))
+    this.muxEvents = new MuxEventSynthesizer(this.ctx, frame => this.queueLiveFrame(frame), this.abort.signal)
+    this.muxEvents.provide(this.ctx)
+    this.hostEvents = new HostEventSynthesizer(this.ctx, frame => {
+      if (this.closed) return
+      void this.write({ type: 'event', channel: 'host', frame }).catch(error => this.failOutput(error))
+    })
+    this.muxEvents.start().catch(error => this.failOutput(error))
+    this.hostEvents.start()
   }
 
   async handleLine(line) {
@@ -180,27 +188,6 @@ export class DesktopBridge {
     }
   }
 
-  async forwardEvents(channel) {
-    const api = this.ctx.apiProxy
-    const request = { rpcId: randomUUID(), payload: {} }
-    try {
-      const stream = channel === 'mux'
-        ? api.events.mux(request, this.abort.signal)
-        : api.events.host(request, this.abort.signal)
-      for await (const frame of stream) {
-        if (this.closed) return
-        if (channel === 'mux') await this.queueLiveFrame(frame)
-        else await this.write({ type: 'event', channel, frame: { rpcId: frame.rpcId, payload: frame.payload } })
-      }
-    } catch (error) {
-      if (!this.closed && !this.abort.signal.aborted) {
-        if (channel === 'mux') await this.flushLiveFrames()
-        await this.write({ type: 'diagnostic', level: 'error', message: `${channel} event stream ended: ${errorDetail(error)}` })
-      }
-    }
-    if (channel === 'mux' && !this.closed) await this.flushLiveFrames()
-  }
-
   failOutput(error) {
     if (this.closed || this.outputFailure) return
     this.outputFailure = error instanceof Error ? error : new Error(String(error))
@@ -228,6 +215,8 @@ export class DesktopBridge {
     if (this.liveFlushTimer !== undefined) clearTimeout(this.liveFlushTimer)
     this.liveFlushTimer = undefined
     this.liveFrames = []
+    this.muxEvents?.dispose()
+    this.hostEvents?.dispose()
     this.abort.abort()
     stopSystemProxyWatch()
     this.input?.close()

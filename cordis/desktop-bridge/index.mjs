@@ -1,7 +1,7 @@
 import { DesktopBridge } from './bridge.mjs'
 
 export const name = 'deeptop-bridge'
-export const inject = ['apiProxy', 'pluginInventory', 'llm', 'typertGateway', 'workspaceRegistry', 'sessionPersistence', 'sessions', 'messageAnnotations', 'agents']
+export const inject = ['pluginInventory', 'llm', 'typertGateway', 'workspaceRegistry', 'sessionPersistence', 'sessions', 'messageAnnotations', 'agents', 'sessionController', 'workspaceController', 'settingsController', 'subagents', 'agentPresets', 'goals']
 
 export function apply(ctx) {
   const bridge = new DesktopBridge(ctx)

@@ -94,16 +94,18 @@ test('compacts session history before crossing the desktop bridge', async () => 
     })),
   ]
   const response = await routeDesktopRequest({
-    apiProxy: {
-      sessions: {
-        history: async () => ({ rpcId: 'history', result: { ok: true, value: { events: raw, hasMore: false } } }),
+    get: key => key === 'sessionController' ? {
+      page: async request => {
+        assert.deepEqual(request.address, { kind: 'session', sessionId: 'session-1' })
+        assert.equal(request.throughSeq, -1)
+        return { records: raw, hasMore: false }
       },
-    },
+    } : undefined,
   }, 'session.history', { sessionId: 'session-1' }, signal)
 
-  assert.equal(response.result.value.events.length, 2)
-  assert.equal(response.result.value.events[1].event.data.chunk.text.length, 2_000)
-  assert.deepEqual(response.result.value.events[1].compactedEventSeqRanges, [[2, 2_001]])
+  assert.equal(response.events.length, 2)
+  assert.equal(response.events[1].event.data.chunk.text.length, 2_000)
+  assert.deepEqual(response.events[1].compactedEventSeqRanges, [[2, 2_001]])
 })
 
 test('keeps raw session history for diagnostics and JSON export', async () => {
@@ -113,19 +115,19 @@ test('keeps raw session history for diagnostics and JSON export', async () => {
   ]
   let forwardedPayload
   const response = await routeDesktopRequest({
-    apiProxy: {
-      sessions: {
-        history: async request => {
-          forwardedPayload = request.payload
-          return { rpcId: 'history', result: { ok: true, value: { events: raw, hasMore: false } } }
-        },
+    get: key => key === 'sessionController' ? {
+      page: async request => {
+        forwardedPayload = { sessionId: request.address.sessionId, maxMessages: request.maxMessages }
+        return { records: raw, hasMore: false }
       },
-    },
+    } : undefined,
   }, 'session.history', { sessionId: 'session-1', display: false }, signal)
 
-  assert.deepEqual(forwardedPayload, { sessionId: 'session-1' })
-  assert.equal(response.result.value.events, raw)
-  assert.equal(response.result.value.events.length, 2)
+  assert.deepEqual(forwardedPayload, { sessionId: 'session-1', maxMessages: undefined })
+  assert.equal(response.events.length, 2)
+  assert.equal(response.events[0].event.seq, 1)
+  assert.equal(response.events[1].event.seq, 2)
+  assert.equal(response.hasMore, false)
 })
 
 test('describes an empty plugin config without requiring a browser dialog', async () => {
@@ -480,8 +482,9 @@ test('resolves the harness home from the boot-provided dshHomePath accessor', as
     // root context before any profile entry mounts and never provides a
     // `dshHome` service, so the bridge must resolve the home through it.
     const ctx = {
-      get: key => key === 'dshHomePath' ? ((...segments) => join(root, ...segments)) : undefined,
-      apiProxy: { host: { openPath: async () => ({}) } },
+      get: key => key === 'dshHomePath' ? ((...segments) => join(root, ...segments))
+        : key === 'sessionController' ? { canOpenWorkspacePath: async () => true, list: async () => ({ items: [] }) }
+        : undefined,
     }
     const config = await routeDesktopRequest(ctx, 'plugin.config.describe', {}, signal)
     assert.deepEqual(config.plugins, [])
@@ -628,42 +631,55 @@ test('normalizes ProxyOverride into a rule list for the custom dispatcher', () =
 })
 
 test('routes an allowlisted API method with a generated RPC id', async () => {
+  const registry = {
+    list: () => [{
+      id: 'workspace-1',
+      path: 'D:/repo',
+      title: 'repo',
+      sessionIds: [],
+      createdAt: '2026-08-15T00:00:00.000Z',
+      updatedAt: '2026-08-15T00:00:00.000Z',
+    }],
+  }
   const ctx = {
-    apiProxy: {
-      workspace: {
-        list: async request => request,
-      },
-    },
+    get: key => key === 'workspaceRegistry' ? registry : undefined,
   }
 
-  const result = await routeDesktopRequest(ctx, 'workspace.list', { cwd: 'D:/repo' }, signal)
+  const result = await routeDesktopRequest(ctx, 'workspace.list', {}, signal)
 
-  assert.match(result.rpcId, /^[0-9a-f-]{36}$/)
-  assert.deepEqual(result.payload, { cwd: 'D:/repo' })
+  assert.deepEqual(result, {
+    items: [{
+      workspaceId: 'workspace-1',
+      path: 'D:/repo',
+      title: 'repo',
+      sessionIds: [],
+      pinnedSessionIds: [],
+      createdAt: '2026-08-15T00:00:00.000Z',
+      updatedAt: '2026-08-15T00:00:00.000Z',
+    }],
+  })
 })
 
 test('probes official Host capabilities without failing when services are missing', async () => {
   const agent = { id: 'session-target' }
+  const registry = { list: () => [], get: () => ({}) }
   const ctx = {
-    apiProxy: {
-      sessions: { list: async () => [] },
-      workspace: { list: async () => [] },
-      subagents: { list: async () => [] },
-      skills: { list: async () => [] },
-      agentPresets: { list: async () => [] },
-      goals: { create: async () => ({}) },
-      settings: { describe: async () => ({}) },
-      credentials: { describe: async () => ({}) },
-      llm: { providers: async () => [] },
-      downloads: { sessionLog: async () => ({ ok: true }) },
-      host: { openPath: async () => ({ ok: true }) },
-    },
     get: key => key === 'agents' ? { get: () => agent }
-      : key === 'workspaceRegistry' ? { get: () => ({}) }
+      : key === 'workspaceRegistry' ? registry
+      : key === 'sessionController' ? { list: async () => ({ items: [] }), canOpenWorkspacePath: async () => true, page: async () => ({ records: [], hasMore: false }) }
+      : key === 'workspaceController' ? { list: async () => ({ items: [] }) }
       : key === 'fileReferences' ? { list: async () => [] }
       : key === 'sessionReferenceResolver' ? { remoteExportCandidates: async () => [] }
       : key === 'messageAnnotations' ? { list: async () => [], put: async () => ({}), delete: async () => ({}) }
+      : key === 'subagents' ? { remoteExportList: async () => ({ entries: [], parentAvailable: true }) }
+      : key === 'sessionSkillCatalog' ? { list: async () => ({ skills: [] }) }
+      : key === 'agentPresets' ? { remoteExportList: async () => ({ presets: [], authorable: true }) }
+      : key === 'goals' ? { create: async () => ({}) }
+      : key === 'settingsController' ? { describe: async () => ({}) }
+      : key === 'credentialsController' ? { describe: async () => ({}) }
+      : key === 'llm' ? { resolveModelInfo: async () => ({}) }
       : key === 'typertGateway' ? { invoke: async () => ({}) }
+      : key === 'sessionPersistence' ? { readRaw: async () => ({ filename: 'session.jsonl', content: '' }) }
       : key === 'dshHome' ? '/tmp/deeptop-capabilities-test'
       : undefined,
     pluginInventory: { list: async () => ({ entries: [] }) },
@@ -693,11 +709,18 @@ test('probes official Host capabilities without failing when services are missin
 })
 
 test('reports Tools unavailable when home or native directory opening is missing', async () => {
-  const emptyHome = await routeDesktopRequest({ apiProxy: { host: { openPath: async () => ({}) } }, get: key => key === 'dshHome' ? '   ' : undefined }, 'desktop.capabilities', {}, signal)
+  const home = '/tmp/deeptop-capabilities-test'
+  const emptyHome = await routeDesktopRequest({ get: key => key === 'dshHome' ? '   ' : undefined }, 'desktop.capabilities', {}, signal)
   assert.equal(emptyHome.services.tools, false)
-  const noHost = await routeDesktopRequest({ get: key => key === 'dshHome' ? '/tmp/deeptop-capabilities-test' : undefined }, 'desktop.capabilities', {}, signal)
+  const noHost = await routeDesktopRequest({ get: key => key === 'dshHome' ? home : undefined }, 'desktop.capabilities', {}, signal)
   assert.equal(noHost.services.tools, false)
-  const incompleteSkills = await routeDesktopRequest({ apiProxy: { skills: {} }, get: key => key === 'dshHome' ? '/tmp/deeptop-capabilities-test' : undefined }, 'desktop.capabilities', {}, signal)
+  const noOpenPath = await routeDesktopRequest({
+    get: key => key === 'dshHome' ? home : key === 'sessionController' ? {} : undefined,
+  }, 'desktop.capabilities', {}, signal)
+  assert.equal(noOpenPath.services.tools, false)
+  const incompleteSkills = await routeDesktopRequest({
+    get: key => key === 'dshHome' ? home : key === 'sessionController' ? { canOpenWorkspacePath: async () => true, list: async () => ({ items: [] }) } : undefined,
+  }, 'desktop.capabilities', {}, signal)
   assert.equal(incompleteSkills.services.skills, false)
 })
 
@@ -716,14 +739,12 @@ test('keeps typed error codes in the bridge error frame and plain text otherwise
 test('forwards an explicit session preset migration through the official fork API', async () => {
   let received
   const ctx = {
-    apiProxy: {
-      sessions: {
-        fork: async request => {
-          received = request
-          return { ok: true, value: { sessionId: 'session-migrated' } }
-        },
+    get: key => key === 'sessionController' ? {
+      fork: async request => {
+        received = request
+        return { sessionId: 'session-migrated' }
       },
-    },
+    } : undefined,
   }
 
   const result = await routeDesktopRequest(ctx, 'session.fork', {
@@ -731,9 +752,8 @@ test('forwards an explicit session preset migration through the official fork AP
     agentPreset: 'standard',
   }, signal)
 
-  assert.deepEqual(result, { ok: true, value: { sessionId: 'session-migrated' } })
-  assert.match(received.rpcId, /^[0-9a-f-]{36}$/)
-  assert.deepEqual(received.payload, {
+  assert.deepEqual(result, { sessionId: 'session-migrated' })
+  assert.deepEqual(received, {
     sessionId: 'session-source',
     agentPreset: 'standard',
   })
@@ -765,14 +785,12 @@ test('rejects malformed and unavailable RC8 reference requests', async () => {
 test('forwards image prompt content without changing the DSH wire shape', async () => {
   let received
   const ctx = {
-    apiProxy: {
-      sessions: {
-        prompt: async request => {
-          received = request
-          return { ok: true, value: { accepted: true } }
-        },
+    get: key => key === 'sessionController' ? {
+      prompt: async request => {
+        received = request
+        return { accepted: true }
       },
-    },
+    } : undefined,
   }
   const payload = {
     sessionId: 'session-image',
@@ -786,9 +804,15 @@ test('forwards image prompt content without changing the DSH wire shape', async 
 
   const result = await routeDesktopRequest(ctx, 'session.prompt', payload, signal)
 
-  assert.deepEqual(result, { ok: true, value: { accepted: true } })
-  assert.match(received.rpcId, /^[0-9a-f-]{36}$/)
-  assert.deepEqual(received.payload, payload)
+  assert.deepEqual(result, { accepted: true })
+  assert.match(received.requestId, /^[0-9a-f-]{36}$/)
+  const { requestId, ...withoutRequestId } = received
+  assert.deepEqual(withoutRequestId, {
+    sessionId: payload.sessionId,
+    mode: payload.mode,
+    content: payload.content,
+    clientTimeZone: payload.clientTimeZone,
+  })
 })
 
 test('attaches an existing session through the official workspace entity', async () => {
@@ -853,6 +877,8 @@ test('delegates workspace pins to the Cordis service and decorates listings', as
     path: 'D:/repo',
     title: 'repo',
     sessionIds: ['session-1', 'session-2'],
+    createdAt: '2026-08-15T00:00:00.000Z',
+    updatedAt: '2026-08-15T00:00:00.000Z',
   }
   const pinned = new Map()
   const sessionPins = {
@@ -869,21 +895,19 @@ test('delegates workspace pins to the Cordis service and decorates listings', as
       for (const [workspaceId, ids] of pinned) pinned.set(workspaceId, ids.filter(id => id !== sessionId))
     },
   }
-  const registry = { get: id => id === workspace.id ? workspace : undefined }
+  const registry = {
+    get: id => id === workspace.id ? workspace : undefined,
+    list: () => [workspace],
+  }
   const ctx = {
     get: key => key === 'workspaceRegistry' ? registry : key === 'sessionPins' ? sessionPins : undefined,
-    apiProxy: {
-      workspace: {
-        list: async () => ({ result: { ok: true, value: { items: [{ workspaceId: workspace.id, sessionIds: [...workspace.sessionIds] }], archivedSessionIds: [] } } }),
-      },
-    },
   }
   assert.deepEqual(
     await routeDesktopRequest(ctx, 'workspace.setSessionPinned', { workspaceId: workspace.id, sessionId: 'session-2', pinned: true }, signal),
     { workspaceId: workspace.id, pinnedSessionIds: ['session-2'] },
   )
   const listed = await routeDesktopRequest(ctx, 'workspace.list', {}, signal)
-  assert.deepEqual(listed.result.value.items[0].pinnedSessionIds, ['session-2'])
+  assert.deepEqual(listed.items[0].pinnedSessionIds, ['session-2'])
   assert.deepEqual(
     await routeDesktopRequest(ctx, 'workspace.setSessionPinned', { workspaceId: workspace.id, sessionId: 'session-2', pinned: false }, signal),
     { workspaceId: workspace.id, pinnedSessionIds: [] },
@@ -903,7 +927,7 @@ test('delegates workspace pins to the Cordis service and decorates listings', as
   }
   await routeDesktopRequest(moveContext, 'workspace.attachSession', { workspaceId: movedWorkspace.id, sessionId: 'session-1' }, signal)
   const afterMove = await routeDesktopRequest(ctx, 'workspace.list', {}, signal)
-  assert.deepEqual(afterMove.result.value.items[0].pinnedSessionIds, [])
+  assert.deepEqual(afterMove.items[0].pinnedSessionIds, [])
 })
 
 test('rejects pin writes when the Cordis pin service is not mounted', async () => {
@@ -1170,55 +1194,49 @@ test('validates artifact deletion support before inspecting attached lifecycle s
 
 test('adds model context windows and input modalities without changing the API response shape', async () => {
   const ctx = {
-    apiProxy: {
-      sessions: {
-        models: async () => ({
-          result: {
-            ok: true,
-            value: {
-              current: { provider: 'demo', model: 'chat' },
-              groups: [{ id: 'demo', models: [{ id: 'chat' }, { id: 'text-only' }] }],
-            },
-          },
-        }),
-      },
-    },
-    llm: {
+    get: key => key === 'sessionController' ? {
+      modelCatalog: async () => ({
+        groups: [{ id: 'demo', models: [{ id: 'chat' }, { id: 'text-only' }] }],
+        failures: [],
+        routableProviders: ['demo'],
+      }),
+    } : key === 'agentDefaultModel' ? {
+      currentSelection: () => ({ provider: 'demo', model: 'chat' }),
+    } : key === 'llm' ? {
       resolveModelInfo: async (_provider, model) => ({
         context: { contextWindow: model === 'chat' ? 262144 : 0 },
         inputModalities: model === 'chat' ? ['text', 'image'] : ['text'],
       }),
-    },
+    } : undefined,
   }
 
   const result = await routeDesktopRequest(ctx, 'session.models', {}, signal)
 
-  assert.equal(result.result.value.contextWindow, 262144)
-  assert.equal(result.result.value.groups[0].models[0].contextWindow, 262144)
-  assert.deepEqual(result.result.value.groups[0].models[0].inputModalities, ['text', 'image'])
-  assert.deepEqual(result.result.value.groups[0].models[1].inputModalities, ['text'])
+  assert.equal(result.contextWindow, 262144)
+  assert.equal(result.groups[0].models[0].contextWindow, 262144)
+  assert.deepEqual(result.groups[0].models[0].inputModalities, ['text', 'image'])
+  assert.deepEqual(result.groups[0].models[1].inputModalities, ['text'])
+  assert.deepEqual(result.current, { provider: 'demo', model: 'chat' })
+  assert.equal(result.routable, true)
 })
 
 test('enriches the host model catalog with image capabilities', async () => {
   const ctx = {
-    apiProxy: {
-      llm: {
-        models: async () => ({
-          result: {
-            ok: true,
-            value: { groups: [{ id: 'demo', models: [{ id: 'vision' }] }], failures: [] },
-          },
-        }),
-      },
-    },
-    llm: {
+    get: key => key === 'sessionController' ? {
+      modelCatalog: async () => ({
+        groups: [{ id: 'demo', models: [{ id: 'vision' }] }],
+        failures: [],
+        routableProviders: ['demo'],
+      }),
+    } : key === 'llm' ? {
       resolveModelInfo: async () => ({ inputModalities: ['text', 'image'] }),
-    },
+    } : undefined,
   }
 
   const result = await routeDesktopRequest(ctx, 'llm.models', {}, signal)
 
-  assert.deepEqual(result.result.value.groups[0].models[0].inputModalities, ['text', 'image'])
+  assert.deepEqual(result.groups[0].models[0].inputModalities, ['text', 'image'])
+  assert.deepEqual(result.failures, [])
 })
 
 test('forwards a validated Typert Remote call through the desktop bridge', async () => {
@@ -1295,8 +1313,13 @@ test('lists, opens, and removes a user Skill through the settings routes', async
   }))
   const opened = []
   const ctx = {
-    get: key => key === 'dshHome' ? root : undefined,
-    apiProxy: { host: { openPath: async request => { opened.push(request.payload.path); return { opened: true } } } },
+    get: key => key === 'dshHome' ? root
+      : key === 'sessionController' ? {
+          canOpenWorkspacePath: () => true,
+          openWorkspacePath: async request => { opened.push(request.path); return { opened: true } },
+        }
+      : key === 'sessionPersistence' ? { readRaw: async () => ({ filename: 'session.jsonl', content: '' }) }
+      : undefined,
   }
   try {
     const description = await routeDesktopRequest(ctx, 'tool.settings.describe', {}, signal)
@@ -1501,94 +1524,90 @@ test('selects the canonical skills directory when a repository ships mirrored sk
   assert.equal(selectSkillPath(['skills/one', 'skills/two'], 'other-repo'), undefined)
 })
 
-test('streams the official session ZIP endpoint into a temp file for the native save surface', async () => {
+test('builds a session ZIP into a temp file for the native save surface', async () => {
+  const seen = []
   let result
   try {
     result = await routeDesktopRequest({
-      apiProxy: {
-        downloads: {
-          sessionLog: async request => {
-            assert.deepEqual(request, { sessionId: 'session-123', includeDescendants: true })
-            return new Response(Uint8Array.from([80, 75, 3, 4]), {
-              headers: { 'content-type': 'application/zip' },
-            })
-          },
+      get: key => key === 'sessionPersistence' ? {
+        readRaw: async (sessionId, requestSignal) => {
+          seen.push(sessionId)
+          assert.equal(requestSignal, signal)
+          return { filename: `session-${sessionId}.jsonl`, content: '{"session":"data"}\n' }
         },
-      },
+        list: async () => [{
+          id: 'session-descendant',
+          parentSession: 'session-123',
+          origin: 'subagent',
+          createdAt: 1,
+          cwd: '/tmp',
+        }],
+      } : undefined,
     }, 'session.exportZip', { sessionId: 'session-123', includeDescendants: true }, signal)
   } catch (error) {
     throw error
   }
 
   try {
+    assert.deepEqual(seen, ['session-123', 'session-descendant'])
     assert.equal(result.filename, 'dsh-session-session-123.zip')
     assert.equal(result.contentType, 'application/zip')
-    assert.equal(result.size, 4)
     assert.match(result.tempPath, /deeptop-session-export-[^/\\]+[/\\]session\.zip$/)
     const bytes = await readFile(result.tempPath)
-    assert.equal(bytes.toString('hex'), '504b0304')
+    assert.equal(bytes.length, result.size)
+    // Valid ZIP: local-file magic for the first entry and the EOCD record tail.
+    assert.equal(bytes.toString('utf8', 0, 4), 'PK\u0003\u0004')
+    assert.equal(bytes.toString('utf8', bytes.length - 22, bytes.length - 18), 'PK\u0005\u0006')
   } finally {
     await removePath(dirname(result.tempPath), { recursive: true, force: true }).catch(() => undefined)
   }
 })
 
-test('reports the official session ZIP error body without fabricating a file', async () => {
+test('reports a missing session artifact without fabricating a file', async () => {
   await assert.rejects(
     routeDesktopRequest({
-      apiProxy: {
-        downloads: {
-          sessionLog: async () => new Response('session export denied', { status: 403 }),
-        },
-      },
+      get: key => key === 'sessionPersistence' ? {
+        readRaw: async () => undefined,
+        list: async () => [],
+      } : undefined,
     }, 'session.exportZip', { sessionId: 'session-123' }, signal),
-    /session export denied/,
+    /没有可导出的日志文件/,
   )
 })
 
-test('passes cancellation to the official session ZIP endpoint', async () => {
+test('passes cancellation to the official session persistence endpoint', async () => {
   const controller = new AbortController()
   controller.abort()
-  let receivedSignal
+  let reachedPersistence = false
   await assert.rejects(
     routeDesktopRequest({
-      apiProxy: {
-        downloads: {
-          sessionLog: async (_request, requestSignal) => {
-            receivedSignal = requestSignal
-            requestSignal.throwIfAborted()
-            return new Response('unreachable')
-          },
+      get: key => key === 'sessionPersistence' ? {
+        readRaw: async () => {
+          reachedPersistence = true
+          return { filename: 'session.jsonl', content: '' }
         },
-      },
+        list: async () => [],
+      } : undefined,
     }, 'session.exportZip', { sessionId: 'session-123' }, controller.signal),
     /aborted/,
   )
-  assert.equal(receivedSignal, controller.signal)
+  assert.equal(reachedPersistence, false)
 })
 
-test('cleans up the temp file when the ZIP stream is aborted mid-write', async () => {
+test('cleans up when the export is aborted before writing the temp file', async () => {
   const before = new Set((await readdir(tmpdir())).map(String))
   const controller = new AbortController()
-  const stream = new ReadableStream({
-    pull(c) {
-      c.enqueue(Uint8Array.from([80, 75]))
-      return new Promise(resolve => {
-        setTimeout(() => {
-          controller.abort()
-          resolve()
-        }, 5)
-      })
-    },
-  })
   await assert.rejects(
     routeDesktopRequest({
-      apiProxy: {
-        downloads: {
-          sessionLog: async () => new Response(stream, { headers: { 'content-type': 'application/zip' } }),
+      get: key => key === 'sessionPersistence' ? {
+        readRaw: async () => {
+          controller.abort()
+          throw new Error('aborted by persistence')
         },
-      },
+        list: async () => [],
+      } : undefined,
     }, 'session.exportZip', { sessionId: 'session-123' }, controller.signal),
-    /aborted/,
+    /aborted by persistence/,
   )
   // The temp directories created by THIS export must be removed (the first
   // streaming export test cleaned up its own; other tests may run in parallel).
@@ -1599,7 +1618,7 @@ test('cleans up the temp file when the ZIP stream is aborted mid-write', async (
 
 test('rejects invalid native session ZIP requests before contacting DSH', async () => {
   let called = false
-  const ctx = { apiProxy: { downloads: { sessionLog: async () => { called = true; return new Response() } } } }
+  const ctx = { get: key => key === 'sessionPersistence' ? { list: async () => [], readRaw: async () => { called = true; return { filename: 'x', content: '' } } } : undefined }
   await assert.rejects(routeDesktopRequest(ctx, 'session.exportZip', { sessionId: '' }, signal), /requires sessionId/)
   await assert.rejects(routeDesktopRequest(ctx, 'session.exportZip', { sessionId: 'session-123', includeDescendants: 'yes' }, signal), /requires sessionId/)
   assert.equal(called, false)

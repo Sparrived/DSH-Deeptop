@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import { mkdtemp, open, readFile, rename, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
@@ -25,25 +25,93 @@ import {
   setUiPluginStorage,
 } from '../ui-registry/routes.mjs'
 import { loadProxySetting, resolveEffectiveProxy, setProxySetting } from './network-proxy.mjs'
-import { compactHistoryResponse } from './display-history.mjs'
+import { compactHistoryEntries } from './display-history.mjs'
+import { codedError, resolveAgent, requireService } from './api.mjs'
+import { unfoldRecords } from './session-records.mjs'
+import { buildZip } from './zip-writer.mjs'
+import {
+  agentPresetCopy,
+  agentPresetList,
+  agentPresetOpenDocument,
+  agentPresetRead,
+  agentPresetRemove,
+  agentPresetSelect,
+  credentialsDescribe,
+  credentialsSet,
+  credentialsUnset,
+  goalClear,
+  goalComplete,
+  goalCreate,
+  goalEdit,
+  goalPause,
+  goalResume,
+  hostCreateDirectory,
+  hostDescribe,
+  hostListDirectory,
+  hostModels,
+  hostOpenPath,
+  hostPickDirectory,
+  llmDiscoverModels,
+  llmProviders,
+  respond,
+  sessionAttachment,
+  sessionCancel,
+  sessionCreate,
+  sessionFork,
+  sessionHistory,
+  sessionList,
+  sessionModels,
+  sessionPrompt,
+  sessionRename,
+  sessionSearch,
+  sessionSelectModel,
+  sessionUpdateQueue,
+  settingsDescribe,
+  settingsMutate,
+  settingsOpenDocument,
+  settingsReplace,
+  settingsUpdate,
+  skillList,
+  subagentHistory,
+  subagentInterrupt,
+  subagentList,
+  subagentPrompt,
+  workspaceArchiveSession,
+  workspaceCreate,
+  workspaceInsertSessionBefore,
+  workspaceList,
+  workspaceRename,
+} from './desktop-api.mjs'
 
 function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function codedError(code, message, details) {
-  const error = new Error(message)
-  error.code = code
-  if (details !== undefined) error.details = details
-  return error
+// rc.1 keeps the registry's durable archive set but publishes no restore or
+// permanent-delete verbs; the desktop composes those two mutations against
+// the registry's public `global`/`state` fields under one private serial
+// chain per registry so concurrent requests cannot interleave.
+const archiveMutationChains = new WeakMap()
+
+function serializeArchiveMutation(registry, operation) {
+  const tail = archiveMutationChains.get(registry) ?? Promise.resolve()
+  const next = tail.then(operation, operation)
+  archiveMutationChains.set(registry, next.catch(() => undefined))
+  return next
 }
 
 function requireToolSettings(ctx, { nativeDirectory = false } = {}) {
   if (resolveDshHome(ctx) === undefined) {
     throw codedError('tools-unavailable', '工具设置需要可用的 DSH_HOME', { capability: 'tools' })
   }
-  if (nativeDirectory && typeof ctx?.apiProxy?.host?.openPath !== 'function') {
-    throw codedError('host-unavailable', '打开 Skills 目录需要 Host 原生目录服务', { capability: 'host.openPath' })
+  if (nativeDirectory) {
+    const sessionController = ctx.get?.('sessionController')
+    const canOpen = typeof sessionController?.canOpenWorkspacePath === 'function'
+      ? sessionController.canOpenWorkspacePath()
+      : false
+    if (!canOpen) {
+      throw codedError('host-unavailable', '打开 Skills 目录需要 Host 原生目录服务', { capability: 'session.openWorkspacePath' })
+    }
   }
 }
 
@@ -105,35 +173,51 @@ async function exportSessionZip(ctx, payload, signal) {
     || (payload.includeDescendants !== undefined && typeof payload.includeDescendants !== 'boolean')) {
     throw new Error('session.exportZip requires sessionId and an optional boolean includeDescendants')
   }
-  const response = await ctx.apiProxy.downloads.sessionLog({
-    sessionId: payload.sessionId,
-    ...(payload.includeDescendants === true ? { includeDescendants: true } : {}),
-  }, signal)
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '')
-    throw new Error(detail || `session export failed with HTTP ${response.status}`)
+  const persistence = ctx.get?.('sessionPersistence')
+  if (!persistence || typeof persistence.readRaw !== 'function') {
+    throw codedError('session-export-unavailable', '会话导出需要可用的会话持久化后端', { capability: 'sessionPersistence' })
   }
-  // 原生流式转移：把官方 Host 返回的 ZIP 流直接写入临时文件，绝不在内存里
-  // 缓冲整个 archive，也不把 Base64 塞进 Bridge JSONL。前端随后调用 Tauri
-  // 的原生“另存为”命令把临时文件转移到用户选择的位置，取消时由 Tauri 清理。
+  const flush = ctx.get?.('sessions')
+  signal?.throwIfAborted()
+  const headers = await persistence.list(signal)
+  const safeSessionId = payload.sessionId.replace(/[^A-Za-z0-9_-]/g, '_')
+
+  const rawFor = async sessionId => {
+    signal?.throwIfAborted()
+    if (flush && typeof flush.get === 'function' && typeof flush.flush === 'function') {
+      const live = flush.get(sessionId)
+      if (live !== undefined) await flush.flush(live)
+    }
+    signal?.throwIfAborted()
+    const raw = await persistence.readRaw(sessionId, signal)
+    if (raw === undefined) throw new Error(`session ${JSON.stringify(sessionId)} 没有可导出的日志文件`)
+    return raw
+  }
+
+  const root = await rawFor(payload.sessionId)
+  const entries = [{ path: root.filename, content: root.content }]
+  if (payload.includeDescendants === true) {
+    const pending = [payload.sessionId]
+    const seen = new Set([payload.sessionId])
+    while (pending.length > 0) {
+      const parent = pending.shift()
+      for (const header of headers) {
+        if (header?.parentSession !== parent || header.origin !== 'subagent' || seen.has(header.id)) continue
+        seen.add(header.id)
+        const raw = await rawFor(header.id)
+        entries.push({ path: `subagents/${header.id.replace(/[^A-Za-z0-9_-]/g, '_')}/${raw.filename}`, content: raw.content })
+        pending.push(header.id)
+      }
+    }
+  }
+  const archive = buildZip(entries)
+  signal?.throwIfAborted()
   const directory = await mkdtemp(join(tmpdir(), 'deeptop-session-export-'))
   const tempPath = join(directory, 'session.zip')
-  let size = 0
   try {
     const handle = await open(tempPath, 'w')
     try {
-      if (response.body && typeof response.body[Symbol.asyncIterator] === 'function') {
-        for await (const chunk of response.body) {
-          signal?.throwIfAborted()
-          const bytes = Buffer.from(chunk)
-          await handle.writeFile(bytes)
-          size += bytes.byteLength
-        }
-      } else {
-        const bytes = Buffer.from(await response.arrayBuffer())
-        await handle.writeFile(bytes)
-        size = bytes.byteLength
-      }
+      await handle.writeFile(archive)
     } finally {
       await handle.close()
     }
@@ -141,12 +225,11 @@ async function exportSessionZip(ctx, payload, signal) {
     await rm(directory, { recursive: true, force: true }).catch(() => undefined)
     throw error
   }
-  const safeSessionId = payload.sessionId.replace(/[^A-Za-z0-9_-]/g, '_')
   return {
     tempPath,
-    contentType: response.headers.get('content-type') || 'application/zip',
+    contentType: 'application/zip',
     filename: `dsh-session-${safeSessionId}.zip`,
-    size,
+    size: archive.byteLength,
   }
 }
 
@@ -232,51 +315,38 @@ async function setSessionPinned(ctx, payload) {
   return sessionPins(ctx).setSessionPinned(payload.workspaceId, payload.sessionId, payload.pinned)
 }
 
-async function decorateWorkspaceListResponse(ctx, response) {
-  if (!isRecord(response) || !isRecord(response.result) || response.result.ok !== true || !isRecord(response.result.value)) return response
-  const value = response.result.value
+async function decorateWorkspaceListResponse(ctx, value) {
+  if (!isRecord(value) || !Array.isArray(value.items)) return value
   const service = optionalSessionPins(ctx)
   return {
-    ...response,
-    result: {
-      ...response.result,
-      value: {
-        ...value,
-        items: Array.isArray(value.items) ? value.items.map(workspace => ({
-          ...workspace,
-          pinnedSessionIds: service?.forWorkspace(workspace) ?? [],
-        })) : value.items,
-      },
+    ...value,
+    items: value.items.map(workspace => ({
+      ...workspace,
+      pinnedSessionIds: service?.forWorkspace(workspace) ?? [],
+    })),
+  }
+}
+
+async function decorateWorkspaceMutationResponse(ctx, value) {
+  if (!isRecord(value) || !isRecord(value.workspace)) return value
+  const service = optionalSessionPins(ctx)
+  return {
+    ...value,
+    workspace: {
+      ...value.workspace,
+      pinnedSessionIds: service?.forWorkspace(value.workspace) ?? [],
     },
   }
 }
 
-async function decorateWorkspaceMutationResponse(ctx, response) {
-  if (!isRecord(response) || !isRecord(response.result) || response.result.ok !== true || !isRecord(response.result.value)) return response
-  const value = response.result.value
-  if (!isRecord(value.workspace)) return response
-  const service = optionalSessionPins(ctx)
-  return {
-    ...response,
-    result: {
-      ...response.result,
-      value: {
-        ...value,
-        workspace: {
-          ...value.workspace,
-          pinnedSessionIds: service?.forWorkspace(value.workspace) ?? [],
-        },
-      },
-    },
+async function deleteWorkspace(ctx, payload) {
+  const controller = ctx.get?.('workspaceController')
+  if (!controller || typeof controller.delete !== 'function') {
+    throw codedError('workspace-unavailable', 'workspace.delete 需要 @deepseek-ai/dsh-api-workspace-controller', { capability: 'workspaceController' })
   }
-}
-
-async function deleteWorkspace(ctx, request, payload) {
-  const response = await ctx.apiProxy.workspace.delete(request)
-  if (isRecord(response) && isRecord(response.result) && response.result.ok === true) {
-    await optionalSessionPins(ctx)?.clearWorkspace(payload.workspaceId)
-  }
-  return response
+  const value = await controller.delete(isRecord(payload) ? payload : {})
+  await optionalSessionPins(ctx)?.clearWorkspace(isRecord(payload)?.workspaceId)
+  return value
 }
 
 function sessionIdFromPayload(payload, method) {
@@ -289,17 +359,17 @@ function sessionIdFromPayload(payload, method) {
 function archiveRegistry(ctx) {
   const registry = ctx.get?.('workspaceRegistry')
   if (!registry
-    || typeof registry.enqueueOperation !== 'function'
     || !registry.global
     || typeof registry.global.get !== 'function'
-    || typeof registry.global.set !== 'function') {
+    || typeof registry.global.set !== 'function'
+    || !Array.isArray(registry.state?.archivedSessionIds)) {
     throw new Error('session archive mutations require the current @deepseek-ai/dsh-workspace registry')
   }
   return registry
 }
 
 function archiveState(registry) {
-  const state = typeof registry.requireState === 'function' ? registry.requireState() : registry.state
+  const state = registry.state
   if (!isRecord(state) || !Array.isArray(state.archivedSessionIds)) {
     throw new Error('session archive mutations require a readable workspace registry state')
   }
@@ -307,11 +377,9 @@ function archiveState(registry) {
 }
 
 async function persistArchivedSessionIds(registry, state, archivedSessionIds) {
-  const current = await registry.global.get()
-  if (!isRecord(current)) throw new Error('workspace registry global state is unavailable')
-  await registry.global.set({ ...current, archivedSessionIds })
-  // ponytail: the official workspace package has archive-only APIs; keep its in-memory
-  // snapshot aligned with the durable global for the two missing desktop actions.
+  await registry.global.set({ ...state, archivedSessionIds })
+  // Keep the registry's in-memory snapshot aligned with the durable global
+  // for the two desktop-only mutations the official surface does not offer.
   registry.state = { ...state, archivedSessionIds }
   return archivedSessionIds
 }
@@ -319,7 +387,7 @@ async function persistArchivedSessionIds(registry, state, archivedSessionIds) {
 async function restoreWorkspaceSession(ctx, payload) {
   const sessionId = sessionIdFromPayload(payload, 'workspace.restoreSession')
   const registry = archiveRegistry(ctx)
-  return registry.enqueueOperation(async () => {
+  return serializeArchiveMutation(registry, async () => {
     const state = archiveState(registry)
     const archivedSessionIds = [...state.archivedSessionIds]
     if (!archivedSessionIds.includes(sessionId)) return { archivedSessionIds }
@@ -360,7 +428,7 @@ async function finalizeArchivedSessionDeletion(ctx, registry, state, sessionId) 
 async function deleteArchivedSession(ctx, payload, signal) {
   const sessionId = sessionIdFromPayload(payload, 'workspace.deleteArchivedSession')
   const registry = archiveRegistry(ctx)
-  return registry.enqueueOperation(async () => {
+  return serializeArchiveMutation(registry, async () => {
     signal?.throwIfAborted()
     const state = archiveState(registry)
     if (!state.archivedSessionIds.includes(sessionId)) {
@@ -463,87 +531,34 @@ function messageAnnotations(ctx) {
   return service
 }
 
-async function enrichModelGroups(ctx, groups) {
-  if (!Array.isArray(groups)) return groups
-  return Promise.all(groups.map(async group => {
-    if (!isRecord(group) || !Array.isArray(group.models)) return group
-    const models = await Promise.all(group.models.map(async model => {
-      if (!isRecord(model) || typeof model.id !== 'string' || typeof group.id !== 'string') return model
-      try {
-        const info = await ctx.llm.resolveModelInfo(group.id, model.id)
-        const contextWindow = info?.context?.contextWindow
-        const inputModalities = Array.isArray(info?.inputModalities)
-          ? info.inputModalities.filter(value => value === 'text' || value === 'image')
-          : undefined
-        return {
-          ...model,
-          ...(typeof contextWindow === 'number' && Number.isInteger(contextWindow) && contextWindow > 0 ? { contextWindow } : {}),
-          ...(inputModalities && inputModalities.length > 0 ? { inputModalities } : {}),
-        }
-      } catch {
-        return model
-      }
-    }))
-    return { ...group, models }
-  }))
-}
-
-async function enrichModelCatalog(ctx, response, includeCurrent) {
-  const result = response?.result
-  if (!result?.ok || !isRecord(result.value)) return response
-  try {
-    const groups = await enrichModelGroups(ctx, result.value.groups)
-    const value = { ...result.value, groups }
-    if (includeCurrent) {
-      const current = result.value.current
-      if (isRecord(current) && typeof current.provider === 'string' && typeof current.model === 'string') {
-        const info = await ctx.llm.resolveModelInfo(current.provider, current.model)
-        const contextWindow = info?.context?.contextWindow
-        if (typeof contextWindow === 'number' && Number.isInteger(contextWindow) && contextWindow > 0) value.contextWindow = contextWindow
-      }
-    }
-    return { ...response, result: { ...result, value } }
-  } catch {
-    return response
-  }
-}
-
-async function sessionModels(ctx, request) {
-  return enrichModelCatalog(ctx, await ctx.apiProxy.sessions.models(request), true)
-}
-
-async function hostModels(ctx, request) {
-  return enrichModelCatalog(ctx, await ctx.apiProxy.llm.models(request), false)
-}
-
 async function openManagedSkillDirectory(ctx, signal) {
   requireToolSettings(ctx, { nativeDirectory: true })
   const path = await ensureManagedSkillDirectory(ctx)
-  return ctx.apiProxy.host.openPath({ rpcId: randomUUID(), payload: { path } }, signal)
+  return hostOpenPath(ctx, { path }, signal)
 }
 
 /** Probe which official Host capabilities are mounted in the current profile. */
 function probeDesktopCapabilities(ctx) {
-  const api = ctx.apiProxy
   const get = typeof ctx.get === 'function' ? ctx.get : () => undefined
   const has = (value, method) => value !== undefined && value !== null && (method === undefined || typeof value[method] === 'function')
   const home = resolveDshHome(ctx)
+  const sessionController = get('sessionController')
   const services = {
     bootstrap: true,
-    sessions: has(api?.sessions, 'list') && (get('sessions') !== undefined || get('agents') !== undefined),
-    workspace: has(api?.workspace, 'list') && has(get('workspaceRegistry'), 'get'),
+    sessions: has(sessionController, 'list') && (get('sessions') !== undefined || get('agents') !== undefined),
+    workspace: has(get('workspaceController'), 'list') && has(get('workspaceRegistry'), 'get'),
     references: has(get('fileReferences'), 'list') && has(get('sessionReferenceResolver'), 'remoteExportCandidates'),
     annotations: has(get('messageAnnotations'), 'list'),
-    subagents: has(api?.subagents, 'list'),
-    skills: has(api?.skills, 'list'),
-    agentPresets: has(api?.agentPresets, 'list'),
-    goals: has(api?.goals, 'create'),
-    settings: has(api?.settings, 'describe'),
-    credentials: has(api?.credentials, 'describe'),
-    llm: has(api?.llm, 'providers') || has(ctx.llm, 'resolveModelInfo'),
+    subagents: has(get('subagents'), 'remoteExportList'),
+    skills: has(get('sessionSkillCatalog'), 'list'),
+    agentPresets: has(get('agentPresets'), 'remoteExportList'),
+    goals: has(get('goals'), 'create'),
+    settings: has(get('settingsController'), 'describe'),
+    credentials: has(get('credentialsController'), 'describe'),
+    llm: has(get('llm'), 'resolveModelInfo'),
     plugins: has(ctx.pluginInventory, 'list'),
-    tools: home !== undefined && has(api?.host, 'openPath'),
-    sessionExport: has(api?.downloads, 'sessionLog'),
+    tools: home !== undefined && has(sessionController, 'canOpenWorkspacePath'),
+    sessionExport: typeof get('sessionPersistence')?.readRaw === 'function',
     commands: has(get('typertGateway'), 'invoke'),
     uiPlugins: has(get('deeptopUiRegistry'), 'list'),
   }
@@ -551,51 +566,53 @@ function probeDesktopCapabilities(ctx) {
 }
 
 export async function routeDesktopRequest(ctx, method, payload, signal) {
-  const api = ctx.apiProxy
-  const request = { rpcId: randomUUID(), payload }
+  const payloadOf = () => payload
   switch (method) {
-    case 'session.list': return api.sessions.list(request)
-    case 'session.search': return api.sessions.search(request, signal)
-    case 'session.create': return api.sessions.create(request)
+    case 'session.list': return sessionList(ctx, payloadOf(), signal)
+    case 'session.search': return sessionSearch(ctx, payloadOf(), signal)
+    case 'session.create': return sessionCreate(ctx, payloadOf())
     case 'session.history': {
       const { display = true, ...historyPayload } = payload
-      const response = await api.sessions.history({ ...request, payload: historyPayload })
-      return display ? compactHistoryResponse(response) : response
+      const events = await sessionHistory(ctx, historyPayload, signal)
+      return display ? { ...events, events: compactHistoryEntries(events.events) } : events
     }
-    case 'session.models': return sessionModels(ctx, request)
+    case 'session.models': return sessionModels(ctx, payloadOf())
     case 'reference.files': return referenceFiles(ctx, payload, signal)
     case 'reference.sessions': return referenceSessions(ctx, payload, signal)
-    case 'session.selectModel': return api.sessions.selectModel(request)
-    case 'session.rename': return api.sessions.rename(request)
-    case 'session.fork': return api.sessions.fork(request)
-    case 'session.prompt': return api.sessions.prompt(request)
-    case 'session.attachment': return api.sessions.attachment(request)
+    case 'session.selectModel': return sessionSelectModel(ctx, payloadOf())
+    case 'session.rename': return sessionRename(ctx, payloadOf())
+    case 'session.fork': return sessionFork(ctx, payloadOf())
+    case 'session.prompt': return sessionPrompt(ctx, payloadOf(), signal)
+    case 'session.attachment': return sessionAttachment(ctx, payloadOf())
     case 'session.exportZip': return exportSessionZip(ctx, payload, signal)
-    case 'session.updateQueue': return api.sessions.updateQueue(request)
-    case 'session.cancel': return api.sessions.cancel(request)
+    case 'session.updateQueue': return sessionUpdateQueue(ctx, payloadOf())
+    case 'session.cancel': return sessionCancel(ctx, payloadOf())
     case 'session.repairCorrupt': return repairCorruptSession(ctx, payload, signal)
-    case 'subagent.list': return api.subagents.list(request, signal)
-    case 'subagent.history': return compactHistoryResponse(await api.subagents.history(request, signal))
-    case 'subagent.prompt': return api.subagents.prompt(request, signal)
-    case 'subagent.interrupt': return api.subagents.interrupt(request)
-    case 'host.pickDirectory': return api.host.pickDirectory(request, signal)
-    case 'host.listDirectory': return api.host.listDirectory(request, signal)
-    case 'host.createDirectory': return api.host.createDirectory(request)
-    case 'host.openPath': return api.host.openPath(request, signal)
-    case 'workspace.list': return decorateWorkspaceListResponse(ctx, await api.workspace.list(request))
-    case 'workspace.create': return decorateWorkspaceMutationResponse(ctx, await api.workspace.create(request))
+    case 'subagent.list': return subagentList(ctx, payloadOf(), signal)
+    case 'subagent.history': {
+      const events = await subagentHistory(ctx, payloadOf(), signal)
+      return { ...events, events: compactHistoryEntries(events.events) }
+    }
+    case 'subagent.prompt': return subagentPrompt(ctx, payloadOf(), signal)
+    case 'subagent.interrupt': return subagentInterrupt(ctx, payloadOf())
+    case 'host.pickDirectory': return hostPickDirectory(ctx, signal)
+    case 'host.listDirectory': return hostListDirectory(ctx, payloadOf(), signal)
+    case 'host.createDirectory': return hostCreateDirectory(ctx, payloadOf())
+    case 'host.openPath': return hostOpenPath(ctx, payloadOf(), signal)
+    case 'workspace.list': return decorateWorkspaceListResponse(ctx, await workspaceList(ctx, signal))
+    case 'workspace.create': return decorateWorkspaceMutationResponse(ctx, await workspaceCreate(ctx, payloadOf()))
     case 'workspace.attachSession': return attachWorkspaceSession(ctx, payload)
     case 'workspace.setSessionPinned': return setSessionPinned(ctx, payload)
-    case 'workspace.rename': return decorateWorkspaceMutationResponse(ctx, await api.workspace.rename(request))
-    case 'workspace.delete': return deleteWorkspace(ctx, request, payload)
-    case 'workspace.insertSessionBefore': return api.workspace.insertSessionBefore(request)
-    case 'workspace.archiveSession': return api.workspace.archiveSession(request)
+    case 'workspace.rename': return decorateWorkspaceMutationResponse(ctx, await workspaceRename(ctx, payloadOf()))
+    case 'workspace.delete': return deleteWorkspace(ctx, payloadOf())
+    case 'workspace.insertSessionBefore': return workspaceInsertSessionBefore(ctx, payloadOf())
+    case 'workspace.archiveSession': return workspaceArchiveSession(ctx, payloadOf())
     case 'workspace.restoreSession': return restoreWorkspaceSession(ctx, payload)
     case 'workspace.deleteArchivedSession': return deleteArchivedSession(ctx, payload, signal)
     case 'messageAnnotations.list': return messageAnnotations(ctx).list(payload)
     case 'messageAnnotations.put': return messageAnnotations(ctx).put(payload)
     case 'messageAnnotations.delete': return messageAnnotations(ctx).delete(payload)
-    case 'skill.list': return api.skills.list(request)
+    case 'skill.list': return skillList(ctx, payloadOf(), signal)
     case 'skill.install': parseGitHubSource(payload); throw codedError('approval-required', 'Skill 安装必须通过 DSH skill-install 工具并完成审批')
     case 'tool.settings.describe': requireToolSettings(ctx); return describeToolSettings(ctx)
     case 'skill.settings.install': requireToolSettings(ctx); return installManagedSkill(ctx, payload, signal)
@@ -604,30 +621,30 @@ export async function routeDesktopRequest(ctx, method, payload, signal) {
     case 'skill.settings.remove': requireToolSettings(ctx); return removeManagedSkill(ctx, payload, signal)
     case 'skill.settings.openDirectory': return openManagedSkillDirectory(ctx, signal)
     case 'mcp.settings.mutate': requireToolSettings(ctx); return mutateMcpSettings(ctx, payload, signal)
-    case 'agentPreset.list': return api.agentPresets.list(request)
-    case 'agentPreset.select': return api.agentPresets.select(request)
-    case 'agentPreset.read': return api.agentPresets.read(request)
-    case 'agentPreset.copy': return api.agentPresets.copy(request)
-    case 'agentPreset.openDocument': return api.agentPresets.openDocument(request, signal)
-    case 'agentPreset.remove': return api.agentPresets.remove(request)
-    case 'goal.create': return api.goals.create(request)
-    case 'goal.edit': return api.goals.edit(request)
-    case 'goal.pause': return api.goals.pause(request)
-    case 'goal.resume': return api.goals.resume(request)
-    case 'goal.complete': return api.goals.complete(request)
-    case 'goal.clear': return api.goals.clear(request)
-    case 'settings.describe': return api.settings.describe(request)
-    case 'settings.openDocument': return api.settings.openDocument(request, signal)
-    case 'settings.update': return api.settings.update(request)
-    case 'settings.replace': return api.settings.replace(request)
-    case 'settings.mutate': return api.settings.mutate(request)
-    case 'credentials.describe': return api.credentials.describe(request)
-    case 'credentials.set': return api.credentials.set(request)
-    case 'credentials.unset': return api.credentials.unset(request)
-    case 'llm.providers': return api.llm.providers(request)
-    case 'host.describe': return api.host.describe(request)
-    case 'llm.models': return hostModels(ctx, request)
-    case 'llm.discoverModels': return api.llm.discoverModels(request, signal)
+    case 'agentPreset.list': return agentPresetList(ctx)
+    case 'agentPreset.select': return agentPresetSelect(ctx, payloadOf())
+    case 'agentPreset.read': return agentPresetRead(ctx, payloadOf())
+    case 'agentPreset.copy': return agentPresetCopy(ctx, payloadOf())
+    case 'agentPreset.openDocument': return agentPresetOpenDocument(ctx, payloadOf(), signal)
+    case 'agentPreset.remove': return agentPresetRemove(ctx, payloadOf())
+    case 'goal.create': return goalCreate(ctx, payloadOf())
+    case 'goal.edit': return goalEdit(ctx, payloadOf())
+    case 'goal.pause': return goalPause(ctx, payloadOf())
+    case 'goal.resume': return goalResume(ctx, payloadOf())
+    case 'goal.complete': return goalComplete(ctx, payloadOf())
+    case 'goal.clear': return goalClear(ctx, payloadOf())
+    case 'settings.describe': return settingsDescribe(ctx)
+    case 'settings.openDocument': return settingsOpenDocument(ctx, signal)
+    case 'settings.update': return settingsUpdate(ctx, payloadOf())
+    case 'settings.replace': return settingsReplace(ctx, payloadOf())
+    case 'settings.mutate': return settingsMutate(ctx, payloadOf())
+    case 'credentials.describe': return credentialsDescribe(ctx, payloadOf())
+    case 'credentials.set': return credentialsSet(ctx, payloadOf())
+    case 'credentials.unset': return credentialsUnset(ctx, payloadOf())
+    case 'llm.providers': return llmProviders(ctx, payloadOf())
+    case 'host.describe': return hostDescribe(ctx)
+    case 'llm.models': return hostModels(ctx, payloadOf())
+    case 'llm.discoverModels': return llmDiscoverModels(ctx, payloadOf(), signal)
     case 'remote.invoke': return invokeRemote(ctx, payload, signal)
     case 'desktop.capabilities': return probeDesktopCapabilities(ctx)
     case 'ui.plugin.list': return listUiPlugins(ctx)
@@ -646,7 +663,7 @@ export async function routeDesktopRequest(ctx, method, payload, signal) {
       return { explicit, effective }
     }
     case 'network.setProxy': return setProxySetting(payload?.proxy)
-    case 'respond': return api.respond(payload)
+    case 'respond': return respond(ctx, payload)
     default: throw new Error(`desktop bridge does not expose ${JSON.stringify(method)}`)
   }
 }
