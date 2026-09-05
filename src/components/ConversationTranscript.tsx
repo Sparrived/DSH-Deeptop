@@ -448,10 +448,57 @@ function useIncrementalText(text: string, enabled = true) {
   return setBodyRef;
 }
 
-// Parse the growing response as Markdown too; ReactMarkdown safely handles
-// incomplete fences/lists and keeps the conversation readable during a stream.
+const STREAMING_TEXT_FRAME_MS = 30;
+const STREAMING_TEXT_MAX_TRAIL = 48;
+
+export function nextStreamingTextFrame(visibleText: string, targetText: string) {
+  if (visibleText === targetText || !targetText.startsWith(visibleText)) return targetText;
+  const remaining = targetText.length - visibleText.length;
+  const revealLength = remaining > STREAMING_TEXT_MAX_TRAIL
+    ? remaining - STREAMING_TEXT_MAX_TRAIL
+    : Math.max(1, Math.ceil(remaining * 0.3));
+  let end = visibleText.length + revealLength;
+  // Never paint half of a surrogate pair while revealing emoji or rare glyphs.
+  if (end < targetText.length) {
+    const previous = targetText.charCodeAt(end - 1);
+    const next = targetText.charCodeAt(end);
+    if (previous >= 0xd800 && previous <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) end += 1;
+  }
+  return targetText.slice(0, end);
+}
+
+function useSmoothStreamingText(text: string) {
+  const [visibleText, setVisibleText] = useState(text);
+  const targetTextRef = useRef(text);
+  targetTextRef.current = text;
+  const canAnimate = typeof window !== "undefined"
+    && !(typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  const isPrefix = text.startsWith(visibleText);
+  const needsFrame = canAnimate && isPrefix && visibleText !== text;
+
+  useEffect(() => {
+    if (!canAnimate || !isPrefix) {
+      setVisibleText(targetTextRef.current);
+      return;
+    }
+    if (!needsFrame) return;
+    const timer = window.setTimeout(() => {
+      setVisibleText((current) => nextStreamingTextFrame(current, targetTextRef.current));
+    }, STREAMING_TEXT_FRAME_MS);
+    return () => window.clearTimeout(timer);
+    // Target-only updates intentionally keep the pending frame; the ref lets it
+    // consume the latest burst instead of restarting the delay for every token.
+  }, [canAnimate, isPrefix, needsFrame, visibleText]);
+
+  return canAnimate && isPrefix ? visibleText : text;
+}
+
+// Pace bursty token batches into short, adaptive frames while continuing to
+// parse the visible prefix as Markdown. Large backlogs fast-forward so the UI
+// stays close to the model instead of replaying a long typewriter animation.
 export const StreamingAssistantText = memo(function StreamingAssistantText({ text, locale, onOpenPath, onCheckPath, onOpenUrl }: { text: string; locale: UiLocale } & MarkdownEntityActions) {
-  return <MarkdownContent text={text} className="message-text streaming-assistant-text" locale={locale} onOpenPath={onOpenPath} onCheckPath={onCheckPath} onOpenUrl={onOpenUrl} />;
+  const visibleText = useSmoothStreamingText(text);
+  return <MarkdownContent text={visibleText} className="message-text streaming-assistant-text" locale={locale} onOpenPath={onOpenPath} onCheckPath={onCheckPath} onOpenUrl={onOpenUrl} />;
 }, (previous, next) => previous.text === next.text && previous.locale === next.locale);
 
 function reasoningSummary(text: string, streaming: boolean) {

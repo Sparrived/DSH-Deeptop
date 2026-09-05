@@ -31,6 +31,14 @@
   50% { opacity: .9; transform: scaleY(1); }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .streaming-assistant-text::after {
+    animation: none;
+    opacity: .65;
+    transform: none;
+  }
+}
+
 .message-text > :first-child {
   margin-top: 0;
 }

@@ -149,13 +149,12 @@ test("reopening a Think entry restores the full reasoning body", async () => {
   assert.equal(reopenedBody.childNodes.length, 1);
 });
 
-test("streaming assistant renders every growing text frame through one Markdown surface", async () => {
+test("streaming assistant keeps one Markdown surface when animation is unavailable", async () => {
   const renderer = createHookRenderer();
   const { StreamingAssistantText } = await loadTranscriptExports(renderer.react);
 
-  // Streaming now re-parses the growing response as Markdown on each frame
-  // (incomplete fences/lists are rendered readably); the component must stay a
-  // single declarative Markdown surface instead of appending raw text nodes.
+  // Server/test environments have no animation frame API, so the component
+  // must expose each complete prefix immediately through one Markdown surface.
   let tree = renderer.render(StreamingAssistantText, { text: "first", locale: "en" });
   assert.equal(tree.props.text, "first");
   assert.equal(tree.props.className, "message-text streaming-assistant-text");
@@ -173,4 +172,17 @@ test("streaming assistant renders every growing text frame through one Markdown 
   // A reset frame must reach the same single Markdown surface.
   tree = renderer.render(StreamingAssistantText, { text: "reset", locale: "en" });
   assert.equal(tree.props.text, "reset");
+});
+
+test("streaming text frames reveal bursts adaptively and preserve Unicode pairs", async () => {
+  const renderer = createHookRenderer();
+  const { nextStreamingTextFrame } = await loadTranscriptExports(renderer.react);
+
+  assert.equal(nextStreamingTextFrame("", "abcd"), "ab");
+  assert.equal(nextStreamingTextFrame("", "😀x"), "😀");
+  assert.equal(nextStreamingTextFrame("old", "replacement"), "replacement");
+  assert.equal(nextStreamingTextFrame("done", "done"), "done");
+
+  const burst = "x".repeat(100);
+  assert.equal(nextStreamingTextFrame("", burst).length, 52);
 });
