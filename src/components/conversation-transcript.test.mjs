@@ -149,33 +149,28 @@ test("reopening a Think entry restores the full reasoning body", async () => {
   assert.equal(reopenedBody.childNodes.length, 1);
 });
 
-test("streaming assistant appends through one text node across ref remounts", async () => {
+test("streaming assistant renders every growing text frame through one Markdown surface", async () => {
   const renderer = createHookRenderer();
   const { StreamingAssistantText } = await loadTranscriptExports(renderer.react);
-  const body = createPre();
 
-  let tree = renderer.render(StreamingAssistantText, { text: "first" });
-  tree.props.ref(body);
-  renderer.flushEffects();
-  assert.equal(body.textContent, "first");
-  assert.equal(body.childNodes.length, 1);
+  // Streaming now re-parses the growing response as Markdown on each frame
+  // (incomplete fences/lists are rendered readably); the component must stay a
+  // single declarative Markdown surface instead of appending raw text nodes.
+  let tree = renderer.render(StreamingAssistantText, { text: "first", locale: "en" });
+  assert.equal(tree.props.text, "first");
+  assert.equal(tree.props.className, "message-text streaming-assistant-text");
+  assert.equal(tree.props.locale, "en");
+  assert.equal(typeof tree.props.ref, "undefined");
+  assert.equal(tree.props.children, undefined);
 
-  tree = renderer.render(StreamingAssistantText, { text: "first second" });
-  renderer.flushEffects();
-  assert.equal(body.textContent, "first second");
-  assert.equal(body.childNodes.length, 1);
+  tree = renderer.render(StreamingAssistantText, { text: "first second", locale: "en" });
+  assert.equal(tree.props.text, "first second");
+  assert.equal(tree.props.className, "message-text streaming-assistant-text");
 
-  // React StrictMode may detach and reattach callback refs without replacing
-  // the DOM node. Reattaching must synchronize the cursor, not replay text.
-  tree.props.ref(null);
-  tree.props.ref(body);
-  tree = renderer.render(StreamingAssistantText, { text: "first second third" });
-  renderer.flushEffects();
-  assert.equal(body.textContent, "first second third");
-  assert.equal(body.childNodes.length, 1);
+  tree = renderer.render(StreamingAssistantText, { text: "first second third", locale: "en" });
+  assert.equal(tree.props.text, "first second third");
 
-  tree = renderer.render(StreamingAssistantText, { text: "reset" });
-  renderer.flushEffects();
-  assert.equal(body.textContent, "reset");
-  assert.equal(body.childNodes.length, 1);
+  // A reset frame must reach the same single Markdown surface.
+  tree = renderer.render(StreamingAssistantText, { text: "reset", locale: "en" });
+  assert.equal(tree.props.text, "reset");
 });
