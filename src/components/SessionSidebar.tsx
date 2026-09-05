@@ -1,6 +1,7 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useFloatingMenuPosition } from "../app/useFloatingMenuPosition";
+import { retainSessionSelection, selectAllSessions, selectedSessions, toggleSessionSelection } from "../app/session-bulk-selection";
 import type { DesktopUiRuntime } from "../lib/desktop-ui-runtime/client-runtime";
 import type { UiHostActions } from "../lib/desktop-ui-runtime/types";
 import { SlotOutlet } from "./SlotOutlet";
@@ -72,7 +73,8 @@ type SessionSidebarProps = {
   archivedSessions: DshSessionSummary[];
   activeSessionView: ActiveSessionView;
   onRestoreSession: (session: DshSessionSummary) => void | Promise<unknown>;
-  onDeleteArchivedSession: (session: DshSessionSummary) => void;
+  onArchiveSessions: (sessions: DshSessionSummary[]) => void;
+  onDeleteArchivedSessions: (sessions: DshSessionSummary[]) => void;
   selectedWorkspaceGroup: WorkspaceGroup;
   pinnedWorkspaceIds: string[];
   onTogglePinWorkspace: (workspace: DshWorkspace) => void;
@@ -104,6 +106,7 @@ type SessionSidebarProps = {
   onDragOverSessionChange: (sessionId: string | null) => void;
   onSessionDragEnd: () => void;
   onSessionContextMenu: (session: DshSessionSummary, x: number, y: number) => void;
+  onDismissSessionContextMenu: () => void;
 };
 
 export function SessionSidebar({
@@ -120,7 +123,8 @@ export function SessionSidebar({
   archivedSessions,
   activeSessionView,
   onRestoreSession,
-  onDeleteArchivedSession,
+  onArchiveSessions,
+  onDeleteArchivedSessions,
   selectedWorkspaceGroup,
   pinnedWorkspaceIds,
   onTogglePinWorkspace,
@@ -152,16 +156,36 @@ export function SessionSidebar({
   onDragOverSessionChange,
   onSessionDragEnd,
   onSessionContextMenu,
+  onDismissSessionContextMenu,
 }: SessionSidebarProps) {
   const [view, setView] = useState<SidebarView>("sessions");
   const [activeViewIds, setActiveViewIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedSessionIds, setSelectedSessionIds] = useState<ReadonlySet<string>>(() => new Set());
   const archiveOpen = view === "archive";
   const activeOpen = view === "active";
   const isActiveEligible = useMemo(() => (session: DshSessionSummary) => {
     if (activeViewIds.size === 0) return false;
     return activeViewIds.has(session.sessionId) || session.running;
   }, [activeViewIds]);
+  const selectionCandidates = useMemo(() => {
+    if (archiveOpen) return archivedSessions;
+    if (activeOpen) return [];
+    return search.trim() ? visibleSessions : selectedWorkspaceGroup.sessions;
+  }, [activeOpen, archiveOpen, archivedSessions, search, selectedWorkspaceGroup.sessions, visibleSessions]);
+  const selectedSessionItems = useMemo(() => selectedSessions(selectionCandidates, selectedSessionIds), [selectedSessionIds, selectionCandidates]);
+  const allSessionsSelected = selectionCandidates.length > 0 && selectedSessionItems.length === selectionCandidates.length;
+  useEffect(() => {
+    setSelectedSessionIds((current) => retainSessionSelection(current, selectionCandidates));
+    if (selectionCandidates.length === 0) setSelectionMode(false);
+  }, [selectionCandidates]);
+  const finishSelection = useCallback(() => {
+    onDismissSessionContextMenu();
+    setSelectionMode(false);
+    setSelectedSessionIds(new Set());
+  }, [onDismissSessionContextMenu]);
   const handleViewChange = useCallback((next: SidebarView) => {
+    finishSelection();
     setView((current) => {
       if (current === next) return current;
       if (next === "active") {
@@ -171,7 +195,13 @@ export function SessionSidebar({
       if (next === "sessions") setActiveViewIds(new Set());
       return next;
     });
-  }, [activeSessionView]);
+  }, [activeSessionView, finishSelection]);
+  const toggleSelectedSession = useCallback((session: DshSessionSummary) => {
+    setSelectedSessionIds((current) => toggleSessionSelection(current, session.sessionId));
+  }, []);
+  const toggleAllSessions = useCallback(() => {
+    setSelectedSessionIds(allSessionsSelected ? new Set() : selectAllSessions(selectionCandidates));
+  }, [allSessionsSelected, selectionCandidates]);
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const [dragCommitPending, setDragCommitPending] = useState(false);
   const { menuRef: sessionMenuRef, menuAt: sessionMenuAt } = useFloatingMenuPosition(sessionContextMenu);
@@ -214,6 +244,7 @@ export function SessionSidebar({
   }
 
   function handleChooseWorkspace(path: string) {
+    finishSelection();
     setView("sessions");
     onChooseWorkspace(path);
   }
@@ -238,10 +269,13 @@ export function SessionSidebar({
     snapshotStale={crossWorkspace && !session.running && !activeViewIds.has(session.sessionId)}
     snippet={crossWorkspace ? undefined : searchResultById.get(session.sessionId)}
     pinned={Boolean(workspaceBySessionId.get(session.sessionId)?.pinnedSessionIds?.includes(session.sessionId))}
-    canPin={Boolean(workspaceBySessionId.get(session.sessionId)) && (crossWorkspace || !search.trim())}
-    canDrag={!crossWorkspace && Boolean(workspaceBySessionId.get(session.sessionId))}
-    dragDisabled={Boolean(search.trim()) || dragCommitPending}
-    dragOver={!crossWorkspace && dragOverSessionId === session.sessionId}
+    canPin={!selectionMode && Boolean(workspaceBySessionId.get(session.sessionId)) && (crossWorkspace || !search.trim())}
+    canDrag={!selectionMode && !crossWorkspace && Boolean(workspaceBySessionId.get(session.sessionId))}
+    dragDisabled={selectionMode || Boolean(search.trim()) || dragCommitPending}
+    dragOver={!selectionMode && !crossWorkspace && dragOverSessionId === session.sessionId}
+    selectable={selectionMode && !crossWorkspace}
+    selected={selectedSessionIds.has(session.sessionId)}
+    onToggleSelected={toggleSelectedSession}
     draggedSessionRef={draggedSessionRef}
     onOpen={onOpenSession}
     onTogglePin={onToggleSessionPin}
@@ -273,16 +307,18 @@ export function SessionSidebar({
     : 0;
   const renderArchivedSession = (session: DshSessionSummary) => (
     <div
-      className={`archived-session-row session-status-${session.running ? "running" : "archived"}`}
+      className={`archived-session-row session-status-${session.running ? "running" : "archived"}${selectionMode && selectedSessionIds.has(session.sessionId) ? " is-selected" : ""}`}
       key={session.sessionId}
       aria-label={t("session.statusAria", locale, { status: t(sessionStatusLabels[session.running ? "running" : "archived"], locale) })}
     >
-      <button className="archived-session-main" type="button" onClick={() => void onOpenSession(session)}>
+      <button className="archived-session-main" type="button" onClick={() => selectionMode ? toggleSelectedSession(session) : void onOpenSession(session)}>
         <span className="archived-session-copy"><strong>{displayTitle(session, locale)}</strong><small>{formatDate(session.updatedAt)}{session.cwd ? " · " + projectName(session.cwd, locale) : ""}</small></span>
       </button>
       <div className="archived-session-actions">
-        <button type="button" onClick={() => void onRestoreSession(session)}>{t("session.restore", locale)}</button>
-        <button className="danger" type="button" onClick={() => onDeleteArchivedSession(session)}>{t("common.delete", locale)}</button>
+        {selectionMode ? <label className="archived-session-select"><input type="checkbox" checked={selectedSessionIds.has(session.sessionId)} onChange={() => toggleSelectedSession(session)} aria-label={t("session.selectAria", locale, { session: displayTitle(session, locale) })} /><span>{t("sidebar.select", locale)}</span></label> : <>
+          <button type="button" onClick={() => void onRestoreSession(session)}>{t("session.restore", locale)}</button>
+          <button className="danger" type="button" onClick={() => onDeleteArchivedSessions([session])}>{t("common.delete", locale)}</button>
+        </>}
       </div>
     </div>
   );
@@ -314,6 +350,7 @@ export function SessionSidebar({
         ) : <span>{t(activeOpen ? "sidebar.active" : "sidebar.sessions", locale)}</span>}
         <div className="sidebar-heading-actions">
           <span>{archiveOpen ? archivedSessions.length : activeOpen ? liveActiveCount : (search.trim() ? visibleSessions.length : (selectedWorkspaceGroup.sessions.length > 0 ? selectedWorkspaceGroup.sessions.length : ""))}</span>
+          {!activeOpen && selectionCandidates.length > 0 && <button className={`sidebar-selection-mode${selectionMode ? " selected" : ""}`} type="button" onClick={() => selectionMode ? finishSelection() : (onDismissSessionContextMenu(), setSelectionMode(true))} aria-pressed={selectionMode}>{t(selectionMode ? "sidebar.selectionDone" : "sidebar.select", locale)}</button>}
           {!archiveOpen && <>
             <SidebarViewButton
               view={view}
@@ -329,6 +366,14 @@ export function SessionSidebar({
         </div>
       </div>
       <div className="session-list" aria-label={t(archiveOpen ? "sidebar.archiveList" : activeOpen ? "sidebar.activeList" : "sidebar.sessionList", locale)}>
+        {selectionMode && <div className="sidebar-bulk-actions" role="toolbar" aria-label={t("sidebar.bulkActions", locale)}>
+          <span>{t("sidebar.selectedCount", locale, { count: selectedSessionItems.length })}</span>
+          <button type="button" onClick={toggleAllSessions}>{t(allSessionsSelected ? "sidebar.clearSelection" : "sidebar.selectAll", locale)}</button>
+          <button className="danger" type="button" disabled={selectedSessionItems.length === 0} onClick={() => {
+            if (archiveOpen) onDeleteArchivedSessions(selectedSessionItems);
+            else onArchiveSessions(selectedSessionItems);
+          }}>{t(archiveOpen ? "sidebar.deleteSelected" : "sidebar.archiveSelected", locale)}</button>
+        </div>}
         {archiveOpen ? (
           archivedSessions.length === 0 ? <div className="sidebar-empty">{t("sidebar.archiveEmpty", locale)}</div> : archivedSessions.map(renderArchivedSession)
         ) : activeOpen ? (

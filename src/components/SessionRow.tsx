@@ -72,6 +72,10 @@ interface SessionRowProps {
   dragOver: boolean;
   /** 活跃侧栏快照中的保留行：切走后才结束，已不在当前快照成员里。 */
   snapshotStale?: boolean;
+  /** 批量操作模式下显示可访问的行选择框。 */
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelected?: (session: DshSessionSummary) => void;
   draggedSessionRef: RefObject<string | null>;
   onOpen: (session: DshSessionSummary) => void | Promise<unknown>;
   onTogglePin: (session: DshSessionSummary) => void | Promise<unknown>;
@@ -94,6 +98,9 @@ export function SessionRow({
   dragDisabled,
   dragOver,
   snapshotStale = false,
+  selectable = false,
+  selected = false,
+  onToggleSelected,
   draggedSessionRef,
   onOpen,
   onTogglePin,
@@ -251,17 +258,25 @@ export function SessionRow({
 
   return <>
     <div
-      className={`session-row session-status-${status}${active ? " active" : ""}${dragOver ? " drag-over" : ""}${canPin ? " has-pin" : ""}${canDrag ? " is-draggable" : ""}${dragDisabled ? " drag-disabled" : ""}${pressed ? " pressed" : ""}${dragging ? " dragging" : ""}${snapshotStale && status === "idle" ? " active-snapshot-stale" : ""}`}
+      className={`session-row session-status-${status}${active ? " active" : ""}${dragOver ? " drag-over" : ""}${canPin ? " has-pin" : ""}${canDrag ? " is-draggable" : ""}${selectable ? " has-selection" : ""}${selected ? " is-selected" : ""}${dragDisabled ? " drag-disabled" : ""}${pressed ? " pressed" : ""}${dragging ? " dragging" : ""}${snapshotStale && status === "idle" ? " active-snapshot-stale" : ""}`}
       data-session-id={session.sessionId}
       data-session-pinned={pinned ? "true" : "false"}
       data-session-status={status}
       aria-label={t("session.statusAria", locale, { status: t(sessionStatusLabels[status], locale) })}
       onContextMenu={(event) => {
         event.preventDefault();
-        if (pointerDragRef.current) return;
+        if (selectable || pointerDragRef.current) return;
         onContextMenu(session, event.clientX, event.clientY);
       }}
     >
+      {selectable && <label className="session-row-select" onPointerDown={(event) => event.stopPropagation()}>
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={() => onToggleSelected?.(session)}
+          aria-label={t("session.selectAria", locale, { session: displayTitle(session, locale) })}
+        />
+      </label>}
       {canDrag && <button
         type="button"
         className="session-row-grip"
@@ -274,6 +289,10 @@ export function SessionRow({
         type="button"
         className="session-row-main"
         onClick={() => {
+          if (selectable) {
+            onToggleSelected?.(session);
+            return;
+          }
           void onOpen(session);
         }}
       >

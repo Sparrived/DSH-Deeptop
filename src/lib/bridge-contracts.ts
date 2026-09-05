@@ -165,7 +165,7 @@ const workspace = {
   "workspace.list": {
     requires: "workspace",
     payload: {} as Record<string, never>,
-    value: {} as { items: DshWorkspace[]; archivedSessionIds?: string[] },
+    value: {} as { items: DshWorkspace[]; archivedSessionIds: string[] },
   },
   "workspace.create": {
     requires: "workspace",
@@ -195,7 +195,7 @@ const workspace = {
   "workspace.archiveSession": {
     requires: "workspace",
     payload: {} as { sessionId: string },
-    value: {} as unknown,
+    value: {} as { archivedSessionIds: string[] },
   },
   "workspace.restoreSession": {
     requires: "workspace",

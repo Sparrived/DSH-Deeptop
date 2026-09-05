@@ -89,16 +89,10 @@ function isRecord(value) {
 }
 
 // rc.1 keeps the registry's durable archive set but publishes no restore or
-// permanent-delete verbs; the desktop composes those two mutations against
-// the registry's public `global`/`state` fields under one private serial
-// chain per registry so concurrent requests cannot interleave.
-const archiveMutationChains = new WeakMap()
-
+// permanent-delete verbs. Route-owned mutations must use the registry queue so
+// they cannot overwrite archiveSession or ordinary workspace writes.
 function serializeArchiveMutation(registry, operation) {
-  const tail = archiveMutationChains.get(registry) ?? Promise.resolve()
-  const next = tail.then(operation, operation)
-  archiveMutationChains.set(registry, next.catch(() => undefined))
-  return next
+  return registry.enqueueOperation(operation)
 }
 
 function requireToolSettings(ctx, { nativeDirectory = false } = {}) {
@@ -273,35 +267,37 @@ async function attachWorkspaceSession(ctx, payload) {
     throw new Error('workspace.attachSession requires workspaceId and sessionId')
   }
   const registry = ctx.get?.('workspaceRegistry')
-  if (!registry || typeof registry.get !== 'function') {
+  if (!registry || typeof registry.get !== 'function' || typeof registry.enqueueOperation !== 'function') {
     throw new Error('workspace.attachSession requires @deepseek-ai/dsh-workspace')
   }
-  const workspace = registry.get(payload.workspaceId)
-  if (!workspace || typeof workspace.attachSession !== 'function') {
-    throw new Error(`workspace "${payload.workspaceId}" not found`)
-  }
-  const previousWorkspace = typeof registry.list === 'function'
-    ? registry.list().find(item => item?.id !== workspace.id && item?.sessionIds?.includes(payload.sessionId))
-    : undefined
-  try {
-    await workspace.attachSession(payload.sessionId)
-  } catch (error) {
-    // The official entity rejects when the session's stored cwd cannot be
-    // confirmed to be the workspace directory (missing drive, moved or
-    // deleted directory). That is a recoverable environment condition, not
-    // a request fault: tag it so the frontend can explain instead of
-    // presenting the raw validation error.
-    if (error instanceof Error && error.message.includes('cannot attach session')) {
-      const wrapped = new Error(error.message)
-      wrapped.code = 'workspace-unavailable'
-      wrapped.cause = error
-      throw wrapped
+  return registry.enqueueOperation(async () => {
+    const workspace = registry.get(payload.workspaceId)
+    if (!workspace || typeof workspace.attachSession !== 'function') {
+      throw new Error(`workspace "${payload.workspaceId}" not found`)
     }
-    throw error
-  }
-  const service = optionalSessionPins(ctx)
-  if (previousWorkspace !== undefined && service !== undefined) await service.clearSession(payload.sessionId)
-  return { workspace: workspaceSnapshot(workspace, service?.forWorkspace(workspace) ?? []) }
+    const previousWorkspace = typeof registry.list === 'function'
+      ? registry.list().find(item => item?.id !== workspace.id && item?.sessionIds?.includes(payload.sessionId))
+      : undefined
+    try {
+      await workspace.attachSession(payload.sessionId)
+    } catch (error) {
+      // The official entity rejects when the session's stored cwd cannot be
+      // confirmed to be the workspace directory (missing drive, moved or
+      // deleted directory). That is a recoverable environment condition, not
+      // a request fault: tag it so the frontend can explain instead of
+      // presenting the raw validation error.
+      if (error instanceof Error && error.message.includes('cannot attach session')) {
+        const wrapped = new Error(error.message)
+        wrapped.code = 'workspace-unavailable'
+        wrapped.cause = error
+        throw wrapped
+      }
+      throw error
+    }
+    const service = optionalSessionPins(ctx)
+    if (previousWorkspace !== undefined && service !== undefined) await service.clearSession(payload.sessionId)
+    return { workspace: workspaceSnapshot(workspace, service?.forWorkspace(workspace) ?? []) }
+  })
 }
 
 async function setSessionPinned(ctx, payload) {
@@ -363,6 +359,7 @@ function archiveRegistry(ctx) {
     || !registry.global
     || typeof registry.global.get !== 'function'
     || typeof registry.global.set !== 'function'
+    || typeof registry.enqueueOperation !== 'function'
     || !Array.isArray(registry.state?.archivedSessionIds)) {
     throw new Error('session archive mutations require the current @deepseek-ai/dsh-workspace registry')
   }

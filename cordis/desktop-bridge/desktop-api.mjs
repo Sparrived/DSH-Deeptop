@@ -458,7 +458,10 @@ export async function hostDescribe(ctx) {
 export async function workspaceList(ctx, signal) {
   const registry = controller(ctx, 'workspaceRegistry')
   const list = typeof registry.list === 'function' ? registry.list() : []
-  return { items: list.map(workspaceView) }
+  return {
+    items: list.map(workspaceView),
+    archivedSessionIds: Array.isArray(registry.archivedSessionIds) ? [...registry.archivedSessionIds] : [],
+  }
 }
 
 function workspaceView(workspace) {

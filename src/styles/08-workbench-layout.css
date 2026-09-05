@@ -742,11 +742,51 @@ textarea:focus-visible {
   text-align: right;
 }
 
-.sidebar-heading-actions .sidebar-view-button {
+.sidebar-heading-actions .sidebar-view-button,
+.sidebar-heading-actions .sidebar-selection-mode {
   width: auto;
   min-width: 42px;
   padding-inline: 7px;
   white-space: nowrap;
+}
+
+.sidebar-bulk-actions {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  margin-bottom: 7px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--rail-line);
+  background: var(--rail);
+}
+
+.sidebar-bulk-actions > span {
+  margin-right: auto;
+  color: var(--rail-muted);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.sidebar-bulk-actions button {
+  min-height: 25px;
+  padding: 0 7px;
+  border: 1px solid var(--rail-line);
+  background: transparent;
+  color: var(--rail-text);
+  font-size: 11px;
+}
+
+.sidebar-bulk-actions button:disabled {
+  cursor: default;
+  opacity: .45;
+}
+
+.sidebar-bulk-actions button.danger:not(:disabled) {
+  color: var(--danger);
 }
 
 .session-list {
@@ -870,6 +910,24 @@ textarea:focus-visible {
   grid-template-columns: 18px minmax(0, 1fr) 26px;
 }
 
+.session-row.has-selection {
+  grid-template-columns: 28px minmax(0, 1fr);
+}
+
+.session-row-select {
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+
+.session-row-select input,
+.archived-session-select input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
 /* 活跃侧栏快照：切走后结束/出错的会话不再出现在新快照里，但已在当前快照中
    的会保留；保留行不再活跃时调暗，新活跃行保持醒目。 */
 .session-row.session-status-idle.active-snapshot-stale {
@@ -916,6 +974,11 @@ textarea:focus-visible {
 
 .session-row.active {
   background: color-mix(in srgb, var(--accent) 13%, var(--rail));
+}
+
+.session-row.is-selected {
+  background: color-mix(in srgb, var(--accent) 16%, var(--rail));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent);
 }
 
 .session-row.drag-over {
@@ -1317,6 +1380,11 @@ body.deeptop-window-blurred .agent-working {
   white-space: nowrap;
 }
 
+.archived-session-row.is-selected {
+  background: color-mix(in srgb, var(--accent) 16%, var(--rail));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent);
+}
+
 .archived-session-actions {
   display: flex;
   justify-content: flex-end;
@@ -1340,6 +1408,16 @@ body.deeptop-window-blurred .agent-working {
 .archived-session-actions button.danger:hover {
   border-color: color-mix(in srgb, var(--danger) 55%, var(--rail-line));
   color: var(--danger);
+}
+
+.archived-session-select {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 4px;
+  color: var(--rail-muted);
+  font-size: 11px;
 }
 
 .sidebar-bottom {

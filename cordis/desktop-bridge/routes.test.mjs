@@ -808,6 +808,7 @@ test('normalizes ProxyOverride into a rule list for the custom dispatcher', () =
 
 test('routes an allowlisted API method with a generated RPC id', async () => {
   const registry = {
+    archivedSessionIds: ['archived-1'],
     list: () => [{
       id: 'workspace-1',
       path: 'D:/repo',
@@ -833,7 +834,10 @@ test('routes an allowlisted API method with a generated RPC id', async () => {
       createdAt: '2026-08-15T00:00:00.000Z',
       updatedAt: '2026-08-15T00:00:00.000Z',
     }],
+    archivedSessionIds: ['archived-1'],
   })
+  registry.archivedSessionIds = []
+  assert.deepEqual((await routeDesktopRequest(ctx, 'workspace.list', {}, signal)).archivedSessionIds, [])
 })
 
 test('respond forwards the top-level answer payload to its pending request', async () => {
@@ -864,6 +868,8 @@ test('respond forwards the top-level answer payload to its pending request', asy
     }, signal),
     /requires an answer payload/,
   )
+})
+
 test('probes official Host capabilities without failing when services are missing', async () => {
   const agent = { id: 'session-target' }
   const registry = { list: () => [], get: () => ({}) }
@@ -1030,7 +1036,7 @@ test('attaches an existing session through the official workspace entity', async
     attachSession: async sessionId => workspace.sessionIds.unshift(sessionId),
   }
   const result = await routeDesktopRequest({
-    get: key => key === 'workspaceRegistry' ? { get: id => id === workspace.id ? workspace : undefined } : undefined,
+    get: key => key === 'workspaceRegistry' ? { get: id => id === workspace.id ? workspace : undefined, enqueueOperation: operation => operation() } : undefined,
   }, 'workspace.attachSession', { workspaceId: workspace.id, sessionId: 'session-1' }, signal)
 
   assert.deepEqual(result.workspace.sessionIds, ['session-1'])
@@ -1049,7 +1055,7 @@ test('tags cwd-validation attach failures with the workspace-unavailable code', 
       )
     },
   }
-  const registry = { get: id => id === workspace.id ? workspace : undefined }
+  const registry = { get: id => id === workspace.id ? workspace : undefined, enqueueOperation: operation => operation() }
   await assert.rejects(
     routeDesktopRequest({ get: key => key === 'workspaceRegistry' ? registry : undefined },
       'workspace.attachSession', { workspaceId: workspace.id, sessionId: 'session-offline' }, signal),
@@ -1067,12 +1073,66 @@ test('propagates non-validation attach failures unchanged', async () => {
     sessionIds: [],
     attachSession: async () => { throw new Error('storage exploded') },
   }
-  const registry = { get: id => id === workspace.id ? workspace : undefined }
+  const registry = { get: id => id === workspace.id ? workspace : undefined, enqueueOperation: operation => operation() }
   await assert.rejects(
     routeDesktopRequest({ get: key => key === 'workspaceRegistry' ? registry : undefined },
       'workspace.attachSession', { workspaceId: workspace.id, sessionId: 'session-1' }, signal),
     /storage exploded/,
   )
+})
+
+test('serializes session attachment before permanent archive deletion', async () => {
+  let state = { initialized: true, workspaceIds: [], archivedSessionIds: ['session-1'] }
+  let tail = Promise.resolve()
+  let attachStarted
+  const attachStart = new Promise(resolve => { attachStarted = resolve })
+  let releaseAttach
+  const attachGate = new Promise(resolve => { releaseAttach = resolve })
+  const workspace = {
+    id: 'workspace-1',
+    path: 'D:/repo',
+    title: 'repo',
+    sessionIds: [],
+    createdAt: '2026-08-15T00:00:00.000Z',
+    updatedAt: '2026-08-15T00:00:00.000Z',
+    attachSession: async sessionId => {
+      attachStarted()
+      await attachGate
+      workspace.sessionIds.push(sessionId)
+    },
+    detachSession: async sessionId => {
+      workspace.sessionIds = workspace.sessionIds.filter(id => id !== sessionId)
+    },
+  }
+  const registry = {
+    state,
+    global: {
+      get: () => state,
+      set: async next => { state = next },
+    },
+    get: id => id === workspace.id ? workspace : undefined,
+    list: () => [workspace],
+    enqueueOperation: operation => {
+      const next = tail.then(operation, operation)
+      tail = next.then(() => undefined, () => undefined)
+      return next
+    },
+  }
+  const ctx = {
+    get: key => key === 'workspaceRegistry' ? registry
+      : key === 'sessionPersistence' ? { list: async () => [] }
+        : undefined,
+  }
+
+  const attach = routeDesktopRequest(ctx, 'workspace.attachSession', { workspaceId: workspace.id, sessionId: 'session-1' }, signal)
+  await attachStart
+  const deletion = routeDesktopRequest(ctx, 'workspace.deleteArchivedSession', { sessionId: 'session-1' }, signal)
+  releaseAttach()
+
+  await attach
+  assert.deepEqual(await deletion, { deleted: true, archivedSessionIds: [] })
+  assert.deepEqual(workspace.sessionIds, [])
+  assert.deepEqual(state.archivedSessionIds, [])
 })
 
 test('delegates workspace pins to the Cordis service and decorates listings', async () => {
@@ -1102,6 +1162,7 @@ test('delegates workspace pins to the Cordis service and decorates listings', as
   const registry = {
     get: id => id === workspace.id ? workspace : undefined,
     list: () => [workspace],
+    enqueueOperation: operation => operation(),
   }
   const ctx = {
     get: key => key === 'workspaceRegistry' ? registry : key === 'sessionPins' ? sessionPins : undefined,
@@ -1127,6 +1188,7 @@ test('delegates workspace pins to the Cordis service and decorates listings', as
     get: key => key === 'workspaceRegistry' ? {
       list: () => [workspace, movedWorkspace],
       get: id => id === movedWorkspace.id ? movedWorkspace : id === workspace.id ? workspace : undefined,
+      enqueueOperation: operation => operation(),
     } : key === 'sessionPins' ? sessionPins : undefined,
   }
   await routeDesktopRequest(moveContext, 'workspace.attachSession', { workspaceId: movedWorkspace.id, sessionId: 'session-1' }, signal)
@@ -1142,6 +1204,111 @@ test('rejects pin writes when the Cordis pin service is not mounted', async () =
     }, 'workspace.setSessionPinned', { workspaceId: workspace.id, sessionId: 'session-1', pinned: true }, signal),
     /deeptop-bridge\/session-pins Cordis plugin/,
   )
+})
+
+test('delegates archive writes and returns the complete archive set', async () => {
+  const requests = []
+  const result = await routeDesktopRequest({
+    get: key => key === 'workspaceController' ? {
+      archiveSession: async request => {
+        requests.push(request)
+        return { archivedSessionIds: ['session-1'] }
+      },
+    } : undefined,
+  }, 'workspace.archiveSession', { sessionId: 'session-1' }, signal)
+
+  assert.deepEqual(requests, [{ sessionId: 'session-1' }])
+  assert.deepEqual(result, { archivedSessionIds: ['session-1'] })
+})
+
+test('serializes archive and restore through the workspace registry queue', async () => {
+  let state = { initialized: true, workspaceIds: [], archivedSessionIds: [] }
+  let tail = Promise.resolve()
+  let archiveStarted
+  const archiveStart = new Promise(resolve => { archiveStarted = resolve })
+  let releaseArchive
+  const archiveGate = new Promise(resolve => { releaseArchive = resolve })
+  const registry = {
+    state,
+    global: {
+      get: () => state,
+      set: async next => { state = next },
+    },
+    enqueueOperation: operation => {
+      const next = tail.then(operation, operation)
+      tail = next.then(() => undefined, () => undefined)
+      return next
+    },
+  }
+  const controller = {
+    archiveSession: ({ sessionId }) => registry.enqueueOperation(async () => {
+      archiveStarted()
+      await archiveGate
+      const next = { ...registry.state, archivedSessionIds: [...registry.state.archivedSessionIds, sessionId] }
+      await registry.global.set(next)
+      registry.state = next
+      return { archivedSessionIds: next.archivedSessionIds }
+    }),
+  }
+  const ctx = {
+    get: key => key === 'workspaceRegistry' ? registry : key === 'workspaceController' ? controller : undefined,
+  }
+
+  const archive = routeDesktopRequest(ctx, 'workspace.archiveSession', { sessionId: 'session-1' }, signal)
+  await archiveStart
+  const restore = routeDesktopRequest(ctx, 'workspace.restoreSession', { sessionId: 'session-1' }, signal)
+  releaseArchive()
+
+  assert.deepEqual(await archive, { archivedSessionIds: ['session-1'] })
+  assert.deepEqual(await restore, { archivedSessionIds: [] })
+  assert.deepEqual(state.archivedSessionIds, [])
+})
+
+test('serializes archive and permanent deletion through the workspace registry queue', async () => {
+  let state = { initialized: true, workspaceIds: [], archivedSessionIds: [] }
+  let tail = Promise.resolve()
+  let archiveStarted
+  const archiveStart = new Promise(resolve => { archiveStarted = resolve })
+  let releaseArchive
+  const archiveGate = new Promise(resolve => { releaseArchive = resolve })
+  const registry = {
+    state,
+    global: {
+      get: () => state,
+      set: async next => { state = next },
+    },
+    enqueueOperation: operation => {
+      const next = tail.then(operation, operation)
+      tail = next.then(() => undefined, () => undefined)
+      return next
+    },
+    list: () => [],
+  }
+  const controller = {
+    archiveSession: ({ sessionId }) => registry.enqueueOperation(async () => {
+      archiveStarted()
+      await archiveGate
+      const next = { ...registry.state, archivedSessionIds: [...registry.state.archivedSessionIds, sessionId] }
+      await registry.global.set(next)
+      registry.state = next
+      return { archivedSessionIds: next.archivedSessionIds }
+    }),
+  }
+  const ctx = {
+    get: key => key === 'workspaceRegistry' ? registry
+      : key === 'workspaceController' ? controller
+        : key === 'sessionPersistence' ? { list: async () => [] }
+          : undefined,
+  }
+
+  const archive = routeDesktopRequest(ctx, 'workspace.archiveSession', { sessionId: 'session-1' }, signal)
+  await archiveStart
+  const deletion = routeDesktopRequest(ctx, 'workspace.deleteArchivedSession', { sessionId: 'session-1' }, signal)
+  releaseArchive()
+
+  assert.deepEqual(await archive, { archivedSessionIds: ['session-1'] })
+  assert.deepEqual(await deletion, { deleted: true, archivedSessionIds: [] })
+  assert.deepEqual(state.archivedSessionIds, [])
 })
 
 test('restores an archived session through the workspace registry state', async () => {

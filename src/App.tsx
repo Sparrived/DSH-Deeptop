@@ -628,8 +628,10 @@ function AppContent() {
   const [questionAnswersBySession, setQuestionAnswersBySession] = useState<Record<string, Record<string, string[]>>>({});
   const [questionCustomAnswersBySession, setQuestionCustomAnswersBySession] = useState<Record<string, Record<string, string>>>({});
   const [sessionContextMenu, setSessionContextMenu] = useState<SessionContextMenu | null>(null);
-  const [confirmAction, setConfirmAction] = useState<{ action: SessionAction; session: DshSessionSummary } | null>(null);
-  const [deleteArchivedTarget, setDeleteArchivedTarget] = useState<DshSessionSummary | null>(null);
+  const [archiveTargets, setArchiveTargets] = useState<DshSessionSummary[] | null>(null);
+  const [deleteArchivedTargets, setDeleteArchivedTargets] = useState<DshSessionSummary[] | null>(null);
+  const [archiveMutationPending, setArchiveMutationPending] = useState(false);
+  const archiveMutationPendingRef = useRef(false);
   const [popupRequest, setPopupRequest] = useState<PopupRequest | null>(null);
   const [popupValue, setPopupValue] = useState("");
   const popupQueueRef = useRef<PopupRequest[]>([]);
@@ -2036,7 +2038,7 @@ function AppContent() {
     const result = sessionResult.value;
     let archivedIds = archivedSessionIds;
     if (workspaceResult.status === "fulfilled" && workspaceVersion === workspaceRequestRef.current) {
-      archivedIds = new Set((workspaceResult.value.archivedSessionIds ?? []).filter((sessionId): sessionId is string => typeof sessionId === "string" && sessionId.length > 0));
+      archivedIds = new Set(workspaceResult.value.archivedSessionIds.filter((sessionId): sessionId is string => typeof sessionId === "string" && sessionId.length > 0));
       commitWorkspaces(workspaceResult.value.items);
       setArchivedSessionIds(archivedIds);
     }
@@ -2071,13 +2073,13 @@ function AppContent() {
     }
     if (workspaceResult.status === "fulfilled" && workspaceVersion === workspaceRequestRef.current) {
       let workspaceItems = workspaceResult.value.items;
-      let archivedIds = new Set((workspaceResult.value.archivedSessionIds ?? []).filter((sessionId): sessionId is string => typeof sessionId === "string" && sessionId.length > 0));
+      let archivedIds = new Set(workspaceResult.value.archivedSessionIds.filter((sessionId): sessionId is string => typeof sessionId === "string" && sessionId.length > 0));
       const repair = await repairWorkspaceMembership(workspaceItems, sessionItems);
       if (repair.attached > 0) {
         try {
           const refreshed = await desktopRequest("workspace.list");
           workspaceItems = refreshed.items;
-          archivedIds = new Set((refreshed.archivedSessionIds ?? []).filter((sessionId): sessionId is string => typeof sessionId === "string" && sessionId.length > 0));
+          archivedIds = new Set(refreshed.archivedSessionIds.filter((sessionId): sessionId is string => typeof sessionId === "string" && sessionId.length > 0));
         } catch {
           // The attach writes are durable; the next refresh will pick up the new projection.
         }
@@ -3144,6 +3146,9 @@ function AppContent() {
       commitWorkspaces(reorderWorkspaceProjections(workspacesRef.current, payload.workspaceIds));
       return true;
     }
+    if (payload.type === "host/archived-sessions-changed") {
+      workspaceRequestRef.current += 1;
+    }
     return false;
   }
 
@@ -4005,15 +4010,31 @@ function AppContent() {
     }
   }
 
-  async function archiveSession(session: DshSessionSummary) {
+  async function archiveSessions(targets: readonly DshSessionSummary[]) {
+    const sessionsToArchive = [...new Map(targets.map((session) => [session.sessionId, session])).values()];
+    if (sessionsToArchive.length === 0 || archiveMutationPendingRef.current) return;
+    archiveMutationPendingRef.current = true;
+    setArchiveMutationPending(true);
     try {
-      await desktopRequest("workspace.archiveSession", { sessionId: session.sessionId });
-      setConfirmAction(null);
-      setArchivedSessionIds((current) => new Set(current).add(session.sessionId));
-      await loadSessions();
-      if (session.sessionId === activeSessionRef.current) startNewSession();
-      setNotice(t("notice.sessionArchived", locale));
-    } catch (error) { setErrorNotice(errorText(error, locale)); }
+      const results = await Promise.allSettled(sessionsToArchive.map((session) => desktopRequest("workspace.archiveSession", { sessionId: session.sessionId })));
+      const archived = results.flatMap((result, index) => result.status === "fulfilled" ? [sessionsToArchive[index]] : []);
+      if (archived.length > 0) {
+        setArchivedSessionIds((current) => new Set([...current, ...archived.map((session) => session.sessionId)]));
+        if (archived.some((session) => session.sessionId === activeSessionRef.current)) startNewSession();
+      }
+      setArchiveTargets(null);
+      const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+      if (failed) setErrorNotice(t("notice.sessionArchivePartial", locale, { archived: archived.length, total: sessionsToArchive.length, error: errorText(failed.reason, locale) }));
+      else setNotice(t(sessionsToArchive.length === 1 ? "notice.sessionArchived" : "notice.sessionsArchived", locale, { count: archived.length }));
+      if (archived.length > 0) void loadSessions().catch((error) => {
+        setErrorNotice(t("notice.archiveRefreshFailed", locale, { error: errorText(error, locale) }));
+      });
+    } catch (error) {
+      setErrorNotice(errorText(error, locale));
+    } finally {
+      archiveMutationPendingRef.current = false;
+      setArchiveMutationPending(false);
+    }
   }
 
   async function restoreSession(session: DshSessionSummary) {
@@ -4025,22 +4046,46 @@ function AppContent() {
     } catch (error) { setErrorNotice(errorText(error, locale)); }
   }
 
-  async function deleteArchivedSession() {
-    const session = deleteArchivedTarget;
-    if (!session) return;
+  async function deleteArchivedSessions(targets: readonly DshSessionSummary[]) {
+    const sessionsToDelete = [...new Map(targets.map((session) => [session.sessionId, session])).values()];
+    if (sessionsToDelete.length === 0 || archiveMutationPendingRef.current) return;
+    archiveMutationPendingRef.current = true;
+    setArchiveMutationPending(true);
     try {
-      await desktopRequest("workspace.deleteArchivedSession", { sessionId: session.sessionId });
-      setDeleteArchivedTarget(null);
-      await loadSessions();
-      if (session.sessionId === activeSessionRef.current) startNewSession();
-      setNotice(t("notice.archivedDeleted", locale));
-    } catch (error) { setErrorNotice(errorText(error, locale)); }
+      const results = await Promise.allSettled(sessionsToDelete.map((session) => desktopRequest("workspace.deleteArchivedSession", { sessionId: session.sessionId })));
+      const deleted = results.flatMap((result, index) => result.status === "fulfilled" && result.value.deleted ? [sessionsToDelete[index]] : []);
+      if (deleted.length > 0) {
+        const deletedIds = new Set(deleted.map((session) => session.sessionId));
+        setArchivedSessionIds((current) => new Set([...current].filter((sessionId) => !deletedIds.has(sessionId))));
+        setSessions((current) => current.filter((session) => !deletedIds.has(session.sessionId)));
+        for (const { sessionId } of deleted) {
+          sessionProjectionCache.removeSession(sessionId);
+          historyPageCache.removeSession(sessionId);
+        }
+        if (deleted.some((session) => session.sessionId === activeSessionRef.current)) startNewSession();
+      }
+      setDeleteArchivedTargets(null);
+      const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+      if (failed || deleted.length !== sessionsToDelete.length) {
+        setErrorNotice(t("notice.archivedDeletePartial", locale, { deleted: deleted.length, total: sessionsToDelete.length, error: failed ? errorText(failed.reason, locale) : t("notice.sessionMissing", locale) }));
+      } else {
+        setNotice(t(sessionsToDelete.length === 1 ? "notice.archivedDeleted" : "notice.archivedDeletedMultiple", locale, { count: deleted.length }));
+      }
+      if (deleted.length > 0) void loadSessions().catch((error) => {
+        setErrorNotice(t("notice.archiveRefreshFailed", locale, { error: errorText(error, locale) }));
+      });
+    } catch (error) {
+      setErrorNotice(errorText(error, locale));
+    } finally {
+      archiveMutationPendingRef.current = false;
+      setArchiveMutationPending(false);
+    }
   }
 
   function requestSessionAction(action: SessionAction, session: DshSessionSummary) {
     setSessionContextMenu(null);
     if (action === "pin") { void toggleSessionPin(session); return; }
-    if (action === "archive") { setConfirmAction({ action, session }); return; }
+    if (action === "archive") { setArchiveTargets([session]); return; }
     if (action === "fork") { void forkSession(session.sessionId); return; }
     if (action === "export") { void exportSession(session.sessionId); return; }
     if (action === "exportZip") { void exportSessionZip(session.sessionId); return; }
@@ -5066,7 +5111,8 @@ function AppContent() {
           archivedSessions={archivedSessions}
           activeSessionView={activeSessionView}
           onRestoreSession={restoreSession}
-          onDeleteArchivedSession={setDeleteArchivedTarget}
+          onArchiveSessions={setArchiveTargets}
+          onDeleteArchivedSessions={setDeleteArchivedTargets}
           selectedWorkspaceGroup={selectedWorkspaceGroup}
           pinnedWorkspaceIds={pinnedWorkspaceIds}
           onTogglePinWorkspace={togglePinWorkspace}
@@ -5098,6 +5144,7 @@ function AppContent() {
           onDragOverSessionChange={(sessionId) => setDragOverSessionId(sessionId)}
           onSessionDragEnd={() => setDragOverSessionId(null)}
           onSessionContextMenu={(session, x, y) => setSessionContextMenu({ session, x, y })}
+          onDismissSessionContextMenu={() => setSessionContextMenu(null)}
         />
 
         <div
@@ -5827,8 +5874,24 @@ function AppContent() {
           </div>
         </div>
       </PopupDialog>}
-      {confirmAction && <div className="confirm-backdrop" onMouseDown={() => setConfirmAction(null)}><div className="confirm-dialog" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><strong>{t("dialog.archive.title", locale)}</strong><p>{t("dialog.archive.description", locale, { session: displayTitle(confirmAction.session, locale) })}</p><div className="surface-dialog-actions"><button onClick={() => setConfirmAction(null)}>{t("common.cancel", locale)}</button><button className="confirm danger-button" onClick={() => void archiveSession(confirmAction.session)}>{t("dialog.archive.confirm", locale)}</button></div></div></div>}
-      {deleteArchivedTarget && <div className="confirm-backdrop" onMouseDown={() => setDeleteArchivedTarget(null)}><div className="confirm-dialog" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><strong>{t("dialog.deleteArchived.title", locale)}</strong><p>{t("dialog.deleteArchived.description", locale, { session: displayTitle(deleteArchivedTarget, locale) })}</p><div className="surface-dialog-actions"><button onClick={() => setDeleteArchivedTarget(null)}>{t("common.cancel", locale)}</button><button className="confirm danger-button" onClick={() => void deleteArchivedSession()}>{t("dialog.deleteArchived.confirm", locale)}</button></div></div></div>}
+      {archiveTargets && <PopupDialog
+        locale={locale}
+        title={t(archiveTargets.length === 1 ? "dialog.archive.title" : "dialog.archiveMultiple.title", locale)}
+        description={archiveTargets.length === 1 ? t("dialog.archive.description", locale, { session: displayTitle(archiveTargets[0], locale) }) : t("dialog.archiveMultiple.description", locale, { count: archiveTargets.length })}
+        className="popup-confirm-dialog"
+        role="alertdialog"
+        onClose={() => { if (!archiveMutationPending) setArchiveTargets(null); }}
+        footer={<><button type="button" disabled={archiveMutationPending} onClick={() => setArchiveTargets(null)}>{t("common.cancel", locale)}</button><button type="button" className="confirm danger-button" disabled={archiveMutationPending} onClick={() => void archiveSessions(archiveTargets)}>{t("dialog.archive.confirm", locale)}</button></>}
+      >{null}</PopupDialog>}
+      {deleteArchivedTargets && <PopupDialog
+        locale={locale}
+        title={t(deleteArchivedTargets.length === 1 ? "dialog.deleteArchived.title" : "dialog.deleteArchivedMultiple.title", locale)}
+        description={deleteArchivedTargets.length === 1 ? t("dialog.deleteArchived.description", locale, { session: displayTitle(deleteArchivedTargets[0], locale) }) : t("dialog.deleteArchivedMultiple.description", locale, { count: deleteArchivedTargets.length })}
+        className="popup-confirm-dialog"
+        role="alertdialog"
+        onClose={() => { if (!archiveMutationPending) setDeleteArchivedTargets(null); }}
+        footer={<><button type="button" disabled={archiveMutationPending} onClick={() => setDeleteArchivedTargets(null)}>{t("common.cancel", locale)}</button><button type="button" className="confirm danger-button" disabled={archiveMutationPending} onClick={() => void deleteArchivedSessions(deleteArchivedTargets)}>{t("dialog.deleteArchived.confirm", locale)}</button></>}
+      >{null}</PopupDialog>}
       {renameTarget && <div className="confirm-backdrop" onMouseDown={() => setRenameTarget(null)}><form className="confirm-dialog rename-dialog" role="dialog" aria-modal="true" onSubmit={(event) => { event.preventDefault(); void renameSession(); }} onMouseDown={(event) => event.stopPropagation()}><strong>{t("dialog.rename.title", locale)}</strong><p>{t("dialog.rename.description", locale, { session: displayTitle(renameTarget, locale) })}</p><input className="rename-dialog-input" value={renameValue} onChange={(event) => setRenameValue(event.target.value)} autoFocus aria-label={t("dialog.rename.inputAria", locale)} /><div className="surface-dialog-actions"><button type="button" onClick={() => setRenameTarget(null)}>{t("common.cancel", locale)}</button><button className="confirm" type="submit" disabled={!renameValue.trim()}>{t("common.save", locale)}</button></div></form></div>}
      </main>
   );
