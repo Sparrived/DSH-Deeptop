@@ -37,6 +37,24 @@ test("marks in-flight loads to avoid duplicate requests", () => {
   assert.equal(cache.markLoading("s1", 100), true);
 });
 
+test("caches the newest page with projections until a new event invalidates it", () => {
+  const cache = createHistoryPageCache();
+  const load = cache.beginLatestLoad("s1");
+  assert.equal(cache.isLatestCurrent("s1", load), true);
+  cache.put("s1", undefined, [entry(90)], false, { asOfSeq: 90, values: { goal: { id: "g" } } });
+  cache.endLatestLoad("s1", load);
+
+  assert.deepEqual(cache.get("s1"), {
+    entries: [entry(90)],
+    hasMore: false,
+    projections: { asOfSeq: 90, values: { goal: { id: "g" } } },
+  });
+  const staleLoad = cache.beginLatestLoad("s1");
+  cache.invalidateLatest("s1");
+  assert.equal(cache.get("s1"), undefined);
+  assert.equal(cache.isLatestCurrent("s1", staleLoad), false);
+});
+
 test("removes a session's pages and loading marks", () => {
   const cache = createHistoryPageCache();
   cache.put("s1", 100, [entry(90)], true);

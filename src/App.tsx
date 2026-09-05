@@ -146,7 +146,7 @@ import { desktopClientRuntime } from "./lib/desktop-client-runtime";
 import { desktopRequest, desktopRemoteInvoke } from "./lib/desktop-api";
 import { seedBridgeLinkStatus } from "./lib/bridge-link";
 import { overlayProjections, sessionProjectionCache } from "./app/projection-cache";
-import { historyPageCache, HISTORY_PAGE_SIZE_DEFAULT, ownsHistoryView } from "./app/history-page-cache";
+import { historyPageCache, HISTORY_PAGE_SIZE_DEFAULT, ownsHistoryView, type HistoryLatestLoad } from "./app/history-page-cache";
 import {
   indexWorkspacesBySessionId,
   reorderWorkspaceProjections,
@@ -2593,14 +2593,30 @@ function AppContent() {
     setDraftPermission(null);
     setPermissionSelect(null);
     setLoading(true);
+    let historyVersion: HistoryLatestLoad | undefined;
     try {
-      const [historyResult, modelsResult] = await Promise.all([
-        desktopRequest("session.history", {
+      const cachedHistory = historyPageCache.get(session.sessionId);
+      historyVersion = cachedHistory ? undefined : historyPageCache.beginLatestLoad(session.sessionId);
+      const historyRequest = cachedHistory
+        ? Promise.resolve({
+          events: cachedHistory.entries,
+          hasMore: cachedHistory.hasMore,
+          ...(cachedHistory.projections ? { projections: cachedHistory.projections } : {}),
+        })
+        : desktopRequest("session.history", {
           sessionId: session.sessionId,
           maxMessages: HISTORY_PAGE_SIZE,
-        }, undefined, { waitForReconnect: true }),
-        desktopRequest("session.models", { sessionId: session.sessionId }, undefined, { waitForReconnect: true }),
-      ]);
+        }, undefined, { waitForReconnect: true });
+      // Keep the expensive model catalog request concurrent, but do not make the
+      // transcript wait for it. The conversation is usable as soon as history is ready.
+      const modelsRequest = desktopRequest("session.models", { sessionId: session.sessionId }, undefined, { waitForReconnect: true })
+        .then((value) => ({ value }), (error) => ({ error }));
+      const historyResult = await historyRequest;
+      const cacheHistory = historyVersion !== undefined && historyPageCache.isLatestCurrent(session.sessionId, historyVersion);
+      if (cacheHistory) {
+        historyPageCache.put(session.sessionId, undefined, historyResult.events, historyResult.hasMore, historyResult.projections);
+      }
+      if (historyVersion !== undefined) historyPageCache.endLatestLoad(session.sessionId, historyVersion);
       if (loadRequest !== sessionLoadRequestRef.current || activeSessionRef.current !== session.sessionId) return false;
       const loadedHistory = compactDisplayHistory(historyResult.events);
       // Mux events can arrive after the Host history cut while this request is
@@ -2628,9 +2644,8 @@ function AppContent() {
       const projectionValues = mergedProjections.values;
       const loadedStats = readSessionStats(mergedHistory, { values: projectionValues });
       contextProjectionRef.current = Boolean(recordValue(projectionValues.contextPressure));
-      setSessionStats({ ...loadedStats, contextLimit: modelsResult.contextWindow ?? loadedStats.contextLimit });
+      setSessionStats(loadedStats);
       const projectedImageLimits = imageLimitsFromProjection(projectionValues?.imageLimits);
-      setModels({ ...modelsResult, ...(projectedImageLimits ? { imageLimits: projectedImageLimits } : {}) });
       setGoal((projectionValues?.goal as DshGoalProjection | null | undefined) ?? null);
       setPermissionSelect((projectionValues?.permissions as DshPermissionSelect | null | undefined) ?? null);
       setPlan((projectionValues?.plan as DshPlanProjection | null | undefined) ?? null);
@@ -2644,15 +2659,24 @@ function AppContent() {
           ? null
           : applyTodoSnapshot(historicalTodos, projectedTodos) ?? historicalTodos;
       setTodos(mergedTodos ?? null);
+      const modelsResponse = await modelsRequest;
+      if (loadRequest !== sessionLoadRequestRef.current || activeSessionRef.current !== session.sessionId) return false;
+      if ("error" in modelsResponse) throw modelsResponse.error;
+      const modelsResult = modelsResponse.value;
+      setSessionStats((current) => ({ ...current, contextLimit: modelsResult.contextWindow ?? current.contextLimit }));
+      setModels({ ...modelsResult, ...(projectedImageLimits ? { imageLimits: projectedImageLimits } : {}) });
       if (modelsResult.routable) setNotice(t("notice.sessionOpened", locale));
       else setErrorNotice(t("notice.modelRouteUnavailable", locale));
       return true;
     } catch (error) {
+      if (historyVersion !== undefined) historyPageCache.endLatestLoad(session.sessionId, historyVersion);
       if (allowAutoRepair && isSessionLogCorruption(error)) {
         // 崩溃损坏了会话日志（末尾写入不完整）：自动修复一次后重试打开。
         try {
           const repair = await repairCorruptSession(session.sessionId);
           if (repair.repaired) {
+            historyPageCache.removeSession(session.sessionId);
+            sessionProjectionCache.removeSession(session.sessionId);
             const dropped = [repair.droppedTorn > 0 ? t("notice.logDroppedTorn", locale, { count: repair.droppedTorn }) : null, repair.droppedSeqGap > 0 ? t("notice.logDroppedSeqGap", locale, { count: repair.droppedSeqGap }) : null].filter(Boolean).join("、");
             setNotice(t("notice.logAutoRepaired", locale, { recovered: repair.recoveredEvents, dropped: dropped ? t("notice.logDroppedSuffix", locale, { dropped }) : "" }));
           } else {
@@ -2710,6 +2734,8 @@ function AppContent() {
     try {
       const repair = await repairCorruptSession(target.sessionId);
       if (repair.repaired) {
+        historyPageCache.removeSession(target.sessionId);
+        sessionProjectionCache.removeSession(target.sessionId);
         const dropped = [repair.droppedTorn > 0 ? t("notice.logDroppedTorn", locale, { count: repair.droppedTorn }) : null, repair.droppedSeqGap > 0 ? t("notice.logDroppedSeqGap", locale, { count: repair.droppedSeqGap }) : null].filter(Boolean).join("、");
         setNotice(t("notice.logRepaired", locale, { recovered: repair.recoveredEvents, dropped: dropped ? t("notice.logDroppedSuffix", locale, { dropped }) : "" }));
       } else {
@@ -3239,6 +3265,9 @@ function AppContent() {
         })().catch((error) => setErrorNotice(errorText(error, locale)));
       } else if (wasAvailable) {
         // Transitioned from available to unavailable: DSH crashed or was stopped.
+        // Its durable history and projection watermarks may have changed before recovery.
+        historyPageCache.clear();
+        sessionProjectionCache.clear();
         // Remember we must recover, and snapshot the active session so it can be
         // reopened once DSH returns.
         runtimeDownRef.current = true;

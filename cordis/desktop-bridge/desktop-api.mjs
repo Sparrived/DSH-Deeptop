@@ -270,12 +270,25 @@ export async function sessionModels(ctx, payload) {
   const sessionId = isRecord(payload) && typeof payload.sessionId === 'string' ? payload.sessionId : undefined
   const sessionController = controller(ctx, 'sessionController')
   const catalog = await sessionController.modelCatalog()
-  const { groups = [], failures = [], default: defaultSelection } = isRecord(catalog) ? catalog : {}
+  const { groups = [], failures = [] } = isRecord(catalog) ? catalog : {}
   const current = await currentSelection(ctx, sessionId)
   const routable = Array.isArray(isRecord(catalog)?.routableProviders)
     ? catalog.routableProviders.includes(current?.provider)
     : false
-  const enriched = await enrichModelCatalogGroups(ctx, groups)
+  const hasCurrentSelection = isRecord(current)
+    && typeof current.provider === 'string'
+    && typeof current.model === 'string'
+  const currentInCatalog = hasCurrentSelection && Array.isArray(groups)
+    && groups.some(group => isRecord(group) && group.id === current.provider
+      && Array.isArray(group.models) && group.models.some(model => isRecord(model) && model.id === current.model))
+  const llm = ctx.get?.('llm')
+  const currentInfo = !currentInCatalog && hasCurrentSelection && typeof llm?.resolveModelInfo === 'function'
+    ? Promise.resolve().then(() => llm.resolveModelInfo(current.provider, current.model)).catch(() => undefined)
+    : Promise.resolve(undefined)
+  const [enriched, resolvedCurrent] = await Promise.all([
+    enrichModelCatalogGroups(ctx, groups),
+    currentInfo,
+  ])
   const value = {
     groups: enriched,
     failures: Array.isArray(failures) ? failures : [],
@@ -284,16 +297,13 @@ export async function sessionModels(ctx, payload) {
   }
   const imageLimits = await imageLimitsOf(ctx, sessionId)
   if (imageLimits !== undefined) value.imageLimits = imageLimits
-  if (isRecord(current) && typeof current.provider === 'string' && typeof current.model === 'string') {
-    try {
-      const info = await ctx.get?.('llm')?.resolveModelInfo?.(current.provider, current.model)
-      const contextWindow = info?.context?.contextWindow
-      if (typeof contextWindow === 'number' && Number.isInteger(contextWindow) && contextWindow > 0) {
-        value.contextWindow = contextWindow
-      }
-    } catch {
-      // Resolution failure leaves contextWindow absent; the picker still works.
-    }
+  const listedContextWindow = hasCurrentSelection
+    ? enriched.find(group => isRecord(group) && group.id === current.provider)?.models
+      ?.find(model => isRecord(model) && model.id === current.model)?.contextWindow
+    : undefined
+  const contextWindow = listedContextWindow ?? resolvedCurrent?.context?.contextWindow
+  if (typeof contextWindow === 'number' && Number.isInteger(contextWindow) && contextWindow > 0) {
+    value.contextWindow = contextWindow
   }
   return value
 }
@@ -321,36 +331,27 @@ async function imageLimitsOf(ctx, sessionId) {
 async function enrichModelCatalogGroups(ctx, groups) {
   const llm = ctx.get?.('llm')
   if (!llm || typeof llm.resolveModelInfo !== 'function') return groups
-  const output = []
-  for (const group of Array.isArray(groups) ? groups : []) {
-    if (!isRecord(group) || !Array.isArray(group.models)) {
-      output.push(group)
-      continue
-    }
-    const models = []
-    for (const model of group.models) {
-      if (!isRecord(model) || typeof model.id !== 'string') {
-        models.push(model)
-        continue
-      }
+  return Promise.all((Array.isArray(groups) ? groups : []).map(async group => {
+    if (!isRecord(group) || !Array.isArray(group.models)) return group
+    const models = await Promise.all(group.models.map(async model => {
+      if (!isRecord(model) || typeof model.id !== 'string') return model
       try {
         const info = await llm.resolveModelInfo(group.id, model.id)
         const contextWindow = info?.context?.contextWindow
         const inputModalities = Array.isArray(info?.inputModalities)
           ? info.inputModalities.filter(value => value === 'text' || value === 'image')
           : undefined
-        models.push({
+        return {
           ...model,
           ...(typeof contextWindow === 'number' && Number.isInteger(contextWindow) && contextWindow > 0 ? { contextWindow } : {}),
           ...(inputModalities && inputModalities.length > 0 ? { inputModalities } : {}),
-        })
+        }
       } catch {
-        models.push(model)
+        return model
       }
-    }
-    output.push({ ...group, models })
-  }
-  return output
+    }))
+    return { ...group, models }
+  }))
 }
 
 // ── subagents.* ─────────────────────────────────────────────────────────────

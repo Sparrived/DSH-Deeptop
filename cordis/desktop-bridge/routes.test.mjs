@@ -1591,6 +1591,58 @@ test('adds model context windows and input modalities without changing the API r
   assert.equal(result.routable, true)
 })
 
+test('resolves an unlisted current model context window', async () => {
+  const ctx = {
+    get: key => key === 'sessionController' ? {
+      modelCatalog: async () => ({
+        groups: [{ id: 'demo', models: [{ id: 'listed' }] }],
+        failures: [],
+        routableProviders: ['demo'],
+      }),
+    } : key === 'sessions' ? {
+      get: () => ({ id: 'session-1' }),
+    } : key === 'sessionProjections' ? {
+      snapshot: () => ({ values: { modelSelection: { next: { provider: 'demo', model: 'private-preview' } } } }),
+    } : key === 'llm' ? {
+      resolveModelInfo: async (_provider, model) => ({ context: { contextWindow: model === 'private-preview' ? 200_000 : 100_000 } }),
+    } : undefined,
+  }
+
+  const result = await routeDesktopRequest(ctx, 'session.models', { sessionId: 'session-1' }, signal)
+
+  assert.deepEqual(result.current, { provider: 'demo', model: 'private-preview' })
+  assert.equal(result.contextWindow, 200_000)
+})
+
+test('enriches model metadata concurrently', async () => {
+  const started = []
+  let release
+  const blocked = new Promise(resolve => { release = resolve })
+  const ctx = {
+    get: key => key === 'sessionController' ? {
+      modelCatalog: async () => ({
+        groups: [{ id: 'demo', models: [{ id: 'first' }, { id: 'second' }] }],
+        failures: [],
+        routableProviders: ['demo'],
+      }),
+    } : key === 'agentDefaultModel' ? {
+      currentSelection: () => ({ provider: 'demo', model: 'first' }),
+    } : key === 'llm' ? {
+      resolveModelInfo: async (_provider, model) => {
+        started.push(model)
+        if (started.length === 2) release()
+        await blocked
+        return { context: { contextWindow: 1 } }
+      },
+    } : undefined,
+  }
+
+  const result = await routeDesktopRequest(ctx, 'session.models', {}, signal)
+
+  assert.deepEqual(started, ['first', 'second'])
+  assert.equal(result.groups[0].models.length, 2)
+})
+
 test('serves the whole-log turn outline from the sessionProjections unit', async () => {
   const ctx = {
     get: key => key === 'sessions' ? {

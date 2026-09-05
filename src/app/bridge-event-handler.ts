@@ -200,6 +200,9 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
     const sessionId = String(payload.sessionId ?? "");
     const nextEvent = payload.event as DshSessionEvent | undefined;
     if (!nextEvent) return;
+    // A cached newest page cannot represent an event that arrived afterwards;
+    // historical pages remain immutable and stay reusable.
+    historyPageCache.invalidateLatest(sessionId);
     if (nextEvent.type === "turn/start") {
       setSessionIndicators((current) => updateSessionIndicator(current, sessionId, true));
     }
