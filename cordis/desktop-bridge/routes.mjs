@@ -65,6 +65,7 @@ import {
   sessionRename,
   sessionSearch,
   sessionSelectModel,
+  sessionTurnOutline,
   sessionUpdateQueue,
   settingsDescribe,
   settingsMutate,
@@ -577,6 +578,7 @@ export async function routeDesktopRequest(ctx, method, payload, signal) {
       return display ? { ...events, events: compactHistoryEntries(events.events) } : events
     }
     case 'session.models': return sessionModels(ctx, payloadOf())
+    case 'session.turnOutline': return sessionTurnOutline(ctx, payloadOf())
     case 'reference.files': return referenceFiles(ctx, payload, signal)
     case 'reference.sessions': return referenceSessions(ctx, payload, signal)
     case 'session.selectModel': return sessionSelectModel(ctx, payloadOf())

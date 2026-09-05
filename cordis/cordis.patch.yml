@@ -29,6 +29,11 @@
     - id: session-stats
       name: '@deepseek-ai/dsh-session-stats'
 
+    # Whole-log turn outline projection (turnOutline unit) so the desktop can
+    # list every started turn and target history paging at exact seqs.
+    - id: session-turn-outline
+      name: '@deepseek-ai/dsh-session-turn-outline'
+
     - id: theme-settings
       name: 'deeptop-bridge/theme-settings'
 

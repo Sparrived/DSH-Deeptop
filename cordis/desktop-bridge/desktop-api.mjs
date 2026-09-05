@@ -152,6 +152,25 @@ export async function sessionCancel(ctx, payload) {
 }
 
 /**
+ * Whole-log turn outline for one session from the registered `turnOutline`
+ * projection unit (session-turn-outline). Entries are strictly increasing by
+ * turn; each carries its `turn/start` seq so the client can page history
+ * back through that seq to load the whole turn. Returns an empty list when
+ * the profile has no projection registry / the unit is not mounted.
+ */
+export async function sessionTurnOutline(ctx, payload) {
+  const sessionId = sessionIdOf(payload, 'session.turnOutline')
+  const sessions = requireService(ctx, 'sessions', 'gateway/internal', 'sessions service is unavailable')
+  const session = sessions.get(sessionId)
+  if (!session) {
+    throw codedError('session-not-found', `session ${JSON.stringify(sessionId)} not found`, { sessionId })
+  }
+  const projections = requireService(ctx, 'sessionProjections', 'gateway/internal', 'sessionProjections service is unavailable')
+  const outline = projections.snapshot?.(session, ['turnOutline'])?.values?.turnOutline
+  return { sessionId, entries: Array.isArray(outline) ? outline : [] }
+}
+
+/**
  * rc.1 model catalog plus desktop enrichments the frontend model picker
  * needs (current selection, image limits, resolved context window).
  */

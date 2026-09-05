@@ -1220,6 +1220,59 @@ test('adds model context windows and input modalities without changing the API r
   assert.equal(result.routable, true)
 })
 
+test('serves the whole-log turn outline from the sessionProjections unit', async () => {
+  const ctx = {
+    get: key => key === 'sessions' ? {
+      get: () => ({ id: 'session-1' }),
+    } : key === 'sessionProjections' ? {
+      snapshot: (session, keys) => {
+        assert.equal(session.id, 'session-1')
+        assert.deepEqual(keys, ['turnOutline'])
+        return {
+          asOfSeq: 40,
+          values: {
+            turnOutline: [
+              { turn: 1, seq: 4, prompt: 'hello', response: 'hi back' },
+              { turn: 2, seq: 21, prompt: 'next', response: '' },
+            ],
+          },
+        }
+      },
+    } : undefined,
+  }
+
+  const result = await routeDesktopRequest(ctx, 'session.turnOutline', { sessionId: 'session-1' }, signal)
+  assert.equal(result.sessionId, 'session-1')
+  assert.equal(result.entries.length, 2)
+  assert.deepEqual(result.entries[0], { turn: 1, seq: 4, prompt: 'hello', response: 'hi back' })
+})
+
+test('turn outline degrades to an empty list when the projection unit is missing', async () => {
+  const ctx = {
+    get: key => key === 'sessions' ? {
+      get: () => ({ id: 'session-1' }),
+    } : key === 'sessionProjections' ? {
+      snapshot: () => ({ asOfSeq: 3, values: {} }),
+    } : undefined,
+  }
+
+  const result = await routeDesktopRequest(ctx, 'session.turnOutline', { sessionId: 'session-1' }, signal)
+  assert.equal(result.sessionId, 'session-1')
+  assert.deepEqual(result.entries, [])
+})
+
+test('turn outline rejects an unknown session', async () => {
+  const ctx = {
+    get: key => key === 'sessions' ? {
+      get: () => undefined,
+    } : undefined,
+  }
+  await assert.rejects(
+    routeDesktopRequest(ctx, 'session.turnOutline', { sessionId: 'session-missing' }, signal),
+    error => error.code === 'session-not-found',
+  )
+})
+
 test('enriches the host model catalog with image capabilities', async () => {
   const ctx = {
     get: key => key === 'sessionController' ? {
