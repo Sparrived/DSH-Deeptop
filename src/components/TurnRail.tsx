@@ -19,9 +19,9 @@ import type { TurnRailItem } from "../app/turn-rail-model";
 import { t, type UiLocale } from "../app/i18n";
 
 /** Fixed pitch between neighbouring marks; overflow scrolls inside the frame. */
-export const TURN_SPACING_PX = 10;
+export const TURN_SPACING_PX = 12;
 /** Rail padding above the first mark and below the last one, per end. */
-export const RAIL_INSET_PX = 6;
+export const RAIL_INSET_PX = 8;
 /** Fade band the mask reserves at a scrollable end. */
 export const FADE_PX = 24;
 
@@ -116,63 +116,65 @@ function TurnRailView({
 
   return (
     <div className="turn-rail-slot">
-      <nav
-        ref={frameRef}
-        className="turn-rail-frame"
-        style={frameStyle(count)}
-        aria-label={label}
-        onClick={navigateAtPointer}
-        onPointerMove={previewAtPointer}
-        onPointerLeave={() => setPreviewTurn(null)}
-        onScroll={syncScrollFades}
-      >
-        <div className="turn-rail-marks" style={{ height: naturalHeight(count) }}>
-          {items.map((item, index) => {
-            const active = item.turn === activeTurn;
-            const showingPreview = item.turn === previewTurn;
-            const classes = ["turn-rail-mark"];
-            if (item.anchor.kind === "unloaded") classes.push("turn-rail-mark-unloaded");
-            if (active) classes.push("turn-rail-mark-active");
-            else if (showingPreview) classes.push("turn-rail-mark-preview");
-            if (item.turn === busyTurn) classes.push("turn-rail-mark-busy");
-            return (
-              <div key={item.turn} className="turn-rail-mark-position" style={{ top: `${Math.round(contentTopOf(index))}px` }}>
-                <button
-                  type="button"
-                  className={classes.join(" ")}
-                  aria-label={t(
-                    item.anchor.kind === "loaded" ? "chat.turnNavigation.jump" : "chat.turnNavigation.jumpLoad",
-                    locale,
-                    { turn: item.turn },
-                  )}
-                  aria-current={active ? "true" : undefined}
-                  aria-busy={item.turn === busyTurn ? "true" : undefined}
-                  aria-describedby={showingPreview ? previewId : undefined}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onNavigate(item);
-                  }}
-                  onFocus={() => setPreviewTurn(item.turn)}
-                  onBlur={() => setPreviewTurn(null)}
-                />
-              </div>
-            );
-          })}
-        </div>
-      </nav>
-      {preview !== undefined && previewFrameTop !== undefined && (
-        <div
-          id={previewId}
-          role="tooltip"
-          className="turn-rail-preview"
-          style={{ top: `${Math.max(FADE_PX, Math.round(previewFrameTop))}px` }}
+      <div className="turn-rail-anchor">
+        <nav
+          ref={frameRef}
+          className="turn-rail-frame"
+          style={frameStyle(count)}
+          aria-label={label}
+          onClick={navigateAtPointer}
+          onPointerMove={previewAtPointer}
+          onPointerLeave={() => setPreviewTurn(null)}
+          onScroll={syncScrollFades}
         >
-          <div className="turn-rail-preview-prompt">
-            {preview.prompt || t("chat.turnNavigation.turn", locale, { turn: preview.turn })}
+          <div className="turn-rail-marks" style={{ height: naturalHeight(count) }}>
+            {items.map((item, index) => {
+              const active = item.turn === activeTurn;
+              const showingPreview = item.turn === previewTurn;
+              const classes = ["turn-rail-mark"];
+              if (item.anchor.kind === "unloaded") classes.push("turn-rail-mark-unloaded");
+              if (active) classes.push("turn-rail-mark-active");
+              else if (showingPreview) classes.push("turn-rail-mark-preview");
+              if (item.turn === busyTurn) classes.push("turn-rail-mark-busy");
+              return (
+                <div key={item.turn} className="turn-rail-mark-position" style={{ top: `${Math.round(contentTopOf(index))}px` }}>
+                  <button
+                    type="button"
+                    className={classes.join(" ")}
+                    aria-label={t(
+                      item.anchor.kind === "loaded" ? "chat.turnNavigation.jump" : "chat.turnNavigation.jumpLoad",
+                      locale,
+                      { turn: item.turn },
+                    )}
+                    aria-current={active ? "true" : undefined}
+                    aria-busy={item.turn === busyTurn ? "true" : undefined}
+                    aria-describedby={showingPreview ? previewId : undefined}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onNavigate(item);
+                    }}
+                    onFocus={() => setPreviewTurn(item.turn)}
+                    onBlur={() => setPreviewTurn(null)}
+                  />
+                </div>
+              );
+            })}
           </div>
-          {preview.response !== "" && <div className="turn-rail-preview-response">{preview.response}</div>}
-        </div>
-      )}
+        </nav>
+        {preview !== undefined && previewFrameTop !== undefined && (
+          <div
+            id={previewId}
+            role="tooltip"
+            className="turn-rail-preview"
+            style={{ top: `${Math.max(FADE_PX, Math.round(previewFrameTop))}px` }}
+          >
+            <div className="turn-rail-preview-prompt">
+              {preview.prompt || t("chat.turnNavigation.turn", locale, { turn: preview.turn })}
+            </div>
+            {preview.response !== "" && <div className="turn-rail-preview-response">{preview.response}</div>}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

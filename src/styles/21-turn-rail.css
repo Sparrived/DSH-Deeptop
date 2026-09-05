@@ -1,11 +1,13 @@
-/* Turn rail (轮次导航刻度轨): floats over the transcript's right gutter as
-   a fixed-pitch ladder of every known turn. Mirrors the official web chat
-   rail: marks advance one step per turn, the frame scrolls when the ladder
-   outgrows the viewport band, and the band ends fade when scrollable. */
+/* Turn rail (轮次导航刻度轨): floats over the transcript's right edge as a
+   fixed-pitch ladder of every known turn. The slot sticks to the vertical
+   center of the visible transcript so the ladder reads as a right-side
+   navigation column instead of hugging the top. Marks advance one step per
+   turn, the frame scrolls when the ladder outgrows the viewport band, and the
+   band ends fade when scrollable. */
 
 .turn-rail-slot {
   position: sticky;
-  top: 8px;
+  top: 50%;
   z-index: 6; /* above message code banners, below floating menus */
   height: 0;
   width: 0;
@@ -13,15 +15,26 @@
   pointer-events: none;
 }
 
+/* The anchor is the zero-size point the whole rail centers on; frame and
+   preview stay top-aligned inside it so their content coordinates agree. */
+.turn-rail-anchor {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform: translateY(-50%);
+}
+
 .turn-rail-frame {
   --turn-rail-band: min(
     var(--turn-natural-height),
-    max(120px, calc(100vh - 220px))
+    max(160px, calc(100vh - 200px))
   );
   position: absolute;
   right: 0;
   top: 0;
-  width: 30px;
+  width: 40px;
   height: var(--turn-rail-band);
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -70,7 +83,7 @@
   position: absolute;
   left: 0;
   right: 0;
-  height: 10px;
+  height: 12px;
   transform: translateY(-50%);
 }
 
@@ -79,7 +92,7 @@
 .turn-rail-mark {
   position: absolute;
   inset: 0;
-  width: 20px;
+  width: 28px;
   margin-left: auto;
   padding: 0;
   border: 0;
@@ -95,7 +108,7 @@
   position: absolute;
   top: 50%;
   right: 0;
-  width: 8px;
+  width: 10px;
   height: 2px;
   border-radius: 1px;
   background: var(--line-strong);
@@ -104,7 +117,7 @@
 }
 
 .turn-rail-mark-unloaded::before {
-  width: 5px;
+  width: 6px;
   height: 1px;
   background: var(--line);
 }
@@ -112,13 +125,13 @@
 .turn-rail-mark:hover::before,
 .turn-rail-mark-preview::before {
   background: var(--faint);
-  width: 10px;
+  width: 13px;
 }
 
 .turn-rail-mark-active::before {
   background: var(--accent);
-  width: 12px;
-  height: 3px;
+  width: 16px;
+  height: 4px;
   border-radius: 2px;
 }
 
@@ -145,13 +158,13 @@
    projection budgets (50 / 120 chars) on the data side. */
 .turn-rail-preview {
   position: absolute;
-  right: 24px;
-  width: 250px;
-  max-height: 104px;
+  right: 32px;
+  width: 300px;
+  max-height: 120px;
   overflow: hidden;
   display: grid;
   gap: 4px;
-  padding: 7px 10px;
+  padding: 8px 12px;
   border: 1px solid var(--line-strong);
   border-radius: 6px;
   background: var(--paper);
