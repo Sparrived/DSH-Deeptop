@@ -176,6 +176,11 @@ export function SessionSidebar({
     await onMoveSessionBefore(sessionId, beforeSessionId);
   }
 
+  function handleChooseWorkspace(path: string) {
+    setView("sessions");
+    onChooseWorkspace(path);
+  }
+
   function handleSessionDragEnd() {
     // The parent applies the committed workspace order before refreshing its
     // runtime projections. Keep the preview through that async mutation so a
@@ -331,7 +336,7 @@ export function SessionSidebar({
           onUnpinnedSectionChange={onUnpinnedSectionChange}
           menuRef={workspacePickerMenuRef}
           onToggle={onToggleWorkspaceMenu}
-          onChoose={onChooseWorkspace}
+          onChoose={handleChooseWorkspace}
           onTogglePin={onTogglePinWorkspace}
           onAdd={onAddWorkspace}
           onDelete={onDeleteWorkspace}

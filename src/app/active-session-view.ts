@@ -57,7 +57,7 @@ export function buildActiveSessionView(
       .map((sessionId) => eligibleById.get(sessionId))
       .filter((session): session is DshSessionSummary => session !== undefined)
       .filter((session) => !displayedSessionIds.has(session.sessionId))
-      .filter((session) => session.running || options.indicators[session.sessionId] === "running")
+      .filter((session) => session.running || options.indicators[session.sessionId] !== undefined)
       .sort((left, right) => right.updatedAt - left.updatedAt);
     workspaceSessions.forEach((session) => displayedSessionIds.add(session.sessionId));
     return workspaceSessions.length > 0
