@@ -1,5 +1,10 @@
 import type { DshSessionSummary, DshWorkspace } from "../lib/desktop";
 
+/** A user-initiated selection invalidates older workspace navigation work. */
+export function isWorkspaceSelectionCurrent(selectionRequest: number | undefined, currentRequest: number): boolean {
+  return selectionRequest === undefined || selectionRequest === currentRequest;
+}
+
 /**
  * Select the first conversation shown for a workspace using the already-loaded
  * workspace projection. Registered workspaces follow their authoritative

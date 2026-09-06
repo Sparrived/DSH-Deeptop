@@ -239,7 +239,7 @@ import {
   readWorkspaceViewPreferences,
   writeWorkspaceViewPreferences,
 } from "./app/workspace-view";
-import { firstSessionForWorkspace } from "./app/workspace-session-selection";
+import { firstSessionForWorkspace, isWorkspaceSelectionCurrent } from "./app/workspace-session-selection";
 import {
   backgroundZones,
   defaultAppearance,
@@ -2674,6 +2674,8 @@ function AppContent() {
         // 崩溃损坏了会话日志（末尾写入不完整）：自动修复一次后重试打开。
         try {
           const repair = await repairCorruptSession(session.sessionId);
+          // Do not let a finished repair mutate or reopen a session the user has left.
+          if (loadRequest !== sessionLoadRequestRef.current || activeSessionRef.current !== session.sessionId) return false;
           if (repair.repaired) {
             historyPageCache.removeSession(session.sessionId);
             sessionProjectionCache.removeSession(session.sessionId);
@@ -2683,6 +2685,7 @@ function AppContent() {
             setNotice(t("notice.logRepairedReopen", locale));
           }
         } catch (repairError) {
+          if (loadRequest !== sessionLoadRequestRef.current || activeSessionRef.current !== session.sessionId) return false;
           setCorruptSession(session);
           setErrorNotice(t("notice.logAutoRepairFailed", locale, { repairError: errorText(repairError, locale) }));
           return false;
@@ -3337,7 +3340,7 @@ function AppContent() {
       workspaceItem = workspacesRef.current.find((item) => sameWorkspacePath(item.path, workspacePath)) ?? null;
       try {
         const refreshed = await desktopRequest("workspace.list");
-        if (selectionRequest !== undefined && selectionRequest !== workspaceSelectionRequestRef.current) return;
+        if (!isWorkspaceSelectionCurrent(selectionRequest, workspaceSelectionRequestRef.current)) return;
         commitWorkspaces(refreshed.items);
         if (refreshed.archivedSessionIds) setArchivedSessionIds(new Set(refreshed.archivedSessionIds));
         workspaceItem = workspacePath
@@ -3347,7 +3350,7 @@ function AppContent() {
         // Keep the current projection when the Host baseline is temporarily unavailable.
       }
     }
-    if (selectionRequest !== undefined && selectionRequest !== workspaceSelectionRequestRef.current) return;
+    if (!isWorkspaceSelectionCurrent(selectionRequest, workspaceSelectionRequestRef.current)) return;
     const first = firstSessionForWorkspace(
       workspacePath,
       workspaceItem,
@@ -3357,7 +3360,7 @@ function AppContent() {
     if (first) {
       if (activeSessionRef.current !== first.sessionId) await openSession(first);
     } else {
-      startNewSession();
+      startNewSession(false);
     }
   }
 
@@ -3412,32 +3415,35 @@ function AppContent() {
     setWorkspace(path);
     setWorkspaceMenuOpen(false);
     setNotice(path ? t("notice.workspaceApplied", locale) : t("notice.workspaceRuntimeDir", locale));
-    let selected = workspacesRef.current.find((item) => sameWorkspacePath(item.path, path)) ?? null;
-    if (selected) {
-      try {
-        const repair = await attachUnregisteredSessions(selected);
-        if (selectionRequest !== workspaceSelectionRequestRef.current) return;
-        if (repair.rejected > 0) {
-          setErrorNotice(repair.attached > 0
-            ? t("notice.repairFailedPartial", locale, { attached: repair.attached, rejected: repair.rejected, reason: repair.reason ?? "" })
-            : t("notice.repairFailed", locale, { rejected: repair.rejected, reason: repair.reason ?? "" }));
-        }
-        if (repair.attached > 0) {
-          const refreshed = await desktopRequest("workspace.list");
-          if (selectionRequest !== workspaceSelectionRequestRef.current) return;
-          commitWorkspaces(refreshed.items);
-          if (refreshed.archivedSessionIds) setArchivedSessionIds(new Set(refreshed.archivedSessionIds));
-          selected = refreshed.items.find((item) => item.workspaceId === selected?.workspaceId) ?? selected;
-          if (repair.rejected === 0) setNotice(t("notice.repairAttachedSameDir", locale, { count: repair.attached }));
-        }
-      } catch (error) {
-        if (selectionRequest !== workspaceSelectionRequestRef.current) return;
-        setErrorNotice(errorText(error, locale));
-      }
-    }
-    // Common path: use the already-loaded workspace projection, so history and
-    // model requests start without waiting for another workspace.list roundtrip.
+    const selected = workspacesRef.current.find((item) => sameWorkspacePath(item.path, path)) ?? null;
+    // The already-loaded projection is sufficient to open the first session.
+    // Do not delay navigation for legacy membership repair.
     await syncConversationToWorkspace(path, selected, selectionRequest);
+    if (!selected || !isWorkspaceSelectionCurrent(selectionRequest, workspaceSelectionRequestRef.current)) return;
+    try {
+      const repair = await attachUnregisteredSessions(selected);
+      if (!isWorkspaceSelectionCurrent(selectionRequest, workspaceSelectionRequestRef.current)) return;
+      if (repair.rejected > 0) {
+        setErrorNotice(repair.attached > 0
+          ? t("notice.repairFailedPartial", locale, { attached: repair.attached, rejected: repair.rejected, reason: repair.reason ?? "" })
+          : t("notice.repairFailed", locale, { rejected: repair.rejected, reason: repair.reason ?? "" }));
+      }
+      if (repair.attached > 0) {
+        const refreshed = await desktopRequest("workspace.list");
+        if (!isWorkspaceSelectionCurrent(selectionRequest, workspaceSelectionRequestRef.current)) return;
+        commitWorkspaces(refreshed.items);
+        if (refreshed.archivedSessionIds) setArchivedSessionIds(new Set(refreshed.archivedSessionIds));
+        if (repair.rejected === 0) setNotice(t("notice.repairAttachedSameDir", locale, { count: repair.attached }));
+        // The workspace may have appeared empty until this legacy repair. Open
+        // its first recovered session unless the user has already started one.
+        if (!activeSessionRef.current) {
+          const refreshedWorkspace = refreshed.items.find((item) => item.workspaceId === selected.workspaceId) ?? selected;
+          await syncConversationToWorkspace(path, refreshedWorkspace, selectionRequest);
+        }
+      }
+    } catch (error) {
+      if (selectionRequest === workspaceSelectionRequestRef.current) setErrorNotice(errorText(error, locale));
+    }
   }
 
   async function repairWorkspaceMembership(
@@ -3618,12 +3624,14 @@ function AppContent() {
     void moveSessionBefore(sessionId, currentWorkspace.sessionIds[0], false);
   }
 
-  function startNewSession() {
+  function startNewSession(cancelWorkspaceSelection = true) {
     const previousSessionId = activeSessionRef.current;
     if (previousSessionId) imageAttachmentCacheRef.current.removeSession(previousSessionId);
     activeSessionRef.current = null;
     contextProjectionRef.current = false;
+    if (cancelWorkspaceSelection) workspaceSelectionRequestRef.current += 1;
     sessionLoadRequestRef.current += 1;
+    setLoading(false);
     historyLoadingOlderRef.current = false;
     setActiveSessionId(null);
     historyRef.current = [];

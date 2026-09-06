@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { firstSessionForWorkspace } from "./workspace-session-selection.ts";
+import { firstSessionForWorkspace, isWorkspaceSelectionCurrent } from "./workspace-session-selection.ts";
 
 const sessions = [
   { sessionId: "s1", updatedAt: 1, running: false, blank: false },
@@ -23,6 +23,12 @@ const workspaceB = {
   createdAt: "",
   updatedAt: "",
 };
+
+test("invalidates stale workspace navigation after a newer selection", () => {
+  assert.equal(isWorkspaceSelectionCurrent(undefined, 2), true);
+  assert.equal(isWorkspaceSelectionCurrent(2, 2), true);
+  assert.equal(isWorkspaceSelectionCurrent(1, 2), false);
+});
 
 test("uses the registered workspace session order without a remote refresh", () => {
   const bySession = new Map([["s1", workspaceA], ["s2", workspaceA], ["s3", workspaceB]]);
