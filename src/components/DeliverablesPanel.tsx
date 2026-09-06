@@ -9,6 +9,7 @@ type DeliverablesPanelProps = {
   collapsed: boolean;
   locale?: UiLocale;
   onToggle: () => void;
+  embedded?: boolean;
   onOpenSessionPath: (path: string) => void | Promise<void>;
 };
 
@@ -27,7 +28,7 @@ function fileDirectory(path: string, locale: UiLocale) {
   return directory || t("deliverables.workspaceDir", locale);
 }
 
-export function DeliverablesPanel({ item, activeSession, collapsed, locale = "zh", onToggle, onOpenSessionPath }: DeliverablesPanelProps) {
+export function DeliverablesPanel({ item, activeSession, collapsed, locale = "zh", onToggle, embedded = false, onOpenSessionPath }: DeliverablesPanelProps) {
   const files = item.files ?? [];
   const fileDiffs = item.fileDiffs ?? {};
   const diffTotals = Object.values(fileDiffs).reduce(
@@ -56,6 +57,7 @@ export function DeliverablesPanel({ item, activeSession, collapsed, locale = "zh
       totalClassName="deliverables-panel-total"
       toggleClassName="deliverables-panel-toggle"
       bodyClassName="deliverables-panel-body"
+      embedded={embedded}
     >
       <div className="deliverables-panel-summary">
         <span className="live">{t("deliverables.fileCount", locale, { count: files.length })}</span>

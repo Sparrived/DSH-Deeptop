@@ -19,10 +19,6 @@ export const PINNABLE_DOCKS: readonly PinnableDock[] = [
   { id: "terminal-dock", side: "left", width: 560 },
   { id: "workspace-files-dock", side: "left", width: 480 },
   { id: "git-dock", side: "left", width: 600 },
-  { id: "tasks-dock", side: "right", width: 286 },
-  { id: "todo-dock", side: "right", width: 286 },
-  { id: "subagent-dock", side: "right", width: 286 },
-  { id: "deliverables-dock", side: "right", width: 286 },
 ];
 
 const PINNABLE_BY_ID = new Map(PINNABLE_DOCKS.map((dock) => [dock.id, dock]));

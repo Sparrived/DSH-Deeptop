@@ -27,21 +27,22 @@ test("normalizes pinned maps by dropping unknown ids and non-boolean values", ()
   assert.deepEqual(normalizePinnedDocks("nope"), {});
   assert.deepEqual(
     normalizePinnedDocks({ "todo-dock": true, "unknown-dock": true, "git-dock": "yes", bad: true }),
-    { "todo-dock": true },
+    {},
   );
 });
 
 test("toggles pins without mutating the input and drops falsy entries", () => {
-  const original = { "todo-dock": true };
-  const added = withDockPinned(original, "git-dock", true);
-  assert.deepEqual(added, { "todo-dock": true, "git-dock": true });
-  assert.deepEqual(original, { "todo-dock": true });
+  const original = { "git-dock": true };
+  const added = withDockPinned(original, "terminal-dock", true);
+  assert.deepEqual(added, { "git-dock": true, "terminal-dock": true });
+  assert.deepEqual(original, { "git-dock": true });
 
-  const removed = withDockPinned(added, "todo-dock", false);
-  assert.deepEqual(removed, { "git-dock": true });
+  const removed = withDockPinned(added, "git-dock", false);
+  assert.deepEqual(removed, { "terminal-dock": true });
   assert.deepEqual(withDockPinned(added, "not-a-dock", true), added);
-  assert.equal(isDockPinned(removed, "todo-dock"), false);
-  assert.ok(PINNABLE_DOCKS.length >= 7);
+  assert.equal(isDockPinned(removed, "git-dock"), false);
+  assert.equal(withDockPinned(added, "todo-dock", true), added);
+  assert.equal(PINNABLE_DOCKS.length, 3);
 });
 
 test("pinned expanded docks contribute their column width to their side", () => {
@@ -52,13 +53,12 @@ test("pinned expanded docks contribute their column width to their side", () => 
   assert.deepEqual(widths, { left: 600, right: 0 });
 });
 
-test("sums multiple pinned docks per side and skips collapsed ones", () => {
+test("sums expanded left docks and ignores removed right utility docks", () => {
   const widths = computePinLayerWidths({
-    pinned: { "todo-dock": true, "subagent-dock": true, "terminal-dock": true, "git-dock": true },
-    expandedById: { "todo-dock": true, "subagent-dock": false, "terminal-dock": true, "git-dock": true },
+    pinned: { "todo-dock": true, "terminal-dock": true, "workspace-files-dock": true, "git-dock": true },
+    expandedById: { "todo-dock": true, "terminal-dock": true, "workspace-files-dock": false, "git-dock": true },
   });
-  // 收起的 subagent 不占位；左侧 terminal+git，右侧 todo。
-  assert.deepEqual(widths, { left: 560 + 600, right: 286 });
+  assert.deepEqual(widths, { left: 560 + 600, right: 0 });
 });
 
 test("pinned but collapsed docks occupy no width", () => {
@@ -89,31 +89,28 @@ test("clamps custom layer widths into the allowed range", () => {
 
 test("custom widths only apply to active sides and fall back to defaults", () => {
   const computed = computePinLayerWidths({
-    pinned: { "git-dock": true, "todo-dock": true },
-    expandedById: { "git-dock": true, "todo-dock": true },
+    pinned: { "git-dock": true },
+    expandedById: { "git-dock": true },
   });
-  assert.deepEqual(computed, { left: 600, right: 286 });
+  assert.deepEqual(computed, { left: 600, right: 0 });
   // 拖拽后的自定义宽度覆盖默认求和。
   assert.deepEqual(
     resolvePinLayerWidths({ computed, custom: { left: 360 } }),
-    { left: 360, right: 286 },
+    { left: 360, right: 0 },
   );
-  // 该侧没有激活分栏时忽略自定义宽度，避免空层占位。
-  const inactiveLeft = computePinLayerWidths({
-    pinned: { "todo-dock": true },
-    expandedById: { "todo-dock": true },
-  });
+  // 没有激活分栏时忽略自定义宽度，避免空层占位。
+  const inactiveLeft = computePinLayerWidths({ pinned: {}, expandedById: { "git-dock": true } });
   assert.deepEqual(
     resolvePinLayerWidths({ computed: inactiveLeft, custom: { left: 360 } }),
-    { left: 0, right: 286 },
+    { left: 0, right: 0 },
   );
   // 缺失或越界的自定义值回退到默认宽度。
   assert.deepEqual(
     resolvePinLayerWidths({ computed, custom: {} }),
-    { left: 600, right: 286 },
+    { left: 600, right: 0 },
   );
   assert.deepEqual(
     resolvePinLayerWidths({ computed, custom: { left: 1_000_000, right: -5 } }),
-    { left: PIN_LAYER_MAX_WIDTH, right: PIN_LAYER_MIN_WIDTH },
+    { left: PIN_LAYER_MAX_WIDTH, right: 0 },
   );
 });

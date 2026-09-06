@@ -1396,15 +1396,15 @@
   padding: 6px 6px 2px;
 }
 
-/* 钉住的 Dock：portal 进 workspace-layout 的流内分栏层，成为真实网格列。
-   桌面宽度下模板扩为 侧栏 | 左分栏 | 对话 | 右分栏；层未激活时宽度为 0。
-   分栏宽度由 App 写入 --pin-left-width/--pin-right-width（纯模型 dock-pin 计算），
+/* 钉住的 Dock：portal 进 workspace-layout 左侧的流内分栏层，成为真实网格列。
+   模板为侧栏 | 左分栏 | 对话；层未激活时宽度为 0。
+   分栏宽度由 App 写入 --pin-left-width（纯模型 dock-pin 计算），
    拖拽分栏内缘的手柄可调整并持久化。 */
 .pin-layer { display: none; min-width: 0; min-height: 0; }
 
 @media (min-width: 761px) {
   .workspace-layout {
-    grid-template-columns: var(--sidebar-width, 320px) var(--pin-left-width, 0px) minmax(0, 1fr) var(--pin-right-width, 0px);
+    grid-template-columns: var(--sidebar-width, 320px) var(--pin-left-width, 0px) minmax(0, 1fr);
   }
 
   /* 收起的分栏层是 display:none，不占网格轨道；若依赖自动布局，
@@ -1412,7 +1412,6 @@
   .workspace-layout > .session-sidebar { grid-column: 1; }
   .workspace-layout > .pin-layer-left { grid-column: 2; }
   .workspace-layout > .conversation-panel { grid-column: 3; }
-  .workspace-layout > .pin-layer-right { grid-column: 4; }
 
   .pin-layer.active {
     display: flex;
@@ -1434,7 +1433,6 @@
     touch-action: none;
   }
   .pin-layer-left.active > .pin-layer-resizer { right: -4px; }
-  .pin-layer-right.active > .pin-layer-resizer { left: -4px; }
   .pin-layer.active > .pin-layer-resizer::after,
   body.pin-layer-resizing .pin-layer.active > .pin-layer-resizer::after {
     position: absolute;

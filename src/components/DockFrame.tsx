@@ -53,6 +53,8 @@ type DockFrameProps = {
   totalClassName?: string;
   toggleClassName?: string;
   railClassName?: string;
+  /** Render inside the shared utility workbench rather than as a movable Dock. */
+  embedded?: boolean;
 };
 
 function joinClasses(...names: Array<string | undefined>) {
@@ -128,6 +130,7 @@ export function DockFrame({
   totalClassName,
   toggleClassName,
   railClassName,
+  embedded = false,
 }: DockFrameProps) {
   const frameRef = useRef<HTMLElement | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -139,7 +142,7 @@ export function DockFrame({
   const [dragging, setDragging] = useState(false);
   const { settings: dockSettings, loaded: dockSettingsLoaded, isDockPinned, toggleDockPinned } = useDockSettings();
   // 钉住的 Dock 不再浮动：卡片 portal 进窗口边缘的流内分栏层，忽略拖拽偏移。
-  const pinned = isDockPinned(id);
+  const pinned = !embedded && isDockPinned(id);
   const pinLayer = useDockPinLayer(side);
   const desktopPinLayout = useDesktopPinLayout();
   // 窄屏卡片退化为流内静态布局，默认位置保持零偏移；用 ref 避免跨断点重载已保存位置。
@@ -168,6 +171,7 @@ export function DockFrame({
   }, [position]);
 
   useEffect(() => {
+    if (embedded) return;
     let active = true;
     // 默认位置：桌面布局下展开框顶部与排内最上方第一个 dock 平齐；窄屏零偏移。
     const initial = desktopPinLayoutRef.current ? alignedDefaultDockPosition(frameRef.current) : defaultDockPosition;
@@ -191,10 +195,10 @@ export function DockFrame({
     return () => {
       active = false;
     };
-  }, [id]);
+  }, [embedded, id]);
 
   useEffect(() => {
-    if (collapsed || pinned || !dockSettingsLoaded || !dockSettings.autoCollapseOnOutsideClick) return;
+    if (embedded || collapsed || pinned || !dockSettingsLoaded || !dockSettings.autoCollapseOnOutsideClick) return;
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
@@ -208,10 +212,10 @@ export function DockFrame({
 
     document.addEventListener("pointerdown", handlePointerDown, true);
     return () => document.removeEventListener("pointerdown", handlePointerDown, true);
-  }, [collapsed, pinned, dockSettings.autoCollapseOnOutsideClick, dockSettingsLoaded, onToggle]);
+  }, [collapsed, embedded, pinned, dockSettings.autoCollapseOnOutsideClick, dockSettingsLoaded, onToggle]);
 
   useEffect(() => {
-    if (collapsed || !positionReady) return;
+    if (embedded || collapsed || !positionReady) return;
 
     const clampCurrentPosition = () => {
       const card = cardRef.current;
@@ -230,7 +234,7 @@ export function DockFrame({
       window.removeEventListener("resize", clampCurrentPosition);
       window.cancelAnimationFrame(frame);
     };
-  }, [collapsed, id, positionReady]);
+  }, [collapsed, embedded, id, positionReady]);
 
   useEffect(() => {
     if (!dragging) return;
@@ -289,6 +293,44 @@ export function DockFrame({
     setPosition(next);
     clearDockPosition();
   };
+
+  if (embedded) {
+    return (
+      <section
+        ref={frameRef}
+        id={contentId}
+        className={joinClasses("dock-frame", "dock-frame-embedded", className)}
+        aria-label={label}
+        aria-live="polite"
+      >
+        <header className={joinClasses("dock-frame-header", "dock-frame-embedded-header", headerClassName)}>
+          <div className="dock-frame-titlebar">
+            <div className={joinClasses("dock-frame-heading", headingClassName)}>
+              <span className={joinClasses("dock-frame-mark", headerMarkClassName ?? markClassName)} aria-hidden="true">{icon}</span>
+              <div className="dock-frame-titles">
+                <span className={joinClasses("dock-frame-kicker", kickerClassName)}>{kicker}</span>
+                <h2>{title}</h2>
+                {headerContent}
+              </div>
+            </div>
+            <div className={joinClasses("dock-frame-toolbar", headerActionsClassName)} role="group" aria-label={t("dock.toolbarAria", locale, { label })}>
+              {total !== undefined && <span className={joinClasses("dock-frame-total", totalClassName)}>{total}</span>}
+              <button
+                className={joinClasses("dock-frame-toggle", toggleClassName)}
+                type="button"
+                onClick={onToggle}
+                aria-label={t("dock.collapse", locale, { label })}
+                title={t("common.close", locale)}
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+            </div>
+          </div>
+        </header>
+        <div className={joinClasses("dock-frame-body", bodyClassName)}>{children}</div>
+      </section>
+    );
+  }
 
   const positionStyle = {
     "--dock-position-x": `${position.x}px`,

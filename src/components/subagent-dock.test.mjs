@@ -34,17 +34,14 @@ test("opens subagent tree entries with their direct parent session", async () =>
   const dock = SubagentDock({
     rootSessionId: "root",
     entries: [child],
-    dockOpen: true,
     selectedId: null,
     catalogs: { [childTreeKey]: { entries: [grandchild], parentAvailable: true } },
     expandedBranches: { [childTreeKey]: true },
-    onToggleDock() {},
     onToggleBranch() {},
     onOpen(...args) { calls.push(args); },
   });
 
-  const tree = dock.props.children;
-  const navigation = tree.type(tree.props);
+  const navigation = dock.type(dock.props);
   const rootRows = navigation.props.children.type(navigation.props.children.props);
   const rootRow = rowsOf(rootRows)[0];
   rootRow.props.children[0].props.children[1].props.onClick();

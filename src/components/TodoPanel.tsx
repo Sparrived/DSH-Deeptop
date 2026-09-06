@@ -36,6 +36,7 @@ type TodoPanelProps = {
   turnFinishedAt?: number;
   locale?: UiLocale;
   onToggle: () => void;
+  embedded?: boolean;
 };
 
 type TaskPanelProps = {
@@ -44,6 +45,7 @@ type TaskPanelProps = {
   now: number;
   locale?: UiLocale;
   onToggle: () => void;
+  embedded?: boolean;
 };
 
 type TaskContextMenu = {
@@ -52,7 +54,7 @@ type TaskContextMenu = {
   job: DshJob;
 };
 
-export function TaskPanel({ jobs, collapsed, now, locale = "zh", onToggle }: TaskPanelProps) {
+export function TaskPanel({ jobs, collapsed, now, locale = "zh", onToggle, embedded = false }: TaskPanelProps) {
   const liveCount = jobs.filter((job) => job.status === "running" || job.status === "stopping").length;
   const [contextMenu, setContextMenu] = useState<TaskContextMenu | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
@@ -117,6 +119,7 @@ export function TaskPanel({ jobs, collapsed, now, locale = "zh", onToggle }: Tas
       totalClassName="task-panel-total"
       toggleClassName="task-panel-toggle"
       bodyClassName="task-panel-body"
+      embedded={embedded}
     >
       <div className="task-panel-summary"><span className="live">{t("todo.inProgressCount", locale, { count: liveCount })}</span><span>{t("todo.tasksCount", locale, { count: jobs.length })}</span>{copyState === "copied" && <span className="task-copy-status">{t("todo.copied", locale)}</span>}{copyState === "failed" && <span className="task-copy-status failed">{t("todo.copyFailed", locale)}</span>}</div>
       <ol className="task-list">{orderedJobs.map((job) => <li
@@ -145,7 +148,7 @@ export function TaskPanel({ jobs, collapsed, now, locale = "zh", onToggle }: Tas
   );
 }
 
-export function TodoPanel({ todos, collapsed, counts, now, turnStartedAt, turnFinishedAt, locale = "zh", onToggle }: TodoPanelProps) {
+export function TodoPanel({ todos, collapsed, counts, now, turnStartedAt, turnFinishedAt, locale = "zh", onToggle, embedded = false }: TodoPanelProps) {
   const turnDuration = turnStartedAt === undefined
     ? undefined
     : formatDurationMs(Math.max(0, (turnFinishedAt ?? now) - turnStartedAt));
@@ -170,6 +173,7 @@ export function TodoPanel({ todos, collapsed, counts, now, turnStartedAt, turnFi
       totalClassName="todo-panel-total"
       toggleClassName="todo-panel-toggle"
       bodyClassName="todo-panel-body"
+      embedded={embedded}
     >
       <div className="todo-panel-summary">
         <div className="todo-progress-track" aria-label={t("todo.progressAria", locale, { completed: counts.completed, total: todos.length })}>

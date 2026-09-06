@@ -33,7 +33,7 @@ import { TerminalDock } from "./components/TerminalDock";
 import { DeliverablesPanel } from "./components/DeliverablesPanel";
 import { CurrentGoalBar } from "./components/CurrentGoalBar";
 import { GoalSurfacePanel, type GoalAction } from "./components/GoalSurfacePanel";
-import { UtilityDockShelf } from "./components/UtilityDockShelf";
+import { UtilityDockShelf, type UtilityDockId } from "./components/UtilityDockShelf";
 import { WindowChrome } from "./components/WindowChrome";
 import { DockSettingsProvider, useDockSettings } from "./app/dock-settings";
 import { clampPinLayerWidth, computePinLayerWidths, PIN_LAYER_MAX_WIDTH, PIN_LAYER_MIN_WIDTH, resolvePinLayerWidths, type PinLayerWidths } from "./app/dock-pin";
@@ -571,8 +571,6 @@ function AppContent() {
   const [subagentBranchExpanded, setSubagentBranchExpanded] = useState<Record<string, boolean>>({});
   const [subagentBranchErrors, setSubagentBranchErrors] = useState<Record<string, string>>({});
   const [subagentPanelOpen, setSubagentPanelOpen] = useState(false);
-  // 左侧子 Agent dock 默认收起：展开时显示书签列表，选中后进入执行抽屉。
-  const [subagentDockOpen, setSubagentDockOpen] = useState(false);
   const [selectedSubagentId, setSelectedSubagentId] = useState<string | null>(null);
   const [subagentLoadingId, setSubagentLoadingId] = useState<string | null>(null);
   const [subagentLoadError, setSubagentLoadError] = useState<string | null>(null);
@@ -615,7 +613,7 @@ function AppContent() {
   const [queueEditingId, setQueueEditingId] = useState<string | null>(null);
   const [queueEditingText, setQueueEditingText] = useState("");
   const [sessionJobs, setSessionJobs] = useState<Record<string, DshJob[]>>({});
-  const [openPanel, setOpenPanel] = useState<"tasks" | "todo" | "deliverables" | null>(null);
+  const [activeUtilityPanel, setActiveUtilityPanel] = useState<UtilityDockId | null>(null);
   const [jobNow, setJobNow] = useState(() => Date.now());
   const [filesOpen, setFilesOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
@@ -1396,16 +1394,15 @@ function AppContent() {
   }, [presetCopy, presetView, settingsDraft, showInspector, skillInstallOpen]);
 
   useEffect(() => {
-    if (!subagentPanelOpen && !subagentDockOpen) return;
+    if (!activeUtilityPanel && !subagentPanelOpen) return;
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setSubagentPanelOpen(false);
-        setSubagentDockOpen(false);
-      }
+      if (event.key !== "Escape") return;
+      if (subagentPanelOpen) setSubagentPanelOpen(false);
+      else setActiveUtilityPanel(null);
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [subagentPanelOpen, subagentDockOpen]);
+  }, [activeUtilityPanel, subagentPanelOpen]);
 
   useEffect(() => {
     if (!sessionContextMenu) return;
@@ -1574,13 +1571,11 @@ function AppContent() {
       : null;
   }, [transcript]);
   const deliverablesVisible = deliverables !== null;
-  // Only one right-side panel (任务 / 任务清单 / 生成文件) is expanded at a time.
-  const jobsCollapsed = openPanel !== "tasks";
-  const todoCollapsed = openPanel !== "todo";
-  const deliverablesCollapsed = openPanel !== "deliverables";
   const filesCollapsed = !filesOpen;
-  function togglePanel(panel: "tasks" | "todo" | "deliverables") {
-    setOpenPanel((current) => current === panel ? null : panel);
+  function selectUtilityPanel(panel: UtilityDockId) {
+    const next = activeUtilityPanel === panel ? null : panel;
+    setActiveUtilityPanel(next);
+    if (next !== "subagent") setSubagentPanelOpen(false);
     setJobNow(Date.now());
   }
   const visibleSessions = useMemo(() => {
@@ -1767,10 +1762,6 @@ function AppContent() {
     "terminal-dock": terminalOpen,
     "workspace-files-dock": filesOpen,
     "git-dock": gitOpen,
-    "tasks-dock": activeJobs.length > 0 && !jobsCollapsed,
-    "todo-dock": todoVisible && !todoCollapsed,
-    "subagent-dock": childSubagents.length > 0 && subagentDockOpen,
-    "deliverables-dock": deliverablesVisible && !deliverablesCollapsed,
   } : {};
   const pinLayerWidths = computePinLayerWidths({ pinned: pinnedDocks, expandedById: dockExpandedById });
   const customPinColumnWidths = dockSettings.columnWidths;
@@ -1844,9 +1835,6 @@ function AppContent() {
   // 主界面首次渲染即整树卸载、窗口黑屏）。
   const registerLeftPinLayer = useCallback((element: HTMLElement | null) => {
     setPinLayerElements((current) => (current.left === element ? current : { ...current, left: element }));
-  }, []);
-  const registerRightPinLayer = useCallback((element: HTMLElement | null) => {
-    setPinLayerElements((current) => (current.right === element ? current : { ...current, right: element }));
   }, []);
   const composerTrigger = useMemo(() => detectComposerTrigger(composer), [composer]);
   const composerCandidates = useMemo<ComposerCandidate[]>(() => {
@@ -2179,7 +2167,7 @@ function AppContent() {
     setSelectedSubagentId(null);
     setSubagentLoadError(null);
     setSubagentPanelOpen(false);
-    setSubagentDockOpen(false);
+    setActiveUtilityPanel(null);
     setSkills([]);
     setCommands([]);
     setPermissionSelect(null);
@@ -2338,26 +2326,10 @@ function AppContent() {
     }
   }
 
-  function toggleSubagent(entry: ChildSubagentEntry, index: number) {
-    if (subagentPanelOpen && selectedSubagentId === entry.id) {
-      setSubagentPanelOpen(false);
-      return;
-    }
-    // Drawer 打开时保留右侧 Dock，方便继续切换其他子 Agent。
-    setSubagentDockOpen(true);
-    setSubagentPanelOpen(true);
-    void openSubagent({
-      parentSessionId: activeSessionId!,
-      childSessionId: entry.id,
-      mode: entry.mode,
-    });
-    setNotice(t("notice.openingSubagent", locale, { name: subagentDisplayName(entry, index, locale) }));
-  }
-
   /** 打开任意深度的子 Agent：直接父由树行携带，父会话存活时用官方地址。 */
   function openSubagentEntry(_entry: ChildSubagentEntry, parentSessionId: string, treeKey: string) {
     const childSessionId = subagentTreeChildId(treeKey) ?? _entry.id;
-    setSubagentDockOpen(true);
+    setActiveUtilityPanel("subagent");
     setSubagentPanelOpen(true);
     void openSubagent({
       parentSessionId,
@@ -2374,7 +2346,7 @@ function AppContent() {
       setErrorNotice(t("notice.workflowMemberNoSession", locale));
       return;
     }
-    setSubagentDockOpen(true);
+    setActiveUtilityPanel("subagent");
     setSubagentPanelOpen(true);
     void openSubagent({
       parentSessionId,
@@ -2382,11 +2354,6 @@ function AppContent() {
       mode: "one-shot",
     });
     setNotice(t("notice.openingWorkflowMember", locale, { label: label }));
-  }
-
-  function toggleSubagentDock() {
-    setSubagentPanelOpen(false);
-    setSubagentDockOpen((open) => !open);
   }
 
   async function promptSubagent() {
@@ -2583,7 +2550,7 @@ function AppContent() {
     setSubagentLoadingId(null);
     setSubagentLoadError(null);
     setSubagentPanelOpen(false);
-    setSubagentDockOpen(false);
+    setActiveUtilityPanel(null);
     setSubagentCatalogs({});
     setSubagentBranchExpanded({});
     setSubagentBranchErrors({});
@@ -3668,7 +3635,7 @@ function AppContent() {
     setSubagentLoadingId(null);
     setSubagentLoadError(null);
     setSubagentPanelOpen(false);
-    setSubagentDockOpen(false);
+    setActiveUtilityPanel(null);
     setSubagentCatalogs({});
     setSubagentBranchExpanded({});
     setSubagentBranchErrors({});
@@ -5134,7 +5101,7 @@ function AppContent() {
       />
 
       <DockPinLayersProvider value={conversationPageActive ? pinLayerElements : { left: null, right: null }}>
-      <div className={`workspace-layout ${conversationPageActive && todoVisible ? "todo-visible" : ""} ${conversationPageActive && todoVisible && todoCollapsed ? "todo-collapsed" : ""} ${conversationPageActive && activeJobs.length > 0 ? "tasks-visible" : ""} ${conversationPageActive && activeJobs.length > 0 && jobsCollapsed ? "tasks-collapsed" : ""} ${conversationPageActive && deliverablesVisible ? "deliverables-visible" : ""} ${conversationPageActive && deliverablesVisible && deliverablesCollapsed ? "deliverables-collapsed" : ""}`} style={{ "--sidebar-width": `${sidebarWidth}px`, "--pin-left-width": `${effectivePinLayerWidths.left}px`, "--pin-right-width": `${effectivePinLayerWidths.right}px` } as CSSProperties}>
+      <div className="workspace-layout" style={{ "--sidebar-width": `${sidebarWidth}px`, "--pin-left-width": `${effectivePinLayerWidths.left}px` } as CSSProperties}>
         <SessionSidebar
           locale={locale}
           search={search}
@@ -5333,57 +5300,64 @@ function AppContent() {
             </div>
 
               <UtilityDockShelf
-               locale={locale}
-               tasks={activeJobs.length > 0 ? <TaskPanel locale={locale} jobs={activeJobs} collapsed={jobsCollapsed} now={jobNow} onToggle={() => togglePanel("tasks")} /> : null}
-               todo={todoVisible ? <TodoPanel
-                 locale={locale}
-                 todos={todos ?? []}
-                 collapsed={todoCollapsed}
-                 counts={todoCounts}
-                 now={jobNow}
-                 turnStartedAt={turnTiming.startedAt}
-                 turnFinishedAt={turnTiming.finishedAt}
-                 onToggle={() => togglePanel("todo")}
-               /> : null}
-                subagent={<SubagentDock
+                locale={locale}
+                active={activeUtilityPanel}
+                onSelect={selectUtilityPanel}
+                taskCount={activeJobs.length || undefined}
+                todoCount={todoVisible ? `${todoCounts.completed}/${todos?.length ?? 0}` : undefined}
+                deliverableCount={deliverablesVisible ? deliverables?.files.length : undefined}
+                subagentCount={childSubagents.length || undefined}
+                tasks={activeJobs.length > 0 ? <TaskPanel locale={locale} jobs={activeJobs} collapsed={false} now={jobNow} embedded onToggle={() => setActiveUtilityPanel(null)} /> : <div className="utility-panel-empty">{t("utility.tasksEmpty", locale)}</div>}
+                todo={todoVisible ? <TodoPanel
                   locale={locale}
-                  rootSessionId={activeSessionId ?? ""}
-                  entries={childSubagents}
-                  dockOpen={subagentDockOpen}
-                  selectedId={selectedSubagentId}
-                  catalogs={subagentCatalogs}
-                  expandedBranches={subagentBranchExpanded}
-                  loadingErrors={subagentBranchErrors}
-                  onToggleDock={toggleSubagentDock}
-                  onOpen={openSubagentEntry}
-                  onToggleBranch={toggleSubagentBranch}
-                />}
+                  todos={todos ?? []}
+                  collapsed={false}
+                  counts={todoCounts}
+                  now={jobNow}
+                  turnStartedAt={turnTiming.startedAt}
+                  turnFinishedAt={turnTiming.finishedAt}
+                  embedded
+                  onToggle={() => setActiveUtilityPanel(null)}
+                /> : <div className="utility-panel-empty">{t("utility.todoEmpty", locale)}</div>}
                 deliverables={deliverablesVisible && deliverables ? <DeliverablesPanel
-                 locale={locale}
-                 item={deliverables}
-                 activeSession={activeSession ?? null}
-                 collapsed={deliverablesCollapsed}
-                 onToggle={() => togglePanel("deliverables")}
-                 onOpenSessionPath={openSessionPath}
-               /> : null}
-             />
-
-             <SubagentPanel
-              locale={locale}
-              panelOpen={subagentPanelOpen}
-              selectedId={selectedSubagentId}
-              selectedIndex={selectedSubagentIndex}
-              selectedEntry={selectedSubagent}
-              loadingId={subagentLoadingId}
-              loadError={subagentLoadError}
-              session={subagentSession}
-              transcript={subagentTranscript}
-              composer={subagentComposer}
-              onClose={() => setSubagentPanelOpen(false)}
-              onComposerChange={setSubagentComposer}
-              onPrompt={promptSubagent}
-              onInterrupt={interruptSubagent}
-            />
+                  locale={locale}
+                  item={deliverables}
+                  activeSession={activeSession ?? null}
+                  collapsed={false}
+                  embedded
+                  onToggle={() => setActiveUtilityPanel(null)}
+                  onOpenSessionPath={openSessionPath}
+                /> : <div className="utility-panel-empty">{t("utility.deliverablesEmpty", locale)}</div>}
+                subagent={<div className="subagent-workbench">
+                  <SubagentDock
+                    locale={locale}
+                    rootSessionId={activeSessionId ?? ""}
+                    entries={childSubagents}
+                    selectedId={selectedSubagentId}
+                    catalogs={subagentCatalogs}
+                    expandedBranches={subagentBranchExpanded}
+                    loadingErrors={subagentBranchErrors}
+                    onOpen={openSubagentEntry}
+                    onToggleBranch={toggleSubagentBranch}
+                  />
+                  <SubagentPanel
+                    locale={locale}
+                    panelOpen={subagentPanelOpen}
+                    selectedId={selectedSubagentId}
+                    selectedIndex={selectedSubagentIndex}
+                    selectedEntry={selectedSubagent}
+                    loadingId={subagentLoadingId}
+                    loadError={subagentLoadError}
+                    session={subagentSession}
+                    transcript={subagentTranscript}
+                    composer={subagentComposer}
+                    onClose={() => setSubagentPanelOpen(false)}
+                    onComposerChange={setSubagentComposer}
+                    onPrompt={promptSubagent}
+                    onInterrupt={interruptSubagent}
+                  />
+                </div>}
+              />
           </div>
 
           <InteractionPanel
@@ -5507,21 +5481,6 @@ function AppContent() {
           />
            </section>
 
-        <div className={`pin-layer pin-layer-right${pinLayerWidths.right > 0 ? " active" : ""}`} ref={registerRightPinLayer} aria-hidden={!pinLayerWidths.right}>
-          {pinLayerWidths.right > 0 && (
-            <div
-              className="pin-layer-resizer"
-              role="separator"
-              aria-orientation="vertical"
-              aria-label={t("layout.resizeRightPinAria", locale)}
-              aria-valuemin={PIN_LAYER_MIN_WIDTH}
-              aria-valuemax={PIN_LAYER_MAX_WIDTH}
-              aria-valuenow={effectivePinLayerWidths.right}
-              onPointerDown={(event) => beginPinLayerResize(event, "right")}
-              onDoubleClick={() => resetPinLayerWidth("right")}
-            />
-          )}
-        </div>
       </div>
       </DockPinLayersProvider>
 
