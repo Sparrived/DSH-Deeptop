@@ -46,7 +46,7 @@ import { useToolSettings } from "./app/useToolSettings";
 import { useWindowControls } from "./app/useWindowControls";
 import { normalizeWindowBehavior } from "./app/window-behavior";
 import { clearQueuedSessionEvents, routeBridgeEvent } from "./app/bridge-event-handler";
-import { compactDisplayHistory, displayHistoryStartSeq, loadCompleteDisplayHistory, mergeDisplayHistory } from "./app/display-history";
+import { displayHistoryStartSeq, loadCompleteDisplayHistory, mergeDisplayHistory } from "./app/display-history";
 import { loadedTurnFacts, mergeTurnRailItems, EMPTY_RAIL_ITEMS, type TurnRailItem } from "./app/turn-rail-model";
 import { trackAsyncCleanup } from "./lib/async-cleanup";
 import { ImageAttachmentCache } from "./app/image-attachment-cache";
@@ -2327,7 +2327,7 @@ function AppContent() {
     try {
       const result = await desktopRequest("subagent.history", { ...address });
       if (requestId !== subagentRequestRef.current) return;
-      setSubagentSession({ address, history: compactDisplayHistory(result.events) });
+      setSubagentSession({ address, history: result.events });
     } catch (error) {
       if (requestId !== subagentRequestRef.current) return;
       const message = errorText(error, locale);
@@ -2618,7 +2618,8 @@ function AppContent() {
       }
       if (historyVersion !== undefined) historyPageCache.endLatestLoad(session.sessionId, historyVersion);
       if (loadRequest !== sessionLoadRequestRef.current || activeSessionRef.current !== session.sessionId) return false;
-      const loadedHistory = compactDisplayHistory(historyResult.events);
+      // session.history and its cache already contain compacted display entries.
+      const loadedHistory = historyResult.events;
       // Mux events can arrive after the Host history cut while this request is
       // in flight. Merge rather than replace so those post-cut events survive.
       const mergedHistory = mergeDisplayHistory(loadedHistory, historyRef.current);
@@ -2810,7 +2811,7 @@ function AppContent() {
       const projectedImageLimits = imageLimitsFromProjection(mergedProjections.values.imageLimits);
       if (projectedImageLimits) setModels((current) => current ? { ...current, imageLimits: projectedImageLimits } : current);
       if (recordValue(mergedProjections.values.contextPressure)) contextProjectionRef.current = true;
-      const statsHistory = mergeDisplayHistory(compactDisplayHistory(result.events), historyRef.current);
+      const statsHistory = mergeDisplayHistory(result.events, historyRef.current);
       const nextStats = readSessionStats(statsHistory, { values: mergedProjections.values });
       setSessionStats((current) => ({
         ...current,
