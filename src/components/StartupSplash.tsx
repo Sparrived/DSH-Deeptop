@@ -40,7 +40,6 @@ export function StartupSplash({
   }, [logs]);
   const readoutRows = [
     { label: "Node.js", value: status.nodeAvailable ? t("startup.nodeFound", locale) : t("startup.notFound", locale), tone: status.nodeAvailable ? "ok" : "bad" },
-    { label: "NPM", value: status.npmAvailable ? t("startup.available", locale) : t("startup.notFound", locale), tone: status.npmAvailable ? "ok" : "bad" },
     { label: t("startup.workdir", locale), value: status.dshHome, tone: "" },
     { label: t("startup.package", locale), value: status.packageAvailable ? `${status.packageName} · ${t("startup.verified", locale)}` : `${status.packageName} · ${t("startup.verifying", locale)}`, tone: status.packageAvailable ? "ok" : "" },
     { label: "REGISTRY", value: status.selectedRegistry || t("startup.defaultRegistry", locale), tone: "" },

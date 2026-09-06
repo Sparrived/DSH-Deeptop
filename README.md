@@ -75,7 +75,7 @@ These boundaries let the desktop reuse DSH's domain contracts instead of draggin
 
 ### Requirements
 
-- Node.js **22.19+** or **24+**, with `node` and `npm` on your `PATH`;
+- For local development: Node.js **22.19+** or **24+**, with `node` and `npm` on your `PATH`;
 - Rust/Cargo and the [Tauri desktop development environment](https://v2.tauri.app/start/prerequisites/);
 - A working WebView2 runtime on Windows;
 - Installers bundle a pinned DSH runtime built from pinned sources and never access the npm registry at launch.
@@ -89,7 +89,7 @@ npm ci
 npm run tauri:dev
 ```
 
-After launch, wait for the embedded DSH runtime to become ready, pick or create a workspace, configure a provider and credentials, then start your first session. Deeptop launches a pinned DSH build from the installer's compressed `dsh-runtime.tar.gz` resource and reuses an extraction cache named after the source commit, platform, architecture and runtime tree digest for subsequent starts and updates; the user's PATH, global npm, npm cache and registry never replace or install the runtime. Runtime builds deploy production dependencies from `vendor/dsh/pnpm-lock.yaml`; verification compares the archive and resource manifests, recomputes the final archive tree digest, and smoke-loads startup modules including platform-native dependencies. Installers still execute the embedded JavaScript with the system Node.js and show a retryable native error when Node.js is missing.
+After launch, wait for the embedded DSH runtime to become ready, pick or create a workspace, configure a provider and credentials, then start your first session. Deeptop launches a pinned DSH build from the installer's compressed `dsh-runtime.tar.gz` resource and reuses an extraction cache named after the source commit, platform, architecture and runtime tree digest for subsequent starts and updates; the user's PATH, global npm, npm cache and registry never replace or install the runtime. On Windows x64, if no compatible Node.js is available, Deeptop downloads the pinned official Node.js 22.19.0 archive, verifies its compiled SHA-256 values, and stores only `node.exe` in its app-local runtime cache; it does not modify system PATH or require npm. Runtime builds deploy production dependencies from `vendor/dsh/pnpm-lock.yaml`; verification compares the archive and resource manifests, recomputes the final archive tree digest, and smoke-loads startup modules including platform-native dependencies.
 
 > `npm run dev` only starts a Vite preview without the Tauri Bridge or the DSH subprocess. It is meant for layout adjustments, not for verifying session, file or system-integration features.
 
