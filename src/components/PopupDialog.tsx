@@ -6,6 +6,7 @@ interface PopupDialogProps {
   title: string;
   eyebrow?: string;
   description?: ReactNode;
+  descriptionInBody?: boolean;
   children: ReactNode;
   footer?: ReactNode;
   className?: string;
@@ -38,6 +39,7 @@ export function PopupDialog({
   title,
   eyebrow,
   description,
+  descriptionInBody = false,
   children,
   footer,
   className,
@@ -113,11 +115,11 @@ export function PopupDialog({
           <div className="popup-heading">
             {eyebrow && <span className="popup-eyebrow">{eyebrow}</span>}
             <h2 id={titleId}>{title}</h2>
-            {description && <p id={descriptionId}>{description}</p>}
+            {description && !descriptionInBody && <p id={descriptionId}>{description}</p>}
           </div>
           <button className="popup-close" type="button" onClick={onClose} aria-label={t("popup.closeTitle", locale, { title })} title={t("popup.closeTitle", locale, { title })}>×</button>
         </header>
-        <div className="popup-body">{children}</div>
+        <div className="popup-body">{description && descriptionInBody && <p id={descriptionId} className="popup-confirm-message">{description}</p>}{children}</div>
         {footer && <footer className="popup-footer">{footer}</footer>}
       </section>
     </div>,

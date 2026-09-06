@@ -5916,6 +5916,7 @@ function AppContent() {
         locale={locale}
         title={t(archiveTargets.length === 1 ? "dialog.archive.title" : "dialog.archiveMultiple.title", locale)}
         description={archiveTargets.length === 1 ? t("dialog.archive.description", locale, { session: displayTitle(archiveTargets[0], locale) }) : t("dialog.archiveMultiple.description", locale, { count: archiveTargets.length })}
+        descriptionInBody
         className="popup-confirm-dialog"
         role="alertdialog"
         onClose={() => { if (!archiveMutationPending) setArchiveTargets(null); }}
@@ -5925,6 +5926,7 @@ function AppContent() {
         locale={locale}
         title={t(deleteArchivedTargets.length === 1 ? "dialog.deleteArchived.title" : "dialog.deleteArchivedMultiple.title", locale)}
         description={deleteArchivedTargets.length === 1 ? t("dialog.deleteArchived.description", locale, { session: displayTitle(deleteArchivedTargets[0], locale) }) : t("dialog.deleteArchivedMultiple.description", locale, { count: deleteArchivedTargets.length })}
+        descriptionInBody
         className="popup-confirm-dialog"
         role="alertdialog"
         onClose={() => { if (!archiveMutationPending) setDeleteArchivedTargets(null); }}
