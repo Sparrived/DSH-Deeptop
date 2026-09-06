@@ -1696,7 +1696,7 @@ function AppContent() {
       ? { options: permissionOptions, currentValue }
       : null;
   }, [defaultPermission, draftPermission, permissionOptions]);
-  const composerPermissions = activeSessionId ? permissionSelect : newSessionPermissionSelect;
+  const composerPermissions = permissionSelect ?? newSessionPermissionSelect;
   const defaultModelName = useMemo(() => {
     if (!defaultModelSelection) return t("modelPicker.defaultModel", locale);
     return hostModels?.groups.find((group) => group.id === defaultModelSelection.provider)?.models.find((model) => model.id === defaultModelSelection.model)?.name ?? defaultModelSelection.model;
