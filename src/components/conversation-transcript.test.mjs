@@ -174,6 +174,23 @@ test("streaming assistant keeps one Markdown surface when animation is unavailab
   assert.equal(tree.props.text, "reset");
 });
 
+test("entrance motion only follows newly appended transcript items", async () => {
+  const renderer = createHookRenderer();
+  const { appendedTranscriptKeys } = await loadTranscriptExports(renderer.react);
+  const previous = new Set(["user-1", "stream-1"]);
+
+  assert.deepEqual(
+    appendedTranscriptKeys(previous, [{ key: "user-1" }, { key: "stream-1" }, { key: "tool-2" }]),
+    ["tool-2"],
+  );
+  assert.deepEqual(
+    appendedTranscriptKeys(previous, [{ key: "history-0" }, { key: "user-1" }, { key: "stream-1" }]),
+    [],
+  );
+  assert.deepEqual(appendedTranscriptKeys(new Set(), [{ key: "first" }]), ["first"]);
+  assert.deepEqual(appendedTranscriptKeys(previous, [{ key: "replacement" }]), []);
+});
+
 test("streaming text frames reveal bursts adaptively and preserve Unicode pairs", async () => {
   const renderer = createHookRenderer();
   const { nextStreamingTextFrame } = await loadTranscriptExports(renderer.react);

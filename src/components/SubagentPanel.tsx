@@ -86,7 +86,7 @@ export function SubagentPanel({
         ) : session ? (
           <div className="subagent-history">
             {transcript.map((item) => item.kind === "tool" ? (
-              <details className={`subagent-tool-entry ${item.toolResultError ? "error" : ""}`} key={item.key} open={item.toolResultText !== undefined}>
+              <details className={`subagent-tool-entry subagent-tool-status-${item.toolResultError ? "error" : item.toolResultText !== undefined ? "returned" : "running"}${item.toolResultError ? " error" : ""}`} data-tool-status={item.toolResultError ? "error" : item.toolResultText !== undefined ? "returned" : "running"} key={item.key} open={item.toolResultText !== undefined}>
                 <summary><span className="subagent-tool-state" /><strong>{displayToolName(item.toolName)}</strong><em>{item.toolResultError ? t("subagent.toolError", locale) : item.toolResultText !== undefined ? t("subagent.toolReturned", locale) : t("subagent.toolRunning", locale)}</em></summary>
                 <div className="subagent-tool-content"><pre>{item.text}</pre>{item.toolResultText !== undefined && <div className="subagent-tool-result"><span>{t("subagent.toolResult", locale)}</span><pre>{item.toolResultText}</pre></div>}</div>
               </details>

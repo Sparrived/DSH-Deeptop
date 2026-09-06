@@ -26,6 +26,18 @@
   --message-font-size: 13px;
   --message-line-height: 1.7;
   --window-bar-height: 48px;
+
+  /* Interaction motion contract:
+     - instant: press / hover acknowledgement
+     - fast: local control or state change
+     - standard: row, card, and panel entrance
+     Continuous motion is reserved for a currently active task and must stop
+     when activity stops or the user requests reduced motion. */
+  --motion-instant: 100ms;
+  --motion-fast: 140ms;
+  --motion-standard: 180ms;
+  --motion-loop: 2.4s;
+  --motion-ease-enter: cubic-bezier(.2, .8, .2, 1);
 }
 
 :root[data-theme="dark"] {

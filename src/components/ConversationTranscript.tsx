@@ -156,7 +156,7 @@ function ToolEntryView({
   const editDiff = args ? toolCallEditDiff(item.toolName, args) : undefined;
   const displayName = displayToolName(item.toolName);
   return (
-    <details className={`tool-entry tool-layout-${argsLayout} ${hasToolResult && hasVisibleArgs ? "tool-paired" : ""} ${!hasVisibleArgs ? "tool-result-only" : ""} ${item.toolResultError ? "tool-error" : ""}`} open={item.toolResultError || undefined}>
+    <details className={`tool-entry tool-status-${toolStatus} tool-layout-${argsLayout} ${hasToolResult && hasVisibleArgs ? "tool-paired" : ""} ${!hasVisibleArgs ? "tool-result-only" : ""} ${item.toolResultError ? "tool-error" : ""}`} data-tool-status={toolStatus} open={item.toolResultError || undefined}>
       <summary>
         <span className="tool-summary-main"><span className="tool-state" aria-hidden="true" /><span className="tool-name">{displayName}</span></span>
         {description && <span className="tool-description">{description}</span>}
@@ -737,6 +737,8 @@ function LightboxThumb({ image }: { image: TranscriptImage }) {
 
 type TranscriptArticleProps = {
   item: TranscriptItem;
+  /** True only for entries appended after the active transcript was first painted. */
+  entered: boolean;
   retryingMessageSeq: number | null;
   activeRunning: boolean;
   loading: boolean;
@@ -767,6 +769,7 @@ function workflowStatusKey(status: string): string {
 
 function TranscriptArticleView({
   item,
+  entered,
   retryingMessageSeq,
   activeRunning,
   loading,
@@ -791,7 +794,8 @@ function TranscriptArticleView({
   const streamingAssistant = item.kind === "assistant" && item.streaming === true;
   return (
     <article
-      className={`message-row ${item.kind}${item.injected ? " context-row" : ""}${item.kind === "tool" ? " tool-row" : ""}`}
+      className={`message-row ${item.kind}${item.injected ? " context-row" : ""}${item.kind === "tool" ? " tool-row" : ""}${streamingAssistant ? " is-streaming" : ""}${entered ? " is-entering" : ""}`}
+      data-message-state={streamingAssistant ? "streaming" : "settled"}
       data-seq={item.seq}
       {...(item.seqFrom !== undefined && item.seqFrom !== item.seq ? { "data-seq-from": item.seqFrom } : {})}
       onContextMenu={(event) => {
@@ -830,7 +834,7 @@ function TranscriptArticleView({
         ) : item.kind === "reasoning" ? (
           <ReasoningEntry text={item.text} streaming={Boolean(item.streaming)} locale={locale} />
         ) : item.kind === "workflow" ? (
-          <details className="workflow-entry" open={item.workflow?.status === "running"}>
+          <details className={`workflow-entry workflow-status-${item.workflow?.status ?? "running"}`} data-workflow-status={item.workflow?.status ?? "running"} open={item.workflow?.status === "running"}>
             <summary><span className={`workflow-status ${item.workflow?.status ?? "running"}`} />{item.workflow?.name || item.text}<em>{item.workflow ? t(workflowStatusKey(item.workflow.status), locale) : "Workflow"}</em></summary>
             <div className="workflow-body">{item.workflow?.phases.length ? item.workflow.phases.map((phase, phaseIndex) => <div className="workflow-phase" key={`${item.key}-phase-${phaseIndex}`}><strong>{phase.phase || t("conversation.workflow.unnamedPhase", locale)}</strong><div>{phase.members.map((member) => {
               const childId = member.childId;
@@ -905,7 +909,8 @@ function TranscriptArticleView({
 // UI Runtime identity.
 const TranscriptArticle = memo(TranscriptArticleView, (prev, next) => {
   if (!sameItemFields(prev.item, next.item)) return false;
-  return prev.retryingMessageSeq === next.retryingMessageSeq
+  return prev.entered === next.entered
+    && prev.retryingMessageSeq === next.retryingMessageSeq
     && prev.activeRunning === next.activeRunning
     && prev.loading === next.loading
     && prev.activeSessionId === next.activeSessionId
@@ -913,6 +918,51 @@ const TranscriptArticle = memo(TranscriptArticleView, (prev, next) => {
     && prev.uiRuntime === next.uiRuntime
     && prev.uiHost === next.uiHost;
 });
+
+export function appendedTranscriptKeys(previousKeys: ReadonlySet<string>, transcript: readonly TranscriptItem[]) {
+  let finalKnownIndex = -1;
+  for (let index = transcript.length - 1; index >= 0; index -= 1) {
+    if (previousKeys.has(transcript[index].key)) {
+      finalKnownIndex = index;
+      break;
+    }
+  }
+  // A full replacement under the same session is a projection reset, not a
+  // newly appended turn. An empty prior projection is the one exception.
+  if (previousKeys.size > 0 && finalKnownIndex === -1) return [];
+  return transcript.slice(finalKnownIndex + 1).filter((item) => !previousKeys.has(item.key)).map((item) => item.key);
+}
+
+const TRANSCRIPT_ENTER_MS = 180;
+
+function useEnteredTranscriptKeys(transcript: readonly TranscriptItem[], activeSessionId: string | null) {
+  const seenRef = useRef<{ sessionId: string | null; keys: ReadonlySet<string> } | null>(null);
+  const [entered, setEntered] = useState<{ sessionId: string | null; keys: ReadonlySet<string> }>(() => ({ sessionId: activeSessionId, keys: new Set() }));
+
+  useEffect(() => {
+    const previous = seenRef.current;
+    const keys = new Set(transcript.map((item) => item.key));
+    seenRef.current = { sessionId: activeSessionId, keys };
+    // The initial/session-switch projection is history, not a newly arrived event.
+    if (!previous || previous.sessionId !== activeSessionId) {
+      setEntered({ sessionId: activeSessionId, keys: new Set() });
+      return;
+    }
+    // Paging history prepends rows before known entries, so only appended
+    // events receive an entrance animation.
+    const additions = appendedTranscriptKeys(previous.keys, transcript);
+    if (additions.length === 0) return;
+    setEntered((current) => ({ sessionId: activeSessionId, keys: new Set([...current.keys, ...additions]) }));
+  }, [activeSessionId, transcript]);
+
+  useEffect(() => {
+    if (entered.keys.size === 0) return;
+    const timer = window.setTimeout(() => setEntered((current) => ({ ...current, keys: new Set() })), TRANSCRIPT_ENTER_MS);
+    return () => window.clearTimeout(timer);
+  }, [entered]);
+
+  return entered.sessionId === activeSessionId ? entered.keys : new Set<string>();
+}
 
 export function ConversationTranscript({
   locale = "zh",
@@ -957,6 +1007,7 @@ export function ConversationTranscript({
   onTurnNavigate,
 }: ConversationTranscriptProps) {
   const [previewGallery, setPreviewGallery] = useState<PreviewGallery | null>(null);
+  const enteredTranscriptKeys = useEnteredTranscriptKeys(transcript, activeSessionId);
 
   // 会话文本右键复制菜单：右击选中文本时可复制选区，或复制整条消息。
   type TranscriptCopyMenu = {
@@ -1056,7 +1107,8 @@ export function ConversationTranscript({
             <TranscriptArticle
               key={item.key}
               item={item}
-              uiRuntime={uiRuntime}
+              entered={enteredTranscriptKeys.has(item.key)}
+               uiRuntime={uiRuntime}
               uiHost={uiHost}
               retryingMessageSeq={retryingMessageSeq}
               activeRunning={activeRunning}

@@ -1,0 +1,187 @@
+/*
+ * Event-driven interaction motion
+ *
+ * This layer follows the shared --motion-* contract in 01-foundation.css.
+ * It only animates a newly arrived UI event or a currently running task;
+ * it never animates streamed characters, layout dimensions, or history on load.
+ */
+
+@media (prefers-reduced-motion: no-preference) {
+  /* A message enters only after the active transcript was already painted.
+     The streaming text itself remains unanimated except for its existing caret. */
+  .message-row.is-entering > .message-gutter,
+  .message-row.is-entering > .message-content {
+    animation: interaction-message-in var(--motion-standard) var(--motion-ease-enter) both;
+  }
+
+  .message-row.is-entering > .message-gutter { animation-delay: 20ms; }
+
+  @keyframes interaction-message-in {
+    from { opacity: 0; transform: translateY(5px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Tool/workflow/subagent activity uses one quiet status point. Terminal
+     states deliberately do not loop: their colour and result content persist. */
+  .tool-entry[data-tool-status="running"] .tool-state,
+  .tool-entry[data-tool-status="running"] .tool-status-dot,
+  .workflow-entry[data-workflow-status="running"] .workflow-status,
+  .workflow-entry[data-workflow-status="running"] .workflow-member.running i,
+  .subagent-tool-entry[data-tool-status="running"] .subagent-tool-state {
+    animation: interaction-status-pulse var(--motion-loop) ease-in-out infinite;
+  }
+
+  @keyframes interaction-status-pulse {
+    0%, 100% { opacity: .58; transform: scale(.88); }
+    50% { opacity: 1; transform: scale(1); }
+  }
+
+  .tool-entry,
+  .workflow-entry,
+  .subagent-tool-entry,
+  .tool-state,
+  .tool-status-dot,
+  .workflow-status,
+  .workflow-member i,
+  .subagent-tool-state {
+    transition: border-color var(--motion-fast) ease, background-color var(--motion-fast) ease, color var(--motion-fast) ease, opacity var(--motion-fast) ease;
+  }
+
+  /* Composer acknowledgement: input remains stable, while interactive controls
+     get a tactile press and the stop action enters once the session is live. */
+  .composer-shell,
+  .send-button,
+  .stop-button,
+  .attachment-button,
+  .mode-picker-trigger,
+  .model-picker-trigger,
+  .permission-picker.with-label {
+    transition: border-color var(--motion-fast) ease, background-color var(--motion-fast) ease, color var(--motion-fast) ease, opacity var(--motion-fast) ease, transform var(--motion-instant) ease;
+  }
+
+  .send-button:active:not(:disabled),
+  .stop-button:active:not(:disabled),
+  .attachment-button:active:not(:disabled),
+  .mode-picker-trigger:active:not(:disabled),
+  .model-picker-trigger:active:not(:disabled) { transform: translateY(1px) scale(.98); }
+
+  .stop-button { animation: interaction-control-in var(--motion-fast) var(--motion-ease-enter) both; }
+  .queue-count { animation: interaction-count-in var(--motion-fast) var(--motion-ease-enter) both; }
+
+  @keyframes interaction-control-in {
+    from { opacity: 0; transform: scale(.88); }
+    to { opacity: 1; transform: scale(1); }
+  }
+
+  @keyframes interaction-count-in {
+    from { opacity: 0; transform: translateY(-3px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Session list status already has dedicated lifecycle effects. Keep pointer
+     feedback local so filtering and drag re-projections never animate rows. */
+  .session-row-main,
+  .session-row-pin,
+  .new-session-button,
+  .sidebar-heading-actions button,
+  .sidebar-view-button {
+    transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, color var(--motion-fast) ease, transform var(--motion-instant) ease;
+  }
+
+  .session-row-pin.is-pinned { transform: scale(1.05); }
+
+  .session-row-main:active,
+  .session-row-pin:active,
+  .new-session-button:active,
+  .sidebar-heading-actions button:active,
+  .sidebar-view-button:active { transform: translateY(1px) scale(.98); }
+
+  /* Conditional mounting gives these surfaces a natural enter point. Exit is
+     intentionally immediate so focus, destruction, and pinned dock semantics
+     remain owned by their current controls. */
+  .floating-question-card,
+  .question-pebble,
+  .utility-panel-content,
+  .popup-backdrop,
+  .inspector-backdrop,
+  .inspector-modal .inspector-panel,
+  .confirm-backdrop > .confirm-dialog,
+  .dock-frame-card:not(.dock-frame-card-dragging) {
+    animation: interaction-surface-in var(--motion-standard) var(--motion-ease-enter) both;
+  }
+
+  .popup-backdrop,
+  .inspector-backdrop { animation-name: interaction-backdrop-in; animation-duration: var(--motion-fast); }
+  .dock-frame-card:not(.dock-frame-card-dragging) { animation-name: interaction-fade-in; }
+
+  @keyframes interaction-surface-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes interaction-backdrop-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes interaction-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+}
+
+/* Running should never read as successful before a result arrives. */
+.tool-entry[data-tool-status="running"] .tool-state,
+.subagent-tool-entry[data-tool-status="running"] .subagent-tool-state { background: var(--warning); }
+
+.tool-entry[data-tool-status="returned"] .tool-state,
+.subagent-tool-entry[data-tool-status="returned"] .subagent-tool-state { background: var(--good); }
+
+.tool-entry[data-tool-status="error"] .tool-state,
+.subagent-tool-entry[data-tool-status="error"] .subagent-tool-state { background: var(--danger); }
+
+/* Stop residual continuous effects if the app is inactive or unfocused. */
+body:not(.deeptop-activity-live) .tool-entry[data-tool-status="running"] .tool-state,
+body:not(.deeptop-activity-live) .tool-entry[data-tool-status="running"] .tool-status-dot,
+body:not(.deeptop-activity-live) .workflow-entry[data-workflow-status="running"] .workflow-status,
+body:not(.deeptop-activity-live) .workflow-entry[data-workflow-status="running"] .workflow-member.running i,
+body:not(.deeptop-activity-live) .subagent-tool-entry[data-tool-status="running"] .subagent-tool-state,
+body.deeptop-window-blurred .tool-entry[data-tool-status="running"] .tool-state,
+body.deeptop-window-blurred .tool-entry[data-tool-status="running"] .tool-status-dot,
+body.deeptop-window-blurred .workflow-entry[data-workflow-status="running"] .workflow-status,
+body.deeptop-window-blurred .workflow-entry[data-workflow-status="running"] .workflow-member.running i,
+body.deeptop-window-blurred .subagent-tool-entry[data-tool-status="running"] .subagent-tool-state {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-row.is-entering > .message-gutter,
+  .message-row.is-entering > .message-content,
+  .floating-question-card,
+  .question-pebble,
+  .utility-panel-content,
+  .popup-backdrop,
+  .inspector-backdrop,
+  .inspector-modal .inspector-panel,
+  .confirm-backdrop > .confirm-dialog,
+  .dock-frame-card,
+  .stop-button,
+  .queue-count {
+    animation: none !important;
+  }
+
+  .composer-shell,
+  .send-button,
+  .stop-button,
+  .attachment-button,
+  .mode-picker-trigger,
+  .model-picker-trigger,
+  .permission-picker.with-label,
+  .session-row-main,
+  .session-row-pin,
+  .new-session-button,
+  .sidebar-heading-actions button,
+  .sidebar-view-button {
+    transition-duration: .01ms !important;
+  }
+}

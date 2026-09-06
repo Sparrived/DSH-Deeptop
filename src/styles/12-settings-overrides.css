@@ -698,7 +698,7 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .popup-window { animation: popup-window-in 160ms ease-out both; }
+  .popup-window { animation: popup-window-in var(--motion-standard) var(--motion-ease-enter) both; }
 }
 
 @keyframes popup-window-in {
