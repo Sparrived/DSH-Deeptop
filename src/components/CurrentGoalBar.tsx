@@ -35,7 +35,7 @@ export function CurrentGoalBar({ activeGoal, roundsStarted, collapsed, locale = 
 
   return (
     <aside className={`current-goal-bar ${activeGoal.phase}${collapsed ? " collapsed" : ""}`} aria-label={t("goal.current", locale)}>
-      <button type="button" className="current-goal-bar-main" onClick={onOpen} title={t("goal.openPanel", locale)}>
+      <button type="button" className="current-goal-bar-main" onClick={onOpen} title={t("goal.openPanel", locale)} disabled={collapsed}>
         <span className="current-goal-mark" aria-hidden="true">{phaseMarks[activeGoal.phase]}</span>
         <span className="current-goal-copy">
           <span className="current-goal-heading">
@@ -50,7 +50,7 @@ export function CurrentGoalBar({ activeGoal, roundsStarted, collapsed, locale = 
           <span className="current-goal-progress-track" role="progressbar" aria-label={t("goal.roundProgressAria", locale)} aria-valuemin={0} aria-valuemax={maxRounds} aria-valuenow={Math.min(safeRounds, maxRounds)}><i style={{ width: `${progress}%` }} /></span>
         </span>
       </button>
-      <button type="button" className="current-goal-manage" onClick={onOpen} aria-label={t("goal.openPanel", locale)} title={t("goal.manage", locale)}>{t("goal.manage", locale)}</button>
+      <button type="button" className="current-goal-manage" onClick={onOpen} aria-label={t("goal.openPanel", locale)} title={t("goal.manage", locale)} disabled={collapsed}>{t("goal.manage", locale)}</button>
       <button
         type="button"
         className="current-goal-collapse-toggle"
@@ -58,7 +58,7 @@ export function CurrentGoalBar({ activeGoal, roundsStarted, collapsed, locale = 
         aria-expanded={!collapsed}
         aria-label={collapsed ? t("goal.expand", locale) : t("goal.collapse", locale)}
         title={collapsed ? t("goal.expand", locale) : t("goal.collapse", locale)}
-      ><span aria-hidden="true">⌃</span></button>
+      ><span aria-hidden="true">{collapsed ? "›" : "‹"}</span></button>
     </aside>
   );
 }

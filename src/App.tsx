@@ -31,7 +31,6 @@ import { WorkspaceFilesPanel } from "./components/WorkspaceFilesPanel";
 import { GitDock } from "./components/GitDock";
 import { TerminalDock } from "./components/TerminalDock";
 import { DeliverablesPanel } from "./components/DeliverablesPanel";
-import { CurrentGoalBar } from "./components/CurrentGoalBar";
 import { GoalSurfacePanel, type GoalAction } from "./components/GoalSurfacePanel";
 import { UtilityDockShelf, UtilityPanelEmptyState, type UtilityDockId } from "./components/UtilityDockShelf";
 import { WindowChrome } from "./components/WindowChrome";
@@ -48,6 +47,7 @@ import { normalizeWindowBehavior } from "./app/window-behavior";
 import { clearQueuedSessionEvents, routeBridgeEvent } from "./app/bridge-event-handler";
 import { displayHistoryStartSeq, loadCompleteDisplayHistory, mergeDisplayHistory } from "./app/display-history";
 import { loadedTurnFacts, mergeTurnRailItems, EMPTY_RAIL_ITEMS, type TurnRailItem } from "./app/turn-rail-model";
+import { nextGoalBarState } from "./app/goal-bar-state";
 import { trackAsyncCleanup } from "./lib/async-cleanup";
 import { ImageAttachmentCache } from "./app/image-attachment-cache";
 import { BoundedClaimSet } from "./app/bounded-claim-set";
@@ -595,7 +595,8 @@ function AppContent() {
   const [goalMaxRoundsDraft, setGoalMaxRoundsDraft] = useState("");
   const [goalPanelOpen, setGoalPanelOpen] = useState(false);
   const [goalPanelBusy, setGoalPanelBusy] = useState(false);
-  const [goalBarCollapsed, setGoalBarCollapsed] = useState(false);
+  const [goalBarCollapsed, setGoalBarCollapsed] = useState(true);
+  const goalBarInitializedRef = useRef(false);
   const [presetView, setPresetView] = useState<{ id: string; content: string } | null>(null);
   const [presetCopy, setPresetCopy] = useState<{ from: string; id: string; name: string } | null>(null);
   const [surfaceLoading, setSurfaceLoading] = useState(false);
@@ -1739,18 +1740,21 @@ function AppContent() {
       ...selectedReasoning.efforts.map((effort) => ({ key: `effort:${effort.id}`, id: effort.id, name: effort.name, description: effort.description })),
     ];
 
+  const goalProjectionLoaded = goal !== undefined;
   const activeGoal = goal && typeof goal === "object" ? goal.goal : null;
   const goalRoundsStarted = goal && typeof goal === "object" ? goal.roundsStarted : 0;
   // 对话、轨迹和会话看板共用同一内容壳；只有对话页显示 Goal、Dock 等会话工具。
   const conversationPageActive = !trajectoryOpen && !sessionDashboardOpen;
   const visibleGoal = conversationPageActive ? activeGoal : null;
   useEffect(() => {
-    if (activeGoal?.phase === "complete") {
-      setGoalBarCollapsed(true);
-    } else {
-      setGoalBarCollapsed(false);
-    }
-  }, [activeGoal?.id, activeGoal?.phase]);
+    const next = nextGoalBarState({
+      initialized: goalBarInitializedRef.current,
+      projectionLoaded: goalProjectionLoaded,
+      phase: activeGoal?.phase,
+    });
+    goalBarInitializedRef.current = next.initialized;
+    setGoalBarCollapsed(next.collapsed);
+  }, [goalProjectionLoaded, activeGoal?.id, activeGoal?.phase]);
   useEffect(() => {
     if (!conversationPageActive) setGoalPanelOpen(false);
   }, [conversationPageActive]);
@@ -2539,7 +2543,8 @@ function AppContent() {
     setQueueEditingText("");
     setAttachments([]);
     setGoal(undefined);
-    setGoalBarCollapsed(false);
+    goalBarInitializedRef.current = false;
+    setGoalBarCollapsed(true);
     setGoalPanelOpen(false);
     setGoalDraft("");
     setGoalMaxRoundsDraft("");
@@ -3624,7 +3629,8 @@ function AppContent() {
     setQueueEditingId(null);
     setQueueEditingText("");
     setGoal(undefined);
-    setGoalBarCollapsed(false);
+    goalBarInitializedRef.current = false;
+    setGoalBarCollapsed(true);
     setGoalPanelOpen(false);
     setGoalDraft("");
     setGoalMaxRoundsDraft("");
@@ -5251,21 +5257,18 @@ function AppContent() {
             notice={notice}
             noticeIsError={noticeIsError}
             queueCount={conversationPageActive ? queue.length : 0}
+            activeGoal={visibleGoal}
+            goalRoundsStarted={goalRoundsStarted}
+            goalCollapsed={goalBarCollapsed}
             trajectoryOpen={trajectoryOpen}
             sessionDashboardOpen={sessionDashboardOpen}
+            onOpenGoal={openGoalPanel}
+            onToggleGoalCollapsed={() => setGoalBarCollapsed((collapsed) => !collapsed)}
             onToggleTrajectory={() => { setSessionDashboardOpen(false); setTrajectoryOpen((open) => !open); }}
             onToggleSessionDashboard={() => { setTrajectoryOpen(false); setSessionDashboardOpen((open) => !open); }}
           />
 
-          <div className={`conversation-transcript-stage${conversationPageActive ? "" : " page-non-conversation"}${conversationPageActive && activeGoal ? " has-current-goal" : ""}${conversationPageActive && goalBarCollapsed ? " current-goal-collapsed" : ""}`}>
-            <CurrentGoalBar
-              locale={locale}
-              activeGoal={visibleGoal}
-              roundsStarted={goalRoundsStarted}
-              collapsed={goalBarCollapsed}
-              onOpen={openGoalPanel}
-              onToggleCollapsed={() => setGoalBarCollapsed((collapsed) => !collapsed)}
-            />
+          <div className={`conversation-transcript-stage${conversationPageActive ? "" : " page-non-conversation"}`}>
             {corruptSession && corruptSession.sessionId === activeSessionId && (
               <div className="session-repair-banner" role="alert">
                 <div className="session-repair-banner-text">

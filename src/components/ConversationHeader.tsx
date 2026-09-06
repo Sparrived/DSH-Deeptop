@@ -1,7 +1,8 @@
 import { useState } from "react";
-import type { DshPreset, DshSessionSummary } from "../lib/desktop";
+import type { DshGoalProjection, DshPreset, DshSessionSummary } from "../lib/desktop";
 import { displayTitle, presetDisplayName } from "../app/model";
 import { t, type UiLocale } from "../app/i18n";
+import { CurrentGoalBar } from "./CurrentGoalBar";
 
 type ConversationHeaderProps = {
   /** 界面语言：标题与操作按钮文案按语言渲染。 */
@@ -12,8 +13,13 @@ type ConversationHeaderProps = {
   notice: string;
   noticeIsError: boolean;
   queueCount: number;
+  activeGoal: DshGoalProjection["goal"] | null;
+  goalRoundsStarted: number;
+  goalCollapsed: boolean;
   trajectoryOpen: boolean;
   sessionDashboardOpen: boolean;
+  onOpenGoal: () => void;
+  onToggleGoalCollapsed: () => void;
   onToggleTrajectory: () => void;
   onToggleSessionDashboard: () => void;
 };
@@ -26,8 +32,13 @@ export function ConversationHeader({
   notice,
   noticeIsError,
   queueCount,
+  activeGoal,
+  goalRoundsStarted,
+  goalCollapsed,
   trajectoryOpen,
   sessionDashboardOpen,
+  onOpenGoal,
+  onToggleGoalCollapsed,
   onToggleTrajectory,
   onToggleSessionDashboard,
 }: ConversationHeaderProps) {
@@ -47,9 +58,19 @@ export function ConversationHeader({
   return (
     <header className="conversation-header">
       <div className="conversation-heading">
-        <span className="conversation-title" title={activeSession ? displayTitle(activeSession, locale) : t("header.sessionAfterMessage", locale)}>
-          {activeSession ? displayTitle(activeSession, locale) : t("header.newSession", locale)}
-        </span>
+        <div className="conversation-title-row">
+          <span className="conversation-title" title={activeSession ? displayTitle(activeSession, locale) : t("header.sessionAfterMessage", locale)}>
+            {activeSession ? displayTitle(activeSession, locale) : t("header.newSession", locale)}
+          </span>
+          <CurrentGoalBar
+            locale={locale}
+            activeGoal={activeGoal}
+            roundsStarted={goalRoundsStarted}
+            collapsed={goalCollapsed}
+            onOpen={onOpenGoal}
+            onToggleCollapsed={onToggleGoalCollapsed}
+          />
+        </div>
         <span className="conversation-subtitle">{presetDisplayName(activeSession?.agentPreset, presets, locale)} · {activeSession?.cwd || runtimeDirectory || t("header.waitingForRuntime", locale)}</span>
       </div>
       <div className="conversation-actions">
