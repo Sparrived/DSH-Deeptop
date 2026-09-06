@@ -420,7 +420,13 @@ const cliEntry = path.join(sourceRoot, "apps", "cli", "lib", "bin.js");
 // `images` parameter while its old lib/index.js kept the 3-argument shape,
 // silently shifting the AbortSignal argument and failing every /goal call with
 // "signal.addEventListener is not a function".
-run(process.execPath, [path.join(sourceRoot, "node_modules", "typescript", "bin", "tsc"), "-b", "tsconfig.host.json"], sourceRoot);
+// Match the upstream Host build's heap requirement for this aggregate.
+run(process.execPath, [
+  "--max-old-space-size=4096",
+  path.join(sourceRoot, "node_modules", "typescript", "bin", "tsc"),
+  "-b",
+  "tsconfig.host.json",
+], sourceRoot);
 // Experimental Agent Teams is intentionally outside the official Host
 // aggregate. Build its package artifacts explicitly so an opt-in desktop
 // Profile can use the official service without changing vendor sources.
