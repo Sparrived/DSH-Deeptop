@@ -3730,12 +3730,15 @@ fn send_system_notification(
 }
 
 #[tauri::command]
-fn bridge_request(
+async fn bridge_request(
     runtime: State<'_, BridgeManager>,
     method: String,
     payload: Value,
 ) -> Result<Value, String> {
-    runtime.request(method, payload)
+    let runtime = runtime.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || runtime.request(method, payload))
+        .await
+        .map_err(|error| format!("执行 DSH 桥请求任务失败：{error}"))?
 }
 
 /// 解析并预载一个 UI 插件的客户端 bundle（docs/DEEPTOP_UI_RUNTIME.md §9.3）。
