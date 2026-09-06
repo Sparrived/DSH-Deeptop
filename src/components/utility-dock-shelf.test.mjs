@@ -18,11 +18,11 @@ async function loadUtilityDockShelf() {
     module,
     module.exports,
   );
-  return module.exports.UtilityDockShelf;
+  return module.exports;
 }
 
 test("keeps the four utility entries visible in their canonical order", async () => {
-  const UtilityDockShelf = await loadUtilityDockShelf();
+  const { UtilityDockShelf, UtilityPanelEmptyState } = await loadUtilityDockShelf();
   const shelf = UtilityDockShelf({
     active: "todo",
     onSelect() {},
@@ -46,4 +46,8 @@ test("keeps the four utility entries visible in their canonical order", async ()
   });
   interactiveShelf.props.children[1].props.children[3].props.onClick();
   assert.equal(selected, "subagent");
+
+  const empty = UtilityPanelEmptyState({ icon: "◈", title: "Waiting", description: "Create a subagent." });
+  assert.equal(empty.props.className, "utility-panel-empty");
+  assert.equal(empty.props.children[1].type, "strong");
 });

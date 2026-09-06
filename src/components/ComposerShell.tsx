@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type RefObject } from "react";
+import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { shortcutMatches, type SendShortcut } from "../app/keyboard-shortcut";
 import { ComposerCandidates } from "./ComposerCandidates";
 import { ModelPicker } from "./ModelPicker";
@@ -47,6 +47,8 @@ interface ComposerShellProps {
   dropActive?: boolean;
   /** Official plan-mode projection; renders the input-area chip while active. */
   plan?: DshPlanProjection | null;
+  /** Fixed session tools rendered beside the composer on desktop. */
+  utilityPanel?: ReactNode;
   onExitPlan: () => void | Promise<unknown>;
   /** 界面语言：placeholder 与操作按钮按语言渲染。 */
   locale: UiLocale;
@@ -97,6 +99,7 @@ export function ComposerShell({
   sendShortcut,
   dropActive,
   plan,
+  utilityPanel,
   onExitPlan,
   locale,
   onComposerChange,
@@ -173,7 +176,8 @@ export function ComposerShell({
   }
 
   return <footer className="composer-area">
-    <div className={"composer-shell" + (dropActive ? " composer-drop-active" : "")} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
+    <div className="composer-workbench">
+      <div className={"composer-shell" + (dropActive ? " composer-drop-active" : "")} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
       <input ref={attachmentInputRef} className="composer-file-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple onChange={(event) => { void onAddFiles(event.target.files ?? []); event.currentTarget.value = ""; }} />
       <textarea
         ref={composerRef}
@@ -291,6 +295,8 @@ export function ComposerShell({
           </button>}
         </div>
       </div>
+      </div>
+      {utilityPanel}
     </div>
     <div className="composer-stats" title={sessionStats.contextTokensAvailable ? (sessionStats.contextLimit ? t("composer.stats.contextTitle", locale, { used: formatTokens(sessionStats.contextTokens), limit: formatTokens(sessionStats.contextLimit) }) : t("composer.stats.titleNoLimit", locale)) : t("composer.stats.titleNoContext", locale)}>
       <span className="context-meter" aria-label={t("composer.stats.contextAria", locale)}><i style={{ width: String(contextPercent(sessionStats)) + "%" }} /></span>

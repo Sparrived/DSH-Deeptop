@@ -1,32 +1,24 @@
-/* Shared right-side utility workbench: four fixed bars, one content surface. */
-.conversation-transcript-stage > .utility-panel-shelf {
-  --utility-panel-width: clamp(340px, 31vw, 480px);
-  position: absolute;
-  top: auto;
-  right: max(12px, var(--surface-scrollbar-gap, 16px));
-  bottom: 18px;
-  z-index: 26;
-  width: var(--utility-panel-width);
+/* Right-of-composer utilities: fixed horizontal bars with an independent popup. */
+.composer-workbench {
+  width: min(1240px, 100%);
+  min-width: 0;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  gap: 10px;
-  pointer-events: none;
+  grid-template-columns: minmax(0, 1fr) 136px;
+  align-items: end;
+  gap: 12px;
+  margin: 0 auto;
 }
 
-.utility-panel-content,
-.utility-panel-tabs {
-  pointer-events: auto;
+.composer-workbench > .composer-shell {
+  width: 100%;
+  margin: 0;
 }
 
-.utility-panel-content {
-  min-height: 200px;
-  height: min(58vh, 600px);
-  max-height: min(58vh, 600px);
-  overflow: hidden;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-panel);
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-panel);
+.composer-workbench > .utility-panel-shelf {
+  position: relative;
+  z-index: 90;
+  width: 136px;
+  align-self: end;
 }
 
 .utility-panel-tabs {
@@ -36,7 +28,7 @@
 }
 
 .utility-panel-tab {
-  min-width: 0;
+  width: 100%;
   min-height: 42px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -85,22 +77,63 @@
   font-size: 10px;
 }
 
+/* The popup is positioned above the buttons but has its own dimensions. */
+.utility-panel-content {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 12px);
+  width: min(560px, calc(100vw - 56px));
+  height: min(62svh, 640px);
+  min-height: 300px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-panel);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-panel);
+}
+
+/* Empty pages use the full panel and say what will appear here. */
 .utility-panel-empty {
-  min-height: 180px;
+  height: 100%;
+  min-height: 0;
   display: grid;
-  place-items: center;
-  padding: 28px;
+  align-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding: 32px;
   color: var(--ink-muted);
-  font-size: 13px;
-  line-height: 1.6;
   text-align: center;
 }
 
-/* Embedded pages retain their existing content components, not Dock rails/cards. */
+.utility-panel-empty-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 48%, var(--line));
+  border-radius: 50%;
+  color: var(--accent-deep);
+  font-size: 21px;
+}
+
+.utility-panel-empty strong {
+  color: var(--ink-strong);
+  font-size: 15px;
+}
+
+.utility-panel-empty p {
+  max-width: 300px;
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+/* Embedded pages retain domain components, without bringing back Dock rails/cards. */
 .utility-panel-content > .dock-frame-embedded {
   width: 100%;
   height: 100%;
-  min-height: 180px;
+  min-height: 0;
   display: flex;
   overflow: hidden;
   border: 0;
@@ -122,9 +155,7 @@
   padding: 12px 14px;
 }
 
-.utility-panel-content .dock-frame-embedded-header .dock-frame-kicker {
-  margin-bottom: 2px;
-}
+.utility-panel-content .dock-frame-embedded-header .dock-frame-kicker { margin-bottom: 2px; }
 
 .utility-panel-content .dock-frame-embedded-header .dock-frame-toolbar {
   display: flex;
@@ -144,9 +175,7 @@
   place-items: center;
 }
 
-.utility-panel-content .dock-frame-embedded .dock-frame-body {
-  background: var(--surface-raised);
-}
+.utility-panel-content .dock-frame-embedded .dock-frame-body { background: var(--surface-raised); }
 
 .utility-panel-content .task-panel-summary,
 .utility-panel-content .todo-panel-summary,
@@ -161,13 +190,13 @@
   padding-left: 14px;
 }
 
-.utility-panel-content .deliverables-panel-files {
-  padding: 0 14px;
-}
+.utility-panel-content .deliverables-panel-files { padding: 0 14px; }
 
-/* A subagent is the only utility with a nested page: tree on the left, record on the right. */
-.subagent-workbench {
-  min-height: min(50vh, 520px);
+/* A subagent is the only utility with nested navigation: tree left, record right. */
+.utility-panel-content > .subagent-workbench {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
   display: grid;
   grid-template-columns: minmax(152px, 34%) minmax(0, 1fr);
   overflow: hidden;
@@ -193,13 +222,8 @@
   text-align: center;
 }
 
-.subagent-workbench .subagent-tree {
-  padding: 8px 0 12px;
-}
-
-.subagent-workbench .subagent-tree-line {
-  padding-right: 8px;
-}
+.subagent-workbench .subagent-tree { padding: 8px 0 12px; }
+.subagent-workbench .subagent-tree-line { padding-right: 8px; }
 
 .subagent-workbench .subagent-drawer.subagent-detail {
   position: static;
@@ -214,25 +238,11 @@
   box-shadow: none;
 }
 
-.subagent-workbench .subagent-detail-empty {
-  grid-template-rows: minmax(0, 1fr);
-}
-
-.subagent-workbench .subagent-drawer-header {
-  padding: 12px 14px;
-}
-
-.subagent-workbench .subagent-drawer-meta {
-  padding: 8px 14px;
-}
-
-.subagent-workbench .subagent-drawer-body {
-  padding: 12px 14px;
-}
-
-.subagent-workbench .subagent-drawer .subagent-compose {
-  padding: 10px 14px;
-}
+.subagent-workbench .subagent-detail-empty { grid-template-rows: minmax(0, 1fr); }
+.subagent-workbench .subagent-drawer-header { padding: 12px 14px; }
+.subagent-workbench .subagent-drawer-meta { padding: 8px 14px; }
+.subagent-workbench .subagent-drawer-body { padding: 12px 14px; }
+.subagent-workbench .subagent-drawer .subagent-compose { padding: 10px 14px; }
 
 .app-shell.has-custom-background .utility-panel-content,
 .app-shell.has-custom-background .utility-panel-tab {
@@ -240,40 +250,34 @@
   backdrop-filter: blur(14px);
 }
 
-@media (max-width: 960px) {
-  .conversation-transcript-stage > .utility-panel-shelf {
-    --utility-panel-width: min(380px, calc(100% - 24px));
-  }
-
-  .utility-panel-tab-label { display: none; }
-  .utility-panel-tab { grid-template-columns: auto auto; justify-content: center; }
-}
-
 @media (max-width: 760px) {
-  .conversation-transcript-stage {
+  .composer-workbench {
     display: flex;
     flex-direction: column;
+    align-items: stretch;
   }
 
-  .conversation-transcript-stage > .utility-panel-shelf {
-    position: static;
-    order: 1;
+  .composer-workbench > .utility-panel-shelf {
     width: auto;
-    margin: 10px 10px 0;
+    align-self: stretch;
   }
 
-  .conversation-transcript-stage > .transcript { order: 2; }
+  .utility-panel-tabs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 
-  .utility-panel-content { max-height: min(46svh, 440px); }
+  .utility-panel-content {
+    position: static;
+    width: auto;
+    height: min(50svh, 480px);
+    min-height: 260px;
+    margin-bottom: 10px;
+  }
+
   .utility-panel-tab-label { display: inline; }
-  .utility-panel-tab { grid-template-columns: auto minmax(0, 1fr) auto; }
-  .subagent-workbench { min-height: min(44svh, 390px); }
+  .utility-panel-tab { grid-template-columns: auto minmax(0, 1fr); justify-content: start; padding: 0 8px; }
+  .subagent-workbench { grid-template-columns: 124px minmax(0, 1fr); }
 }
 
 @media (max-width: 460px) {
-  .utility-panel-tabs { gap: 4px; }
-  .utility-panel-tab { padding: 0 6px; }
   .utility-panel-tab-label { display: none; }
-  .utility-panel-tab { grid-template-columns: auto auto; justify-content: center; }
-  .subagent-workbench { grid-template-columns: 124px minmax(0, 1fr); }
+  .utility-panel-tab { grid-template-columns: auto; justify-content: center; padding: 0; }
 }

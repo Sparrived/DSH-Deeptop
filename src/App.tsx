@@ -33,7 +33,7 @@ import { TerminalDock } from "./components/TerminalDock";
 import { DeliverablesPanel } from "./components/DeliverablesPanel";
 import { CurrentGoalBar } from "./components/CurrentGoalBar";
 import { GoalSurfacePanel, type GoalAction } from "./components/GoalSurfacePanel";
-import { UtilityDockShelf, type UtilityDockId } from "./components/UtilityDockShelf";
+import { UtilityDockShelf, UtilityPanelEmptyState, type UtilityDockId } from "./components/UtilityDockShelf";
 import { WindowChrome } from "./components/WindowChrome";
 import { DockSettingsProvider, useDockSettings } from "./app/dock-settings";
 import { clampPinLayerWidth, computePinLayerWidths, PIN_LAYER_MAX_WIDTH, PIN_LAYER_MIN_WIDTH, resolvePinLayerWidths, type PinLayerWidths } from "./app/dock-pin";
@@ -5083,6 +5083,66 @@ function AppContent() {
     );
   }
 
+  const utilityPanel = conversationPageActive ? <UtilityDockShelf
+    locale={locale}
+    active={activeUtilityPanel}
+    onSelect={selectUtilityPanel}
+    taskCount={activeJobs.length || undefined}
+    todoCount={todoVisible ? `${todoCounts.completed}/${todos?.length ?? 0}` : undefined}
+    deliverableCount={deliverablesVisible ? deliverables?.files.length : undefined}
+    subagentCount={childSubagents.length || undefined}
+    tasks={activeJobs.length > 0 ? <TaskPanel locale={locale} jobs={activeJobs} collapsed={false} now={jobNow} embedded onToggle={() => setActiveUtilityPanel(null)} /> : <UtilityPanelEmptyState icon="▦" title={t("utility.tasksEmptyTitle", locale)} description={t("utility.tasksEmpty", locale)} />}
+    todo={todoVisible ? <TodoPanel
+      locale={locale}
+      todos={todos ?? []}
+      collapsed={false}
+      counts={todoCounts}
+      now={jobNow}
+      turnStartedAt={turnTiming.startedAt}
+      turnFinishedAt={turnTiming.finishedAt}
+      embedded
+      onToggle={() => setActiveUtilityPanel(null)}
+    /> : <UtilityPanelEmptyState icon="✓" title={t("utility.todoEmptyTitle", locale)} description={t("utility.todoEmpty", locale)} />}
+    deliverables={deliverablesVisible && deliverables ? <DeliverablesPanel
+      locale={locale}
+      item={deliverables}
+      activeSession={activeSession ?? null}
+      collapsed={false}
+      embedded
+      onToggle={() => setActiveUtilityPanel(null)}
+      onOpenSessionPath={openSessionPath}
+    /> : <UtilityPanelEmptyState icon="↗" title={t("utility.deliverablesEmptyTitle", locale)} description={t("utility.deliverablesEmpty", locale)} />}
+    subagent={childSubagents.length > 0 ? <div className="subagent-workbench">
+      <SubagentDock
+        locale={locale}
+        rootSessionId={activeSessionId ?? ""}
+        entries={childSubagents}
+        selectedId={selectedSubagentId}
+        catalogs={subagentCatalogs}
+        expandedBranches={subagentBranchExpanded}
+        loadingErrors={subagentBranchErrors}
+        onOpen={openSubagentEntry}
+        onToggleBranch={toggleSubagentBranch}
+      />
+      <SubagentPanel
+        locale={locale}
+        panelOpen={subagentPanelOpen}
+        selectedId={selectedSubagentId}
+        selectedIndex={selectedSubagentIndex}
+        selectedEntry={selectedSubagent}
+        loadingId={subagentLoadingId}
+        loadError={subagentLoadError}
+        session={subagentSession}
+        transcript={subagentTranscript}
+        composer={subagentComposer}
+        onClose={() => setSubagentPanelOpen(false)}
+        onComposerChange={setSubagentComposer}
+        onPrompt={promptSubagent}
+        onInterrupt={interruptSubagent}
+      />
+    </div> : <UtilityPanelEmptyState icon="◈" title={t("utility.subagentEmptyTitle", locale)} description={t("utility.subagentEmpty", locale)} />}
+  /> : null;
+
   return (
     <main className={`app-shell${hasAnyBackground(appearance.backgrounds) ? " has-custom-background" : ""}`} style={appearanceStyle}>
       <WindowChrome
@@ -5299,65 +5359,6 @@ function AppContent() {
               />
             </div>
 
-              <UtilityDockShelf
-                locale={locale}
-                active={activeUtilityPanel}
-                onSelect={selectUtilityPanel}
-                taskCount={activeJobs.length || undefined}
-                todoCount={todoVisible ? `${todoCounts.completed}/${todos?.length ?? 0}` : undefined}
-                deliverableCount={deliverablesVisible ? deliverables?.files.length : undefined}
-                subagentCount={childSubagents.length || undefined}
-                tasks={activeJobs.length > 0 ? <TaskPanel locale={locale} jobs={activeJobs} collapsed={false} now={jobNow} embedded onToggle={() => setActiveUtilityPanel(null)} /> : <div className="utility-panel-empty">{t("utility.tasksEmpty", locale)}</div>}
-                todo={todoVisible ? <TodoPanel
-                  locale={locale}
-                  todos={todos ?? []}
-                  collapsed={false}
-                  counts={todoCounts}
-                  now={jobNow}
-                  turnStartedAt={turnTiming.startedAt}
-                  turnFinishedAt={turnTiming.finishedAt}
-                  embedded
-                  onToggle={() => setActiveUtilityPanel(null)}
-                /> : <div className="utility-panel-empty">{t("utility.todoEmpty", locale)}</div>}
-                deliverables={deliverablesVisible && deliverables ? <DeliverablesPanel
-                  locale={locale}
-                  item={deliverables}
-                  activeSession={activeSession ?? null}
-                  collapsed={false}
-                  embedded
-                  onToggle={() => setActiveUtilityPanel(null)}
-                  onOpenSessionPath={openSessionPath}
-                /> : <div className="utility-panel-empty">{t("utility.deliverablesEmpty", locale)}</div>}
-                subagent={<div className="subagent-workbench">
-                  <SubagentDock
-                    locale={locale}
-                    rootSessionId={activeSessionId ?? ""}
-                    entries={childSubagents}
-                    selectedId={selectedSubagentId}
-                    catalogs={subagentCatalogs}
-                    expandedBranches={subagentBranchExpanded}
-                    loadingErrors={subagentBranchErrors}
-                    onOpen={openSubagentEntry}
-                    onToggleBranch={toggleSubagentBranch}
-                  />
-                  <SubagentPanel
-                    locale={locale}
-                    panelOpen={subagentPanelOpen}
-                    selectedId={selectedSubagentId}
-                    selectedIndex={selectedSubagentIndex}
-                    selectedEntry={selectedSubagent}
-                    loadingId={subagentLoadingId}
-                    loadError={subagentLoadError}
-                    session={subagentSession}
-                    transcript={subagentTranscript}
-                    composer={subagentComposer}
-                    onClose={() => setSubagentPanelOpen(false)}
-                    onComposerChange={setSubagentComposer}
-                    onPrompt={promptSubagent}
-                    onInterrupt={interruptSubagent}
-                  />
-                </div>}
-              />
           </div>
 
           <InteractionPanel
@@ -5449,6 +5450,7 @@ function AppContent() {
              sendShortcut={sendShortcut}
              dropActive={composerDropActive}
              plan={plan}
+             utilityPanel={utilityPanel}
              onExitPlan={exitPlanMode}
              locale={locale}
             onComposerChange={(value) => {

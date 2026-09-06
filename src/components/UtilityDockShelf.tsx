@@ -11,6 +11,12 @@ type UtilityDockItem = {
   content: ReactNode;
 };
 
+type UtilityPanelEmptyStateProps = {
+  icon: string;
+  title: string;
+  description: string;
+};
+
 type UtilityDockShelfProps = {
   active: UtilityDockId | null;
   onSelect: (id: UtilityDockId) => void;
@@ -24,6 +30,15 @@ type UtilityDockShelfProps = {
   subagentCount?: ReactNode;
   locale?: UiLocale;
 };
+
+/** A deliberate default page when a session utility has no data yet. */
+export function UtilityPanelEmptyState({ icon, title, description }: UtilityPanelEmptyStateProps) {
+  return <section className="utility-panel-empty">
+    <span className="utility-panel-empty-icon" aria-hidden="true">{icon}</span>
+    <strong>{title}</strong>
+    <p>{description}</p>
+  </section>;
+}
 
 /** The fixed four-entry session workbench that replaces the utility Dock rails. */
 export function UtilityDockShelf({
