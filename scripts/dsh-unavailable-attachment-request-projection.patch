@@ -1,0 +1,643 @@
+diff --git a/.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.i18n.yaml b/.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.i18n.yaml
+index a9d00bc3b9..f4dd13ec2c 100644
+--- a/.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.i18n.yaml
++++ b/.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md
+-2026-07-05-reconstructable-requests.md: 3786de02d06c0b6c094297ae89ac3f84053e408d
+-2026-07-05-reconstructable-requests.zh.md: 851045aca7dababd0da859f3b04b721c65382fc3
++2026-07-05-reconstructable-requests.md: 2adb723300fe8fd23fffeda24d6e95c5f05b8453
++2026-07-05-reconstructable-requests.zh.md: a7e8090d936f4c38624c0fae7b453d8f1fd60ed1
+diff --git a/.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md b/.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md
+index 3786de02d0..2adb723300 100644
+--- a/.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md
++++ b/.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md
+@@ -14,7 +14,7 @@ The reference shape for the happy path is MiniCode's `LLMClient`: a stateful con
+ 
+ ### The principle
+ 
+-**Model-visible ⟺ durably referenced.** Anything that reaches a model request must be reconstructable from the session log and the immutable content-addressed objects it references. The checkable consequence: anyone holding the log, its referenced attachment objects, and the pinned code version reconstructs every loop request byte-for-byte. Text-only `GenerateOptions` remain a pure function of the log; image-bearing requests additionally resolve `ImageAttachmentRef` bytes through `ctx.attachments` during adapter serialization, where digest and recorded metadata verification make the object lookup deterministic and fail loud on missing or corrupt data. Direct one-shots (compaction's summarize call) log their envelope scalars (`compaction/summary.{provider, model, maxTokens}`), and their input is deterministic code over the logged region plus those referenced objects — outside the invariant because only the loop marks request ownership.
++**Model-visible ⟺ durably referenced.** Anything that reaches a model request must be reconstructable from the session log and the immutable content-addressed objects it references. The checkable consequence: anyone holding the log, its referenced attachment objects, and the pinned code version reconstructs every loop request byte-for-byte. Text-only `GenerateOptions` remain a pure function of the log; image-bearing requests additionally resolve `ImageAttachmentRef` bytes through `ctx.attachments` during adapter serialization, where digest and recorded metadata verification make the object lookup deterministic. A missing object is projected to a stable text recovery instruction, while a corrupt or otherwise unreadable object fails loud; [unavailable attachment request projection](../bug-fix/2026-09-07-unavailable-attachment-request-projection.md) records the distinction. Direct one-shots (compaction's summarize call) log their envelope scalars (`compaction/summary.{provider, model, maxTokens}`), and their input is deterministic code over the logged region plus those referenced objects — outside the invariant because only the loop marks request ownership.
+ 
+ Prefix-cache stability is corollary #1, not the headline: an append-only log projected by a per-node pure function yields requests that are append-extensions of their predecessors whenever the header is unchanged — stability is emergent, not managed. Byte-exact audit/replay is corollary #2; resume and fork with *attributable* drift is corollary #3.
+ 
+diff --git a/.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.zh.md b/.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.zh.md
+index 851045aca7..a7e8090d93 100644
+--- a/.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.zh.md
++++ b/.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.zh.md
+@@ -14,7 +14,7 @@ Status: implemented
+ 
+ ### 原则
+ 
+-**模型可见 ⟺ 已持久引用。** 凡到达模型请求的内容都必须能从会话日志及其引用的不可变内容寻址对象中重建。可检查的推论：任何人持有日志、日志引用的附件对象和固定代码版本，即可逐字节重建循环的每个请求。纯文本 `GenerateOptions` 仍是日志的纯函数；含图片请求还会在适配器序列化期间通过 `ctx.attachments` 解析 `ImageAttachmentRef` 字节，其中对内容摘要及已记录元数据的校验使对象查找具有确定性，并在数据缺失或损坏时明确失败。直接的一次性调用（压缩的 summarize 调用）记录其信封标量（`compaction/summary.{provider, model, maxTokens}`），其输入是对日志区域及这些引用对象的确定性代码运算——由于只有循环会标记请求归属，因此它们不在不变式内。
++**模型可见 ⟺ 已持久引用。** 凡到达模型请求的内容都必须能从会话日志及其引用的不可变内容寻址对象中重建。可检查的推论：任何人持有日志、日志引用的附件对象和固定代码版本，即可逐字节重建循环的每个请求。纯文本 `GenerateOptions` 仍是日志的纯函数；含图片请求还会在适配器序列化期间通过 `ctx.attachments` 解析 `ImageAttachmentRef` 字节，其中对内容摘要及已记录元数据的校验使对象查找具有确定性。缺失对象会投影为稳定文本恢复指引，损坏或其他不可读取对象仍会明确失败；[不可用附件请求投影](../bug-fix/2026-09-07-unavailable-attachment-request-projection.zh.md)记录了该区别。直接的一次性调用（压缩的 summarize 调用）记录其信封标量（`compaction/summary.{provider, model, maxTokens}`），其输入是对日志区域及这些引用对象的确定性代码运算——由于只有循环会标记请求归属，因此它们不在不变式内。
+ 
+ 前缀缓存稳定性是推论 #1，而非标题：一个仅追加的日志经逐节点纯函数投影，在 header 不变时自然产出前一请求的追加扩展——稳定性是涌现的，不是管理出来的。字节精确的审计/回放是推论 #2；带*可归因*漂移的恢复与 fork 是推论 #3。
+ 
+diff --git a/.agents/notes/implemented/bug-fix/2026-09-07-unavailable-attachment-request-projection.i18n.yaml b/.agents/notes/implemented/bug-fix/2026-09-07-unavailable-attachment-request-projection.i18n.yaml
+new file mode 100644
+index 0000000000..476f9996f8
+--- /dev/null
++++ b/.agents/notes/implemented/bug-fix/2026-09-07-unavailable-attachment-request-projection.i18n.yaml
+@@ -0,0 +1,6 @@
++# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
++# side as of the last confirmed-consistent state. Both languages carry equal authority;
++# after editing either side, bring the other along and re-record with:
++#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-07-unavailable-attachment-request-projection.md
++2026-09-07-unavailable-attachment-request-projection.md: e52fa23480aa9bd18d57991a97eaef55fb5649b1
++2026-09-07-unavailable-attachment-request-projection.zh.md: 1830e265093a8b68cd9b53440558a130af121d43
+diff --git a/.agents/notes/implemented/bug-fix/2026-09-07-unavailable-attachment-request-projection.md b/.agents/notes/implemented/bug-fix/2026-09-07-unavailable-attachment-request-projection.md
+new file mode 100644
+index 0000000000..e52fa23480
+--- /dev/null
++++ b/.agents/notes/implemented/bug-fix/2026-09-07-unavailable-attachment-request-projection.md
+@@ -0,0 +1,27 @@
++# Agent Note: Unavailable historical attachment request projection
++
++Status: implemented
++
++English | [中文](2026-09-07-unavailable-attachment-request-projection.zh.md)
++
++## Problem
++
++A restored session can retain a valid `ImageAttachmentRef` while its content-addressed object is absent from local storage. Both image-capable adapters attempted to prepare every retained reference, so one absent object prevented a later text prompt from reaching the model.
++
++## Decision
++
++`dsh-llm` provides the stable unavailable-image placeholder and recursive transient projection. The direct DeepSeek and pi-ai adapters catch only `AttachmentError` with `ATTACHMENT_NOT_FOUND` while preparing route-specific image versions, replace every matching direct or nested tool-result image with that placeholder for the current provider request, and leave the durable message unchanged. Other attachment failures still stop the request.
++
++The placeholder records the durable image identity and asks the model to request a new attachment if it needs the image. It is derived from the logged reference, so the request remains reconstructable from the session log even when the referenced object is unavailable.
++
++## Alternatives considered
++
++- **Change the attachment store to return synthetic image data.** This would hide a missing content-addressed object and make a provider receive bytes that do not match the durable reference.
++- **Rewrite or remove the image block in the session log.** An absent object cannot be recovered from its digest, and modifying append-only history would discard the original reference.
++- **Treat every attachment read failure as unavailable.** Integrity, decoding, and storage failures still require an explicit error because they can indicate corrupted or unsafe input.
++
++## Consequences
++
++- A session whose historical image object is missing can continue with text context and an explicit model-visible recovery instruction.
++- Restoring the original attachment object remains the only way to recover the image itself; the request projection does not repair storage.
++- One unavailable attachment changes the provider-request text at that occurrence and can prevent provider cache reuse from there.
+diff --git a/.agents/notes/implemented/bug-fix/2026-09-07-unavailable-attachment-request-projection.zh.md b/.agents/notes/implemented/bug-fix/2026-09-07-unavailable-attachment-request-projection.zh.md
+new file mode 100644
+index 0000000000..1830e26509
+--- /dev/null
++++ b/.agents/notes/implemented/bug-fix/2026-09-07-unavailable-attachment-request-projection.zh.md
+@@ -0,0 +1,27 @@
++# Agent Note: 不可用历史附件的请求投影
++
++Status: implemented
++
++[English](2026-09-07-unavailable-attachment-request-projection.md) | 中文
++
++## 问题
++
++恢复后的会话可以保留有效的 `ImageAttachmentRef`，但其内容寻址对象可能不在本地存储中。两个支持图片的适配器都会准备每个保留引用，因此一个缺失对象会阻止后续文本提示词到达模型。
++
++## 决策
++
++`dsh-llm` 提供稳定的不可用图片占位符与递归瞬态投影。DeepSeek 直连适配器和 pi-ai 适配器在准备路由专用图片版本时，仅捕获 code 为 `ATTACHMENT_NOT_FOUND` 的 `AttachmentError`，把每个匹配的直接图片或嵌套工具结果图片替换为本次提供方请求的占位符，并保持持久消息不变。其他附件失败仍会终止请求。
++
++占位符记录持久图片身份，并让模型在需要该图片时请求重新附加。它由已记录引用推导而来，所以即使引用对象不可用，请求仍可由会话日志重建。
++
++## 曾考虑的替代方案
++
++- **让附件存储返回合成图片数据。** 这会隐藏缺失的内容寻址对象，并让提供方收到不匹配持久引用的字节。
++- **改写或删除会话日志中的图片块。** 缺失对象无法从摘要恢复，修改仅追加历史还会丢失原始引用。
++- **把所有附件读取失败都视作不可用。** 完整性、解码与存储失败仍需要显式错误，因为它们可能表示损坏或不安全的输入。
++
++## 后果
++
++- 历史图片对象缺失的会话可以继续传递文本上下文，并向模型提供显式恢复指引。
++- 还原原始附件对象仍是恢复图片本身的唯一方式；请求投影不修复存储。
++- 一个不可用附件会修改该出现位置的提供方请求文本，并可能从该处起阻止提供方缓存复用。
+diff --git a/packages/llm/llm-deepseek/README.i18n.yaml b/packages/llm/llm-deepseek/README.i18n.yaml
+index 85043aa674..e8ded28b41 100644
+--- a/packages/llm/llm-deepseek/README.i18n.yaml
++++ b/packages/llm/llm-deepseek/README.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write packages/llm/llm-deepseek/README.md
+-README.md: 58639be34cb116f3103f579b277504818cb82278
+-README.zh.md: d5a5be0847bc8f3ad069e7bb1fff3a42e1662e5d
++README.md: b6a35695afbc6ff12fb6890598b9392c73342bea
++README.zh.md: f3ae40c4b2c343aa15c94cc4f307fcd78d4a2a68
+diff --git a/packages/llm/llm-deepseek/README.md b/packages/llm/llm-deepseek/README.md
+index 58639be34c..b6a35695af 100644
+--- a/packages/llm/llm-deepseek/README.md
++++ b/packages/llm/llm-deepseek/README.md
+@@ -74,7 +74,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
+ 
+ ### Streaming with thinking and images
+ 
+-An image-capable route resolves each durable reference into a deterministic request version under its pixel and byte budgets. `imagePixelBudget` accepts a positive integer or `low`; omission uses 640,000 total pixels, `low` uses 512×512 total pixels, and `imageMaxBytes` defaults to 1 MiB. Alpha images use WebP effort 0 and opaque images use JPEG on the 85/75/60 quality ladder, keeping the smallest output when every candidate exceeds the target. Every retained image is preceded by text naming its complete attachment id and actual request dimensions. When the current filesystem maps the attachment provider's host object, that text also carries a read-only execution-world path and the extension for a writable copy. Text-only and unlisted routes receive stable attachment placeholders while durable history keeps the image references.
++An image-capable route resolves each durable reference into a deterministic request version under its pixel and byte budgets. `imagePixelBudget` accepts a positive integer or `low`; omission uses 640,000 total pixels, `low` uses 512×512 total pixels, and `imageMaxBytes` defaults to 1 MiB. Alpha images use WebP effort 0 and opaque images use JPEG on the 85/75/60 quality ladder, keeping the smallest output when every candidate exceeds the target. Every retained image is preceded by text naming its complete attachment id and actual request dimensions. When the current filesystem maps the attachment provider's host object, that text also carries a read-only execution-world path and the extension for a writable copy. Text-only and unlisted routes receive stable attachment placeholders while durable history keeps the image references. A missing local attachment object produces a stable recovery placeholder for that request; integrity and other attachment failures still fail the request.
+ 
+ The adapter normally uploads those exact request bytes through the DeepSeek Files API and sends file-id blocks. A failed or timed-out file resolution rebuilds the whole chat request with the same request versions as base64 data URLs; one request never mixes file ids and inline images. Cached ids are scoped by endpoint and API key, refreshed before expiry, invalidated from provider stale-file errors, and resolved through singleflight with waiter-local cancellation. Quota failure deletes one configured batch of the oldest harness-owned files before one upload retry.
+ 
+diff --git a/packages/llm/llm-deepseek/README.zh.md b/packages/llm/llm-deepseek/README.zh.md
+index d5a5be0847..f3ae40c4b2 100644
+--- a/packages/llm/llm-deepseek/README.zh.md
++++ b/packages/llm/llm-deepseek/README.zh.md
+@@ -74,7 +74,7 @@ kind: "package-reference"
+ 
+ ### 带 thinking 与图片的流式调用
+ 
+-支持图片的路由会在自身像素与字节预算内把每个持久引用解析为确定性请求版本。`imagePixelBudget` 接受正整数或 `low`；省略时使用总计 640,000 像素，`low` 使用总计 512×512 像素，`imageMaxBytes` 默认为 1 MiB。带 alpha 的图片使用 effort 0 的 WebP，不透明图片使用 JPEG，并采用 85/75/60 质量阶梯；全部候选都超过目标时保留最小输出。每张保留图片前都有文本，注明完整附件 id 与实际请求尺寸。当前文件系统可以映射附件提供方的宿主对象时，该文本还携带只读执行世界路径与可写副本使用的扩展名。纯文本与未列出路由接收稳定附件占位符，而持久历史继续保留图片引用。
++支持图片的路由会在自身像素与字节预算内把每个持久引用解析为确定性请求版本。`imagePixelBudget` 接受正整数或 `low`；省略时使用总计 640,000 像素，`low` 使用总计 512×512 像素，`imageMaxBytes` 默认为 1 MiB。带 alpha 的图片使用 effort 0 的 WebP，不透明图片使用 JPEG，并采用 85/75/60 质量阶梯；全部候选都超过目标时保留最小输出。每张保留图片前都有文本，注明完整附件 id 与实际请求尺寸。当前文件系统可以映射附件提供方的宿主对象时，该文本还携带只读执行世界路径与可写副本使用的扩展名。纯文本与未列出路由接收稳定附件占位符，而持久历史继续保留图片引用。缺失的本地附件对象会为该次请求生成稳定恢复占位符；完整性错误和其他附件失败仍会让请求失败。
+ 
+ 适配器通常通过 DeepSeek Files API 上传这些确切请求字节，并发送 file-id 块。文件解析失败或超时会用相同请求版本的 base64 data URL 重建整份 chat 请求；一次请求绝不混用 file id 与内联图片。缓存 id 按端点与 API key 限定作用域，在到期前刷新，根据提供方的陈旧文件错误失效，并通过带等待方局部取消的 singleflight 解析。配额失败会先删除一批配置数量的最旧 harness 文件，再重试一次上传。
+ 
+diff --git a/packages/llm/llm-deepseek/src/adapter.ts b/packages/llm/llm-deepseek/src/adapter.ts
+index e211655633..90e52c475e 100644
+--- a/packages/llm/llm-deepseek/src/adapter.ts
++++ b/packages/llm/llm-deepseek/src/adapter.ts
+@@ -8,7 +8,7 @@
+  * @module dsh-llm-deepseek/adapter
+  */
+ 
+-import { attributionHeaders, contentHasImage, CONTEXT_WINDOW_EXCEEDED_CODE, isContextWindowExceededError, isQuotaExceededError, LlmAdapter, LlmError, offloadedImageText, offloadRequestImagesWithPolicy, ProviderRequestId, QUOTA_EXCEEDED_CODE, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
++import { attributionHeaders, contentHasImage, CONTEXT_WINDOW_EXCEEDED_CODE, isContextWindowExceededError, isQuotaExceededError, LlmAdapter, LlmError, offloadedImageText, offloadRequestImagesWithPolicy, projectUnavailableImages, ProviderRequestId, QUOTA_EXCEEDED_CODE, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+ import type {
+   ContentBlock,
+   GenerateOptions,
+@@ -21,6 +21,7 @@ import type {
+   ResolvedRetryPolicy,
+   StreamChunk,
+ } from '@deepseek-ai/dsh-llm'
++import { AttachmentError } from '@deepseek-ai/dsh-attachment'
+ import type {
+   AttachmentId,
+   AttachmentStore,
+@@ -215,17 +216,24 @@ async function prepareRequestImages(
+   attachments: AttachmentStore,
+   model: DeepSeekCatalogModel,
+   signal: AbortSignal,
+-): Promise<Map<AttachmentId, RequestImageAttachment>> {
++): Promise<{ images: Map<AttachmentId, RequestImageAttachment>; unavailable: Set<AttachmentId> }> {
+   const refs = new Map<AttachmentId, ImageAttachmentRef>()
+   for (const message of options.messages) collectImageRefs(message.content, refs)
++  const images = new Map<AttachmentId, RequestImageAttachment>()
++  const unavailable = new Set<AttachmentId>()
+   const policy = resolveRequestImagePolicy(model)
+-  const orderedRefs = [...refs.values()]
+-  const projected = await Promise.all(orderedRefs.map(
+-    ref => attachments.readImageRequest(ref, policy, signal),
+-  ))
+-  return new Map(orderedRefs.map((ref, index) => (
+-    [ref.attachmentId, projected[index] as RequestImageAttachment]
+-  )))
++  for (const ref of refs.values()) {
++    try {
++      images.set(ref.attachmentId, await attachments.readImageRequest(ref, policy, signal))
++    } catch (error) {
++      if (error instanceof AttachmentError && error.code === 'ATTACHMENT_NOT_FOUND') {
++        unavailable.add(ref.attachmentId)
++        continue
++      }
++      throw error
++    }
++  }
++  return { images, unavailable }
+ }
+ 
+ function providerRejectedNormalizedImage(detail: string): boolean {
+@@ -559,20 +567,24 @@ export class DeepSeekAdapter extends LlmAdapter {
+       placeholder: ref => offloadedImageText(ref, resolveImageAccess?.(ref)),
+     })
+     const requestOptions = requestMessages === options.messages ? options : { ...options, messages: [...requestMessages] }
+-    const requestImages = attachments === undefined || model === undefined
+-      ? new Map<AttachmentId, RequestImageAttachment>()
++    const prepared = attachments === undefined || model === undefined
++      ? { images: new Map<AttachmentId, RequestImageAttachment>(), unavailable: new Set<AttachmentId>() }
+       : await prepareRequestImages(requestOptions, attachments, model, signal)
++    const exactMessages = projectUnavailableImages(requestOptions.messages, prepared.unavailable)
++    const exactRequestOptions = exactMessages === requestOptions.messages
++      ? requestOptions
++      : { ...requestOptions, messages: [...exactMessages] }
+     let representation: 'file' | 'base64' = 'file'
+     let fileAttempt = 0
+     while (true) {
+       const usedFiles: UsedRequestFile[] = []
+       let body: WireRequest
+       if (attachments === undefined) {
+-        body = serializeRequest(requestOptions, connection.defaults)
++        body = serializeRequest(exactRequestOptions, connection.defaults)
+       } else if (representation === 'base64') {
+-        body = await serializeRequestWithImages(requestOptions, {
++        body = await serializeRequestWithImages(exactRequestOptions, {
+           representation: { kind: 'base64' },
+-          requestImages,
++          requestImages: prepared.images,
+           ...imageAccessOptions,
+           maxRequestImageBytes: connection.maxInlineRequestImageBytes,
+           maxImagesPerRequest: connection.maxImagesPerRequest,
+@@ -581,7 +593,7 @@ export class DeepSeekAdapter extends LlmAdapter {
+         }, connection.defaults)
+       } else {
+         try {
+-          body = await serializeRequestWithImages(requestOptions, {
++          body = await serializeRequestWithImages(exactRequestOptions, {
+             representation: {
+               kind: 'file',
+               resolveFileId: async (version, _block, location) => {
+@@ -603,7 +615,7 @@ export class DeepSeekAdapter extends LlmAdapter {
+                 return resolved.record.fileId
+               },
+             },
+-            requestImages,
++            requestImages: prepared.images,
+             ...imageAccessOptions,
+             maxRequestImageBytes: connection.maxRequestFilesBytes,
+             maxImagesPerRequest: connection.maxImagesPerRequest,
+diff --git a/packages/llm/llm-deepseek/tests/adapter.spec.ts b/packages/llm/llm-deepseek/tests/adapter.spec.ts
+index 39dd9e25b5..98409a6622 100644
+--- a/packages/llm/llm-deepseek/tests/adapter.spec.ts
++++ b/packages/llm/llm-deepseek/tests/adapter.spec.ts
+@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
+ import { tmpdir } from 'node:os'
+ import { join } from 'node:path'
+ import { Context } from '@deepseek-ai/cordis'
+-import { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
++import { AttachmentError, AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
+ import type { AttachmentStore, ImageAttachmentRef, RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
+ import { createLaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
+ import LlmRuntime, { ToolCallId, createUserMessage,
+@@ -592,6 +592,34 @@ describe('DeepSeekAdapter against a mock server', () => {
+     expect(JSON.stringify(server.requests[0])).not.toContain('image_url')
+   })
+ 
++  it('replaces missing attachments with text while preserving available images', async () => {
++    const server = await mockServer([{ kind: 'sse', events: textEvents }])
++    const missing = { ...imageRef, attachmentId: AttachmentId(`sha256:${'c'.repeat(64)}`) }
++    const available = { ...imageRef, attachmentId: AttachmentId(`sha256:${'d'.repeat(64)}`) }
++    const attachmentMocks = attachmentStoreOf(ref => ref.attachmentId === missing.attachmentId
++      ? Promise.reject(new AttachmentError('Attachment object is missing.', 'ATTACHMENT_NOT_FOUND'))
++      : Promise.resolve(requestImage(ref)))
++    const adapter = adapterOf({
++      baseURL: server.url,
++      models: [{ id: 'deepseek-v4-flash-vision-exp', inputModalities: ['text', 'image'] }],
++    }, attachmentMocks.store)
++
++    await drain(adapter.stream({
++      provider: 'deepseek-official',
++      model: 'deepseek-v4-flash-vision-exp',
++      messages: [createUserMessage({
++        content: [{ type: 'image', attachment: missing }, { type: 'image', attachment: available }],
++        source: { kind: 'plugin', plugin: 'test' },
++      })],
++    }))
++
++    expect(attachmentMocks.readImageRequest).toHaveBeenCalledTimes(2)
++    const content = (server.requests[0] as { messages: Array<{ content: Array<{ type: string; text?: string }> }> }).messages[0]!.content
++    expect(content).toContainEqual({ type: 'text', text: expect.stringContaining('image unavailable in local storage') })
++    expect(JSON.stringify(content)).toContain(String(available.attachmentId))
++    expect(content.filter(block => block.type === 'file')).toHaveLength(1)
++  })
++
+   it('does not prepare an old image removed by request offload', async () => {
+     const server = await mockServer([{ kind: 'sse', events: textEvents }])
+     const old = { ...imageRef, attachmentId: AttachmentId(`sha256:${'c'.repeat(64)}`), bytes: 3 }
+diff --git a/packages/llm/llm-pi-ai/README.i18n.yaml b/packages/llm/llm-pi-ai/README.i18n.yaml
+index 803c42af07..85cb33c7a1 100644
+--- a/packages/llm/llm-pi-ai/README.i18n.yaml
++++ b/packages/llm/llm-pi-ai/README.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write packages/llm/llm-pi-ai/README.md
+-README.md: 5994a72f28b0a52890cb7bf7a5bc2ee33eedf418
+-README.zh.md: 5f1c893128714caf24941943c57eaf3ab43314e0
++README.md: 1b6379bd071fd23bcabb56dd1ca50f0d2470957b
++README.zh.md: 3cac79af5f43d634bbf96dcdc17340652b76d103
+diff --git a/packages/llm/llm-pi-ai/README.md b/packages/llm/llm-pi-ai/README.md
+index 5994a72f28..1b6379bd07 100644
+--- a/packages/llm/llm-pi-ai/README.md
++++ b/packages/llm/llm-pi-ai/README.md
+@@ -174,7 +174,7 @@ Read these pages when the package-level contract is not enough. They move from t
+ 
+ #### What the model sees
+ 
+-The selected catalog model receives `GenerateOptions.system`, history, tools, and sampling fields supported by pi-ai's common streaming API. Each retained image is preceded by text naming its complete attachment id and actual request dimensions. When the current execution filesystem maps the attachment provider's host object, the text also carries a read-only normalized-object path and warns that normalization or request projection may have resized or re-encoded the upload. When accumulated base64 image payload exceeds the route's `maxRequestImageBytes`, each offloaded image keeps its own identity and currently resolved access in replacement text. Offloaded normalized attachments are not read or transformed. Provider-native replay metadata is restored only when the adapter validates it for the historical content.
++The selected catalog model receives `GenerateOptions.system`, history, tools, and sampling fields supported by pi-ai's common streaming API. Each retained image is preceded by text naming its complete attachment id and actual request dimensions. When the current execution filesystem maps the attachment provider's host object, the text also carries a read-only normalized-object path and warns that normalization or request projection may have resized or re-encoded the upload. When accumulated base64 image payload exceeds the route's `maxRequestImageBytes`, each offloaded image keeps its own identity and currently resolved access in replacement text. Offloaded normalized attachments are not read or transformed. A missing local attachment object becomes a stable recovery placeholder for that request; integrity and other attachment failures still fail the request. Provider-native replay metadata is restored only when the adapter validates it for the historical content.
+ 
+ #### Token effect
+ 
+diff --git a/packages/llm/llm-pi-ai/README.zh.md b/packages/llm/llm-pi-ai/README.zh.md
+index 5f1c893128..3cac79af5f 100644
+--- a/packages/llm/llm-pi-ai/README.zh.md
++++ b/packages/llm/llm-pi-ai/README.zh.md
+@@ -174,7 +174,7 @@ pi-ai 不提供的路由需要 `api`、`baseURL` 与非空 `models` 列表；无
+ 
+ #### 模型看到什么
+ 
+-所选目录模型会收到 `GenerateOptions.system`、历史、工具与 pi-ai 通用流式 API 支持的采样字段。每张保留图片前都会有文本，注明其完整附件 id 与实际请求尺寸。当前执行文件系统可以映射附件提供方的宿主对象时，该文本还会携带只读规范化对象路径，并警告规范化或请求投影可能缩放或重新编码上传内容。当累计 base64 图片载荷超过路由的 `maxRequestImageBytes` 时，每张卸载图片都会在替换文本中保留自己的身份与当前已解析访问方式。卸载的规范化附件不会读取或变换。提供方原生回放元数据只在适配器针对历史内容校验通过后恢复。
++所选目录模型会收到 `GenerateOptions.system`、历史、工具与 pi-ai 通用流式 API 支持的采样字段。每张保留图片前都会有文本，注明其完整附件 id 与实际请求尺寸。当前执行文件系统可以映射附件提供方的宿主对象时，该文本还会携带只读规范化对象路径，并警告规范化或请求投影可能缩放或重新编码上传内容。当累计 base64 图片载荷超过路由的 `maxRequestImageBytes` 时，每张卸载图片都会在替换文本中保留自己的身份与当前已解析访问方式。卸载的规范化附件不会读取或变换。缺失的本地附件对象会为该次请求生成稳定恢复占位符；完整性错误和其他附件失败仍会让请求失败。提供方原生回放元数据只在适配器针对历史内容校验通过后恢复。
+ 
+ #### Token 影响
+ 
+diff --git a/packages/llm/llm-pi-ai/src/context.ts b/packages/llm/llm-pi-ai/src/context.ts
+index 338e71a6ad..b481e27dbf 100644
+--- a/packages/llm/llm-pi-ai/src/context.ts
++++ b/packages/llm/llm-pi-ai/src/context.ts
+@@ -5,7 +5,8 @@
+  */
+ 
+ import { brandString } from '@deepseek-ai/dsh-brand'
+-import { contentHasImage, LlmError, offloadedImageText, offloadRequestImagesWithPolicy, requestImageHandleText } from '@deepseek-ai/dsh-llm'
++import { AttachmentError } from '@deepseek-ai/dsh-attachment'
++import { contentHasImage, LlmError, offloadedImageText, offloadRequestImagesWithPolicy, projectUnavailableImages, requestImageHandleText } from '@deepseek-ai/dsh-llm'
+ import type { ContentBlock, GenerateOptions, ImageAttachmentAccessResolver, Message, ToolCallId } from '@deepseek-ai/dsh-llm'
+ import type {
+   AttachmentId,
+@@ -104,18 +105,23 @@ async function prepareRequestImages(
+   attachments: AttachmentStore,
+   policy: ImageRequestPolicy,
+   signal?: AbortSignal,
+-): Promise<Map<AttachmentId, RequestImageAttachment>> {
++): Promise<{ images: Map<AttachmentId, RequestImageAttachment>; unavailable: Set<AttachmentId> }> {
+   const refs = new Map<AttachmentId, ImageAttachmentRef>()
+   for (const message of messages) collectImageRefs(message.content, refs)
+-  const orderedRefs = [...refs.values()]
+-  const prepared = await Promise.all(orderedRefs.map(
+-    ref => attachments.readImageRequest(ref, policy, signal),
+-  ))
+-  const versions = new Map<AttachmentId, RequestImageAttachment>()
+-  for (const [index, ref] of orderedRefs.entries()) {
+-    versions.set(ref.attachmentId, prepared[index] as RequestImageAttachment)
++  const images = new Map<AttachmentId, RequestImageAttachment>()
++  const unavailable = new Set<AttachmentId>()
++  for (const ref of refs.values()) {
++    try {
++      images.set(ref.attachmentId, await attachments.readImageRequest(ref, policy, signal))
++    } catch (error) {
++      if (error instanceof AttachmentError && error.code === 'ATTACHMENT_NOT_FOUND') {
++        unavailable.add(ref.attachmentId)
++        continue
++      }
++      throw error
++    }
+   }
+-  return versions
++  return { images, unavailable }
+ }
+ 
+ function toolsOf(options: GenerateOptions): PiTool[] | undefined {
+@@ -255,12 +261,13 @@ async function toPiContextWithImages(
+     byteLength: ref => Math.min(ref.bytes, requestImagePolicy.maxBytes),
+     placeholder: ref => offloadedImageText(ref, resolveImageAccess(ref)),
+   })
+-  const requestImages = await prepareRequestImages(requestMessages, attachments, requestImagePolicy, options.signal)
+-  const exactMessages = offloadRequestImagesWithPolicy(requestMessages, {
++  const prepared = await prepareRequestImages(requestMessages, attachments, requestImagePolicy, options.signal)
++  const availableMessages = projectUnavailableImages(requestMessages, prepared.unavailable)
++  const exactMessages = offloadRequestImagesWithPolicy(availableMessages, {
+     representation: 'base64',
+     ...maxRequestImageBytes === undefined ? {} : { maxBytes: maxRequestImageBytes },
+     byteQuantum: 1,
+-    byteLength: ref => (requestImages.get(ref.attachmentId) as RequestImageAttachment).bytes,
++    byteLength: ref => (prepared.images.get(ref.attachmentId) as RequestImageAttachment).bytes,
+     placeholder: ref => offloadedImageText(ref, resolveImageAccess(ref)),
+   })
+   const toolNames = new Map<ToolCallId, string>()
+@@ -280,7 +287,7 @@ async function toPiContextWithImages(
+     }
+     // user role: text + tool results (each result becomes its own message).
+     const regular = message.content.filter(block => block.type !== 'tool-result')
+-    const content = await userContent(regular, requestImages, resolveImageAccess)
++    const content = await userContent(regular, prepared.images, resolveImageAccess)
+     const results = message.content.filter((block): block is Extract<ContentBlock, { type: 'tool-result' }> => (
+       block.type === 'tool-result'
+     ))
+@@ -288,7 +295,7 @@ async function toPiContextWithImages(
+       messages.push({ role: 'user', content, timestamp: 0 })
+     }
+     for (const result of results) {
+-      const resultContent = await userContent(result.content, requestImages, resolveImageAccess)
++      const resultContent = await userContent(result.content, prepared.images, resolveImageAccess)
+       messages.push({
+         role: 'toolResult',
+         toolCallId: result.toolCallId,
+diff --git a/packages/llm/llm-pi-ai/tests/context.spec.ts b/packages/llm/llm-pi-ai/tests/context.spec.ts
+index 902a288caa..239046b349 100644
+--- a/packages/llm/llm-pi-ai/tests/context.spec.ts
++++ b/packages/llm/llm-pi-ai/tests/context.spec.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, it, vi } from 'vitest'
+-import { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
++import { AttachmentError, AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
+ import type {
+   AttachmentStore,
+   ImageAttachmentRef,
+@@ -257,6 +257,37 @@ describe('pi-ai request context conversion', () => {
+     })
+   })
+ 
++  it('replaces unavailable attachments with text while preserving available images', async () => {
++    const missing = { ...ref, attachmentId: AttachmentId(`sha256:${'c'.repeat(64)}`) }
++    const available = { ...ref, attachmentId: AttachmentId(`sha256:${'d'.repeat(64)}`) }
++    const store = projectionStore(value => value.attachmentId === missing.attachmentId
++      ? Promise.reject(new AttachmentError('Attachment object is missing.', 'ATTACHMENT_NOT_FOUND'))
++      : Promise.resolve(requestImage(value, Uint8Array.of(1, 2, 3))))
++
++    const context = await toPiContext(request([user([
++      { type: 'image', attachment: missing },
++      { type: 'image', attachment: available },
++      { type: 'tool-result', toolCallId: ToolCallId('missing-nested'), content: [{ type: 'image', attachment: missing }] },
++    ])]), imageContext(store))
++
++    expect(context.messages).toEqual([{
++      role: 'user',
++      content: [
++        { type: 'text', text: expect.stringContaining('image unavailable in local storage') as string },
++        { type: 'text', text: expect.stringContaining(String(available.attachmentId)) as string },
++        { type: 'image', data: 'AQID', mimeType: 'image/png' },
++      ],
++      timestamp: 0,
++    }, {
++      role: 'toolResult',
++      toolCallId: 'missing-nested',
++      toolName: 'unknown',
++      content: [{ type: 'text', text: expect.stringContaining('image unavailable in local storage') as string }],
++      isError: false,
++      timestamp: 0,
++    }])
++  })
++
+   it('replaces the oldest images with placeholders once the request payload bound is exceeded', async () => {
+     const readImageRequest = vi.fn((value: ImageAttachmentRef) => (
+       Promise.resolve(requestImage(value, Uint8Array.of(1, 2, 3)))
+diff --git a/packages/llm/llm/README.i18n.yaml b/packages/llm/llm/README.i18n.yaml
+index e5a5b22f6a..5a3d192eda 100644
+--- a/packages/llm/llm/README.i18n.yaml
++++ b/packages/llm/llm/README.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write packages/llm/llm/README.md
+-README.md: 6baa020a9503f32a71231d30e78ec7a3d8862f2b
+-README.zh.md: f985736da44a76b063f16915a53cb19979fe1962
++README.md: b6d1a7331a3c26658e48e2bc4140a19a1d0be919
++README.zh.md: f65abe5470cf57cb529accd428e1087eaf353749
+diff --git a/packages/llm/llm/README.md b/packages/llm/llm/README.md
+index 6baa020a95..b6d1a7331a 100644
+--- a/packages/llm/llm/README.md
++++ b/packages/llm/llm/README.md
+@@ -99,7 +99,7 @@ The service is built on one separation: **the logical contract is provider-neutr
+ 
+ ### Main flow
+ 
+-A request is validated against its exact model's capability — context window, output default, reasoning efforts, and input modalities — and any adapter-configured defaults are materialized, then the whole request is deep-frozen. `prepareCall()` binds those facts, detached context, and retry policy to the exact adapter generation that performs terminal dispatch, so HMR or dynamic settings cannot combine one generation's image capability with another generation's endpoint. An image-capable adapter projects durable references into route-specific request versions; `resolveImageAttachmentAccess()` separately maps an attachment provider's optional host object into the current tool execution world without changing the request image or its `variantId`. A text-only route receives deterministic per-image placeholders, including nested tool-result images, without rewriting append-only session history. `offloadRequestImagesWithPolicy()` removes oldest images deterministically by raw or base64 size and count or byte quanta; the pure `offloadedImagePrefixCount()` exposes that decision so route-owned request pricing can reproduce it without building the projection. Adapters that charge visual tokens declare per-route `imageRequestPricing`, which `ctx.llm.imageRequestPricing(provider, model)` resolves synchronously for the token meter. Dispatch goes through the `llm/stream` waterfall, then chunks return as token-level deltas and every adapter outcome reaches the consumer as one terminal `finish` chunk.
++A request is validated against its exact model's capability — context window, output default, reasoning efforts, and input modalities — and any adapter-configured defaults are materialized, then the whole request is deep-frozen. `prepareCall()` binds those facts, detached context, and retry policy to the exact adapter generation that performs terminal dispatch, so HMR or dynamic settings cannot combine one generation's image capability with another generation's endpoint. An image-capable adapter projects durable references into route-specific request versions; `resolveImageAttachmentAccess()` separately maps an attachment provider's optional host object into the current tool execution world without changing the request image or its `variantId`. A text-only route receives deterministic per-image placeholders, including nested tool-result images, without rewriting append-only session history. An image-capable adapter replaces an `ATTACHMENT_NOT_FOUND` reference with a distinct stable placeholder for that request; integrity and other attachment failures remain errors. `offloadRequestImagesWithPolicy()` removes oldest images deterministically by raw or base64 size and count or byte quanta; the pure `offloadedImagePrefixCount()` exposes that decision so route-owned request pricing can reproduce it without building the projection. Adapters that charge visual tokens declare per-route `imageRequestPricing`, which `ctx.llm.imageRequestPricing(provider, model)` resolves synchronously for the token meter. Dispatch goes through the `llm/stream` waterfall, then chunks return as token-level deltas and every adapter outcome reaches the consumer as one terminal `finish` chunk.
+ 
+ ### Invariants
+ 
+diff --git a/packages/llm/llm/README.zh.md b/packages/llm/llm/README.zh.md
+index f985736da4..f65abe5470 100644
+--- a/packages/llm/llm/README.zh.md
++++ b/packages/llm/llm/README.zh.md
+@@ -99,7 +99,7 @@ for await (const chunk of ctx.llm.stream({
+ 
+ ### 主流程
+ 
+-请求会对照其精确模型的能力——上下文窗口、输出默认值、推理强度与输入模态——校验，填入任何适配器配置的默认值，然后整个请求被深度冻结。`prepareCall()` 把这些事实、分离的上下文与重试策略绑定到执行最终分发的精确适配器代次，因此 HMR 或动态设置无法把一个代次的图片能力与另一代次的端点混用。支持图片的适配器把持久引用投影为路由专用请求版本；`resolveImageAttachmentAccess()` 会单独把附件提供方的可选宿主对象映射进当前工具执行世界，而不改变请求图片或其 `variantId`。纯文本路由接收确定性的逐图片占位符，包括嵌套工具结果图片，而不会改写仅追加会话历史。`offloadRequestImagesWithPolicy()` 按原始字节或 base64 大小以及图片数或字节步长，确定性地从最旧图片开始移除；纯函数 `offloadedImagePrefixCount()` 公开同一决策，使路由所属的请求定价无需构建投影即可复现它。对视觉 token 收费的适配器声明按路由的 `imageRequestPricing`，`ctx.llm.imageRequestPricing(provider, model)` 为 token meter 同步解析它。分发经过 `llm/stream` waterfall，随后分片以 token 级增量返回，每个适配器结果都以唯一一个终止 `finish` 分片到达消费方。
++请求会对照其精确模型的能力——上下文窗口、输出默认值、推理强度与输入模态——校验，填入任何适配器配置的默认值，然后整个请求被深度冻结。`prepareCall()` 把这些事实、分离的上下文与重试策略绑定到执行最终分发的精确适配器代次，因此 HMR 或动态设置无法把一个代次的图片能力与另一代次的端点混用。支持图片的适配器把持久引用投影为路由专用请求版本；`resolveImageAttachmentAccess()` 会单独把附件提供方的可选宿主对象映射进当前工具执行世界，而不改变请求图片或其 `variantId`。纯文本路由接收确定性的逐图片占位符，包括嵌套工具结果图片，而不会改写仅追加会话历史。支持图片的适配器会把 `ATTACHMENT_NOT_FOUND` 引用替换为该次请求专有的稳定占位符；完整性错误和其他附件失败仍然报错。`offloadRequestImagesWithPolicy()` 按原始字节或 base64 大小以及图片数或字节步长，确定性地从最旧图片开始移除；纯函数 `offloadedImagePrefixCount()` 公开同一决策，使路由所属的请求定价无需构建投影即可复现它。对视觉 token 收费的适配器声明按路由的 `imageRequestPricing`，`ctx.llm.imageRequestPricing(provider, model)` 为 token meter 同步解析它。分发经过 `llm/stream` waterfall，随后分片以 token 级增量返回，每个适配器结果都以唯一一个终止 `finish` 分片到达消费方。
+ 
+ ### 不变式
+ 
+diff --git a/packages/llm/llm/src/content.ts b/packages/llm/llm/src/content.ts
+index 5880f82c98..af2db85ddd 100644
+--- a/packages/llm/llm/src/content.ts
++++ b/packages/llm/llm/src/content.ts
+@@ -2,7 +2,7 @@
+ 
+ import type { ContentBlock } from './types.ts'
+ import type { Message } from './message.ts'
+-import type { AttachmentStore, ImageAttachmentRef, ImageMediaType, RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
++import type { AttachmentId, AttachmentStore, ImageAttachmentRef, ImageMediaType, RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
+ import { assertNever } from '@deepseek-ai/dsh-util-values'
+ 
+ /** Execution-world path that model tools can use to read one normalized attachment. */
+@@ -113,6 +113,15 @@ export function offloadedImageText(
+   return `[${identity}${normalizedAccessText(ref, access)}]`
+ }
+ 
++/**
++ * Stable model-facing placeholder for a durable image object unavailable from local storage.
++ * @param ref - durable normalized attachment whose bytes cannot be read.
++ * @returns text that asks the user to attach the unavailable image again.
++ */
++export function unavailableImageText(ref: ImageAttachmentRef): string {
++  return `[image unavailable in local storage; ${imageIdentity(ref)}. Ask the user to attach it again if needed.]`
++}
++
+ /**
+  * True when typed model content contains an image block, walking nested
+  * tool-result content. This is the one recursive image walk shared by every
+@@ -216,6 +225,30 @@ function replaceImagesForTextModel(blocks: readonly ContentBlock[]): ContentBloc
+   return next ?? blocks as ContentBlock[]
+ }
+ 
++function replaceUnavailableImages(
++  blocks: readonly ContentBlock[],
++  unavailable: ReadonlySet<AttachmentId>,
++): ContentBlock[] {
++  let next: ContentBlock[] | undefined
++  for (const [index, block] of blocks.entries()) {
++    if (block.type === 'image' && unavailable.has(block.attachment.attachmentId)) {
++      next ??= blocks.slice(0, index)
++      next.push({ type: 'text', text: unavailableImageText(block.attachment) })
++      continue
++    }
++    if (block.type === 'tool-result') {
++      const content = replaceUnavailableImages(block.content, unavailable)
++      if (content !== block.content) {
++        next ??= blocks.slice(0, index)
++        next.push({ ...block, content })
++        continue
++      }
++    }
++    next?.push(block)
++  }
++  return next ?? blocks as ContentBlock[]
++}
++
+ /**
+  * Project durable image history into deterministic text for an exact text-only model.
+  * @param messages - complete request history.
+@@ -229,6 +262,23 @@ export function projectImagesForTextModel(messages: readonly Message[]): readonl
+   })
+ }
+ 
++/**
++ * Replace every occurrence of unavailable durable attachments without changing the session log.
++ * @param messages - complete request history.
++ * @param unavailable - attachment identities whose bytes cannot be read.
++ * @returns original messages when every image remains available, otherwise transient copies with placeholders.
++ */
++export function projectUnavailableImages(
++  messages: readonly Message[],
++  unavailable: ReadonlySet<AttachmentId>,
++): readonly Message[] {
++  if (unavailable.size === 0) return messages
++  return messages.map((message) => {
++    const content = replaceUnavailableImages(message.content, unavailable)
++    return content === message.content ? message : { ...message, content }
++  })
++}
++
+ /**
+  * Number of oldest image occurrences one request projection removes, in whole
+  * count and byte quanta, once a route budget is exceeded. The result depends
+diff --git a/packages/llm/llm/tests/content.spec.ts b/packages/llm/llm/tests/content.spec.ts
+index 748e20f412..5e7f30089c 100644
+--- a/packages/llm/llm/tests/content.spec.ts
++++ b/packages/llm/llm/tests/content.spec.ts
+@@ -8,7 +8,9 @@ import {
+   offloadedImagePrefixCount,
+   offloadRequestImagesWithPolicy,
+   projectImagesForTextModel,
++  projectUnavailableImages,
+   resolveImageAttachmentAccess,
++  unavailableImageText,
+   requestImageHandleText,
+ } from '../src/index.ts'
+ import type { ContentBlock, Message } from '../src/index.ts'
+@@ -320,6 +322,33 @@ describe('model-facing image access', () => {
+   })
+ })
+ 
++describe('projectUnavailableImages', () => {
++  it('replaces unavailable direct and nested images without changing history', () => {
++    const available = { ...image(3), attachment: { ...image(3).attachment, attachmentId: AttachmentId(`sha256:${'b'.repeat(64)}`) } }
++    const missing = image(3)
++    const messages = [createUserMessage({
++      content: [
++        missing,
++        available,
++        { type: 'tool-result', toolCallId: ToolCallId('nested-missing'), content: [missing] },
++      ],
++      source,
++    })]
++
++    const projected = projectUnavailableImages(messages, new Set([missing.attachment.attachmentId]))
++    expect(projected[0]?.content).toEqual([
++      { type: 'text', text: unavailableImageText(missing.attachment) },
++      available,
++      { type: 'tool-result', toolCallId: ToolCallId('nested-missing'), content: [{ type: 'text', text: unavailableImageText(missing.attachment) }] },
++    ])
++    expect(messages[0]?.content).toEqual([
++      missing,
++      available,
++      { type: 'tool-result', toolCallId: ToolCallId('nested-missing'), content: [missing] },
++    ])
++  })
++})
++
+ describe('projectImagesForTextModel', () => {
+   it('returns image-free history unchanged', () => {
+     const messages = [createUserMessage({ content: [{ type: 'text', text: 'plain' }], source })]

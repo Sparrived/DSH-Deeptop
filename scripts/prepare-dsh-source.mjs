@@ -7,7 +7,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourceRoot = path.join(root, "vendor", "dsh");
 const publicBase = "a66e4702047846cdaa10c66c9d3df3951f5ea70d";
 const publicTag = "dsh-v0.1.2-rc.1";
-const patchedCommit = "0cfa6ad94b941613734f0efa31351819a9f86a5e";
+const patchedCommit = "943530221d169b73ff520a85eebd154e2d3a7cfe";
 const upstream = "https://github.com/deepseek-ai/deepseek-harness.git";
 
 // The vendored runtime ships four local commits on top of the public RC1 tag.
@@ -87,6 +87,20 @@ const patches = [
       "工作区排序等写入失败；重试吸收瞬时锁，永久权限问题仍快速失败。",
       "",
       "验证：storage-json 36 通过（新增 5 个 atomic 用例）。",
+      "",
+    ].join("\n"),
+  },
+  {
+    file: "dsh-unavailable-attachment-request-projection.patch",
+    commit: "943530221d169b73ff520a85eebd154e2d3a7cfe",
+    authorName: "Sparrived",
+    authorEmail: "sparrived@outlook.com",
+    authorDate: "2026-09-07T17:42:24+08:00",
+    committerDate: "2026-09-07T17:42:24+08:00",
+    message: [
+      "fix(llm): 兼容缺失历史附件",
+      "",
+      "仅将 ATTACHMENT_NOT_FOUND 的历史图片投影为本次请求的恢复文本，保留会话日志和其他附件错误。\\n\\n补充 pi-ai、DeepSeek 与共享内容投影回归测试，并记录双语维护说明。\\n\\n验证：vitest 191 项通过；npm run build:lib:host 通过；文档配对与 Agent Note 格式检查通过。",
       "",
     ].join("\n"),
   },
