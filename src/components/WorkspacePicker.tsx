@@ -1,4 +1,5 @@
 import type { RefObject } from "react";
+import { ChevronDown, ChevronRight, Folder, Pin, PinOff, Plus, Trash2 } from "lucide-react";
 import { projectName } from "../app/model";
 import { t, type UiLocale } from "../app/i18n";
 import type { DshWorkspace } from "../lib/desktop";
@@ -56,23 +57,23 @@ export function WorkspacePicker({
           title={pinned ? t("workspace.unpin", locale) : t("workspace.pin", locale)}
           aria-label={pinned ? t("workspace.unpinAria", locale, { name: label }) : t("workspace.pinAria", locale, { name: label })}
           aria-pressed={pinned}
-        >📌</button>
+        >{pinned ? <PinOff aria-hidden="true" /> : <Pin aria-hidden="true" />}</button>
         <button
           className="workspace-menu-delete"
           onClick={(event) => { event.stopPropagation(); void onDelete(item); }}
           role="menuitem"
           title={t("workspace.deleteAria", locale, { name: label })}
           aria-label={t("workspace.deleteAria", locale, { name: label })}
-        >🗑</button>
+        ><Trash2 aria-hidden="true" /></button>
       </div>
     );
   };
   return (
     <div className="workspace-picker" ref={menuRef}>
       <button className="workspace-line" onClick={onToggle} title={workspace || t("workspace.unfiledHint", locale)} aria-expanded={open}>
-        <span className="line-icon">⌂</span>
+        <span className="line-icon" aria-hidden="true"><Folder /></span>
         <span><strong>{selectedTitle}</strong><small>{selectedPath}</small></span>
-        <span className="line-arrow">{selectedPinned ? "📌" : "⌄"}</span>
+        <span className="line-arrow" aria-hidden="true">{selectedPinned ? <Pin /> : <ChevronDown />}</span>
       </button>
       {open && (
         <div className="workspace-menu" role="menu">
@@ -89,7 +90,7 @@ export function WorkspacePicker({
               aria-expanded={unpinnedSectionOpen}
               title={unpinnedSectionOpen ? t("workspace.collapseUnpinned", locale) : t("workspace.expandUnpinned", locale)}
             >
-              <span className="workspace-menu-chevron" aria-hidden="true">{unpinnedSectionOpen ? "▾" : "▸"}</span>
+              <span className="workspace-menu-chevron" aria-hidden="true"><ChevronRight className={unpinnedSectionOpen ? "open" : undefined} /></span>
               <span>{t("workspace.unpinnedSection", locale, { count: unpinnedWorkspaces.length })}</span>
             </button>
           )}
@@ -98,7 +99,7 @@ export function WorkspacePicker({
               {unpinnedWorkspaces.map(renderWorkspaceItem)}
             </div>
           )}
-          <button className="workspace-add" onClick={() => void onAdd()} role="menuitem">＋ {t("workspace.add", locale)}</button>
+          <button className="workspace-add" onClick={() => void onAdd()} role="menuitem"><Plus aria-hidden="true" /> {t("workspace.add", locale)}</button>
         </div>
       )}
     </div>

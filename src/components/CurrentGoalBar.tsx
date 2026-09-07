@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+import { ArrowUpRight, Check, ChevronRight, CircleAlert, Pause } from "lucide-react";
 import { t, type UiLocale } from "../app/i18n";
 import type { DshGoalProjection } from "../lib/desktop";
 
@@ -19,11 +21,11 @@ function goalPhaseLabel(phase: DshGoalProjection["goal"]["phase"], locale: UiLoc
   }
 }
 
-const phaseMarks: Record<DshGoalProjection["goal"]["phase"], string> = {
-  active: "↗",
-  paused: "Ⅱ",
-  blocked: "!",
-  complete: "✓",
+const phaseMarks: Record<DshGoalProjection["goal"]["phase"], ReactNode> = {
+  active: <ArrowUpRight />,
+  paused: <Pause />,
+  blocked: <CircleAlert />,
+  complete: <Check />,
 };
 
 export function CurrentGoalBar({ activeGoal, roundsStarted, collapsed, locale = "zh", onOpen, onToggleCollapsed }: CurrentGoalBarProps) {
@@ -58,7 +60,7 @@ export function CurrentGoalBar({ activeGoal, roundsStarted, collapsed, locale = 
         aria-expanded={!collapsed}
         aria-label={collapsed ? t("goal.expand", locale) : t("goal.collapse", locale)}
         title={collapsed ? t("goal.expand", locale) : t("goal.collapse", locale)}
-      ><span aria-hidden="true">{collapsed ? "›" : "‹"}</span></button>
+      ><span aria-hidden="true"><ChevronRight className={collapsed ? undefined : "reverse"} /></span></button>
     </aside>
   );
 }

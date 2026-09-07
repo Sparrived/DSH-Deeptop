@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Check, ChevronLeft, GitBranch, Minus, Plus, RefreshCw, X } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   checkoutGitBranch,
@@ -85,12 +86,12 @@ function ChangeRow({
       </button>
       <div className="git-change-actions">
         {canStageFile(file) && (
-          <button type="button" className="git-change-action" title={t("git.stage", locale)} aria-label={t("git.stageFile", locale, { path: file.path })} disabled={busy} onClick={onStage}>＋</button>
+          <button type="button" className="git-change-action" title={t("git.stage", locale)} aria-label={t("git.stageFile", locale, { path: file.path })} disabled={busy} onClick={onStage}><Plus aria-hidden="true" /></button>
         )}
         {canUnstageFile(file) && (
-          <button type="button" className="git-change-action" title={t("git.unstage", locale)} aria-label={t("git.unstageFile", locale, { path: file.path })} disabled={busy} onClick={onUnstage}>−</button>
+          <button type="button" className="git-change-action" title={t("git.unstage", locale)} aria-label={t("git.unstageFile", locale, { path: file.path })} disabled={busy} onClick={onUnstage}><Minus aria-hidden="true" /></button>
         )}
-        <button type="button" className="git-change-action danger" title={t("git.discard", locale)} aria-label={t("git.discardFile", locale, { path: file.path })} disabled={busy} onClick={onDiscard}>✕</button>
+        <button type="button" className="git-change-action danger" title={t("git.discard", locale)} aria-label={t("git.discardFile", locale, { path: file.path })} disabled={busy} onClick={onDiscard}><X aria-hidden="true" /></button>
       </div>
     </div>
   );
@@ -576,9 +577,9 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
       locale={locale}
       title="Git"
       kicker={t("git.kicker", locale)}
-      icon="⑂"
+       icon={<GitBranch />}
       total={t("git.totalChanges", locale, { count: totalChanges })}
-      toggleGlyph="‹"
+       toggleGlyph={<ChevronLeft />}
       onToggle={onToggle}
       railClassName="git-dock-rail"
       railMarkClassName="git-dock-rail-mark"
@@ -613,7 +614,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
       <div className="git-toolbar">
         <button type="button" disabled={!isRepo || busy} onClick={() => void handlePull()} title={t("git.pullTitle", locale)} aria-label={t("git.pull", locale)}>↓ {t("git.pull", locale)}</button>
         <button type="button" disabled={!isRepo || busy} onClick={() => void handlePush()} title={t("git.pushTitle", locale)} aria-label={t("git.push", locale)}>↑ {t("git.push", locale)}</button>
-        <button type="button" disabled={!workspace || busy} onClick={() => void refreshAll()} title={t("git.refresh", locale)} aria-label={t("git.refresh", locale)}>⟳</button>
+        <button type="button" disabled={!workspace || busy} onClick={() => void refreshAll()} title={t("git.refresh", locale)} aria-label={t("git.refresh", locale)}><RefreshCw aria-hidden="true" /></button>
         {isRepo && (
           <span className="git-toolbar-counts">
             <span className="git-count git-count-staged">{t("git.countStaged", locale, { count: status?.staged ?? 0 })}</span>
@@ -646,7 +647,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
           {result && (
             <div className={`git-result ${result.ok ? "ok" : "fail"}`} role="status">
               <pre>{result.text || (result.ok ? t("git.resultOk", locale) : t("git.resultFailed", locale))}</pre>
-              <button type="button" className="git-result-dismiss" aria-label={t("common.close", locale)} onClick={() => setResult(null)}>×</button>
+              <button type="button" className="git-result-dismiss" aria-label={t("common.close", locale)} onClick={() => setResult(null)}><X aria-hidden="true" /></button>
             </div>
           )}
 
@@ -751,7 +752,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                       <button type="button" className={!diffStaged ? "selected" : ""} onClick={() => setDiffStaged(false)}>{t("git.diffWorktree", locale)}</button>
                       <button type="button" className={diffStaged ? "selected" : ""} onClick={() => setDiffStaged(true)}>{t("git.diffStaged", locale)}</button>
                     </div>
-                    <button type="button" className="git-diff-close" aria-label={t("git.closeDiff", locale)} onClick={() => setSelectedPath(null)}>×</button>
+                    <button type="button" className="git-diff-close" aria-label={t("git.closeDiff", locale)} onClick={() => setSelectedPath(null)}><X aria-hidden="true" /></button>
                   </div>
                   {diffLoading ? (
                     <div className="git-diff-empty">{t("git.loadingDiff", locale)}</div>
@@ -836,7 +837,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                   <div className="git-commit-detail-header">
                     <span className="git-commit-short">{commitDetail.hash.slice(0, 7)}</span>
                     <span className="git-commit-subject">{commitDetail.subject}</span>
-                    <button type="button" className="git-diff-close" aria-label={t("git.closeDetail", locale)} onClick={() => { setCommitDetail(null); setCommitDiffPath(null); }}>×</button>
+                    <button type="button" className="git-diff-close" aria-label={t("git.closeDetail", locale)} onClick={() => { setCommitDetail(null); setCommitDiffPath(null); }}><X aria-hidden="true" /></button>
                   </div>
                   <div className="git-commit-detail-meta">
                     <span>{commitDetail.author}</span>
@@ -865,7 +866,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                     <div className="git-commit-diff">
                       <div className="git-diff-header">
                         <span className="git-diff-path" title={commitDiffPath}>{commitDiffPath}</span>
-                        <button type="button" className="git-diff-close" aria-label={t("git.closeFileDiff", locale)} onClick={() => setCommitDiffPath(null)}>×</button>
+                        <button type="button" className="git-diff-close" aria-label={t("git.closeFileDiff", locale)} onClick={() => setCommitDiffPath(null)}><X aria-hidden="true" /></button>
                       </div>
                       {commitDiffLoading ? (
                         <div className="git-diff-empty">{t("git.loadingDiff", locale)}</div>
@@ -895,7 +896,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
           {tab === "branches" && (
             <div className="git-branches">
               <div className="git-branches-toolbar">
-                <button type="button" disabled={!isRepo || busy} onClick={() => setBranchDialog({ mode: "create", value: "" })}>＋ {t("git.newBranch", locale)}</button>
+                <button type="button" disabled={!isRepo || busy} onClick={() => setBranchDialog({ mode: "create", value: "" })}><Plus aria-hidden="true" /> {t("git.newBranch", locale)}</button>
               </div>
               {branchesLoading && branches === null ? (
                 <div className="git-empty">{t("git.loadingBranches", locale)}</div>
@@ -908,7 +909,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                     {branchGroups.local.map((branch) => (
                       <div key={branch.name} className={`git-branch-row ${branch.isCurrent ? "current" : ""}`}>
                         <span className="git-branch-name" title={branch.name}>
-                          {branch.isCurrent && <span className="git-branch-current-mark">✓</span>}
+                          {branch.isCurrent && <span className="git-branch-current-mark" aria-hidden="true"><Check /></span>}
                           <span className={branch.isCurrent ? "git-branch-current" : ""}>{branch.name}</span>
                           {branch.upstream && <span className="git-branch-upstream">→ {branch.upstream}</span>}
                         </span>

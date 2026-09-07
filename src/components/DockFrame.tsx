@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { ChevronRight, Pin, PinOff, RotateCcw, X } from "lucide-react";
 import { createPortal } from "react-dom";
 import {
   getDockPosition,
@@ -114,7 +115,7 @@ export function DockFrame({
   railExtra,
   keepBodyMounted = false,
   total,
-  toggleGlyph = "›",
+  toggleGlyph = <ChevronRight />,
   headerContent,
   railMarkClassName,
   headerMarkClassName,
@@ -322,7 +323,7 @@ export function DockFrame({
                 aria-label={t("dock.collapse", locale, { label })}
                 title={t("common.close", locale)}
               >
-                <span aria-hidden="true">×</span>
+                <X aria-hidden="true" />
               </button>
             </div>
           </div>
@@ -378,7 +379,7 @@ export function DockFrame({
             aria-label={pinned ? t("dock.unpin", locale, { label }) : t("dock.pin", locale, { label })}
             title={pinned ? t("dock.unpinTooltip", locale) : t("dock.pinTooltip", locale)}
           >
-            <span aria-hidden="true">📌</span>
+            {pinned ? <PinOff aria-hidden="true" /> : <Pin aria-hidden="true" />}
           </button>
           {!pinned && (
             <button
@@ -388,7 +389,7 @@ export function DockFrame({
               aria-label={t("dock.resetPosition", locale)}
               title={t("dock.resetPosition", locale)}
             >
-              <span aria-hidden="true">↺</span>
+              <RotateCcw aria-hidden="true" />
             </button>
           )}
         </div>

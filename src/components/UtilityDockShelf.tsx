@@ -1,4 +1,5 @@
 import { type ReactNode } from "react";
+import { Bot, CheckSquare, ListTodo, PackageOpen } from "lucide-react";
 import { t, type UiLocale } from "../app/i18n";
 
 export type UtilityDockId = "tasks" | "todo" | "deliverables" | "subagent";
@@ -6,13 +7,13 @@ export type UtilityDockId = "tasks" | "todo" | "deliverables" | "subagent";
 type UtilityDockItem = {
   id: UtilityDockId;
   label: string;
-  icon: string;
+  icon: ReactNode;
   count?: ReactNode;
   content: ReactNode;
 };
 
 type UtilityPanelEmptyStateProps = {
-  icon: string;
+  icon: ReactNode;
   title: string;
   description: string;
 };
@@ -55,10 +56,10 @@ export function UtilityDockShelf({
   locale = "zh",
 }: UtilityDockShelfProps) {
   const items: readonly UtilityDockItem[] = [
-    { id: "tasks", label: t("todo.title", locale), icon: "▦", count: taskCount, content: tasks },
-    { id: "todo", label: t("todo.listTitle", locale), icon: "✓", count: todoCount, content: todo },
-    { id: "deliverables", label: t("deliverables.title", locale), icon: "↗", count: deliverableCount, content: deliverables },
-    { id: "subagent", label: t("subagent.title", locale), icon: "◈", count: subagentCount, content: subagent },
+    { id: "tasks", label: t("todo.title", locale), icon: <ListTodo />, count: taskCount, content: tasks },
+    { id: "todo", label: t("todo.listTitle", locale), icon: <CheckSquare />, count: todoCount, content: todo },
+    { id: "deliverables", label: t("deliverables.title", locale), icon: <PackageOpen />, count: deliverableCount, content: deliverables },
+    { id: "subagent", label: t("subagent.title", locale), icon: <Bot />, count: subagentCount, content: subagent },
   ];
   const selected = active ? items.find((item) => item.id === active) ?? null : null;
 

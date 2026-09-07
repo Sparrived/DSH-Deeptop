@@ -40,6 +40,24 @@
   --motion-ease-enter: cubic-bezier(.2, .8, .2, 1);
 }
 
+svg.lucide {
+  width: 1em;
+  height: 1em;
+  display: block;
+  flex: none;
+  stroke-width: 1.8;
+}
+
+svg.lucide.reverse { transform: rotate(180deg); }
+
+@keyframes deeptop-icon-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  svg.lucide { animation: none !important; }
+}
+
 :root[data-theme="dark"] {
   color-scheme: dark;
   --paper: #1c201c;

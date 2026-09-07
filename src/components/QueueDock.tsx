@@ -1,3 +1,4 @@
+import { Check, Pencil, X } from "lucide-react";
 import { textFromContent } from "../app/model";
 import type { DshQueueItem } from "../lib/desktop";
 import { t, type UiLocale } from "../app/i18n";
@@ -38,16 +39,16 @@ export function QueueDock({
               <>
                 <input value={editingText} onChange={(event) => onEditingTextChange(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void onSave(item.id); if (event.key === "Escape") onCancelEdit(); }} aria-label={t("queue.edit", locale)} autoFocus />
                 <div className="queue-dock-item-actions">
-                  <button onClick={() => void onSave(item.id)} title={t("queue.save", locale)}>✓</button>
-                  <button onClick={onCancelEdit} title={t("queue.cancelEdit", locale)}>×</button>
+                  <button onClick={() => void onSave(item.id)} title={t("queue.save", locale)}><Check aria-hidden="true" /></button>
+                  <button onClick={onCancelEdit} title={t("queue.cancelEdit", locale)}><X aria-hidden="true" /></button>
                 </div>
               </>
             ) : (
               <>
                 <span>{textFromContent(item.message.content, locale) || t("queue.unnamed", locale)}</span>
                 <div className="queue-dock-item-actions">
-                  <button onClick={() => onBeginEdit(item)} title={t("queue.edit", locale)}>✎</button>
-                  <button onClick={() => void onRemove(item.id)} title={t("queue.remove", locale)}>×</button>
+                  <button onClick={() => onBeginEdit(item)} title={t("queue.edit", locale)}><Pencil aria-hidden="true" /></button>
+                  <button onClick={() => void onRemove(item.id)} title={t("queue.remove", locale)}><X aria-hidden="true" /></button>
                 </div>
               </>
             )}

@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Cookie, Heart, Sparkles, Utensils, X } from "lucide-react";
 import { formatPetCareCooldown, petCareCooldownRemainingMs } from "../app/pet-model";
 import { t, type UiLocale } from "../app/i18n";
 import type { PetCareActionKind, PetCareState } from "../lib/desktop";
@@ -24,14 +25,14 @@ const conditionLabelKeys: Readonly<Record<PetCareState["condition"], string>> = 
 
 const actions: ReadonlyArray<{
   kind: PetCareActionKind;
-  icon: string;
+  icon: ReactNode;
   labelKey: string;
   unavailableKey: string;
 }> = [
-  { kind: "meal", icon: "🍚", labelKey: "pet.care.action.meal", unavailableKey: "pet.care.action.mealUnavailable" },
-  { kind: "treat", icon: "🍪", labelKey: "pet.care.action.treat", unavailableKey: "pet.care.action.treatUnavailable" },
-  { kind: "pet", icon: "♡", labelKey: "pet.care.action.pet", unavailableKey: "pet.care.action.petUnavailable" },
-  { kind: "play", icon: "✦", labelKey: "pet.care.action.play", unavailableKey: "pet.care.action.playUnavailable" },
+  { kind: "meal", icon: <Utensils />, labelKey: "pet.care.action.meal", unavailableKey: "pet.care.action.mealUnavailable" },
+  { kind: "treat", icon: <Cookie />, labelKey: "pet.care.action.treat", unavailableKey: "pet.care.action.treatUnavailable" },
+  { kind: "pet", icon: <Heart />, labelKey: "pet.care.action.pet", unavailableKey: "pet.care.action.petUnavailable" },
+  { kind: "play", icon: <Sparkles />, labelKey: "pet.care.action.play", unavailableKey: "pet.care.action.playUnavailable" },
 ];
 
 function score(value: number): number {
@@ -68,7 +69,7 @@ export function PetCareCard({ petName, state, busy, feedback, error, locale = "z
         </div>
         <span className="pet-notice-header-actions">
           {onTasks && <button type="button" className="pet-notice-care-switch" onClick={onTasks}>{t("pet.care.sessionsSwitch", locale)}</button>}
-          <button type="button" className="pet-notice-close" aria-label={t("pet.care.aria.collapse", locale)} onClick={onClose}>×</button>
+          <button type="button" className="pet-notice-close" aria-label={t("pet.care.aria.collapse", locale)} onClick={onClose}><X aria-hidden="true" /></button>
         </span>
       </header>
 

@@ -47,6 +47,32 @@
 .current-goal-collapse-toggle { width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 1px solid var(--line-strong); border-radius: var(--radius-control); background: transparent; color: var(--ink-muted); font: 700 17px/1 var(--mono); }
 .current-goal-bar.collapsed .current-goal-collapse-toggle { width: 52px; border: 0; color: var(--accent-deep); }
 .current-goal-collapse-toggle:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-deep); }
+
+/* SVG controls retain the centered geometry of the glyph buttons they replace. */
+.composer-attachment button,
+.composer-plan-chip-exit,
+.send-button,
+.stop-button,
+.queue-dock-item-actions button,
+.git-change-action,
+.model-menu-heading button,
+.line-icon,
+.line-arrow,
+.workspace-menu-chevron,
+.workspace-file-chevron,
+.workspace-file-icon,
+.mode-menu-check,
+.model-menu-check,
+.permission-menu-check {
+  display: grid;
+  place-items: center;
+}
+
+.attachment-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 .current-goal-copy,
 .current-goal-heading,
 .current-goal-progress { min-width: 0; }
@@ -478,6 +504,9 @@
   font-size: 11px;
   text-align: center;
 }
+
+.workspace-file-chevron svg { transition: transform var(--motion-fast) var(--motion-ease-enter); }
+.workspace-file-chevron svg.open { transform: rotate(90deg); }
 
 .workspace-file-icon {
   color: var(--ink-faint);
@@ -1591,6 +1620,8 @@ body.pin-layer-resizing * {
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
+.tool-todo-status svg { width: 10px; height: 10px; }
+
 .tool-todo-item.in_progress .tool-todo-status {
   border-style: solid;
   border-color: var(--warning);
@@ -1598,6 +1629,8 @@ body.pin-layer-resizing * {
   font-size: 16px;
   line-height: 9px;
 }
+
+.tool-todo-item.in_progress .tool-todo-status svg { animation: deeptop-icon-spin 1.2s linear infinite; }
 .tool-todo-item.in_progress .tool-todo-label { color: var(--warning); }
 .tool-todo-item.completed .tool-todo-status {
   border-color: var(--good);

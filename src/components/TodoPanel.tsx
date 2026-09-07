@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Check, CheckSquare, ListTodo, LoaderCircle } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useFloatingMenuPosition } from "../app/useFloatingMenuPosition";
 import { errorText, formatDurationMs, jobDuration, todoDuration, type TodoItem } from "../app/model";
@@ -107,7 +108,7 @@ export function TaskPanel({ jobs, collapsed, now, locale = "zh", onToggle, embed
       label={t("todo.label", locale)}
       title={t("todo.title", locale)}
       kicker={t("common.currentSession", locale)}
-      icon="▦"
+      icon={<ListTodo />}
       onToggle={onToggle}
       railClassName="task-panel-rail"
       markClassName="task-panel-mark"
@@ -160,7 +161,7 @@ export function TodoPanel({ todos, collapsed, counts, now, turnStartedAt, turnFi
       label={t("todo.listLabel", locale)}
       title={t("todo.listTitle", locale)}
       kicker={t("common.currentSession", locale)}
-      icon="✓"
+      icon={<CheckSquare />}
       total={`${counts.completed}/${todos.length}`}
       onToggle={onToggle}
       railClassName="todo-panel-rail"
@@ -192,7 +193,7 @@ export function TodoPanel({ todos, collapsed, counts, now, turnStartedAt, turnFi
           return (
             <li className={`todo-item ${item.status}`} key={item.id ?? `${index}-${item.content}`}>
               <span className="todo-item-index">{String(index + 1).padStart(2, "0")}</span>
-              <span className={`todo-item-status ${item.status}`} aria-label={todoStatusLabel(item.status, locale)}>{item.status === "completed" ? "✓" : item.status === "in_progress" ? "·" : ""}</span>
+              <span className={`todo-item-status ${item.status}`} aria-label={todoStatusLabel(item.status, locale)}>{item.status === "completed" ? <Check aria-hidden="true" /> : item.status === "in_progress" ? <LoaderCircle aria-hidden="true" /> : null}</span>
               <span className="todo-item-content">{item.content}</span>
               <span className={`todo-item-meta ${item.status}`}>
                 <span className="todo-item-label">{todoStatusLabel(item.status, locale)}</span>

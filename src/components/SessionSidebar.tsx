@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { FolderPlus, Settings } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useFloatingMenuPosition } from "../app/useFloatingMenuPosition";
 import { retainSessionSelection, selectAllSessions, selectedSessions, toggleSessionSelection } from "../app/session-bulk-selection";
@@ -329,8 +330,8 @@ export function SessionSidebar({
           <span className="new-session-button-glyph" aria-hidden="true">+</span>
           <span className="new-session-button-label">{t("sidebar.newSession", locale)}</span>
         </button>
-        <button className={`settings-button sidebar-settings-button ${settingsOpen ? "selected" : ""}`} onClick={onOpenSettings} title={t("sidebar.openSettings", locale)} aria-label={t("sidebar.openSettings", locale)}><span className="settings-button-glyph" aria-hidden="true">⚙</span><span className="settings-button-label">{t("settings.title", locale)}</span></button>
-        <button className="small-icon-button" onClick={() => void onAddWorkspace()} title={t("sidebar.addWorkspace", locale)} aria-label={t("sidebar.addWorkspace", locale)}>⌂</button>
+        <button className={`settings-button sidebar-settings-button ${settingsOpen ? "selected" : ""}`} onClick={onOpenSettings} title={t("sidebar.openSettings", locale)} aria-label={t("sidebar.openSettings", locale)}><span className="settings-button-glyph" aria-hidden="true"><Settings /></span><span className="settings-button-label">{t("settings.title", locale)}</span></button>
+        <button className="small-icon-button" onClick={() => void onAddWorkspace()} title={t("sidebar.addWorkspace", locale)} aria-label={t("sidebar.addWorkspace", locale)}><FolderPlus aria-hidden="true" /></button>
       </div>
       {view === "sessions" && <div className="search-box">
         <span aria-hidden="true">/</span>

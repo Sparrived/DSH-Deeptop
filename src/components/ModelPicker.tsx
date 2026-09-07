@@ -1,4 +1,5 @@
 import type { RefObject } from "react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import type { DshModel, DshSessionModels } from "../lib/desktop";
 import { modelPickerGroups } from "../app/ui-model";
 import type { ModelMenuPane } from "../app/model";
@@ -61,24 +62,24 @@ export function ModelPicker({
       >
         <span className="model-picker-label">{selectedModelName ?? t("modelPicker.chooseModel", locale)}</span>
         {selectedReasoningLabel && <span className="model-picker-effort">· {selectedReasoningLabel}</span>}
-        <span className={`model-picker-chevron${menuOpen ? " open" : ""}`} aria-hidden="true">v</span>
+        <span className={`model-picker-chevron${menuOpen ? " open" : ""}`} aria-hidden="true"><ChevronDown /></span>
       </button>
       {menuOpen && <div className="model-menu" role="menu" aria-label={t("modelPicker.menuAria", locale)}>
         {menuPane === "root" && <>
           <button className="model-menu-cell" type="button" role="menuitem" onClick={() => onSetPane("model")}>
             <span>{t("modelPicker.model", locale)}</span>
             <span className="model-menu-cell-value">{selectedModelName ?? t("modelPicker.chooseModel", locale)}</span>
-            <span className="model-menu-arrow" aria-hidden="true">&gt;</span>
+            <span className="model-menu-arrow" aria-hidden="true"><ChevronRight /></span>
           </button>
           {selectedReasoning !== undefined && <button className="model-menu-cell" type="button" role="menuitem" onClick={() => onSetPane("effort")}>
             <span>{t("modelPicker.reasoningEffort", locale)}</span>
             <span className="model-menu-cell-value">{selectedReasoningLabel ?? t("modelPicker.default", locale)}</span>
-            <span className="model-menu-arrow" aria-hidden="true">&gt;</span>
+            <span className="model-menu-arrow" aria-hidden="true"><ChevronRight /></span>
           </button>}
         </>}
         {menuPane === "model" && <>
           <div className="model-menu-heading">
-            <button type="button" onClick={() => onSetPane("root")} aria-label={t("modelPicker.backAria", locale)}>&lt;</button>
+            <button type="button" onClick={() => onSetPane("root")} aria-label={t("modelPicker.backAria", locale)}><ChevronLeft aria-hidden="true" /></button>
             <strong>{t("modelPicker.model", locale)}</strong>
           </div>
           <div className="model-menu-list">
@@ -92,7 +93,7 @@ export function ModelPicker({
                     <strong>{model.name}</strong>
                     {model.description && <small>{model.description}</small>}
                   </span>
-                  <span className="model-menu-check" aria-hidden="true">{selected ? "✓" : ""}</span>
+                  <span className="model-menu-check" aria-hidden="true">{selected && <Check />}</span>
                 </button>;
               })}
             </section>)}
@@ -101,7 +102,7 @@ export function ModelPicker({
         </>}
         {menuPane === "effort" && selectedReasoning !== undefined && <>
           <div className="model-menu-heading">
-            <button type="button" onClick={() => onSetPane("root")} aria-label={t("modelPicker.backAria", locale)}>&lt;</button>
+            <button type="button" onClick={() => onSetPane("root")} aria-label={t("modelPicker.backAria", locale)}><ChevronLeft aria-hidden="true" /></button>
             <strong>{t("modelPicker.reasoningEffort", locale)}</strong>
           </div>
           <div className="model-menu-list">
@@ -112,7 +113,7 @@ export function ModelPicker({
                   <strong>{choice.name}</strong>
                   {choice.description && <small>{choice.description}</small>}
                 </span>
-                <span className="model-menu-check" aria-hidden="true">{selected ? "✓" : ""}</span>
+                <span className="model-menu-check" aria-hidden="true">{selected && <Check />}</span>
               </button>;
             })}
           </div>

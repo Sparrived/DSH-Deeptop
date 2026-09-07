@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Check, ChevronLeft, ChevronRight, Circle, Minus } from "lucide-react";
 import { MarkdownContent } from "../lib/markdown";
 import type { DshQuestion } from "../lib/desktop";
 import type { PendingQuestion } from "../app/model";
@@ -71,7 +72,7 @@ function QuestionBody({
             const display = parseRecommendedLabel(option.label);
             return (
               <button type="button" className={checked ? "checked" : ""} key={option.label} onClick={() => onToggleAnswer(item.id, option.label, multiSelectOverride)}>
-                <span>{checked ? "✓" : "○"}</span>
+                <span aria-hidden="true">{checked ? <Check /> : <Circle />}</span>
                 <span className="question-option-copy"><strong>{display.label}</strong>{option.description && <small>{option.description}</small>}{display.recommended && <small className="recommended">{t("interaction.recommended", locale)}</small>}</span>
               </button>
             );
@@ -204,7 +205,7 @@ export function FloatingQuestionCard({
               onClick={() => setMinimized("minimized")}
               aria-label={t("interaction.nav.minimize", locale)}
               title={t("interaction.nav.minimize", locale)}
-            >−</button>
+            ><Minus aria-hidden="true" /></button>
             <button
               type="button"
               className="floating-question-cancel"
@@ -231,9 +232,9 @@ export function FloatingQuestionCard({
           </div>
           <div className="floating-question-footer">
             <div className="floating-question-nav">
-              <button type="button" onClick={goPrev} disabled={safeIndex === 0}>‹</button>
+              <button type="button" onClick={goPrev} disabled={safeIndex === 0}><ChevronLeft aria-hidden="true" /></button>
               <span>{safeIndex + 1}/{total}</span>
-              <button type="button" onClick={goNext} disabled={isLast}>›</button>
+              <button type="button" onClick={goNext} disabled={isLast}><ChevronRight aria-hidden="true" /></button>
             </div>
             <div className="floating-question-actions">
               <button type="button" className="confirm" onClick={submit}>{t("interaction.submitAnswer", locale)}</button>

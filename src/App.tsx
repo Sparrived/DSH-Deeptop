@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { Bot, CheckSquare, ChevronDown, ListTodo, PackageOpen, X } from "lucide-react";
 import { type UnlistenFn } from "@tauri-apps/api/event";
 import { StartupSplash } from "./components/StartupSplash";
 import { ConversationTranscript } from "./components/ConversationTranscript";
@@ -5097,7 +5098,7 @@ function AppContent() {
     todoCount={todoVisible ? `${todoCounts.completed}/${todos?.length ?? 0}` : undefined}
     deliverableCount={deliverablesVisible ? deliverables?.files.length : undefined}
     subagentCount={childSubagents.length || undefined}
-    tasks={activeJobs.length > 0 ? <TaskPanel locale={locale} jobs={activeJobs} collapsed={false} now={jobNow} embedded onToggle={() => setActiveUtilityPanel(null)} /> : <UtilityPanelEmptyState icon="▦" title={t("utility.tasksEmptyTitle", locale)} description={t("utility.tasksEmpty", locale)} />}
+    tasks={activeJobs.length > 0 ? <TaskPanel locale={locale} jobs={activeJobs} collapsed={false} now={jobNow} embedded onToggle={() => setActiveUtilityPanel(null)} /> : <UtilityPanelEmptyState icon={<ListTodo />} title={t("utility.tasksEmptyTitle", locale)} description={t("utility.tasksEmpty", locale)} />}
     todo={todoVisible ? <TodoPanel
       locale={locale}
       todos={todos ?? []}
@@ -5108,7 +5109,7 @@ function AppContent() {
       turnFinishedAt={turnTiming.finishedAt}
       embedded
       onToggle={() => setActiveUtilityPanel(null)}
-    /> : <UtilityPanelEmptyState icon="✓" title={t("utility.todoEmptyTitle", locale)} description={t("utility.todoEmpty", locale)} />}
+    /> : <UtilityPanelEmptyState icon={<CheckSquare />} title={t("utility.todoEmptyTitle", locale)} description={t("utility.todoEmpty", locale)} />}
     deliverables={deliverablesVisible && deliverables ? <DeliverablesPanel
       locale={locale}
       item={deliverables}
@@ -5117,7 +5118,7 @@ function AppContent() {
       embedded
       onToggle={() => setActiveUtilityPanel(null)}
       onOpenSessionPath={openSessionPath}
-    /> : <UtilityPanelEmptyState icon="↗" title={t("utility.deliverablesEmptyTitle", locale)} description={t("utility.deliverablesEmpty", locale)} />}
+    /> : <UtilityPanelEmptyState icon={<PackageOpen />} title={t("utility.deliverablesEmptyTitle", locale)} description={t("utility.deliverablesEmpty", locale)} />}
     subagent={childSubagents.length > 0 ? <div className="subagent-workbench">
       <SubagentDock
         locale={locale}
@@ -5146,7 +5147,7 @@ function AppContent() {
         onPrompt={promptSubagent}
         onInterrupt={interruptSubagent}
       />
-    </div> : <UtilityPanelEmptyState icon="◈" title={t("utility.subagentEmptyTitle", locale)} description={t("utility.subagentEmpty", locale)} />}
+    </div> : <UtilityPanelEmptyState icon={<Bot />} title={t("utility.subagentEmptyTitle", locale)} description={t("utility.subagentEmpty", locale)} />}
   /> : null;
 
   return (
@@ -5493,7 +5494,7 @@ function AppContent() {
           <div className="inspector-modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="inspector-title">
             <button className="inspector-backdrop" onClick={closeSettings} aria-label={t("settings.closeAria", locale)} />
             <aside className="inspector-panel" ref={inspectorPanelRef} tabIndex={-1}>
-            <div className="inspector-header"><strong id="inspector-title">{t("settings.title", locale)}</strong><button onClick={closeSettings} title={t("settings.closeAria", locale)}>×</button></div>
+            <div className="inspector-header"><strong id="inspector-title">{t("settings.title", locale)}</strong><button onClick={closeSettings} title={t("settings.closeAria", locale)}><X aria-hidden="true" /></button></div>
             {surfaceLoading && <div className="surface-loading">{t("settings.loadingSurface", locale)}</div>}
 
             <div className="settings-layout">
@@ -5501,7 +5502,7 @@ function AppContent() {
                   <div className="settings-navigation-title">DSH {t("settings.title", locale)}</div>
                   <div className={`settings-navigation-group${settingsSection === "appearance" ? " expanded" : ""}`}>
                     <button className="settings-navigation-group-toggle" aria-expanded={settingsSection === "appearance"} onClick={() => { setSettingsSection("appearance"); setAppearanceSection("theme"); }}>
-                      <strong>{t("settings.appearance", locale)}</strong><span className="settings-navigation-chevron">⌄</span>
+                      <strong>{t("settings.appearance", locale)}</strong><span className="settings-navigation-chevron" aria-hidden="true"><ChevronDown /></span>
                     </button>
                     {settingsSection === "appearance" && <div className="settings-navigation-subnav" role="tablist" aria-label={t("settings.appearance", locale)}>
                       {(["theme", "background", "typography", "css"] as AppearanceSection[]).map((item) => <button key={item} className={`settings-navigation-subitem${appearanceSection === item ? " selected" : ""}`} onClick={() => setAppearanceSection(item)}>{item === "theme" ? t("settings.theme", locale) : item === "background" ? t("settings.background", locale) : item === "typography" ? t("settings.typography", locale) : t("settings.css", locale)}</button>)}

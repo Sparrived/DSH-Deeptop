@@ -1,4 +1,5 @@
 import { createPortal } from "react-dom";
+import { Check, ChevronDown } from "lucide-react";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { DshPermissionSelect } from "../lib/desktop";
 import { t, type UiLocale } from "../app/i18n";
@@ -203,7 +204,7 @@ export function PermissionPicker({ permissions, onSetPermission, showLabel = fal
           <strong>{permissionLabel(option, locale)}</strong>
           <small>{permissionDescription(option, locale)}</small>
         </span>
-        <span className="permission-menu-check" aria-hidden="true">{selected ? "✓" : ""}</span>
+        <span className="permission-menu-check" aria-hidden="true">{selected && <Check />}</span>
       </button>;
     })}
   </div>;
@@ -224,7 +225,7 @@ export function PermissionPicker({ permissions, onSetPermission, showLabel = fal
     >
       <span className="permission-picker-status" aria-hidden="true" />
       <span className="permission-picker-label">{permissionLabel(currentOption, locale)}</span>
-      <span className="permission-picker-chevron" aria-hidden="true">⌄</span>
+      <span className="permission-picker-chevron" aria-hidden="true"><ChevronDown /></span>
     </button>
     {menu && typeof document !== "undefined" ? createPortal(menu, document.body) : null}
   </div>;

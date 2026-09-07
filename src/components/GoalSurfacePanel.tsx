@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import { ArrowUpRight, Check, CircleAlert, Pause, Plus } from "lucide-react";
 import { t, type UiLocale } from "../app/i18n";
 import type { DshGoalProjection } from "../lib/desktop";
 
@@ -26,11 +27,11 @@ function goalPhaseLabel(phase: DshGoalProjection["goal"]["phase"], locale: UiLoc
   }
 }
 
-const phaseMarks: Record<DshGoalProjection["goal"]["phase"], string> = {
-  active: "↗",
-  paused: "Ⅱ",
-  blocked: "!",
-  complete: "✓",
+const phaseMarks: Record<DshGoalProjection["goal"]["phase"], ReactNode> = {
+  active: <ArrowUpRight />,
+  paused: <Pause />,
+  blocked: <CircleAlert />,
+  complete: <Check />,
 };
 
 function roundProgress(roundsStarted: number, maxRounds: number) {
@@ -112,7 +113,7 @@ export function GoalSurfacePanel({
         </>
       ) : (
         <form className="goal-management-empty" onSubmit={(event) => { event.preventDefault(); void onCreate(); }}>
-          <div className="goal-management-empty-mark" aria-hidden="true">＋</div>
+          <div className="goal-management-empty-mark" aria-hidden="true"><Plus /></div>
           <div><strong>{activeGoal ? t("goal.createNext", locale) : t("goal.createFirst", locale)}</strong><p>{activeGoal ? t("goal.createNextHint", locale) : t("goal.createFirstHint", locale)}</p></div>
           <label><span>{t("goal.objectiveField", locale)}</span><textarea value={draft} onChange={(event) => onDraftChange(event.target.value)} placeholder={t("goal.objectivePlaceholder", locale)} rows={3} disabled={busy} autoFocus /></label>
           <label><span>{t("goal.maxRoundsField", locale)} <em>{t("goal.optional", locale)}</em></span><input type="number" min="1" step="1" value={maxRoundsDraft} onChange={(event) => onMaxRoundsChange(event.target.value)} placeholder={t("goal.defaultRoundsPlaceholder", locale)} disabled={busy} /></label>

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Braces, ChevronLeft, ChevronRight, FileCode2, FileCog, FileText, FileType2, Folder, FolderOpen, Image, Plus, RefreshCw } from "lucide-react";
 import { createPortal } from "react-dom";
 import {
   createWorkspaceFolder,
@@ -40,7 +41,7 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
-function fileIcon(name: string): string {
+function fileIcon(name: string): ReactNode {
   const extension = name.includes(".") ? name.split(".").pop()?.toLowerCase() : "";
   switch (extension) {
     case "ts":
@@ -49,36 +50,33 @@ function fileIcon(name: string): string {
     case "jsx":
     case "mjs":
     case "cjs":
-      return "⌘";
+    case "py":
+      return <FileCode2 />;
     case "json":
-      return "{}";
+      return <Braces />;
     case "md":
     case "mdx":
-      return "¶";
+      return <FileText />;
     case "html":
     case "htm":
-      return "🅗";
     case "css":
     case "scss":
     case "less":
-      return "#";
+      return <FileType2 />;
     case "rs":
-      return "⚙";
-    case "py":
-      return "🐍";
     case "yml":
     case "yaml":
     case "toml":
-      return "⚙";
+      return <FileCog />;
     case "png":
     case "jpg":
     case "jpeg":
     case "gif":
     case "webp":
     case "svg":
-      return "◈";
+      return <Image />;
     default:
-      return "·";
+      return <FileText />;
   }
 }
 
@@ -144,7 +142,7 @@ function NewFolderRow({ onCommit, onCancel, locale }: NewFolderRowProps) {
   };
   return (
     <div className="workspace-file-new-folder">
-      <span className="workspace-file-icon" aria-hidden="true">📁</span>
+      <span className="workspace-file-icon" aria-hidden="true"><Folder /></span>
       <input
         value={value}
         onChange={(event) => setValue(event.target.value)}
@@ -434,9 +432,10 @@ export function WorkspaceFilesPanel({ workspace, collapsed, locale = "zh", onTog
             }}
           >
             <span className="workspace-file-chevron" aria-hidden="true">
-              {entry.isDir ? (loading ? "…" : isOpen ? "▾" : "▸") : ""}
+              {entry.isDir && !loading && <ChevronRight className={isOpen ? "open" : undefined} />}
+              {entry.isDir && loading && "…"}
             </span>
-            <span className="workspace-file-icon" aria-hidden="true">{entry.isDir ? "📁" : fileIcon(entry.name)}</span>
+            <span className="workspace-file-icon" aria-hidden="true">{entry.isDir ? (isOpen ? <FolderOpen /> : <Folder />) : fileIcon(entry.name)}</span>
             <span className="workspace-file-name">{entry.name}</span>
             {visibleStatus && <span className={`workspace-file-git-mark git-mark-${visibleStatus.status}`} title={gitFileLabel(visibleStatus, locale)} aria-label={gitFileLabel(visibleStatus, locale)}>{gitFileMark(visibleStatus)}</span>}
             {!entry.isDir && <span className="workspace-file-size">{formatFileSize(entry.size)}</span>}
@@ -466,8 +465,8 @@ export function WorkspaceFilesPanel({ workspace, collapsed, locale = "zh", onTog
       label={t("files.label", locale)}
       title={t("files.title", locale)}
       kicker={t("files.kicker", locale)}
-      icon="▤"
-      toggleGlyph="‹"
+       icon={<FileText />}
+       toggleGlyph={<ChevronLeft />}
       onToggle={onToggle}
       railClassName="workspace-files-rail"
       railMarkClassName="workspace-files-rail-mark"
@@ -487,8 +486,8 @@ export function WorkspaceFilesPanel({ workspace, collapsed, locale = "zh", onTog
             </div>
             {workspace && <div className="workspace-git-summary" aria-label={t("files.gitSummaryAria", locale)}>{gitStatus?.isRepository && <span className="workspace-git-branch">⌘ {gitStatus.branch ?? "HEAD"}</span>}{!gitStatus?.isRepository && <span className="workspace-git-no-repo">{t("files.noGitRepo", locale)}</span>}{gitStatus?.isRepository && <><span className="workspace-git-count git-count-changed">{t("files.changedCount", locale, { count: (gitStatus.changed + gitStatus.staged) || 0 })}</span><span className="workspace-git-count git-count-untracked">{t("files.untrackedCount", locale, { count: gitStatus.untracked })}</span>{gitStatus.conflicted > 0 && <span className="workspace-git-count git-count-conflicted">{t("files.conflictCount", locale, { count: gitStatus.conflicted })}</span>}</>}</div>}
              <div className="workspace-files-toolbar">
-              <div className="workspace-files-filter" role="group" aria-label={t("files.filterAria", locale)}>{(["all", "changed", "staged", "untracked", "conflicted"] as const).map((filter) => { const count = filter === "all" ? (gitStatus?.files.length ?? 0) : (gitStatus?.files.filter((file) => matchesGitFilter(file, filter)).length ?? 0); const label = filter === "all" ? t("files.filterAll", locale) : filter === "changed" ? t("files.filterChanged", locale) : filter === "staged" ? t("files.filterStaged", locale) : filter === "untracked" ? t("files.filterUntracked", locale) : t("files.filterConflicted", locale); return <button key={filter} type="button" className={gitFilter === filter ? "selected" : ""} disabled={filter !== "all" && !gitStatus?.isRepository} onClick={() => setGitFilter(filter)}>{label}{filter !== "all" && count > 0 ? ` ${count}` : ""}</button>; })}</div><button type="button" disabled={!workspace} onClick={() => workspace && beginNewFolder(workspace)} title={t("files.newFolder", locale)}>＋ {t("files.newFolder", locale)}</button>
-              <button type="button" disabled={!workspace} onClick={() => void reloadRoot()} title={t("files.refresh", locale)}>⟳</button>
+              <div className="workspace-files-filter" role="group" aria-label={t("files.filterAria", locale)}>{(["all", "changed", "staged", "untracked", "conflicted"] as const).map((filter) => { const count = filter === "all" ? (gitStatus?.files.length ?? 0) : (gitStatus?.files.filter((file) => matchesGitFilter(file, filter)).length ?? 0); const label = filter === "all" ? t("files.filterAll", locale) : filter === "changed" ? t("files.filterChanged", locale) : filter === "staged" ? t("files.filterStaged", locale) : filter === "untracked" ? t("files.filterUntracked", locale) : t("files.filterConflicted", locale); return <button key={filter} type="button" className={gitFilter === filter ? "selected" : ""} disabled={filter !== "all" && !gitStatus?.isRepository} onClick={() => setGitFilter(filter)}>{label}{filter !== "all" && count > 0 ? ` ${count}` : ""}</button>; })}</div><button type="button" disabled={!workspace} onClick={() => workspace && beginNewFolder(workspace)} title={t("files.newFolder", locale)}><Plus aria-hidden="true" /> {t("files.newFolder", locale)}</button>
+              <button type="button" disabled={!workspace} onClick={() => void reloadRoot()} title={t("files.refresh", locale)}><RefreshCw aria-hidden="true" /></button>
             </div>
             <div className="workspace-files-tree">
               {!workspace ? (

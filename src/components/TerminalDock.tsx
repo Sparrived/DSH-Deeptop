@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronLeft, Plus, RefreshCw, RotateCw, TerminalSquare, X } from "lucide-react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { errorText } from "../app/model";
@@ -389,9 +390,9 @@ export function TerminalDock({ workspace, collapsed, locale = "zh", onToggle, on
       label={t("terminal.label", locale)}
       title={t("terminal.title", locale)}
       kicker={t("terminal.kicker", locale)}
-      icon="›_"
+       icon={<TerminalSquare />}
       total={tabs.length > 0 ? t("terminal.tabCount", locale, { count: tabs.length }) : terminals.length > 0 ? t("terminal.count", locale, { count: terminals.length }) : undefined}
-      toggleGlyph="‹"
+       toggleGlyph={<ChevronLeft />}
       onToggle={onToggle}
       railClassName="terminal-panel-rail"
       railMarkClassName="terminal-panel-rail-mark"
@@ -422,10 +423,10 @@ export function TerminalDock({ workspace, collapsed, locale = "zh", onToggle, on
                 <span className="terminal-panel-tab-name">{tabName(tab)}</span>
                 {tab.sessionId && <span className="terminal-panel-tab-status" aria-label={t("terminal.running", locale)} />}
               </button>
-              <button type="button" className="terminal-panel-tab-close" onClick={() => void closeTab(tab.id)} aria-label={t("terminal.closeTab", locale, { name: tabName(tab) })} title={t("terminal.closeTab", locale, { name: tabName(tab) })}>×</button>
+              <button type="button" className="terminal-panel-tab-close" onClick={() => void closeTab(tab.id)} aria-label={t("terminal.closeTab", locale, { name: tabName(tab) })} title={t("terminal.closeTab", locale, { name: tabName(tab) })}><X aria-hidden="true" /></button>
             </div>
           ))}
-          <button type="button" className="terminal-panel-new" onClick={addTab} disabled={loading || launching || !workspace || terminals.length === 0} aria-label={t("terminal.newTab", locale)} title={t("terminal.newTab", locale)}>+</button>
+          <button type="button" className="terminal-panel-new" onClick={addTab} disabled={loading || launching || !workspace || terminals.length === 0} aria-label={t("terminal.newTab", locale)} title={t("terminal.newTab", locale)}><Plus aria-hidden="true" /></button>
         </div>
         <div className="terminal-panel-select-row">
           <select
@@ -437,8 +438,8 @@ export function TerminalDock({ workspace, collapsed, locale = "zh", onToggle, on
             {terminals.length === 0 && <option value="">{t("terminal.noShell", locale)}</option>}
             {terminals.map((terminal) => <option key={terminal.id} value={terminal.id}>{terminal.name}</option>)}
           </select>
-          <button type="button" className="terminal-panel-refresh" onClick={() => void refreshTerminals()} disabled={loading || launching} title={t("terminal.redetect", locale)}>⟳</button>
-          <button type="button" className="terminal-panel-restart" onClick={() => activeTab && void restartTab(activeTab.id)} disabled={!activeTab || loading || launching} title={t("terminal.restart", locale)}>↻</button>
+          <button type="button" className="terminal-panel-refresh" onClick={() => void refreshTerminals()} disabled={loading || launching} title={t("terminal.redetect", locale)}><RefreshCw aria-hidden="true" /></button>
+          <button type="button" className="terminal-panel-restart" onClick={() => activeTab && void restartTab(activeTab.id)} disabled={!activeTab || loading || launching} title={t("terminal.restart", locale)}><RotateCw aria-hidden="true" /></button>
         </div>
         <span className="terminal-panel-path" title={workspace}>{workspace || t("terminal.noWorkspace", locale)}</span>
       </div>

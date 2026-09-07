@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { Check, ChevronDown, Paperclip, Send, Square, X } from "lucide-react";
 import { shortcutMatches, type SendShortcut } from "../app/keyboard-shortcut";
 import { ComposerCandidates } from "./ComposerCandidates";
 import { ModelPicker } from "./ModelPicker";
@@ -196,14 +197,14 @@ export function ComposerShell({
           <div className="composer-attachment" key={attachment.id}>
             <img src={"data:" + attachment.mediaType + ";base64," + attachment.data} alt={attachment.name} />
             <span title={attachment.name}>{attachment.name}</span>
-            <button type="button" onClick={() => onRemoveAttachment(attachment.id)} title={t("composer.removeAttachment", locale)} aria-label={t("composer.removeAttachmentAria", locale, { name: attachment.name })}>×</button>
+            <button type="button" onClick={() => onRemoveAttachment(attachment.id)} title={t("composer.removeAttachment", locale)} aria-label={t("composer.removeAttachmentAria", locale, { name: attachment.name })}><X aria-hidden="true" /></button>
           </div>
         ))}
       </div>}
       {planEffectiveTarget(plan) && <div className="composer-plan-chip" role="status" aria-label={t("composer.planActiveAria", locale)}>
         <span className="composer-plan-chip-label">Plan</span>
         <span className="composer-plan-chip-note">{t("composer.planChipNote", locale)}</span>
-        <button type="button" className="composer-plan-chip-exit" onClick={() => void onExitPlan()} title={t("composer.planExitTitle", locale)} aria-label={t("composer.planExitAria", locale)}>×</button>
+        <button type="button" className="composer-plan-chip-exit" onClick={() => void onExitPlan()} title={t("composer.planExitTitle", locale)} aria-label={t("composer.planExitAria", locale)}><X aria-hidden="true" /></button>
       </div>}
       <ComposerCandidates
         locale={locale}
@@ -215,7 +216,7 @@ export function ComposerShell({
       />
       <div className="composer-controls">
         <div className="composer-left">
-          <button className="attachment-button" type="button" onClick={() => attachmentInputRef.current?.click()} title={t("composer.attach", locale)}>＋ {t("composer.attachLabel", locale)}{attachments.length > 0 ? " " + attachments.length : ""}</button>
+          <button className="attachment-button" type="button" onClick={() => attachmentInputRef.current?.click()} title={t("composer.attach", locale)}><Paperclip aria-hidden="true" /> {t("composer.attachLabel", locale)}{attachments.length > 0 ? " " + attachments.length : ""}</button>
           {permissions && <PermissionPicker permissions={permissions} onSetPermission={onSetPermission} showLabel locale={locale} />}
           <div className="mode-picker" ref={modeMenuRef}>
             <button
@@ -228,7 +229,7 @@ export function ComposerShell({
               onClick={() => setModeMenuOpen((open) => !open)}
             >
               <span>{promptMode === "queue" ? t("composer.queueLabel", locale) : t("composer.steerLabel", locale)}</span>
-              <span className="mode-picker-chevron" aria-hidden="true">&gt;</span>
+              <span className="mode-picker-chevron" aria-hidden="true"><ChevronDown /></span>
             </button>
             {modeMenuOpen && <div className="mode-menu" role="menu" aria-label={t("composer.modeMenuAria", locale)}>
               {(["queue", "steer"] as PromptMode[]).map((mode) => {
@@ -245,7 +246,7 @@ export function ComposerShell({
                   }}
                 >
                   <span className="mode-menu-option-label">{mode === "queue" ? t("composer.queueLabel", locale) : t("composer.steerLabel", locale)}</span>
-                  <span className="mode-menu-check" aria-hidden="true">{selected ? "✓" : ""}</span>
+                  <span className="mode-menu-check" aria-hidden="true">{selected && <Check />}</span>
                 </button>;
               })}
             </div>}
@@ -270,7 +271,7 @@ export function ComposerShell({
           /> : <div className="model-picker">
             <button className="model-picker-trigger model-picker-placeholder" type="button" disabled title={t("composer.modelPlaceholderTitle", locale)} aria-label={t("composer.modelDefaultAria", locale, { name: defaultModelName })}>
               <span className="model-picker-label">{defaultModelName}</span>
-              <span className="model-picker-chevron" aria-hidden="true">v</span>
+              <span className="model-picker-chevron" aria-hidden="true"><ChevronDown /></span>
             </button>
           </div>}
           <button
@@ -281,7 +282,7 @@ export function ComposerShell({
             aria-label={t("composer.send", locale)}
             title={`${t("composer.send", locale)}（${sendShortcut}）`}
           >
-            <span aria-hidden="true">↑</span>
+            <Send aria-hidden="true" />
           </button>
           {activeRunning && <button
             className="stop-button"
@@ -291,7 +292,7 @@ export function ComposerShell({
             aria-label={t("composer.stop", locale)}
             title={t("composer.stop", locale)}
           >
-            <span aria-hidden="true">×</span>
+            <Square aria-hidden="true" />
           </button>}
         </div>
       </div>

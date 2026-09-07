@@ -1521,6 +1521,10 @@ body.deeptop-window-blurred .agent-working {
 }
 
 .workspace-menu .workspace-add {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 5px;
   margin-top: 4px;
   border-top: 1px solid var(--line);
   color: var(--accent-deep);
@@ -1573,7 +1577,6 @@ body.deeptop-window-blurred .agent-working {
   background: transparent;
   color: var(--ink-faint);
   font-size: 12px;
-  filter: grayscale(1);
   opacity: 0.6;
 }
 
@@ -1584,7 +1587,6 @@ body.deeptop-window-blurred .agent-working {
 
 .workspace-menu .workspace-menu-pin.active {
   color: var(--accent-deep);
-  filter: none;
   opacity: 1;
 }
 
@@ -1606,6 +1608,9 @@ body.deeptop-window-blurred .agent-working {
   font-size: 12px;
   text-align: center;
 }
+
+.workspace-menu .workspace-menu-chevron svg { transition: transform var(--motion-fast) var(--motion-ease-enter); }
+.workspace-menu .workspace-menu-chevron svg.open { transform: rotate(90deg); }
 
 .workspace-menu-nested {
   min-width: 0;

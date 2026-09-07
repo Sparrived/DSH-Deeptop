@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject, type UIEvent } from "react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { createPortal } from "react-dom";
 import { isFilePath, type DshHistoryEntry, type DshPreset, type DshSessionSummary } from "../lib/desktop";
 import type { DesktopUiRuntime } from "../lib/desktop-ui-runtime/client-runtime";
@@ -697,7 +698,7 @@ function MessageLightbox({
   return <div className="message-lightbox" role="dialog" aria-modal="true" aria-label={t("conversation.image.gallery", locale)} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <div className="message-lightbox-toolbar">
       <span>{index + 1} / {images.length} · {alt}</span>
-      <button type="button" onClick={onClose} aria-label={t("conversation.image.closeGallery", locale)} title={t("conversation.image.closeEsc", locale)}>×</button>
+      <button type="button" onClick={onClose} aria-label={t("conversation.image.closeGallery", locale)} title={t("conversation.image.closeEsc", locale)}><X aria-hidden="true" /></button>
     </div>
     <div className="message-lightbox-stage">
       {state === "loading" && <span className="message-image-placeholder" role="status">{t("conversation.image.loading", locale)}…</span>}
@@ -705,7 +706,7 @@ function MessageLightbox({
       {state === "ready" && src !== null && <img className="message-lightbox-image" src={src} alt={alt} onClick={onClose} />}
     </div>
     {images.length > 1 && <div className="message-lightbox-nav">
-      <button type="button" disabled={index === 0} onClick={() => onNavigate(index - 1)} aria-label={t("conversation.image.previous", locale)}>‹</button>
+      <button type="button" disabled={index === 0} onClick={() => onNavigate(index - 1)} aria-label={t("conversation.image.previous", locale)}><ChevronLeft aria-hidden="true" /></button>
       <div className="message-lightbox-thumbs">
         {images.map((image, thumbIndex) => (
           <button
@@ -720,7 +721,7 @@ function MessageLightbox({
           </button>
         ))}
       </div>
-      <button type="button" disabled={index >= images.length - 1} onClick={() => onNavigate(index + 1)} aria-label={t("conversation.image.next", locale)}>›</button>
+      <button type="button" disabled={index >= images.length - 1} onClick={() => onNavigate(index + 1)} aria-label={t("conversation.image.next", locale)}><ChevronRight aria-hidden="true" /></button>
     </div>}
   </div>;
 }
@@ -1090,12 +1091,12 @@ export function ConversationTranscript({
               <button className="preset-seat-trigger" type="button" aria-haspopup="menu" aria-expanded={presetMenuOpen} onClick={onTogglePresetMenu}>
                 <span className="preset-seat-kicker">Agent Preset</span>
                 <strong>{presetDisplayName(selectedPresetId, presets, locale)}</strong>
-                <span className="preset-seat-chevron" aria-hidden="true">⌄</span>
+                <span className="preset-seat-chevron" aria-hidden="true"><ChevronDown /></span>
               </button>
               {presetMenuOpen && <div className="preset-seat-menu" role="menu" aria-label={t("conversation.preset.chooseAria", locale)}>
                 {selectablePresets.map((preset) => <button className={preset.id === selectedPresetId ? "selected" : ""} type="button" role="menuitem" key={preset.id} onClick={() => onStagePreset(preset.id)}>
                   <span><strong>{presetDisplayName(preset.id, presets, locale)}</strong><small>{presetDescription(preset, locale)}</small></span>
-                  {preset.id === selectedPresetId && <b aria-hidden="true">✓</b>}
+                  {preset.id === selectedPresetId && <b aria-hidden="true"><Check /></b>}
                 </button>)}
               </div>}
             </div>

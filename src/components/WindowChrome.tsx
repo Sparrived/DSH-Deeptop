@@ -1,4 +1,5 @@
 import { useEffect, useState, type MouseEvent } from "react";
+import { Settings } from "lucide-react";
 import { isWindowChromeControl } from "../app/ui-model";
 import type { WindowMenu } from "../app/model-types";
 import { WindowControls } from "./WindowControls";
@@ -103,7 +104,7 @@ export function WindowChrome({
       </nav>
       <div className="window-drag-space" />
       <div className="window-actions">
-        <button className={`settings-button window-settings-button ${settingsOpen ? "selected" : ""}`} onClick={onOpenSettings} title={t("windowChrome.openSettings", locale)} aria-label={t("windowChrome.openSettings", locale)}><span className="settings-button-glyph" aria-hidden="true">⚙</span><span className="settings-button-label">{t("settings.title", locale)}</span></button>
+        <button className={`settings-button window-settings-button ${settingsOpen ? "selected" : ""}`} onClick={onOpenSettings} title={t("windowChrome.openSettings", locale)} aria-label={t("windowChrome.openSettings", locale)}><span className="settings-button-glyph" aria-hidden="true"><Settings /></span><span className="settings-button-label">{t("settings.title", locale)}</span></button>
         <WindowControls
           locale={locale}
           windowMaximized={windowMaximized}

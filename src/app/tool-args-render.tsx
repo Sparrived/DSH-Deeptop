@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { ArrowUpRight, Check, LoaderCircle } from "lucide-react";
 import type { UiLocale } from "./i18n";
 import { t } from "./i18n";
 import { isPrimaryToolArgument, orderedToolArguments, parseToolArgs, toolArgsLayout, toolTodoItems, type ToolArgsLayout, type ToolArgsObject, type ToolTodoItem } from "./tool-call-display";
@@ -120,7 +121,7 @@ function PathField({ value, locale, onOpenPath }: { value: string; locale: UiLoc
   }
   return <span className="tool-path-wrap"><span className="tool-path">
     {segments.map((segment, index) => <span key={index} className={`tool-path-segment${index === segments.length - 1 ? " is-last" : ""}`}>{segment}</span>)}
-    {onOpenPath && <button type="button" className="tool-path-open" disabled={opening} onClick={() => void open()} aria-label={t("deliverables.openFileAria", locale, { path: value })}><span aria-hidden="true">↗</span></button>}
+    {onOpenPath && <button type="button" className="tool-path-open" disabled={opening} onClick={() => void open()} aria-label={t("deliverables.openFileAria", locale, { path: value })}><ArrowUpRight aria-hidden="true" /></button>}
   </span>{error && <small className="tool-field-open-error">{error}</small>}</span>;
 }
 
@@ -184,7 +185,7 @@ function TodoListField({ todos, locale }: { todos: ToolTodoItem[]; locale: UiLoc
   return <ol className="tool-todo-list" aria-label={t("todo.listLabel", locale)}>
     {todos.map((todo, index) => <li className={`tool-todo-item ${todo.status}`} key={`${todo.status}-${todo.content}-${index}`}>
       <span className="tool-todo-index" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
-      <span className="tool-todo-status" aria-hidden="true">{todo.status === "completed" ? "✓" : todo.status === "in_progress" ? "•" : ""}</span>
+      <span className="tool-todo-status" aria-hidden="true">{todo.status === "completed" ? <Check /> : todo.status === "in_progress" ? <LoaderCircle /> : null}</span>
       <span className="tool-todo-content">{todo.content}</span>
       <span className="tool-todo-label">{labels[todo.status]}</span>
     </li>)}

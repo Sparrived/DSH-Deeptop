@@ -16,6 +16,7 @@ function createHookRenderer() {
   const react = {
     Component: class {},
     memo: (component) => component,
+    forwardRef: (render) => (props) => render(props, null),
     useState(initial) {
       const index = hookIndex++;
       if (!hooks[index]) hooks[index] = { value: typeof initial === "function" ? initial() : initial };

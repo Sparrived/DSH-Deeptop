@@ -521,11 +521,15 @@
   font-size: 12px;
 }
 
+.todo-item-status svg { width: 11px; height: 11px; }
+
 .todo-item-status.in_progress {
   border-style: solid;
   border-color: var(--warning);
   color: var(--warning);
 }
+
+.todo-item-status.in_progress svg { animation: deeptop-icon-spin 1.2s linear infinite; }
 
 .todo-item-status.completed {
   border-color: var(--good);
