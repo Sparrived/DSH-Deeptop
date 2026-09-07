@@ -42,8 +42,8 @@ function u32(value) {
 }
 
 /**
- * Build one ZIP archive from named UTF-8 text entries.
- * @param entries - ordered `{ path, content }` pairs.
+ * Build one ZIP archive from named text or binary entries.
+ * @param entries - ordered `{ path, content }` or `{ path, data }` pairs.
  * @returns the complete archive bytes.
  */
 export function buildZip(entries) {
@@ -53,7 +53,7 @@ export function buildZip(entries) {
   let offset = 0
   for (const entry of entries) {
     const name = Buffer.from(entry.path, 'utf8')
-    const data = Buffer.from(entry.content, 'utf8')
+    const data = 'content' in entry ? Buffer.from(entry.content, 'utf8') : Buffer.from(entry.data)
     const compressed = deflateRawSync(data, { level: 6 })
     const checksum = crc32(data)
     const local = Buffer.concat([

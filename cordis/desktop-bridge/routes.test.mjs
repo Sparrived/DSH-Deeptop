@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm as removePath, stat, writeFile } 
 import test from 'node:test'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { constants, zstdCompressSync, zstdDecompressSync } from 'node:zlib'
+import { constants, inflateRawSync, zstdCompressSync, zstdDecompressSync } from 'node:zlib'
 import { routeDesktopRequest } from './routes.mjs'
 import { resolveDshHome } from './dsh-home.mjs'
 import { bridgeErrorFrame, DesktopBridge, writeBridgeFrame } from './bridge.mjs'
@@ -19,6 +19,21 @@ const signal = new AbortController().signal
 
 function historyEntry(seq, type, data = {}) {
   return { event: { seq, time: 1_000 + seq, type, data } }
+}
+
+function zipEntries(bytes) {
+  const entries = new Map()
+  let offset = 0
+  while (bytes.readUInt32LE(offset) === 0x04034b50) {
+    const compressedSize = bytes.readUInt32LE(offset + 18)
+    const nameLength = bytes.readUInt16LE(offset + 26)
+    const extraLength = bytes.readUInt16LE(offset + 28)
+    const start = offset + 30 + nameLength + extraLength
+    const name = bytes.toString('utf8', offset + 30, offset + 30 + nameLength)
+    entries.set(name, inflateRawSync(bytes.subarray(start, start + compressedSize)))
+    offset = start + compressedSize
+  }
+  return entries
 }
 
 /** Minimal ctx for session.history route tests: tail registry + page mock. */
@@ -2009,7 +2024,16 @@ test('builds a session ZIP into a temp file for the native save surface', async 
         readRaw: async (sessionId, requestSignal) => {
           seen.push(sessionId)
           assert.equal(requestSignal, signal)
-          return { filename: `session-${sessionId}.jsonl`, content: '{"session":"data"}\n' }
+          return {
+            filename: `session-${sessionId}.jsonl`,
+            content: JSON.stringify({
+              type: 'user/message',
+              data: { content: [{ type: 'image', attachment: {
+                attachmentId: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                mediaType: 'image/png', bytes: 1, width: 1, height: 1,
+              } }] },
+            }) + '\n',
+          }
         },
         list: async () => [{
           id: 'session-descendant',
@@ -2018,6 +2042,8 @@ test('builds a session ZIP into a temp file for the native save surface', async 
           createdAt: 1,
           cwd: '/tmp',
         }],
+      } : key === 'attachments' ? {
+        readImage: async ref => ({ ref, data: Buffer.from([0, 255, 1, 2]) }),
       } : undefined,
     }, 'session.exportZip', { sessionId: 'session-123', includeDescendants: true }, signal)
   } catch (error) {
@@ -2034,9 +2060,31 @@ test('builds a session ZIP into a temp file for the native save surface', async 
     // Valid ZIP: local-file magic for the first entry and the EOCD record tail.
     assert.equal(bytes.toString('utf8', 0, 4), 'PK\u0003\u0004')
     assert.equal(bytes.toString('utf8', bytes.length - 22, bytes.length - 18), 'PK\u0005\u0006')
+    const entries = zipEntries(bytes)
+    assert.deepEqual(entries.get('media/sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png'), Buffer.from([0, 255, 1, 2]))
   } finally {
     await removePath(dirname(result.tempPath), { recursive: true, force: true }).catch(() => undefined)
   }
+})
+
+test('rejects a session export when a referenced attachment is unavailable', async () => {
+  await assert.rejects(
+    routeDesktopRequest({
+      get: key => key === 'sessionPersistence' ? {
+        readRaw: async () => ({
+          filename: 'session.jsonl',
+          content: JSON.stringify({ type: 'user/message', data: { content: [{ type: 'image', attachment: {
+            attachmentId: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            mediaType: 'image/png', bytes: 1, width: 1, height: 1,
+          } }] } }) + '\n',
+        }),
+        list: async () => [],
+      } : key === 'attachments' ? {
+        readImage: async () => { throw new Error('Attachment object is missing.') },
+      } : undefined,
+    }, 'session.exportZip', { sessionId: 'session-123' }, signal),
+    /Attachment object is missing/,
+  )
 })
 
 test('reports a missing session artifact without fabricating a file', async () => {

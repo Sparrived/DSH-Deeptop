@@ -88,6 +88,54 @@ function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+const MEDIA_EXTENSIONS = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+}
+
+function collectImageRefs(content, refs) {
+  if (!Array.isArray(content)) return
+  const pending = [...content]
+  while (pending.length > 0) {
+    const block = pending.pop()
+    if (!isRecord(block)) continue
+    if (block.type === 'image' && isRecord(block.attachment) && typeof block.attachment.attachmentId === 'string') {
+      refs.set(block.attachment.attachmentId, block.attachment)
+    }
+    if (Array.isArray(block.content)) pending.push(...block.content)
+  }
+}
+
+function collectArtifactImageRefs(content, refs) {
+  for (const line of content.split('\n')) {
+    if (line === '') continue
+    let event
+    try {
+      event = JSON.parse(line)
+    } catch {
+      continue
+    }
+    const data = isRecord(event.data) ? event.data : undefined
+    if (!data) continue
+    collectImageRefs(data.content, refs)
+    if (isRecord(data.message)) collectImageRefs(data.message.content, refs)
+    if (Array.isArray(data.inserted)) {
+      for (const message of data.inserted) {
+        if (isRecord(message)) collectImageRefs(message.content, refs)
+      }
+    }
+    if (isRecord(data.chunk) && data.chunk.type === 'block-end') collectImageRefs([data.chunk.block], refs)
+  }
+}
+
+function mediaEntryPath(ref) {
+  const extension = MEDIA_EXTENSIONS[ref.mediaType]
+  if (extension === undefined) throw new Error(`session export found image with unsupported media type ${JSON.stringify(ref.mediaType)}`)
+  return `media/${ref.attachmentId}.${extension}`
+}
+
 // rc.1 keeps the registry's durable archive set but publishes no restore or
 // permanent-delete verbs. Route-owned mutations must use the registry queue so
 // they cannot overwrite archiveSession or ordinary workspace writes.
@@ -169,6 +217,7 @@ async function exportSessionZip(ctx, payload, signal) {
     throw new Error('session.exportZip requires sessionId and an optional boolean includeDescendants')
   }
   const persistence = ctx.get?.('sessionPersistence')
+  const attachments = ctx.get?.('attachments')
   if (!persistence || typeof persistence.readRaw !== 'function') {
     throw codedError('session-export-unavailable', '会话导出需要可用的会话持久化后端', { capability: 'sessionPersistence' })
   }
@@ -191,6 +240,8 @@ async function exportSessionZip(ctx, payload, signal) {
 
   const root = await rawFor(payload.sessionId)
   const entries = [{ path: root.filename, content: root.content }]
+  const media = new Map()
+  collectArtifactImageRefs(root.content, media)
   if (payload.includeDescendants === true) {
     const pending = [payload.sessionId]
     const seen = new Set([payload.sessionId])
@@ -201,9 +252,19 @@ async function exportSessionZip(ctx, payload, signal) {
         seen.add(header.id)
         const raw = await rawFor(header.id)
         entries.push({ path: `subagents/${header.id.replace(/[^A-Za-z0-9_-]/g, '_')}/${raw.filename}`, content: raw.content })
+        collectArtifactImageRefs(raw.content, media)
         pending.push(header.id)
       }
     }
+  }
+  if (media.size > 0 && (!attachments || typeof attachments.readImage !== 'function')) {
+    throw codedError('session-export-unavailable', '会话导出需要可用的附件存储后端', { capability: 'attachments' })
+  }
+  for (const ref of media.values()) {
+    signal?.throwIfAborted()
+    const stored = await attachments.readImage(ref, signal)
+    signal?.throwIfAborted()
+    entries.push({ path: mediaEntryPath(stored.ref), data: stored.data })
   }
   const archive = buildZip(entries)
   signal?.throwIfAborted()
