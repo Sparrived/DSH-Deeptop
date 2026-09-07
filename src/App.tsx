@@ -1397,13 +1397,23 @@ function AppContent() {
 
   useEffect(() => {
     if (!activeUtilityPanel && !subagentPanelOpen) return;
-    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (subagentPanelOpen) setSubagentPanelOpen(false);
-      else setActiveUtilityPanel(null);
+    const dismissUtilityPanel = () => {
+      setSubagentPanelOpen(false);
+      setActiveUtilityPanel(null);
     };
+    const handlePointerDown = (event: globalThis.PointerEvent) => {
+      if (event.target instanceof Element && event.target.closest(".utility-panel-shelf")) return;
+      dismissUtilityPanel();
+    };
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") dismissUtilityPanel();
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
   }, [activeUtilityPanel, subagentPanelOpen]);
 
   useEffect(() => {

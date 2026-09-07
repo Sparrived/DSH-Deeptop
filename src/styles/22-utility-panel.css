@@ -4,7 +4,7 @@
   min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 136px;
-  align-items: end;
+  align-items: stretch;
   gap: 12px;
   margin: 0 auto;
 }
@@ -18,18 +18,20 @@
   position: relative;
   z-index: 90;
   width: 136px;
-  align-self: end;
+  align-self: stretch;
 }
 
 .utility-panel-tabs {
+  height: 100%;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: repeat(4, minmax(0, 1fr));
   gap: 6px;
 }
 
 .utility-panel-tab {
   width: 100%;
-  min-height: 42px;
+  min-height: 0;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -92,7 +94,11 @@
   box-shadow: var(--shadow-panel);
 }
 
-/* Empty pages use the full panel and say what will appear here. */
+/* Empty pages use the same opaque content layer as populated panels. */
+.utility-panel-content > .utility-panel-empty {
+  background: var(--surface-raised);
+}
+
 .utility-panel-empty {
   height: 100%;
   min-height: 0;
@@ -262,7 +268,11 @@
     align-self: stretch;
   }
 
-  .utility-panel-tabs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .utility-panel-tabs {
+    height: auto;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-rows: none;
+  }
 
   .utility-panel-content {
     position: static;
