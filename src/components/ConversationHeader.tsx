@@ -85,7 +85,7 @@ export function ConversationHeader({
             {noticeCopied ? t("header.noticeCopiedShort", locale) : notice}
           </button>
         )}
-        {queueCount > 0 && <span className="queue-count">{t("header.queueCount", locale, { count: queueCount })}</span>}
+        {queueCount > 0 && <span className="queue-count" key={queueCount}>{t("header.queueCount", locale, { count: queueCount })}</span>}
         {activeSession && <>
           <button className={"header-action trajectory-toggle" + (trajectoryOpen ? " selected" : "")} onClick={onToggleTrajectory} title={t("header.trajectoryTitle", locale)} aria-pressed={trajectoryOpen}>{t("header.trajectory", locale)}</button>
           <button className={"header-action session-dashboard-toggle" + (sessionDashboardOpen ? " selected" : "")} onClick={onToggleSessionDashboard} title={t("header.sessionDashboardTitle", locale)} aria-pressed={sessionDashboardOpen}>{t("header.sessionDashboard", locale)}</button>
