@@ -7,6 +7,7 @@ const ERROR_KEYS: Record<string, string> = {
   "model-unavailable": "settings.error.modelUnavailable",
   "invalid-time-zone": "settings.error.invalidTimezone",
   "attachment-error": "settings.error.imageRejected",
+  ATTACHMENT_NOT_FOUND: "settings.error.attachmentMissing",
   IMAGE_DIMENSION_TOO_LARGE: "settings.error.imageDimensionTooLarge",
   IMAGE_TOO_MANY_PIXELS: "settings.error.imageTooManyPixels",
   IMAGE_PIXELS_TOO_LARGE: "settings.error.imageTooManyPixels",

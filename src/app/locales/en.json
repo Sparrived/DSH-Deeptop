@@ -1439,6 +1439,7 @@
   "settings.error.bridgeDisconnected": "The DSH response channel disconnected. Restart Deeptop.",
   "settings.error.bridgeTimeout": "DSH response timed out. Please try again.",
   "settings.error.bridgeUnavailable": "The DSH runtime is not ready or has exited. Wait for it to recover or restart Deeptop.",
+  "settings.error.attachmentMissing": "The image file is no longer in local storage. Restore it from a complete backup or attach the image again.",
   "settings.error.imageDimensionTooLarge": "Image dimensions exceed this deployment's limits.",
   "settings.error.imageRejected": "The image does not meet this deployment's limits.",
   "settings.error.imageTooLarge": "Image size exceeds this deployment's limits.",

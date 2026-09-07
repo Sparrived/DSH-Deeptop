@@ -1439,6 +1439,7 @@
   "settings.error.bridgeDisconnected": "DSH 响应通道已断开，请重启 Deeptop",
   "settings.error.bridgeTimeout": "DSH 响应超时，请重试",
   "settings.error.bridgeUnavailable": "DSH 运行时未就绪或已退出，请等待恢复或重启 Deeptop",
+  "settings.error.attachmentMissing": "图片文件已不在本地存储中，请从完整备份恢复，或重新附加该图片",
   "settings.error.imageDimensionTooLarge": "图片尺寸超过当前部署限制",
   "settings.error.imageRejected": "图片未通过当前部署的限制",
   "settings.error.imageTooLarge": "图片大小超过当前部署限制",
