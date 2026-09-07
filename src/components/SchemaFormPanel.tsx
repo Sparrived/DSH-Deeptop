@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import type { DshSettingsNamespace } from "../lib/desktop";
 import {
   isSchemaEnvelope,
@@ -163,7 +164,7 @@ function ContainerField({ path, node, envelope, value, draft, locale, onChange }
 
   return <div className={`schema-field schema-container ${path.length > 0 ? "nested" : ""}`} data-path={path.join("/")}>
     <button className="schema-container-toggle" type="button" onClick={() => setOpen((current) => !current)} aria-expanded={open}>
-      <span aria-hidden="true">{open ? "⌄" : "›"}</span>
+      <span aria-hidden="true">{open ? <ChevronDown /> : <ChevronRight />}</span>
       <strong>{label}</strong>
       {description && <small>{description}</small>}
     </button>

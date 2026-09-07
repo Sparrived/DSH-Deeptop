@@ -1049,6 +1049,7 @@
   text-align: left;
 }
 .schema-container-toggle:hover { border-color: var(--line); background: var(--surface-soft, var(--paper-deep)); }
+.schema-container-toggle > span { display: grid; place-items: center; }
 .schema-container-toggle strong { color: var(--ink-strong); font-size: 12px; }
 .schema-container-toggle small { overflow: hidden; color: var(--ink-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 /* Spans the container's two-column grid so the body fills the dialog width
@@ -1263,7 +1264,7 @@
 .mcp-server-expand > span:nth-child(2) { min-width: 0; display: grid; gap: 4px; }
 .mcp-server-expand strong { overflow: hidden; color: var(--ink-strong); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .mcp-server-expand small { overflow: hidden; color: var(--ink-faint); font: 10px/1.4 var(--mono); text-overflow: ellipsis; white-space: nowrap; }
-.mcp-server-expand b { color: var(--ink-faint); font-size: 13px; transition: transform 120ms ease; }
+.mcp-server-expand b { display: grid; place-items: center; color: var(--ink-faint); font-size: 13px; transition: transform 120ms ease; }
 .mcp-server-card.open .mcp-server-expand b { transform: rotate(180deg); }
 .mcp-server-header .settings-plugin-toggle { margin-right: 12px; }
 .mcp-server-editor { min-width: 0; display: grid; gap: 14px; margin: 0; padding: 15px; border: 0; border-top: 1px solid var(--line); background: color-mix(in srgb, var(--surface-sunken, var(--paper-deep)) 55%, transparent); color: inherit; }

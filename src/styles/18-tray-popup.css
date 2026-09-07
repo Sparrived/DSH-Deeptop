@@ -141,6 +141,8 @@ html.tray-popup-document #root {
 }
 
 .tray-popup-actions button > span:first-child {
+  display: grid;
+  place-items: center;
   color: var(--muted);
   text-align: center;
 }

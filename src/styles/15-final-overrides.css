@@ -73,6 +73,19 @@
   align-items: center;
   gap: 4px;
 }
+
+.pet-notice-close,
+.popup-close,
+.subagent-drawer-close,
+.trajectory-inspector-header button,
+.search-box > span,
+.search-box button,
+.settings-search > span,
+.trajectory-search > span,
+.settings-model-chip.editable button:last-of-type {
+  display: grid;
+  place-items: center;
+}
 .current-goal-copy,
 .current-goal-heading,
 .current-goal-progress { min-width: 0; }

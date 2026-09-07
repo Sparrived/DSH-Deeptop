@@ -1,3 +1,4 @@
+import { ChevronDown, X } from "lucide-react";
 import { modelHasMaxReasoning } from "../app/settings-model";
 import type { DiscoveredModel } from "../app/model";
 import type { DshCredential, DshModelGroup, DshProvider } from "../lib/desktop";
@@ -61,7 +62,7 @@ export function SettingsProviderCard({ view, actions, locale = "zh" }: SettingsP
   return <article className={`settings-provider-card ${view.open ? "open" : ""}`}>
     <button type="button" className="settings-provider-header" onClick={actions.onToggle} aria-expanded={view.open} aria-haspopup="dialog">
       <span className="settings-provider-title"><strong>{provider.displayName}</strong><small>{provider.provider}</small></span>
-      <span className="settings-provider-trailing"><i className={provider.active ? "active" : ""} /><span>{t(provider.active ? "provider.active" : "provider.inactive", locale)}</span><b aria-hidden="true">⌄</b></span>
+      <span className="settings-provider-trailing"><i className={provider.active ? "active" : ""} /><span>{t(provider.active ? "provider.active" : "provider.inactive", locale)}</span><b aria-hidden="true"><ChevronDown /></b></span>
     </button>
     {view.open && <PopupDialog
       title={provider.displayName}
@@ -98,7 +99,7 @@ function ProviderDetails({ view, actions, locale = "zh" }: SettingsProviderCardP
         <span>{modelName}</span>
         <button type="button" onClick={() => void actions.onToggleModelImages(modelId)} title={imageEnabled ? t("provider.imageInputOff", locale) : t("provider.imageInputOn", locale)} aria-label={imageEnabled ? t("provider.imageToggleOffAria", locale, { name: modelName }) : t("provider.imageToggleOnAria", locale, { name: modelName })}>{imageEnabled ? t("provider.imageGlyph", locale) : t("provider.textGlyph", locale)}</button>
         {provider.settingsNs === "llm-pi-ai" && <button type="button" className={maxReasoningEnabled ? "active" : undefined} disabled={!canEditSettings} onClick={() => void actions.onToggleModelMaxReasoning(modelId)} title={maxReasoningEnabled ? t("provider.reasoningMaxOff", locale) : t("provider.reasoningMaxOn", locale)} aria-label={maxReasoningEnabled ? t("provider.reasoningMaxToggleOffAria", locale, { name: modelName }) : t("provider.reasoningMaxToggleOnAria", locale, { name: modelName })} aria-pressed={maxReasoningEnabled}>MAX</button>}
-         <button type="button" onClick={() => void actions.onRemoveModel(modelId)} title={t("provider.removeModel", locale, { name: modelName })} aria-label={t("provider.removeModel", locale, { name: modelName })}>×</button>
+         <button type="button" onClick={() => void actions.onRemoveModel(modelId)} title={t("provider.removeModel", locale, { name: modelName })} aria-label={t("provider.removeModel", locale, { name: modelName })}><X aria-hidden="true" /></button>
       </span>;
     })}</div>}
     {view.candidates.length > 0 && <div className="settings-provider-candidates"><div className="settings-provider-candidates-heading"><span>{t("provider.discoveryResults", locale)}</span><button type="button" disabled={selectedCandidates.size === 0} onClick={() => void actions.onApplyCandidates()}>{t("provider.applySelected", locale)}</button></div>{view.candidates.map((model) => <label key={`${provider.provider}-candidate-${model.id}`}><input type="checkbox" checked={selectedCandidates.has(model.id)} onChange={() => actions.onToggleCandidate(model.id)} /><span><strong>{model.name || model.id}</strong><small>{model.id}{model.contextWindow ? ` · ${model.contextWindow.toLocaleString()} context` : ""}</small></span></label>)}</div>}

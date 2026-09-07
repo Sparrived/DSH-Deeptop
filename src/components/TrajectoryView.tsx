@@ -1,4 +1,5 @@
 import { useMemo, useState, type CSSProperties } from "react";
+import { Search, X } from "lucide-react";
 import { buildTrajectoryRecords, durationLabel, type TrajectoryKind, type TrajectoryRecord, type TrajectoryStatus } from "../app/trajectory";
 import type { DshHistoryEntry } from "../lib/desktop";
 import { t, type UiLocale } from "../app/i18n";
@@ -92,7 +93,7 @@ export function TrajectoryView({ entries, active, locale = "zh" }: { entries: Ds
         <div className="trajectory-toolbar-actions">
           <span className={active ? "trajectory-live" : ""}>{active ? t("trajectory.live", locale) : t("trajectory.stopped", locale)}</span>
           <label className="trajectory-search">
-            <span aria-hidden="true">⌕</span>
+            <span aria-hidden="true"><Search /></span>
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("trajectory.searchPlaceholder", locale)} aria-label={t("trajectory.searchPlaceholder", locale)} />
           </label>
         </div>
@@ -157,7 +158,7 @@ export function TrajectoryView({ entries, active, locale = "zh" }: { entries: Ds
           <aside className="trajectory-inspector" aria-label={t("trajectory.inspectorAria", locale)}>
             <div className="trajectory-inspector-header">
               <div><span>#{(recordIndex.get(selected.key) ?? 0) + 1} · {kindLabel(selected.kind, locale)}</span><strong>{selected.title}</strong></div>
-              <button onClick={() => setSelectedKey(null)} title={t("trajectory.closeDetail", locale)} aria-label={t("trajectory.closeDetail", locale)}>×</button>
+              <button onClick={() => setSelectedKey(null)} title={t("trajectory.closeDetail", locale)} aria-label={t("trajectory.closeDetail", locale)}><X aria-hidden="true" /></button>
             </div>
             <dl className="trajectory-meta-list">
               <div><dt>{t("trajectory.meta.event", locale)}</dt><dd>{selected.seq} · {selected.time ? formatTime(selected.time) : t("trajectory.unavailable", locale)}</dd></div>

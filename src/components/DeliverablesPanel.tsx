@@ -1,3 +1,4 @@
+import { ExternalLink } from "lucide-react";
 import { pathBasename, type TranscriptItem } from "../app/model";
 import { t, type UiLocale } from "../app/i18n";
 import type { DshSessionSummary } from "../lib/desktop";
@@ -77,7 +78,7 @@ export function DeliverablesPanel({ item, activeSession, collapsed, locale = "zh
                 <span className="deliverable-file-type" aria-hidden="true">{fileTypeLabel(path)}</span>
                 <span className="deliverable-file-copy"><strong>{pathBasename(path)}</strong><small>{fileDirectory(path, locale)}</small></span>
                 {diff && <span className="deliverable-file-diff" aria-label={t("deliverables.addedRemoved", locale, { added: diff.added, removed: diff.removed })}><b>+{diff.added}</b><b>−{diff.removed}</b></span>}
-                <span className="deliverable-file-open" aria-hidden="true">↗</span>
+                <span className="deliverable-file-open" aria-hidden="true"><ExternalLink /></span>
               </button>
             );
           })}

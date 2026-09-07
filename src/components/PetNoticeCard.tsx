@@ -1,4 +1,5 @@
 import type { FormEvent } from "react";
+import { X } from "lucide-react";
 import type { PetAttention, PetSessionTarget } from "../lib/desktop";
 import { displayToolName } from "../app/tool-call-display";
 import { t, type UiLocale } from "../app/i18n";
@@ -80,7 +81,7 @@ export function PetNoticeCard({
         <span className="pet-notice-status"><i aria-hidden="true" />{headerLabel}</span>
         <span className="pet-notice-header-actions">
           {onCare && <button type="button" className="pet-notice-care-switch" onClick={onCare}>{t("pet.notice.care", locale)}</button>}
-          <button type="button" className="pet-notice-close" onClick={onClose} aria-label={t("pet.notice.aria.collapseQuick", locale)}>×</button>
+          <button type="button" className="pet-notice-close" onClick={onClose} aria-label={t("pet.notice.aria.collapseQuick", locale)}><X aria-hidden="true" /></button>
         </span>
       </header>
       {activities.length > 1 && (

@@ -554,6 +554,8 @@
 
 .settings-provider-trailing b,
 .settings-plugin-state b {
+  display: grid;
+  place-items: center;
   color: #8d918a;
   font-size: 13px;
   font-weight: 400;

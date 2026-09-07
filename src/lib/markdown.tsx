@@ -1,3 +1,4 @@
+import { ExternalLink, FileText } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { isValidElement, memo, useEffect, useState, type HTMLAttributes, type ReactNode } from "react";
 import { SKIP, visit } from "unist-util-visit";
@@ -109,7 +110,7 @@ function MessageEntityLink({ href, children, locale, onOpenPath, onCheckPath, on
 
   return (
     <span className={`message-entity-card ${path ? "file-entity-card" : "connection-entity-card"}`} title={error || (path ?? url ?? "") }>
-      <span className="message-entity-icon" aria-hidden="true">{path ? "▧" : "↗"}</span>
+      <span className="message-entity-icon" aria-hidden="true">{path ? <FileText /> : <ExternalLink />}</span>
       <span className="message-entity-copy"><strong>{label.name}</strong><small>{error || label.directory}</small></span>
       <button type="button" className="message-entity-open" disabled={busy || !(path ? onOpenPath : onOpenUrl)} onClick={() => void open()}>
         {busy ? t("markdown.opening", locale) : error ? t("markdown.retry", locale) : t("markdown.open", locale)}

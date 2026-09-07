@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { FolderPlus, Settings } from "lucide-react";
+import { ChevronLeft, FolderPlus, Plus, Search, Settings, X } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useFloatingMenuPosition } from "../app/useFloatingMenuPosition";
 import { retainSessionSelection, selectAllSessions, selectedSessions, toggleSessionSelection } from "../app/session-bulk-selection";
@@ -327,14 +327,14 @@ export function SessionSidebar({
     <aside className="session-sidebar">
       <div className="sidebar-actions">
         <button className="new-session-button" type="button" onClick={onNewSession} title={t("sidebar.newSession", locale)} aria-label={t("sidebar.newSession", locale)}>
-          <span className="new-session-button-glyph" aria-hidden="true">+</span>
+          <span className="new-session-button-glyph" aria-hidden="true"><Plus /></span>
           <span className="new-session-button-label">{t("sidebar.newSession", locale)}</span>
         </button>
         <button className={`settings-button sidebar-settings-button ${settingsOpen ? "selected" : ""}`} onClick={onOpenSettings} title={t("sidebar.openSettings", locale)} aria-label={t("sidebar.openSettings", locale)}><span className="settings-button-glyph" aria-hidden="true"><Settings /></span><span className="settings-button-label">{t("settings.title", locale)}</span></button>
         <button className="small-icon-button" onClick={() => void onAddWorkspace()} title={t("sidebar.addWorkspace", locale)} aria-label={t("sidebar.addWorkspace", locale)}><FolderPlus aria-hidden="true" /></button>
       </div>
       {view === "sessions" && <div className="search-box">
-        <span aria-hidden="true">/</span>
+        <span aria-hidden="true"><Search /></span>
         <input
           value={search}
           onChange={(event) => onSearchChange(event.target.value)}
@@ -342,12 +342,12 @@ export function SessionSidebar({
           placeholder={t("sidebar.search", locale)}
           aria-label={t("sidebar.search", locale)}
         />
-        {search && <button onClick={onClearSearch} title={t("sidebar.clearSearch", locale)}>×</button>}
+        {search && <button onClick={onClearSearch} title={t("sidebar.clearSearch", locale)} aria-label={t("sidebar.clearSearch", locale)}><X aria-hidden="true" /></button>}
       </div>}
 
       <div className="sidebar-heading">
         {archiveOpen ? (
-          <div className="sidebar-heading-title"><button className="sidebar-back-button" type="button" onClick={() => handleViewChange("sessions")} title={t("sidebar.backToSessions", locale)} aria-label={t("sidebar.backToSessions", locale)}>←</button><span>{t("sidebar.archive", locale)}</span></div>
+          <div className="sidebar-heading-title"><button className="sidebar-back-button" type="button" onClick={() => handleViewChange("sessions")} title={t("sidebar.backToSessions", locale)} aria-label={t("sidebar.backToSessions", locale)}><ChevronLeft aria-hidden="true" /></button><span>{t("sidebar.archive", locale)}</span></div>
         ) : <span>{t(activeOpen ? "sidebar.active" : "sidebar.sessions", locale)}</span>}
         <div className="sidebar-heading-actions">
           <span>{archiveOpen ? archivedSessions.length : activeOpen ? liveActiveCount : (search.trim() ? visibleSessions.length : (selectedWorkspaceGroup.sessions.length > 0 ? selectedWorkspaceGroup.sessions.length : ""))}</span>

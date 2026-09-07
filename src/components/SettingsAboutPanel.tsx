@@ -1,3 +1,4 @@
+import { ExternalLink } from "lucide-react";
 import type { UpdateChannel, UpdateCheckState, UpdateDownloadState } from "../app/update-model";
 import { t, type UiLocale } from "../app/i18n";
 
@@ -128,7 +129,7 @@ export function SettingsAboutPanel({
       <section className="settings-block about-links-block">
         <div className="settings-block-heading"><div><h3>{t("about.projectTitle", locale)}</h3><p>{t("about.projectHint", locale)}</p></div></div>
         <div className="about-link-list">
-          <button type="button" onClick={() => void onOpenProject()}><span><strong>{t("about.githubRepo", locale)}</strong><small>{t("about.githubRepoHint", locale)}</small></span><b>↗</b></button>
+          <button type="button" onClick={() => void onOpenProject()}><span><strong>{t("about.githubRepo", locale)}</strong><small>{t("about.githubRepoHint", locale)}</small></span><b aria-hidden="true"><ExternalLink /></b></button>
           <div className="about-link-row"><span><strong>{t("about.status.current", locale)}</strong><small>{t("about.currentVersionHint", locale)}</small></span><code>v{version}</code></div>
         </div>
       </section>

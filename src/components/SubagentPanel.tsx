@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 import { MarkdownContent } from "../lib/markdown";
 import {
   formatClock,
@@ -73,7 +74,7 @@ export function SubagentPanel({
             <p>{selectedEntry ? `${subagentActivityText(selectedEntry.activity, locale)} · ${subagentModeText(selectedEntry.mode, locale)}` : t("subagent.selectPrompt", locale)}</p>
           </div>
         </div>
-        <button className="subagent-drawer-close" type="button" onClick={onClose} aria-label={t("subagent.closePanel", locale)} title={t("common.close", locale)}>×</button>
+        <button className="subagent-drawer-close" type="button" onClick={onClose} aria-label={t("subagent.closePanel", locale)} title={t("common.close", locale)}><X aria-hidden="true" /></button>
       </header>
 
       {selectedEntry && <div className="subagent-drawer-meta"><span><i className={selectedEntry.activity} />{subagentActivityText(selectedEntry.activity, locale)}</span><span>{subagentModeText(selectedEntry.mode, locale)}</span><code title={selectedEntry.id}>{shortSubagentId(selectedEntry.id)}</code></div>}

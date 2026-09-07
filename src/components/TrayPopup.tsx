@@ -1,3 +1,4 @@
+import { AppWindow, ChevronLeft, ChevronRight, Plus, Power } from "lucide-react";
 import {
   useEffect,
   useLayoutEffect,
@@ -256,18 +257,18 @@ export default function TrayPopup({ locale = "zh" }: { locale?: UiLocale }) {
               }}
             >
               <span>{t("tray.more", locale)}</span>
-              <span aria-hidden="true">›</span>
+              <span aria-hidden="true"><ChevronRight /></span>
             </button>
           )}
           <div className="tray-popup-actions">
             <button role="menuitem" onClick={() => invokeAction("newChat")}>
-              <span aria-hidden="true">＋</span><span>{t("tray.newChat", locale)}</span>
+              <span aria-hidden="true"><Plus /></span><span>{t("tray.newChat", locale)}</span>
             </button>
             <button role="menuitem" onClick={() => invokeAction("showMain")}>
-              <span aria-hidden="true">▣</span><span>{t("tray.openDeeptop", locale)}</span>
+              <span aria-hidden="true"><AppWindow /></span><span>{t("tray.openDeeptop", locale)}</span>
             </button>
             <button className="danger" role="menuitem" onClick={() => invokeAction("quit")}>
-              <span aria-hidden="true">⏻</span><span>{t("tray.quit", locale)}</span>
+              <span aria-hidden="true"><Power /></span><span>{t("tray.quit", locale)}</span>
             </button>
           </div>
         </>
@@ -281,7 +282,7 @@ export default function TrayPopup({ locale = "zh" }: { locale?: UiLocale }) {
               focusFirstItem();
             }}
           >
-            <span aria-hidden="true">‹</span><span>{t("tray.moreSessions", locale)}</span>
+            <span aria-hidden="true"><ChevronLeft /></span><span>{t("tray.moreSessions", locale)}</span>
           </button>
           <div className="tray-popup-more-list">
             {snapshot.more.map((item) => (

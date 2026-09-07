@@ -1,4 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, type ReactNode } from "react";
+import { X } from "lucide-react";
 import { createPortal } from "react-dom";
 import { t, type UiLocale } from "../app/i18n";
 
@@ -117,7 +118,7 @@ export function PopupDialog({
             <h2 id={titleId}>{title}</h2>
             {description && !descriptionInBody && <p id={descriptionId}>{description}</p>}
           </div>
-          <button className="popup-close" type="button" onClick={onClose} aria-label={t("popup.closeTitle", locale, { title })} title={t("popup.closeTitle", locale, { title })}>×</button>
+          <button className="popup-close" type="button" onClick={onClose} aria-label={t("popup.closeTitle", locale, { title })} title={t("popup.closeTitle", locale, { title })}><X aria-hidden="true" /></button>
         </header>
         <div className="popup-body">{description && descriptionInBody && <p id={descriptionId} className="popup-confirm-message">{description}</p>}{children}</div>
         {footer && <footer className="popup-footer">{footer}</footer>}

@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { ChevronDown, X } from "lucide-react";
 import {
   createMcpBinding,
   createMcpServerDraft,
@@ -517,7 +518,7 @@ export function SettingsToolsPanel({
                             {server.transport === "stdio" ? "STDIO" : "STREAMABLE HTTP"} · {server.serverName || "…"} · *
                           </small>
                         </span>
-                        <b aria-hidden="true">⌄</b>
+                        <b aria-hidden="true"><ChevronDown /></b>
                       </button>
                       <label
                         className="settings-plugin-toggle"
@@ -680,7 +681,7 @@ export function SettingsToolsPanel({
                                   aria-label={t("tools.mcp.removeBinding", locale)}
                                   onClick={() => removeBinding(server, index)}
                                 >
-                                  ×
+                                  <X aria-hidden="true" />
                                 </button>
                               </div>
                             ))

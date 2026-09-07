@@ -361,6 +361,9 @@
   text-align: center;
 }
 .subagent-tree-disclosure:hover { color: var(--accent-deep); }
+.subagent-tree-disclosure { display: grid; place-items: center; }
+.subagent-tree-disclosure svg { transition: transform var(--motion-fast) var(--motion-ease-enter); }
+.subagent-tree-disclosure svg.open { transform: rotate(90deg); }
 .subagent-tree-spacer { width: 14px; }
 .subagent-tree-entry {
   min-width: 0;

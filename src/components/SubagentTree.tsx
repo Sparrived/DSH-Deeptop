@@ -1,3 +1,4 @@
+import { ChevronRight } from "lucide-react";
 import { subagentDisplayName, type ChildSubagentEntry } from "../app/model";
 import { t, type UiLocale } from "../app/i18n";
 import { subagentTreeKey } from "../app/ui-model";
@@ -57,7 +58,7 @@ function TreeRows({ entries, rootSessionId, selectedId, catalogs, expanded, load
               aria-expanded={branchOpen}
               aria-label={branchOpen ? t("subagent.collapseBranchAria", locale, { name }) : t("subagent.expandBranchAria", locale, { name })}
               title={branchOpen ? t("subagent.collapse", locale) : t("subagent.expandBranch", locale)}
-            >{branchOpen ? "▾" : "▸"}</button>
+            ><ChevronRight className={branchOpen ? "open" : undefined} /></button>
             : <span className="subagent-tree-spacer" aria-hidden="true" />}
           <button
             className={`subagent-tree-entry${selectedId === entry.id ? " selected" : ""}`}

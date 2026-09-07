@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ChevronDown, Search } from "lucide-react";
 import type {
   DshPluginConfigDescription,
   DshPluginConfigEntry,
@@ -165,14 +166,14 @@ export function SettingsPluginsPanel({
       <section className="settings-block">
         <div className="settings-plugin-toolbar">
           <div><h3>{t("plugins.runtimeList", locale)}</h3><p>{t("plugins.runtimeList.hint", locale)}</p></div>
-          <label className="settings-search"><span aria-hidden="true">⌕</span><input type="search" value={search} onChange={(event) => onSearchChange(event.target.value)} placeholder={t("plugins.search", locale)} aria-label={t("plugins.search", locale)} /></label>
+          <label className="settings-search"><span aria-hidden="true"><Search /></span><input type="search" value={search} onChange={(event) => onSearchChange(event.target.value)} placeholder={t("plugins.search", locale)} aria-label={t("plugins.search", locale)} /></label>
         </div>
         {inventory === null ? <p className="settings-empty">{t("plugins.readingInventory", locale)}</p> : visiblePlugins.length === 0 ? <p className="settings-empty">{search ? t("plugins.noMatch", locale) : t("plugins.noneAvailable", locale)}</p> : <div className="settings-plugin-grid">{visiblePlugins.map((plugin) => {
           const open = expandedPlugin === plugin.entryId;
           return <article className={`settings-plugin-card ${open ? "open" : ""}`} key={plugin.entryId}>
             <button className="settings-plugin-header" type="button" onClick={() => onTogglePlugin(plugin.entryId)} aria-expanded={open}>
               <span className="settings-plugin-name"><strong title={plugin.moduleName}>{pluginDisplayName(plugin.moduleName)}</strong><small>{plugin.moduleName}</small></span>
-              <span className="settings-plugin-state"><i className={`settings-plugin-dot ${plugin.enabled ? plugin.fiberPhase ?? "unobserved" : "disabled"}`} /><em className={plugin.enabled ? "enabled" : "disabled"}>{pluginStatus(plugin, locale)}</em><b aria-hidden="true">⌄</b></span>
+              <span className="settings-plugin-state"><i className={`settings-plugin-dot ${plugin.enabled ? plugin.fiberPhase ?? "unobserved" : "disabled"}`} /><em className={plugin.enabled ? "enabled" : "disabled"}>{pluginStatus(plugin, locale)}</em><b aria-hidden="true"><ChevronDown /></b></span>
             </button>
             {open && <div className="settings-plugin-details"><code>{plugin.entryId}</code><dl><div><dt>{t("plugins.compat", locale)}</dt><dd>{plugin.compatibility?.supported === false ? plugin.compatibility.reason : t("plugins.supported", locale)}</dd></div><div><dt>{t("plugins.status", locale)}</dt><dd>{plugin.enabled ? pluginPhaseLabel(plugin.fiberPhase, locale) : t("plugins.disabledState", locale)}</dd></div></dl></div>}
           </article>;
