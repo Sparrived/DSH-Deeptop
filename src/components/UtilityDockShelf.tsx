@@ -65,7 +65,7 @@ export function UtilityDockShelf({
 
   return (
     <aside className={`utility-panel-shelf${selected ? " open" : ""}`} aria-label={t("dock.shelfAria", locale)}>
-      {selected && <section id={`utility-panel-${selected.id}`} className="utility-panel-content" role="tabpanel" aria-label={selected.label}>
+      {selected && <section key={selected.id} id={`utility-panel-${selected.id}`} className="utility-panel-content" role="tabpanel" aria-label={selected.label}>
         {selected.content}
       </section>}
       <div className="utility-panel-tabs" role="tablist" aria-label={t("dock.shelfAria", locale)}>
