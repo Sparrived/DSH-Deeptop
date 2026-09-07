@@ -113,18 +113,29 @@ fn supports_dsh(version: &Version) -> bool {
     version.major >= 24 || (version.major == 22 && version.minor >= 19)
 }
 
+fn command_output(path: &Path, argument: &str) -> Option<std::process::Output> {
+    let mut command = Command::new(path);
+    command.arg(argument);
+    #[cfg(windows)]
+    super::configure_hidden_process(&mut command);
+    command.output().ok()
+}
+
 pub fn is_supported_executable(path: &Path) -> bool {
     if !path.is_file() || is_reparse_point(path) {
         return false;
     }
-    Command::new(path)
-        .arg("--version")
-        .output()
-        .ok()
+    command_output(path, "--version")
         .filter(|output| output.status.success())
         .and_then(|output| String::from_utf8(output.stdout).ok())
         .and_then(|output| parse_node_version(&output))
         .is_some_and(|version| supports_dsh(&version))
+}
+
+pub fn is_available_npm(path: &Path) -> bool {
+    path.is_file()
+        && !is_reparse_point(path)
+        && command_output(path, "--version").is_some_and(|output| output.status.success())
 }
 
 pub fn managed_executable(app: &AppHandle) -> Option<PathBuf> {

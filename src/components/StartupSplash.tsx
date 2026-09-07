@@ -38,8 +38,10 @@ export function StartupSplash({
     const viewport = logViewportRef.current;
     if (viewport) viewport.scrollTop = viewport.scrollHeight;
   }, [logs]);
+  const nodeChecking = status.runtimeStarting && !status.nodeAvailable;
   const readoutRows = [
-    { label: "Node.js", value: status.nodeAvailable ? t("startup.nodeFound", locale) : t("startup.notFound", locale), tone: status.nodeAvailable ? "ok" : "bad" },
+    { label: "Node.js", value: status.nodeAvailable ? t("startup.nodeFound", locale) : nodeChecking ? t("startup.checking", locale) : t("startup.notFound", locale), tone: status.nodeAvailable ? "ok" : nodeChecking ? "" : "bad" },
+    { label: "npm", value: status.npmAvailable ? t("startup.nodeFound", locale) : nodeChecking ? t("startup.checking", locale) : t("startup.notFound", locale), tone: status.npmAvailable ? "ok" : nodeChecking ? "" : "bad" },
     { label: t("startup.workdir", locale), value: status.dshHome, tone: "" },
     { label: t("startup.package", locale), value: status.packageAvailable ? `${status.packageName} · ${t("startup.verified", locale)}` : `${status.packageName} · ${t("startup.verifying", locale)}`, tone: status.packageAvailable ? "ok" : "" },
     { label: "REGISTRY", value: status.selectedRegistry || t("startup.defaultRegistry", locale), tone: "" },

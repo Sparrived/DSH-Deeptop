@@ -641,6 +641,8 @@ struct BridgeState {
     message: String,
     package_available: bool,
     node_installing: bool,
+    node_available: bool,
+    npm_available: bool,
     generation: u64,
     pid: Option<u32>,
     stdin: Option<Arc<Mutex<std::process::ChildStdin>>>,
@@ -660,6 +662,8 @@ impl Default for BridgeState {
             message: "等待 DSH 启动".to_string(),
             package_available: false,
             node_installing: false,
+            node_available: false,
+            npm_available: false,
             generation: 0,
             pid: None,
             stdin: None,
@@ -1759,10 +1763,25 @@ fn system_node_executable() -> Option<PathBuf> {
         .find(|path| node_runtime::is_supported_executable(path))
 }
 
+fn system_npm_available() -> bool {
+    let name = if cfg!(windows) { "npm.cmd" } else { "npm" };
+    env::var_os("PATH")
+        .into_iter()
+        .flat_map(|paths| env::split_paths(&paths).collect::<Vec<_>>())
+        .map(|directory| directory.join(name))
+        .any(|path| node_runtime::is_available_npm(&path))
+}
+
 fn node_executable(app: &AppHandle) -> Result<PathBuf, String> {
     system_node_executable()
         .or_else(|| node_runtime::managed_executable(app))
         .ok_or_else(|| "未找到满足 DSH 要求的 Node.js（需要 22.19 或 24 以上版本）".to_string())
+}
+
+fn node_and_npm_available(app: &AppHandle) -> (Option<PathBuf>, bool) {
+    let node = node_executable(app).ok();
+    let npm_available = node.is_some() && system_npm_available();
+    (node, npm_available)
 }
 
 /// Materialize the immutable Tauri archive into a versioned local cache.
@@ -1789,10 +1808,10 @@ fn bundled_dsh_package_label(runtime: &Path) -> Result<String, String> {
 /// Create a direct Node launch for the packaged DSH entry.  Do not invoke npm
 /// or a dsh shell shim: those could select a user-installed package instead of
 /// the resource shipped with this application.
-fn bundled_dsh_launch(app: &AppHandle) -> Result<DshLaunch, String> {
+fn bundled_dsh_launch(app: &AppHandle, node: PathBuf) -> Result<DshLaunch, String> {
     let runtime = bundled_dsh_runtime_root(app)?;
     let entry = runtime.join(BUNDLED_DSH_ENTRY);
-    let mut command = Command::new(node_executable(app)?);
+    let mut command = Command::new(node);
     command
         .arg(&entry)
         .args(["--profile", DSH_PROFILE])
@@ -2153,25 +2172,30 @@ fn pending_error(state: &mut BridgeState, message: String) {
 }
 
 impl BridgeManager {
-    fn status(&self, app: &AppHandle) -> DshStatus {
-        let state = self.state.lock();
+    fn status(&self) -> DshStatus {
         let (
             runtime_available,
             runtime_starting,
             installing,
+            node_available,
+            npm_available,
             message,
             package_available,
             process_conflict,
-        ) = match state {
+        ) = match self.state.lock() {
             Ok(state) => (
                 state.phase == RuntimePhase::Ready,
                 matches!(state.phase, RuntimePhase::Checking | RuntimePhase::Starting),
                 state.node_installing,
+                state.node_available,
+                state.npm_available,
                 state.message.clone(),
                 state.package_available,
                 state.process_conflict.clone(),
             ),
             Err(_) => (
+                false,
+                false,
                 false,
                 false,
                 false,
@@ -2189,10 +2213,10 @@ impl BridgeManager {
             installing,
             registry_testing: false,
             selected_registry: None,
-            node_available: node_executable(app).is_ok(),
-            // Deeptop executes its bundled DSH entry directly through Node.js;
-            // npm is neither invoked nor required at runtime.
-            npm_available: false,
+            node_available,
+            // npm is reported for the configured environment, but the packaged
+            // runtime starts DSH directly through Node.js and does not invoke it.
+            npm_available,
             package_available,
             message,
             process_conflict,
@@ -2200,7 +2224,7 @@ impl BridgeManager {
     }
 
     fn emit_status(&self, app: &AppHandle) {
-        let _ = app.emit("dsh-runtime-status", self.status(app));
+        let _ = app.emit("dsh-runtime-status", self.status());
     }
 
     /// 当前启动代次；UI 插件 bundle 缓存按代次失效（DSH 重启后旧代不可读）。
@@ -2225,11 +2249,19 @@ impl BridgeManager {
         }
     }
 
-    /// Ensure DSH has a compatible Node executable. The managed runtime is an
-    /// app-local, hash-pinned archive; it does not alter system PATH or require npm.
-    fn ensure_node_runtime(&self, app: &AppHandle, generation: u64) -> Result<(), String> {
-        if node_executable(app).is_ok() {
-            return Ok(());
+    /// Detect the compatible Node runtime once per start. The managed runtime is
+    /// app-local and hash-pinned; npm is reported but not required to launch DSH.
+    fn ensure_node_runtime(&self, app: &AppHandle, generation: u64) -> Result<PathBuf, String> {
+        let (node, npm_available) = node_and_npm_available(app);
+        if let Some(node) = node {
+            if let Ok(mut state) = self.state.lock() {
+                if state.generation == generation {
+                    state.node_available = true;
+                    state.npm_available = npm_available;
+                }
+            }
+            self.emit_status(app);
+            return Ok(node);
         }
         let changed = self
             .state
@@ -2239,6 +2271,8 @@ impl BridgeManager {
                     return false;
                 }
                 state.node_installing = true;
+                state.node_available = false;
+                state.npm_available = false;
                 state.message = "未检测到兼容 Node.js，正在自动配置 Node.js 22.19.0...".to_string();
                 true
             })
@@ -2253,14 +2287,15 @@ impl BridgeManager {
                 "未检测到兼容 Node.js，正在从 nodejs.org 下载并校验 Node.js 22.19.0...",
             );
         }
-        let result = node_runtime::install(app);
-        if let Ok(mut state) = self.state.lock() {
-            if state.generation == generation {
-                state.node_installing = false;
-            }
-        }
-        match result {
+        match node_runtime::install(app) {
             Ok(path) => {
+                if let Ok(mut state) = self.state.lock() {
+                    if state.generation == generation {
+                        state.node_installing = false;
+                        state.node_available = true;
+                        state.npm_available = system_npm_available();
+                    }
+                }
                 self.emit_runtime_log(
                     app,
                     generation,
@@ -2269,9 +2304,14 @@ impl BridgeManager {
                     format!("Node.js 已自动配置：{}", path.display()),
                 );
                 self.emit_status(app);
-                Ok(())
+                Ok(path)
             }
             Err(error) => {
+                if let Ok(mut state) = self.state.lock() {
+                    if state.generation == generation {
+                        state.node_installing = false;
+                    }
+                }
                 self.emit_status(app);
                 Err(format!("自动配置 Node.js 失败：{error}"))
             }
@@ -2291,6 +2331,9 @@ impl BridgeManager {
             }
             state.generation += 1;
             state.phase = RuntimePhase::Checking;
+            state.node_installing = false;
+            state.node_available = false;
+            state.npm_available = false;
             state.message = "正在检查 DeepSeek Harness 运行时...".to_string();
             state.auto_restart_pending = false;
             state.process_conflict = None;
@@ -2333,11 +2376,11 @@ impl BridgeManager {
         // 更贴近 spawn 时刻，避免 prepare（尤其是升级后解压运行时）期间
         // 的长时间窗口里产生新的占用进程时漏检或误判。
         let result = (|| -> Result<DshLaunch, String> {
-            self.ensure_node_runtime(&app, generation)?;
+            let node = self.ensure_node_runtime(&app, generation)?;
             // Profile data remains user-owned in DSH_HOME. The DSH executable and
             // all of its dependencies are read exclusively from Tauri resources.
             materialize_desktop_profile()?;
-            let launch = bundled_dsh_launch(&app)?;
+            let launch = bundled_dsh_launch(&app, node)?;
             self.emit_runtime_log(
                 &app,
                 generation,
@@ -2849,7 +2892,7 @@ impl BridgeManager {
 #[tauri::command]
 fn check_dsh(app: AppHandle, runtime: State<'_, BridgeManager>) -> DshStatus {
     runtime.ensure_started(&app);
-    runtime.status(&app)
+    runtime.status()
 }
 
 #[tauri::command]
@@ -3007,7 +3050,7 @@ fn hide_main_window(app: &AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn refresh_dsh(app: AppHandle, runtime: State<'_, BridgeManager>) -> DshStatus {
     runtime.restart(app.clone());
-    runtime.status(&app)
+    runtime.status()
 }
 
 fn focus_main_window(app: &AppHandle) {
@@ -5439,10 +5482,26 @@ mod tests {
         process_command_line_matches_dsh, prune_old_runtime_caches, runtime_arch,
         runtime_archive_is_cache_metadata, runtime_cache_validation_message, runtime_platform,
         runtime_tree_sha256, sniff_image_media_type, tray_menu_text, tray_session_label,
-        validate_tray_session_menu, validated_connection_url, DshRuntimeLog, LogStore,
-        TraySessionMenuItem, TraySessionMenuSnapshot, TraySessionStatus, MAX_LOG_ENTRIES,
-        MAX_LOG_TEXT_BYTES, RUNTIME_CACHE_MARKER,
+        validate_tray_session_menu, validated_connection_url, BridgeManager, DshRuntimeLog,
+        LogStore, RuntimePhase, TraySessionMenuItem, TraySessionMenuSnapshot, TraySessionStatus,
+        MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES, RUNTIME_CACHE_MARKER,
     };
+
+    #[test]
+    fn reports_cached_node_and_npm_status() {
+        let manager = BridgeManager::default();
+        {
+            let mut state = manager.state.lock().expect("bridge state");
+            state.phase = RuntimePhase::Starting;
+            state.node_available = true;
+            state.npm_available = true;
+        }
+
+        let status = manager.status();
+        assert!(status.runtime_starting);
+        assert!(status.node_available);
+        assert!(status.npm_available);
+    }
 
     /// ACL 防漂移守卫：invoke_handler 注册的每个命令都必须出现在 build.rs 的
     /// APP_COMMANDS 里，否则启用 App ACL 后该命令会被默认拒绝（静默失效）。
