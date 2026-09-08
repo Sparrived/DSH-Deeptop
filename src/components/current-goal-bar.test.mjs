@@ -46,9 +46,13 @@ test("hides without a Goal and keeps the collapsed title-row control operable", 
 
   assert.equal(bar.props.className, "current-goal-bar active collapsed");
   assert.equal(toggle.props["aria-expanded"], false);
+  assert.equal(toggle.props.children.props.children.type.displayName, "ChevronsRight");
   assert.equal(main.props.disabled, true);
   main.props.onClick();
   toggle.props.onClick();
   assert.equal(opened, 1);
   assert.equal(toggled, 1);
+
+  const expanded = CurrentGoalBar({ activeGoal, roundsStarted: 2, collapsed: false, onOpen() {}, onToggleCollapsed() {} });
+  assert.equal(expanded.props.children[2].props.children.props.children.type.displayName, "ChevronsLeft");
 });

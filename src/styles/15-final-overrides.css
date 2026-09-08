@@ -1,27 +1,24 @@
 
-/* Current Goal shares the session-title line without obstructing the transcript. */
+/* Current Goal shares the title row; both controls retain a usable width. */
 .conversation-heading { flex: 1 1 auto; }
-.conversation-title-row { min-width: 0; }
+.conversation-title-row { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.conversation-title-row > .conversation-title { flex: 1 1 14rem; min-width: 8rem; }
 
 .current-goal-bar {
-  position: absolute;
-  top: 8px;
-  left: 50%;
-  z-index: 1;
-  width: clamp(420px, calc(100% - 480px), 1150px);
+  flex: 0 1 min(32rem, 48%);
   min-width: 0;
-  height: 48px;
+  max-width: 32rem;
+  height: 38px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 8px;
-  padding: 5px 7px;
+  gap: 7px;
+  padding: 4px 6px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
   border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--surface-raised) 96%, var(--accent-soft));
   box-shadow: var(--shadow-soft);
-  transform: translateX(-50%);
 }
 
 .current-goal-mark {
@@ -37,6 +34,9 @@
   font-weight: 700;
 }
 
+.current-goal-mark svg,
+.current-goal-collapse-toggle svg { width: 15px; height: 15px; stroke-width: 2; }
+
 .current-goal-bar.paused .current-goal-mark { border-color: color-mix(in srgb, var(--warning) 50%, var(--line)); color: var(--warning); }
 .current-goal-bar.blocked .current-goal-mark { border-color: color-mix(in srgb, var(--danger) 50%, var(--line)); color: var(--danger); }
 .current-goal-bar.complete .current-goal-mark { border-color: color-mix(in srgb, var(--good) 50%, var(--line)); color: var(--good); }
@@ -44,8 +44,9 @@
 .current-goal-bar-main:hover .current-goal-objective { color: var(--accent-deep); }
 .current-goal-manage { min-width: 0; min-height: 28px; padding: 0 9px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: var(--radius-control); background: transparent; color: var(--ink-muted); font-size: 11px; white-space: nowrap; }
 .current-goal-manage:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-deep); }
-.current-goal-collapse-toggle { width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 1px solid var(--line-strong); border-radius: var(--radius-control); background: transparent; color: var(--ink-muted); font: 700 17px/1 var(--mono); }
-.current-goal-bar.collapsed .current-goal-collapse-toggle { width: 52px; border: 0; color: var(--accent-deep); }
+.current-goal-collapse-toggle { width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 1px solid var(--line-strong); border-radius: var(--radius-control); background: transparent; color: var(--ink-muted); }
+.current-goal-collapse-toggle > span { display: grid; place-items: center; }
+.current-goal-bar.collapsed .current-goal-collapse-toggle { width: 36px; border: 0; color: var(--accent-deep); }
 .current-goal-collapse-toggle:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-deep); }
 
 /* SVG controls retain the centered geometry of the glyph buttons they replace. */
@@ -89,8 +90,8 @@
 .current-goal-copy,
 .current-goal-heading,
 .current-goal-progress { min-width: 0; }
-.current-goal-copy { display: flex; align-items: center; gap: 8px; overflow: hidden; }
-.current-goal-heading { flex: none; display: flex; align-items: center; gap: 6px; }
+.current-goal-copy { min-width: 0; display: flex; align-items: center; gap: 8px; overflow: hidden; }
+.current-goal-heading { flex: none; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .current-goal-kicker,
 .current-goal-reason,
 .current-goal-progress-track { display: none; }
@@ -99,9 +100,9 @@
 .current-goal-bar.paused .current-goal-status { color: var(--warning); }
 .current-goal-bar.blocked .current-goal-status { color: var(--danger); }
 .current-goal-bar.complete .current-goal-status { color: var(--good); }
-.current-goal-objective { min-width: 0; overflow: hidden; color: var(--ink-strong); font-size: 13px; font-weight: 650; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
-.current-goal-progress { min-width: 52px; }
-.current-goal-progress-label { display: flex; align-items: center; justify-content: space-between; gap: 5px; color: var(--ink-faint); font: 10px/1.2 var(--mono); white-space: nowrap; }
+.current-goal-objective { min-width: 0; overflow: hidden; color: var(--ink-strong); font-size: 13px; font-weight: 650; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
+.current-goal-progress { flex: none; min-width: 52px; }
+.current-goal-progress-label { display: flex; align-items: center; justify-content: space-between; gap: 5px; color: var(--ink-faint); font: 10px/12px var(--mono); white-space: nowrap; }
 .current-goal-progress-label strong { color: var(--ink-muted); font-weight: 600; }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -116,10 +117,11 @@
 }
 
 .current-goal-bar.collapsed {
-  width: 54px;
-  grid-template-columns: 0 0 52px;
+  flex: 0 0 38px;
+  width: 38px;
+  grid-template-columns: 0 0 36px;
   gap: 0;
-  padding: 5px 0;
+  padding: 4px 0;
   border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
   box-shadow: none;
 }
@@ -132,12 +134,13 @@
 }
 
 @media (max-width: 960px) {
-  .current-goal-bar { width: clamp(260px, calc(100% - 330px), 560px); }
   .current-goal-progress { display: none; }
 }
 
 @media (max-width: 760px) {
-  .current-goal-bar { top: 11px; width: clamp(140px, calc(100% - 250px), 300px); height: 36px; }
+  .conversation-title-row { gap: 6px; }
+  .conversation-title-row > .conversation-title { min-width: 0; }
+  .current-goal-bar { flex-basis: 48%; }
   .current-goal-bar-main { grid-template-columns: 28px minmax(0, 1fr); }
   .current-goal-status,
   .current-goal-manage { display: none; }
