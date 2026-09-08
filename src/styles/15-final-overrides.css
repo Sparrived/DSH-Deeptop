@@ -107,12 +107,21 @@
 
 @media (prefers-reduced-motion: no-preference) {
   .current-goal-bar {
-    transition: width var(--motion-standard) var(--motion-ease-move), padding var(--motion-standard) var(--motion-ease-move), gap var(--motion-standard) var(--motion-ease-move), grid-template-columns var(--motion-standard) var(--motion-ease-move);
+    transition: flex-basis var(--motion-standard) var(--motion-ease-move), padding var(--motion-standard) var(--motion-ease-move), gap var(--motion-standard) var(--motion-ease-move), grid-template-columns var(--motion-standard) var(--motion-ease-move), border-color var(--motion-fast) ease, box-shadow var(--motion-standard) var(--motion-ease-move);
   }
 
   .current-goal-bar-main,
   .current-goal-manage {
     transition: opacity var(--motion-fast) ease, transform var(--motion-standard) var(--motion-ease-move);
+  }
+
+  .current-goal-bar:not(.collapsed) .current-goal-bar-main,
+  .current-goal-bar:not(.collapsed) .current-goal-manage {
+    transition-delay: 60ms;
+  }
+
+  .current-goal-collapse-toggle {
+    transition: border-color var(--motion-fast) ease, background var(--motion-fast) ease, color var(--motion-fast) ease;
   }
 }
 
