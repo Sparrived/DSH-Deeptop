@@ -4,8 +4,10 @@
 
 - id: system-prompt
   config:
-    persona: >-
-      You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.
+    personaPrefix: >-
+      You are a coding agent powered by the {{model}} model.
+    personaSuffix: >-
+      Your working directory is {{cwd}}.
 
 - id: tools
   config:
@@ -45,6 +47,23 @@
 
     - id: plugin-inventory
       name: '@deepseek-ai/dsh-host-plugin-inventory'
+
+    # Alpha.2 file receipt storage registers a route through the official Host
+    # connection service. Bind an unadvertised loopback socket; Deeptop does
+    # not expose this transport or the fileUploads Remote to the renderer.
+    - id: webserver
+      name: '@deepseek-ai/dsh-host-webserver'
+      config:
+        host: 127.0.0.1
+        port: 0
+
+    - id: connection
+      name: '@deepseek-ai/dsh-client-connection'
+
+    # SessionController owns prompt receipt binding and requires fileUploads,
+    # even though Deeptop currently exposes text and images only.
+    - id: file-upload
+      name: '@deepseek-ai/dsh-client-file-upload'
 
     # Session commands, cold reads, and live control over Typert Remote.
     - id: session-controller
@@ -108,9 +127,6 @@
   disabled: true
 
 - id: tool-fs-search
-  disabled: true
-
-- id: tool-str-replace-editor
   disabled: true
 
 - id: skill-filesystem

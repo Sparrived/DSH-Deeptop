@@ -3,37 +3,20 @@ import { EventEmitter } from 'node:events'
 import { createServer } from 'node:http'
 import { mkdir, mkdtemp, readdir, readFile, rm as removePath, stat, writeFile } from 'node:fs/promises'
 import test from 'node:test'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { constants, inflateRawSync, zstdCompressSync, zstdDecompressSync } from 'node:zlib'
 import { routeDesktopRequest } from './routes.mjs'
 import { resolveDshHome } from './dsh-home.mjs'
 import { bridgeErrorFrame, DesktopBridge, writeBridgeFrame } from './bridge.mjs'
 import { applyProxy, initNetworkProxy, loadProxySetting, normalizeProxyOverride, parseWindowsProxyServer, setProxySetting, stopSystemProxyWatch } from './network-proxy.mjs'
 import { describePluginConfig, mutatePluginConfig } from './plugin-config.mjs'
 import { parseGitHubSource, selectSkillPath, validateRelativeRepoPath } from '../skill-installer/installer.mjs'
-import { reconstructContiguous, rowSeqs, scanZstdFrames, verifyReadable } from './session-repair.mjs'
 import { createSessionTailRegistry } from './session-tails.mjs'
 
 const signal = new AbortController().signal
 
 function historyEntry(seq, type, data = {}) {
   return { event: { seq, time: 1_000 + seq, type, data } }
-}
-
-function zipEntries(bytes) {
-  const entries = new Map()
-  let offset = 0
-  while (bytes.readUInt32LE(offset) === 0x04034b50) {
-    const compressedSize = bytes.readUInt32LE(offset + 18)
-    const nameLength = bytes.readUInt16LE(offset + 26)
-    const extraLength = bytes.readUInt16LE(offset + 28)
-    const start = offset + 30 + nameLength + extraLength
-    const name = bytes.toString('utf8', offset + 30, offset + 30 + nameLength)
-    entries.set(name, inflateRawSync(bytes.subarray(start, start + compressedSize)))
-    offset = start + compressedSize
-  }
-  return entries
 }
 
 /** Minimal ctx for session.history route tests: tail registry + page mock. */
@@ -904,7 +887,6 @@ test('probes official Host capabilities without failing when services are missin
       : key === 'credentialsController' ? { describe: async () => ({}) }
       : key === 'llm' ? { resolveModelInfo: async () => ({}) }
       : key === 'typertGateway' ? { invoke: async () => ({}) }
-      : key === 'sessionPersistence' ? { readRaw: async () => ({ filename: 'session.jsonl', content: '' }) }
       : key === 'dshHome' ? '/tmp/deeptop-capabilities-test'
       : undefined,
     pluginInventory: { list: async () => ({ entries: [] }) },
@@ -927,7 +909,7 @@ test('probes official Host capabilities without failing when services are missin
     llm: true,
     plugins: true,
     tools: true,
-    sessionExport: true,
+    sessionExport: false,
     commands: true,
     uiPlugins: false,
   })
@@ -982,6 +964,26 @@ test('forwards an explicit session preset migration through the official fork AP
     sessionId: 'session-source',
     agentPreset: 'standard',
   })
+})
+
+test('defaults direct child prompts to queue delivery and validates explicit delivery', async () => {
+  const received = []
+  const ctx = {
+    get: key => key === 'subagents' ? {
+      prompt: async request => { received.push(request); return { accepted: true } },
+    } : undefined,
+  }
+  const payload = { parentSessionId: 'parent-1', childSessionId: 'child-1', content: [{ type: 'text', text: 'continue' }] }
+  assert.deepEqual(await routeDesktopRequest(ctx, 'subagent.prompt', payload, signal), { accepted: true })
+  assert.match(received[0].requestId, /^[0-9a-f-]{36}$/)
+  const { requestId: ignored, ...queueRequest } = received[0]
+  assert.deepEqual(queueRequest, { ...payload, mode: 'continuable', delivery: 'queue' })
+  await routeDesktopRequest(ctx, 'subagent.prompt', { ...payload, delivery: 'steer' }, signal)
+  assert.equal(received[1].delivery, 'steer')
+  await assert.rejects(
+    routeDesktopRequest(ctx, 'subagent.prompt', { ...payload, delivery: 'now' }, signal),
+    error => error?.code === 'bad-request',
+  )
 })
 
 test('routes RC8 file and session reference candidates through official services', async () => {
@@ -1094,60 +1096,6 @@ test('propagates non-validation attach failures unchanged', async () => {
       'workspace.attachSession', { workspaceId: workspace.id, sessionId: 'session-1' }, signal),
     /storage exploded/,
   )
-})
-
-test('serializes session attachment before permanent archive deletion', async () => {
-  let state = { initialized: true, workspaceIds: [], archivedSessionIds: ['session-1'] }
-  let tail = Promise.resolve()
-  let attachStarted
-  const attachStart = new Promise(resolve => { attachStarted = resolve })
-  let releaseAttach
-  const attachGate = new Promise(resolve => { releaseAttach = resolve })
-  const workspace = {
-    id: 'workspace-1',
-    path: 'D:/repo',
-    title: 'repo',
-    sessionIds: [],
-    createdAt: '2026-08-15T00:00:00.000Z',
-    updatedAt: '2026-08-15T00:00:00.000Z',
-    attachSession: async sessionId => {
-      attachStarted()
-      await attachGate
-      workspace.sessionIds.push(sessionId)
-    },
-    detachSession: async sessionId => {
-      workspace.sessionIds = workspace.sessionIds.filter(id => id !== sessionId)
-    },
-  }
-  const registry = {
-    state,
-    global: {
-      get: () => state,
-      set: async next => { state = next },
-    },
-    get: id => id === workspace.id ? workspace : undefined,
-    list: () => [workspace],
-    enqueueOperation: operation => {
-      const next = tail.then(operation, operation)
-      tail = next.then(() => undefined, () => undefined)
-      return next
-    },
-  }
-  const ctx = {
-    get: key => key === 'workspaceRegistry' ? registry
-      : key === 'sessionPersistence' ? { list: async () => [] }
-        : undefined,
-  }
-
-  const attach = routeDesktopRequest(ctx, 'workspace.attachSession', { workspaceId: workspace.id, sessionId: 'session-1' }, signal)
-  await attachStart
-  const deletion = routeDesktopRequest(ctx, 'workspace.deleteArchivedSession', { sessionId: 'session-1' }, signal)
-  releaseAttach()
-
-  await attach
-  assert.deepEqual(await deletion, { deleted: true, archivedSessionIds: [] })
-  assert.deepEqual(workspace.sessionIds, [])
-  assert.deepEqual(state.archivedSessionIds, [])
 })
 
 test('delegates workspace pins to the Cordis service and decorates listings', async () => {
@@ -1279,53 +1227,6 @@ test('serializes archive and restore through the workspace registry queue', asyn
   assert.deepEqual(state.archivedSessionIds, [])
 })
 
-test('serializes archive and permanent deletion through the workspace registry queue', async () => {
-  let state = { initialized: true, workspaceIds: [], archivedSessionIds: [] }
-  let tail = Promise.resolve()
-  let archiveStarted
-  const archiveStart = new Promise(resolve => { archiveStarted = resolve })
-  let releaseArchive
-  const archiveGate = new Promise(resolve => { releaseArchive = resolve })
-  const registry = {
-    state,
-    global: {
-      get: () => state,
-      set: async next => { state = next },
-    },
-    enqueueOperation: operation => {
-      const next = tail.then(operation, operation)
-      tail = next.then(() => undefined, () => undefined)
-      return next
-    },
-    list: () => [],
-  }
-  const controller = {
-    archiveSession: ({ sessionId }) => registry.enqueueOperation(async () => {
-      archiveStarted()
-      await archiveGate
-      const next = { ...registry.state, archivedSessionIds: [...registry.state.archivedSessionIds, sessionId] }
-      await registry.global.set(next)
-      registry.state = next
-      return { archivedSessionIds: next.archivedSessionIds }
-    }),
-  }
-  const ctx = {
-    get: key => key === 'workspaceRegistry' ? registry
-      : key === 'workspaceController' ? controller
-        : key === 'sessionPersistence' ? { list: async () => [] }
-          : undefined,
-  }
-
-  const archive = routeDesktopRequest(ctx, 'workspace.archiveSession', { sessionId: 'session-1' }, signal)
-  await archiveStart
-  const deletion = routeDesktopRequest(ctx, 'workspace.deleteArchivedSession', { sessionId: 'session-1' }, signal)
-  releaseArchive()
-
-  assert.deepEqual(await archive, { archivedSessionIds: ['session-1'] })
-  assert.deepEqual(await deletion, { deleted: true, archivedSessionIds: [] })
-  assert.deepEqual(state.archivedSessionIds, [])
-})
-
 test('restores an archived session through the workspace registry state', async () => {
   let state = { initialized: true, workspaceIds: [], archivedSessionIds: ['session-1', 'session-2'] }
   const registry = {
@@ -1345,213 +1246,7 @@ test('restores an archived session through the workspace registry state', async 
   assert.deepEqual(registry.state.archivedSessionIds, ['session-2'])
 })
 
-test('deletes an archived session artifact and removes its workspace membership', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'deeptop-archive-'))
-  const artifact = join(root, 'session.jsonl.zstd')
-  await writeFile(artifact, 'session')
-  let state = { initialized: true, workspaceIds: [], archivedSessionIds: ['session-1'] }
-  let detachedSessionId
-  const registry = {
-    state,
-    global: {
-      get: () => state,
-      set: async next => { state = next },
-    },
-    enqueueOperation: operation => operation(),
-    list: () => [{ detachSession: async sessionId => { detachedSessionId = sessionId } }],
-  }
-  const persistence = {
-    list: async () => [{ id: 'session-1' }],
-    locate: () => ({ path: artifact }),
-  }
-
-  try {
-    const result = await routeDesktopRequest({
-      get: key => ({
-        workspaceRegistry: registry,
-        sessionPersistence: persistence,
-      })[key],
-    }, 'workspace.deleteArchivedSession', { sessionId: 'session-1' }, signal)
-
-    assert.deepEqual(result, { deleted: true, archivedSessionIds: [] })
-    assert.equal(detachedSessionId, 'session-1')
-    assert.deepEqual(state.archivedSessionIds, [])
-    await assert.rejects(stat(artifact), { code: 'ENOENT' })
-  } finally {
-    await removePath(root, { recursive: true, force: true })
-  }
-})
-
-test('refuses an attached archived session without treating turn cancellation as lifecycle disposal', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'deeptop-archive-attached-'))
-  const artifact = join(root, 'session.jsonl.zstd')
-  await writeFile(artifact, 'session')
-  let state = { initialized: true, workspaceIds: [], archivedSessionIds: ['session-attached'] }
-  let cancels = 0
-  let detaches = 0
-  const registry = {
-    state,
-    global: {
-      get: () => state,
-      set: async next => { state = next },
-    },
-    enqueueOperation: operation => operation(),
-    list: () => [{ detachSession: async () => { detaches += 1 } }],
-  }
-
-  try {
-    await assert.rejects(
-      routeDesktopRequest({
-        apiProxy: { sessions: { cancel: async () => { cancels += 1 } } },
-        get: key => ({
-          workspaceRegistry: registry,
-          sessionPersistence: {
-            list: async () => [{ id: 'session-attached' }],
-            locate: () => ({ path: artifact }),
-          },
-          sessions: { get: () => ({ id: 'session-attached' }) },
-        })[key],
-      }, 'workspace.deleteArchivedSession', { sessionId: 'session-attached' }, signal),
-      error => error.code === 'session-attached'
-        && error.details?.sessionId === 'session-attached'
-        && /不代表仍在运行/.test(error.message),
-    )
-    assert.equal(cancels, 0)
-    assert.equal(detaches, 0)
-    await stat(artifact)
-    assert.deepEqual(state.archivedSessionIds, ['session-attached'])
-  } finally {
-    await removePath(root, { recursive: true, force: true })
-  }
-})
-
-test('keeps a stale archive tombstone while attached and reconciles it after runtime restart', async () => {
-  let state = { initialized: true, workspaceIds: [], archivedSessionIds: ['session-agent-only'] }
-  let attached = true
-  const registry = {
-    state,
-    global: {
-      get: () => state,
-      set: async next => { state = next },
-    },
-    enqueueOperation: operation => operation(),
-    list: () => [],
-  }
-  const context = {
-    get: key => ({
-      workspaceRegistry: registry,
-      sessionPersistence: { list: async () => [] },
-      agents: { get: () => attached ? { id: 'session-agent-only' } : undefined },
-    })[key],
-  }
-
-  await assert.rejects(
-    routeDesktopRequest(context, 'workspace.deleteArchivedSession', { sessionId: 'session-agent-only' }, signal),
-    error => error.code === 'session-attached' && /重启 DSH 运行时/.test(error.message),
-  )
-  assert.deepEqual(state.archivedSessionIds, ['session-agent-only'])
-
-  attached = false
-  const result = await routeDesktopRequest(
-    context,
-    'workspace.deleteArchivedSession',
-    { sessionId: 'session-agent-only' },
-    signal,
-  )
-  assert.deepEqual(result, { deleted: true, archivedSessionIds: [] })
-  assert.deepEqual(state.archivedSessionIds, [])
-})
-
-test('reconciles an archived session whose persisted artifact is already absent', async () => {
-  let state = { initialized: true, workspaceIds: [], archivedSessionIds: ['session-missing'] }
-  let detached = 0
-  let listed = 0
-  let cancels = 0
-  const registry = {
-    state,
-    global: {
-      get: () => state,
-      set: async next => { state = next },
-    },
-    enqueueOperation: operation => operation(),
-    list: () => [{ detachSession: async () => { detached += 1 } }],
-  }
-  const context = {
-    apiProxy: { sessions: { cancel: async () => { cancels += 1 } } },
-    get: key => ({
-      workspaceRegistry: registry,
-      sessionPersistence: { list: async () => { listed += 1; return [] } },
-    })[key],
-  }
-
-  const first = await routeDesktopRequest(context, 'workspace.deleteArchivedSession', { sessionId: 'session-missing' }, signal)
-  const second = await routeDesktopRequest(context, 'workspace.deleteArchivedSession', { sessionId: 'session-missing' }, signal)
-
-  assert.deepEqual(first, { deleted: true, archivedSessionIds: [] })
-  assert.deepEqual(second, { deleted: false, archivedSessionIds: [] })
-  assert.equal(listed, 1)
-  assert.equal(detached, 1)
-  assert.equal(cancels, 0)
-  assert.deepEqual(state.archivedSessionIds, [])
-})
-
-test('retries metadata cleanup when the artifact was deleted before workspace cleanup failed', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'deeptop-archive-retry-'))
-  const artifact = join(root, 'session.jsonl.zstd')
-  await writeFile(artifact, 'session')
-  let state = { initialized: true, workspaceIds: [], archivedSessionIds: ['session-retry'] }
-  let detachAttempts = 0
-  let listAttempts = 0
-  const registry = {
-    state,
-    global: {
-      get: () => state,
-      set: async next => { state = next },
-    },
-    enqueueOperation: operation => operation(),
-    list: () => [{
-      detachSession: async () => {
-        detachAttempts += 1
-        if (detachAttempts === 1) throw new Error('simulated workspace cleanup failure')
-      },
-    }],
-  }
-  const context = {
-    get: key => ({
-      workspaceRegistry: registry,
-      sessionPersistence: {
-        list: async () => {
-          listAttempts += 1
-          return listAttempts === 1 ? [{ id: 'session-retry' }] : []
-        },
-        locate: () => ({ path: artifact }),
-      },
-    })[key],
-  }
-
-  try {
-    await assert.rejects(
-      routeDesktopRequest(context, 'workspace.deleteArchivedSession', { sessionId: 'session-retry' }, signal),
-      /simulated workspace cleanup failure/,
-    )
-    await assert.rejects(stat(artifact), { code: 'ENOENT' })
-    assert.deepEqual(state.archivedSessionIds, ['session-retry'])
-
-    const result = await routeDesktopRequest(
-      context,
-      'workspace.deleteArchivedSession',
-      { sessionId: 'session-retry' },
-      signal,
-    )
-    assert.deepEqual(result, { deleted: true, archivedSessionIds: [] })
-    assert.equal(listAttempts, 2)
-    assert.equal(detachAttempts, 2)
-  } finally {
-    await removePath(root, { recursive: true, force: true })
-  }
-})
-
-test('validates artifact deletion support before inspecting attached lifecycle state', async () => {
+test('keeps archived deletion unavailable without inspecting private persistence state', async () => {
   let state = { initialized: true, workspaceIds: [], archivedSessionIds: ['session-locationless'] }
   let sessionReads = 0
   const registry = {
@@ -1568,11 +1263,11 @@ test('validates artifact deletion support before inspecting attached lifecycle s
     routeDesktopRequest({
       get: key => ({
         workspaceRegistry: registry,
-        sessionPersistence: { list: async () => [{ id: 'session-locationless' }], locate: () => undefined },
         sessions: { get: () => { sessionReads += 1; return {} } },
       })[key],
     }, 'workspace.deleteArchivedSession', { sessionId: 'session-locationless' }, signal),
-    /does not expose a deletable session artifact/,
+    error => error?.code === 'session-delete-unavailable'
+      && /不公开安全的会话永久删除接口/.test(error.message),
   )
   assert.equal(sessionReads, 0)
   assert.deepEqual(state.archivedSessionIds, ['session-locationless'])
@@ -1730,7 +1425,7 @@ test('enriches the host model catalog with image capabilities', async () => {
   assert.deepEqual(result.failures, [])
 })
 
-test('forwards a validated Typert Remote call through the desktop bridge', async () => {
+test('forwards only allowlisted Typert Remote calls through the desktop bridge', async () => {
   let received
   const ctx = {
     get: key => key === 'typertGateway'
@@ -1744,18 +1439,28 @@ test('forwards a validated Typert Remote call through the desktop bridge', async
   }
 
   const result = await routeDesktopRequest(ctx, 'remote.invoke', {
-    namespace: 'demo',
-    method: 'inspect',
-    args: { id: 'session-1' },
+    namespace: 'commands',
+    method: 'list',
+    args: {},
   }, signal)
 
   assert.deepEqual(result, { value: { accepted: true } })
   assert.deepEqual(received, {
-    namespace: 'demo',
-    method: 'inspect',
-    args: { id: 'session-1' },
+    namespace: 'commands',
+    method: 'list',
+    args: {},
     signal,
   })
+  received = undefined
+  await assert.rejects(
+    routeDesktopRequest(ctx, 'remote.invoke', { namespace: 'fileUploads', method: 'stage', args: {} }, signal),
+    error => {
+      assert.equal(error?.code, 'remote-unavailable')
+      assert.deepEqual(error?.details, { namespace: 'fileUploads', method: 'stage' })
+      return true
+    },
+  )
+  assert.equal(received, undefined)
 })
 
 test('rejects malformed Typert Remote calls before dispatch', async () => {
@@ -1809,7 +1514,6 @@ test('lists, opens, and removes a user Skill through the settings routes', async
           canOpenWorkspacePath: () => true,
           openWorkspacePath: async request => { opened.push(request.path); return { opened: true } },
         }
-      : key === 'sessionPersistence' ? { readRaw: async () => ({ filename: 'session.jsonl', content: '' }) }
       : undefined,
   }
   try {
@@ -2015,137 +1719,43 @@ test('selects the canonical skills directory when a repository ships mirrored sk
   assert.equal(selectSkillPath(['skills/one', 'skills/two'], 'other-repo'), undefined)
 })
 
-test('builds a session ZIP into a temp file for the native save surface', async () => {
-  const seen = []
-  let result
-  try {
-    result = await routeDesktopRequest({
-      get: key => key === 'sessionPersistence' ? {
-        readRaw: async (sessionId, requestSignal) => {
-          seen.push(sessionId)
-          assert.equal(requestSignal, signal)
-          return {
-            filename: `session-${sessionId}.jsonl`,
-            content: JSON.stringify({
-              type: 'user/message',
-              data: { content: [{ type: 'image', attachment: {
-                attachmentId: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-                mediaType: 'image/png', bytes: 1, width: 1, height: 1,
-              } }] },
-            }) + '\n',
-          }
-        },
-        list: async () => [{
-          id: 'session-descendant',
-          parentSession: 'session-123',
-          origin: 'subagent',
-          createdAt: 1,
-          cwd: '/tmp',
-        }],
-      } : key === 'attachments' ? {
-        readImage: async ref => ({ ref, data: Buffer.from([0, 255, 1, 2]) }),
-      } : undefined,
-    }, 'session.exportZip', { sessionId: 'session-123', includeDescendants: true }, signal)
-  } catch (error) {
-    throw error
-  }
-
-  try {
-    assert.deepEqual(seen, ['session-123', 'session-descendant'])
-    assert.equal(result.filename, 'dsh-session-session-123.zip')
-    assert.equal(result.contentType, 'application/zip')
-    assert.match(result.tempPath, /deeptop-session-export-[^/\\]+[/\\]session\.zip$/)
-    const bytes = await readFile(result.tempPath)
-    assert.equal(bytes.length, result.size)
-    // Valid ZIP: local-file magic for the first entry and the EOCD record tail.
-    assert.equal(bytes.toString('utf8', 0, 4), 'PK\u0003\u0004')
-    assert.equal(bytes.toString('utf8', bytes.length - 22, bytes.length - 18), 'PK\u0005\u0006')
-    const entries = zipEntries(bytes)
-    assert.deepEqual(entries.get('media/sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png'), Buffer.from([0, 255, 1, 2]))
-  } finally {
-    await removePath(dirname(result.tempPath), { recursive: true, force: true }).catch(() => undefined)
-  }
-})
-
-test('rejects a session export when a referenced attachment is unavailable', async () => {
+test('keeps session export unavailable without a public alpha persistence archive API', async () => {
+  const ctx = { get: () => { throw new Error('export must not query private persistence') } }
   await assert.rejects(
-    routeDesktopRequest({
-      get: key => key === 'sessionPersistence' ? {
-        readRaw: async () => ({
-          filename: 'session.jsonl',
-          content: JSON.stringify({ type: 'user/message', data: { content: [{ type: 'image', attachment: {
-            attachmentId: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-            mediaType: 'image/png', bytes: 1, width: 1, height: 1,
-          } }] } }) + '\n',
-        }),
-        list: async () => [],
-      } : key === 'attachments' ? {
-        readImage: async () => { throw new Error('Attachment object is missing.') },
-      } : undefined,
-    }, 'session.exportZip', { sessionId: 'session-123' }, signal),
-    /Attachment object is missing/,
+    routeDesktopRequest(ctx, 'session.exportZip', { sessionId: 'session-123', includeDescendants: true }, signal),
+    error => error?.code === 'session-export-unavailable'
+      && error.details?.sessionId === 'session-123'
+      && /不公开安全的会话导出接口/.test(error.message),
   )
-})
-
-test('reports a missing session artifact without fabricating a file', async () => {
-  await assert.rejects(
-    routeDesktopRequest({
-      get: key => key === 'sessionPersistence' ? {
-        readRaw: async () => undefined,
-        list: async () => [],
-      } : undefined,
-    }, 'session.exportZip', { sessionId: 'session-123' }, signal),
-    /没有可导出的日志文件/,
-  )
-})
-
-test('passes cancellation to the official session persistence endpoint', async () => {
-  const controller = new AbortController()
-  controller.abort()
-  let reachedPersistence = false
-  await assert.rejects(
-    routeDesktopRequest({
-      get: key => key === 'sessionPersistence' ? {
-        readRaw: async () => {
-          reachedPersistence = true
-          return { filename: 'session.jsonl', content: '' }
-        },
-        list: async () => [],
-      } : undefined,
-    }, 'session.exportZip', { sessionId: 'session-123' }, controller.signal),
-    /aborted/,
-  )
-  assert.equal(reachedPersistence, false)
-})
-
-test('cleans up when the export is aborted before writing the temp file', async () => {
-  const before = new Set((await readdir(tmpdir())).map(String))
-  const controller = new AbortController()
-  await assert.rejects(
-    routeDesktopRequest({
-      get: key => key === 'sessionPersistence' ? {
-        readRaw: async () => {
-          controller.abort()
-          throw new Error('aborted by persistence')
-        },
-        list: async () => [],
-      } : undefined,
-    }, 'session.exportZip', { sessionId: 'session-123' }, controller.signal),
-    /aborted by persistence/,
-  )
-  // The temp directories created by THIS export must be removed (the first
-  // streaming export test cleaned up its own; other tests may run in parallel).
-  const after = new Set((await readdir(tmpdir())).map(String))
-  const created = [...after].filter(name => !before.has(name) && name.startsWith('deeptop-session-export-'))
-  assert.deepEqual(created, [])
-})
-
-test('rejects invalid native session ZIP requests before contacting DSH', async () => {
-  let called = false
-  const ctx = { get: key => key === 'sessionPersistence' ? { list: async () => [], readRaw: async () => { called = true; return { filename: 'x', content: '' } } } : undefined }
   await assert.rejects(routeDesktopRequest(ctx, 'session.exportZip', { sessionId: '' }, signal), /requires sessionId/)
   await assert.rejects(routeDesktopRequest(ctx, 'session.exportZip', { sessionId: 'session-123', includeDescendants: 'yes' }, signal), /requires sessionId/)
-  assert.equal(called, false)
+})
+
+test('keeps repair and permanent deletion unavailable without private persistence access', async () => {
+  const state = { initialized: true, workspaceIds: [], archivedSessionIds: ['session-123'] }
+  const registry = {
+    state,
+    global: { get: () => state, set: async next => { Object.assign(state, next) } },
+    enqueueOperation: operation => operation(),
+  }
+  let queriedPersistence = false
+  const ctx = {
+    get: key => {
+      if (key === 'workspaceRegistry') return registry
+      queriedPersistence = true
+      throw new Error(`unexpected private service lookup: ${key}`)
+    },
+  }
+  await assert.rejects(
+    routeDesktopRequest(ctx, 'session.repairCorrupt', { sessionId: 'session-123' }, signal),
+    error => error?.code === 'session-repair-unavailable' && error.details?.sessionId === 'session-123',
+  )
+  await assert.rejects(
+    routeDesktopRequest(ctx, 'workspace.deleteArchivedSession', { sessionId: 'session-123' }, signal),
+    error => error?.code === 'session-delete-unavailable' && error.details?.sessionId === 'session-123',
+  )
+  assert.equal(queriedPersistence, false)
+  assert.deepEqual(state.archivedSessionIds, ['session-123'])
 })
 
 test('keeps message file-card validation on the native Tauri command', async () => {
@@ -2218,198 +1828,4 @@ test('routes message annotation operations through the Cordis service', async ()
     ['put', { sessionId: 'session-1', messageId: 'message-1', note: '重点', ifVersion: null }],
     ['delete', { sessionId: 'session-1', messageId: 'message-1', ifVersion: 'version-1' }],
   ])
-})
-
-// --- session.repairCorrupt ---
-
-const repairHeader = {
-  type: 'session',
-  version: 0,
-  id: 'session-repair-test',
-  createdAt: 1786888612035,
-  cwd: 'D:\\repo',
-  delegationDepth: 0,
-  agentPreset: 'standard',
-}
-const repairHeaderLine = JSON.stringify(repairHeader) + '\n'
-const repairEventLine = (type, seq, extra = {}) => JSON.stringify({ type, seq, time: 1786888612035 + seq, data: { ...extra } }) + '\n'
-
-function compressZstdFrame(text) {
-  return zstdCompressSync(Buffer.from(text, 'utf8'), { params: { [constants.ZSTD_c_checksumFlag]: 1 } })
-}
-
-function buildRepairFixture(kind) {
-  const events = repairEventLine('user/message', 0, { role: 'user', content: [{ type: 'text', text: 'hi' }] }) +
-    repairEventLine('turn/start', 1, { turn: 1 }) +
-    repairEventLine('step/start', 2, { turn: 1, step: 1 }) +
-    repairEventLine('assistant/message', 3, { step: 1, message: { role: 'assistant', content: 'hello' } }) +
-    repairEventLine('turn/end', 4, { turn: 1 })
-  const headerFrame = compressZstdFrame(repairHeaderLine)
-  const eventFrame = compressZstdFrame(events)
-  if (kind === 'clean') return Buffer.concat([headerFrame, eventFrame])
-  if (kind === 'torn-record') {
-    const torn = JSON.stringify({ type: 'user/message', seq: 5, time: 1786888612040, data: { role: 'user', content: [{ type: 'text', text: 'partial' }] } }).slice(0, -7)
-    return Buffer.concat([headerFrame, eventFrame, compressZstdFrame(torn)])
-  }
-  if (kind === 'seq-gap') {
-    // A stale writer's overlapping branch (seqs 2-3 replay step 1) interleaved
-    // before the surviving writer's continuation (seq 5, turn 2), mirroring two
-    // DSH instances appending to one log after a crash restarted one of them.
-    const stale = repairEventLine('assistant/message', 2, { step: 1, message: { role: 'assistant', content: 'stale' } }) +
-      repairEventLine('assistant/message', 3, { step: 1, message: { role: 'assistant', content: 'stale2' } })
-    const resume = repairEventLine('user/message', 5, { role: 'user', content: [{ type: 'text', text: '继续' }] })
-    return Buffer.concat([headerFrame, eventFrame, compressZstdFrame(stale), compressZstdFrame(resume)])
-  }
-  throw new Error(`unknown fixture kind ${kind}`)
-}
-
-function committedBytesEqual(buffer) {
-  const { frames } = scanZstdFrames(buffer)
-  let committed = 0
-  let input = 0
-  for (let i = 0; i < frames.length; i++) {
-    const plain = zstdDecompressSync(buffer.subarray(frames[i].start, frames[i].end))
-    input += plain.length
-    if (i === 0) {
-      committed += plain.length
-      continue
-    }
-    let lineStart = 0
-    for (let nl = plain.indexOf(10); nl !== -1; nl = plain.indexOf(10, lineStart)) {
-      committed += nl - lineStart + 1
-      lineStart = nl + 1
-    }
-  }
-  return committed === input
-}
-
-function repairCtx(path, running = false) {
-  return {
-    get: key => ({
-      sessionPersistence: {
-        list: async () => [{ id: 'session-repair-test' }],
-        locate: () => ({ path }),
-      },
-      sessions: running ? { get: () => ({}) } : undefined,
-      agents: undefined,
-    })[key],
-  }
-}
-
-test('session.repairCorrupt drops a torn record from a complete frame and rewrites the log', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'deeptop-repair-'))
-  const artifact = join(root, 'session.jsonl.zstd')
-  await writeFile(artifact, buildRepairFixture('torn-record'))
-  try {
-    const result = await routeDesktopRequest(repairCtx(artifact), 'session.repairCorrupt', { sessionId: 'session-repair-test' }, signal)
-    assert.deepEqual(result, { repaired: true, recoveredEvents: 5, droppedTorn: 1, droppedSeqGap: 0 })
-    const after = await readFile(artifact)
-    assert.equal(committedBytesEqual(after), true, 'repaired log reads clean')
-    const text = scanZstdFrames(after).frames
-      .map(f => zstdDecompressSync(after.subarray(f.start, f.end)).toString('utf8'))
-      .join('')
-    const lines = text.split('\n').filter(Boolean)
-    assert.equal(lines.length, 6, 'header plus five committed records')
-    assert.equal(JSON.parse(lines.at(-1)).type, 'turn/end')
-  } finally {
-    await removePath(root, { recursive: true, force: true })
-  }
-})
-
-test('session.repairCorrupt leaves an already-readable log untouched', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'deeptop-repair-'))
-  const artifact = join(root, 'session.jsonl.zstd')
-  const clean = buildRepairFixture('clean')
-  await writeFile(artifact, clean)
-  try {
-    const result = await routeDesktopRequest(repairCtx(artifact), 'session.repairCorrupt', { sessionId: 'session-repair-test' }, signal)
-    assert.deepEqual(result, { repaired: false, recoveredEvents: 5, droppedTorn: 0, droppedSeqGap: 0 })
-    const after = await readFile(artifact)
-    assert.equal(after.equals(clean), true, 'clean log bytes are not rewritten')
-  } finally {
-    await removePath(root, { recursive: true, force: true })
-  }
-})
-
-test('session.repairCorrupt refuses a running session and an absent artifact', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'deeptop-repair-'))
-  const artifact = join(root, 'session.jsonl.zstd')
-  await writeFile(artifact, buildRepairFixture('clean'))
-  try {
-    await assert.rejects(
-      routeDesktopRequest(repairCtx(artifact, true), 'session.repairCorrupt', { sessionId: 'session-repair-test' }, signal),
-      /仍在运行/,
-    )
-    const absent = repairCtx(artifact)
-    absent.get = key => key === 'sessionPersistence' ? { list: async () => [], locate: () => ({ path: artifact }) } : undefined
-    await assert.rejects(
-      routeDesktopRequest(absent, 'session.repairCorrupt', { sessionId: 'session-repair-test' }, signal),
-      /不存在/,
-    )
-  } finally {
-    await removePath(root, { recursive: true, force: true })
-  }
-})
-
-test('session.repairCorrupt reports an unrecoverable artifact instead of writing it', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'deeptop-repair-'))
-  const artifact = join(root, 'session.jsonl.zstd')
-  await writeFile(artifact, Buffer.from('this is not a zstd session log'))
-  try {
-    await assert.rejects(
-      routeDesktopRequest(repairCtx(artifact), 'session.repairCorrupt', { sessionId: 'session-repair-test' }, signal),
-      /frame magic|无法修复/,
-    )
-    assert.equal(await readFile(artifact, 'utf8'), 'this is not a zstd session log', 'artifact is left unchanged')
-  } finally {
-    await removePath(root, { recursive: true, force: true })
-  }
-})
-
-test('rowSeqs expands packed chunk rows and rejects malformed or seq-less rows', () => {
-  assert.deepEqual(rowSeqs({ type: 'reasoning-chunks', seq0: 10, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [1, 1], texts: ['a', 'b', 'c'] } }), [10, 11, 12])
-  assert.deepEqual(rowSeqs({ type: 'text-chunks', seq0: 20, time0: 1, data: { turn: 1, step: 2, index: 0, dt: [3], texts: ['x', 'y'] } }), [20, 21])
-  assert.deepEqual(rowSeqs({ type: 'tool-call-chunks', seq0: 30, time0: 1, data: { turn: 1, step: 3, index: 0, id: 'call-1', name: 'pwsh', dt: [], args: ['{}'] } }), [30])
-  assert.deepEqual(rowSeqs({ type: 'user/message', seq: 3 }), [3])
-  assert.equal(rowSeqs({ type: 'user/message' }), null)
-  assert.equal(rowSeqs({ type: 'reasoning-chunks', seq0: 10, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [1, 1], texts: ['a', 'b'] } }), null)
-  assert.equal(rowSeqs({ type: 'reasoning-chunks', seq0: 10, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [1, 1], texts: ['a', 'b', 3] } }), null)
-  assert.equal(rowSeqs({ type: 'text-chunks', seq0: -1, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [], texts: ['a'] } }), null)
-})
-
-test('reconstructContiguous keeps the longest contiguous stream across overlapping branches', () => {
-  const line = seq => repairEventLine('user/message', seq, { role: 'user' })
-  const { kept, dropped, count } = reconstructContiguous([line(0), line(1), line(2), line(3), line(4), line(2), line(3), line(5)])
-  assert.equal(dropped, 2)
-  assert.equal(count, 6)
-  assert.deepEqual(kept.map(record => JSON.parse(record).seq), [0, 1, 2, 3, 4, 5])
-})
-
-test('verifyReadable detects a seq gap that the old JSON-only check missed', () => {
-  assert.equal(verifyReadable(buildRepairFixture('clean')), null)
-  const corrupt = buildRepairFixture('seq-gap')
-  assert.match(verifyReadable(corrupt), /seq gap/)
-  assert.match(verifyReadable(corrupt), /expected 5, got 2/)
-})
-
-test('session.repairCorrupt resolves overlapping seq branches and keeps the later turn', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'deeptop-repair-'))
-  const artifact = join(root, 'session.jsonl.zstd')
-  await writeFile(artifact, buildRepairFixture('seq-gap'))
-  try {
-    const result = await routeDesktopRequest(repairCtx(artifact), 'session.repairCorrupt', { sessionId: 'session-repair-test' }, signal)
-    assert.deepEqual(result, { repaired: true, recoveredEvents: 6, droppedTorn: 0, droppedSeqGap: 2 })
-    const after = await readFile(artifact)
-    assert.equal(committedBytesEqual(after), true, 'repaired log reads clean')
-    assert.equal(verifyReadable(after), null, 'repaired log passes the seq-continuity check')
-    const text = scanZstdFrames(after).frames
-      .map(f => zstdDecompressSync(after.subarray(f.start, f.end)).toString('utf8'))
-      .join('')
-    const records = text.split('\n').filter(Boolean).slice(1).map(record => JSON.parse(record))
-    assert.equal(records.length, 6, 'five committed records plus the turn-2 user message')
-    assert.deepEqual(records.map(record => record.seq), [0, 1, 2, 3, 4, 5])
-    assert.equal(records.at(-1).data.content[0].text, '继续', 'the surviving branch (turn 2) is preserved')
-  } finally {
-    await removePath(root, { recursive: true, force: true })
-  }
 })

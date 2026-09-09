@@ -1,7 +1,7 @@
-// Host-channel event synthesis for the desktop bridge (DSH 0.1.2-rc.1).
+// Host-channel event synthesis for the desktop bridge (DSH 0.1.3-alpha.2).
 //
-// The rc.2 dsh-host-apiproxy `events.host` stream used to be the only host
-// frame source. rc.1 owns the same facts in services/events the desktop
+// The retired dsh-host-apiproxy `events.host` stream used to be the only host
+// frame source. DSH owns the same facts in services/events the desktop
 // subscribes directly:
 //   api-session/added|removed|status|error  →  host/session-* frames
 //   workspace registry writes               →  workspace/order/archive frames
@@ -20,7 +20,7 @@ function errorMessage(error) {
 }
 
 // Allowlisted host events forwarded verbatim as host/remote-event. This is the
-// rc.1 API_REMOTE_FORWARDED_EVENTS emit subset minus the api-session/* and
+// legacy API_REMOTE_FORWARDED_EVENTS subset minus the api-session/* and
 // waterfall events, which the desktop translates into its own frame shapes.
 const FORWARDED_EMIT_EVENTS = [
   'agent-preset/selected',

@@ -1,7 +1,7 @@
-// Desktop Host API adapter over DSH 0.1.2-rc.1 in-process services.
+// Desktop Host API adapter over DSH 0.1.3-alpha.2 in-process services.
 //
-// rc.2 shipped a `ctx.apiProxy` facade (RPC envelope + HTTP). rc.1 removed
-// that package; the same verbs are owned by Typert Remote services
+// The retired `ctx.apiProxy` facade used RPC envelopes and HTTP; the same
+// verbs are owned by Typert Remote services
 // (TypertRemoteService = plain Cordis Service + @Remote wire markers), so this
 // module calls them directly on the shared Cordis tree.
 //

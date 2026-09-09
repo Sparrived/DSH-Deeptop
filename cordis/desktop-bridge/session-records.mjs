@@ -1,12 +1,9 @@
-// rc.1 session history/follow wire records → desktop display entries.
+// Session history records → desktop display entries.
 //
-// session-controller `page`/`follow` return records from packChunkRuns:
-//   { type: 'event',  event: SessionWireEvent }          (raw event)
-//   { type: 'chunks', event: chunkrow/* packed delta run } (>=3 consecutive
-//     same-block assistant/chunk deltas collapsed by the official codec)
-// The desktop frontend consumes unfolded `assistant/chunk` events (display
-// history compacts them itself), so each packed run is expanded back into its
-// exact original events before display compaction.
+// DSH 0.1.3 returns raw v2 `{ type: 'event', event }` records; completed
+// Assistant streams are embedded in their final durable event. The legacy
+// chunkrow codec is retained only so stored pre-upgrade sessions can still be
+// rendered when a compatible Host returns those rows.
 
 function record(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : undefined
@@ -81,8 +78,8 @@ export function expandChunkRecord(entry) {
 }
 
 /**
- * Normalize one rc.1 history record to the desktop wire form consumed by
- * display-history: raw events pass through; packed chunk rows expand.
+ * Normalize one history record to the desktop wire form consumed by
+ * display-history: raw events pass through; packed legacy chunk rows expand.
  * @returns the unfolded session events.
  */
 export function unfoldRecord(entry) {

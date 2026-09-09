@@ -289,40 +289,18 @@ async function materializeProfile(dshHome) {
 }
 
 function sessionEvents(messageId, createdAt) {
-  return [
-    { type: "turn/start", seq: 0, time: createdAt + 1, data: { turn: 1 } },
-    {
-      type: "user/message",
-      seq: 1,
-      time: createdAt + 2,
-      data: {
-        id: messageId,
-        role: "user",
-        content: [{ type: "text", text: `seed ${messageId}` }],
-        source: { kind: "user" },
-      },
-      surfaceOp: "append",
+  return [{
+    type: "user/message",
+    seq: 0,
+    time: createdAt + 1,
+    data: {
+      id: messageId,
+      role: "user",
+      content: [{ type: "text", text: `seed ${messageId}` }],
+      source: { kind: "user" },
     },
-    { type: "step/start", seq: 2, time: createdAt + 3, data: { turn: 1, step: 1 } },
-    {
-      type: "assistant/message",
-      seq: 3,
-      time: createdAt + 4,
-      data: {
-        turn: 1,
-        step: 1,
-        message: {
-          id: `${messageId}-answer`,
-          role: "assistant",
-          content: [{ type: "text", text: "seed answer" }],
-          source: { kind: "model", provider: "fixture", model: "fixture" },
-        },
-      },
-      surfaceOp: "append",
-    },
-    { type: "step/end", seq: 4, time: createdAt + 5, data: { turn: 1, step: 1 } },
-    { type: "turn/end", seq: 5, time: createdAt + 6, data: { turn: 1, reason: { kind: "completed" } } },
-  ];
+    surfaceOp: "append",
+  }];
 }
 
 async function seedSession(dshHome, sessionId, messageId, createdAt) {
@@ -330,16 +308,17 @@ async function seedSession(dshHome, sessionId, messageId, createdAt) {
   await mkdir(directory, { recursive: true });
   const header = {
     type: "session",
-    version: 0,
+    version: 2,
     id: sessionId,
     createdAt,
+    isSeeded: false,
     delegationDepth: 0,
     agentPreset: "standard",
   };
   const checksum = { params: { [constants.ZSTD_c_checksumFlag]: 1 } };
   const headerFrame = zstdCompressSync(`${JSON.stringify(header)}\n`, checksum);
   const eventsFrame = zstdCompressSync(`${sessionEvents(messageId, createdAt).map(JSON.stringify).join("\n")}\n`, checksum);
-  await writeFile(path.join(directory, "session.jsonl.zstd"), Buffer.concat([headerFrame, eventsFrame]));
+  await writeFile(path.join(directory, "session.v2.jsonl.zstd"), Buffer.concat([headerFrame, eventsFrame]));
 }
 
 async function loadMessageAnnotationsClient() {
@@ -380,7 +359,7 @@ function renderBadge(runtime, session, messageId) {
       sessionId: session.sessionId,
       messageId,
       role: "user",
-      seq: 1,
+      seq: 0,
     },
   });
   return element ? renderToStaticMarkup(element) : "";

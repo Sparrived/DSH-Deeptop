@@ -185,11 +185,14 @@ export class MessageAnnotationsService extends Service {
   }
 
   async inspectSession(sessionId) {
-    if (this.ctx.sessions.get(sessionId) === undefined) {
-      const snapshots = await this.ctx.sessionPersistence.listSnapshots()
-      if (!snapshots.some(snapshot => snapshot.header.id === sessionId) && this.ctx.sessions.get(sessionId) === undefined) return rejected({ code: 'session-not-found', sessionId })
+    const live = this.ctx.sessions.get(sessionId)
+    if (live !== undefined) {
+      return success({ meta: live.header, events: live.snapshotEvents() })
     }
-    return success(await this.ctx.sessionPersistence.inspect(sessionId))
+    if (await this.ctx.sessionPersistence.stat(sessionId) === undefined) {
+      return rejected({ code: 'session-not-found', sessionId })
+    }
+    return success(await this.readStoredSession(sessionId))
   }
 
   async ensureTargetDurable(inspection) {
@@ -197,7 +200,17 @@ export class MessageAnnotationsService extends Service {
     if (live !== undefined && sameHeaderIdentity(live.header, inspection.meta)) {
       if (!await this.ctx.sessions.flush(live)) throw new Error(`message-annotations: no durability listener participated for live session '${inspection.meta.id}'`)
     }
-    return this.ctx.sessionPersistence.readFrom(inspection.meta.id, 0)
+    return this.readStoredSession(inspection.meta.id)
+  }
+
+  async readStoredSession(sessionId) {
+    const handle = await this.ctx.sessionPersistence.open(sessionId, 'read')
+    try {
+      const { events } = await handle.read()
+      return { meta: handle.header, events }
+    } finally {
+      await handle.close()
+    }
   }
 
   enqueue(sessionId, operation) {
