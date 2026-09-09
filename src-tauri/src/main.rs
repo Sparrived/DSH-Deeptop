@@ -235,7 +235,11 @@ const BUNDLED_DSH_MANIFEST: &str = "dsh-runtime-manifest.json";
 const RUNTIME_ARCHIVE_MANIFEST: &str = "runtime-manifest.json";
 const BUNDLED_DSH_ENTRY: &str = "node_modules/@deepseek-ai/dsh/lib/bin.js";
 const BUNDLED_DSH_RUNTIME_FEATURES: u64 = 5;
-const BUNDLED_DSH_RUNTIME_SMOKE_PACKAGES: &[&str] = &["@deepseek-ai/dsh-attachment-local"];
+const BUNDLED_DSH_RUNTIME_SMOKE_PACKAGES: &[&str] = &[
+    "@deepseek-ai/dsh-session-persistence-jsonl",
+    "@deepseek-ai/dsh-attachment-local",
+    "@deepseek-ai/dsh-client-file-upload",
+];
 const RUNTIME_CACHE_MARKER: &str = ".complete";
 const NODEJS_DOWNLOAD_URL: &str = "https://nodejs.org/en/download";
 const BRIDGE_TIMEOUT: Duration = Duration::from_secs(45);
@@ -245,8 +249,8 @@ const BRIDGE_TIMEOUT: Duration = Duration::from_secs(45);
 const MAX_AUTO_RESTARTS: u32 = 3;
 /// Base delay for the first auto-restart; each consecutive crash doubles it.
 const AUTO_RESTART_BASE_DELAY: Duration = Duration::from_millis(1000);
-const BUNDLED_DSH_VERSION: &str = "0.1.2-rc.1";
-const BUNDLED_DSH_SOURCE_COMMIT: &str = "943530221d169b73ff520a85eebd154e2d3a7cfe";
+const BUNDLED_DSH_VERSION: &str = "0.1.3-alpha.2";
+const BUNDLED_DSH_SOURCE_COMMIT: &str = "046e750ed585363f949a9115179ccbc68d6881b3";
 const BRIDGE_PACKAGE_JSON: &str = include_str!("../../cordis/package.json");
 const BRIDGE_PATCH: &str = include_str!("../../cordis/cordis.patch.yml");
 const BRIDGE_ENTRY: &str = include_str!("../../cordis/desktop-bridge/index.mjs");
@@ -262,7 +266,6 @@ const BRIDGE_SESSION_RECORDS: &str =
 const BRIDGE_ZIP_WRITER: &str = include_str!("../../cordis/desktop-bridge/zip-writer.mjs");
 const BRIDGE_DISPLAY_HISTORY: &str =
     include_str!("../../cordis/desktop-bridge/display-history.mjs");
-const BRIDGE_SESSION_REPAIR: &str = include_str!("../../cordis/desktop-bridge/session-repair.mjs");
 const BRIDGE_MESSAGE_ANNOTATIONS: &str = include_str!("../../cordis/message-annotations/index.mjs");
 const BRIDGE_MESSAGE_ANNOTATIONS_UI: &str =
     include_str!("../../cordis/message-annotations-ui/index.mjs");
@@ -1078,7 +1081,7 @@ fn migrate_desktop_profile_patch(path: &Path) -> Result<(), String> {
     write_text(path, &format!("{}{newline}", filtered.join(newline)))
 }
 
-fn bundled_bridge_files() -> [(&'static str, &'static str); 30] {
+fn bundled_bridge_files() -> [(&'static str, &'static str); 29] {
     [
         ("package.json", BRIDGE_PACKAGE_JSON),
         ("cordis.patch.yml", BRIDGE_PATCH),
@@ -1093,7 +1096,6 @@ fn bundled_bridge_files() -> [(&'static str, &'static str); 30] {
         ("desktop-bridge/session-records.mjs", BRIDGE_SESSION_RECORDS),
         ("desktop-bridge/zip-writer.mjs", BRIDGE_ZIP_WRITER),
         ("desktop-bridge/display-history.mjs", BRIDGE_DISPLAY_HISTORY),
-        ("desktop-bridge/session-repair.mjs", BRIDGE_SESSION_REPAIR),
         ("message-annotations/index.mjs", BRIDGE_MESSAGE_ANNOTATIONS),
         (
             "message-annotations-ui/index.mjs",
@@ -5916,11 +5918,15 @@ mod tests {
         let manifest = serde_json::json!({
             "format": 1,
             "runtimeFeatures": 5,
-            "runtimeSmokePackages": ["@deepseek-ai/dsh-attachment-local"],
+            "runtimeSmokePackages": [
+                "@deepseek-ai/dsh-session-persistence-jsonl",
+                "@deepseek-ai/dsh-attachment-local",
+                "@deepseek-ai/dsh-client-file-upload"
+            ],
             "packageName": "@deepseek-ai/dsh",
-            "packageVersion": "0.1.2-rc.1",
+            "packageVersion": "0.1.3-alpha.2",
             "entry": "node_modules/@deepseek-ai/dsh/lib/bin.js",
-            "sourceCommit": "943530221d169b73ff520a85eebd154e2d3a7cfe",
+            "sourceCommit": "046e750ed585363f949a9115179ccbc68d6881b3",
             "platform": runtime_platform(),
             "arch": runtime_arch(),
             "treeSha256": "0123456789012345678901234567890123456789012345678901234567890123",

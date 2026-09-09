@@ -11,7 +11,11 @@ const resourcesRoot = path.join(root, "src-tauri", "resources");
 const archivePath = path.join(resourcesRoot, "dsh-runtime.tar.gz");
 const manifestPath = path.join(resourcesRoot, "dsh-runtime-manifest.json");
 const entry = "node_modules/@deepseek-ai/dsh/lib/bin.js";
-const runtimeSmokePackages = ["@deepseek-ai/dsh-attachment-local"];
+const runtimeSmokePackages = [
+  "@deepseek-ai/dsh-session-persistence-jsonl",
+  "@deepseek-ai/dsh-attachment-local",
+  "@deepseek-ai/dsh-client-file-upload",
+];
 
 function readJson(filePath) {
   try {

@@ -1,8 +1,8 @@
 diff --git a/packages/api/session-controller/src/commands.ts b/packages/api/session-controller/src/commands.ts
-index 0e8015f79c..1bfe447dce 100644
+index f3fa473e6c..afdb11ffed 100644
 --- a/packages/api/session-controller/src/commands.ts
 +++ b/packages/api/session-controller/src/commands.ts
-@@ -181,8 +181,11 @@ export class SessionCommandController {
+@@ -187,8 +187,11 @@ export class SessionCommandController {
    }
  
    /**
@@ -16,7 +16,7 @@ index 0e8015f79c..1bfe447dce 100644
     * @returns the new Session identity.
     */
    async fork(request: SessionForkRequest): Promise<SessionForkValue> {
-@@ -209,26 +212,35 @@ export class SessionCommandController {
+@@ -215,26 +218,35 @@ export class SessionCommandController {
        )
      }
      using source = observed
@@ -72,7 +72,7 @@ index 0e8015f79c..1bfe447dce 100644
      }
      let workspace: Workspace | undefined
      try {
-@@ -241,7 +253,33 @@ export class SessionCommandController {
+@@ -247,7 +259,33 @@ export class SessionCommandController {
        )
      }
      const childId = brandString<SessionId>(`session-${randomUUID()}`)
@@ -107,7 +107,7 @@ index 0e8015f79c..1bfe447dce 100644
      try {
        const { provider, model } = this.ctx.agentDefaultModel.currentSelection()
        await this.ctx.agents.create({
-@@ -257,13 +295,23 @@ export class SessionCommandController {
+@@ -263,13 +301,23 @@ export class SessionCommandController {
              : { agentPreset: composition.agentPreset }),
          },
          agentOptions: { provider, model },
@@ -134,10 +134,10 @@ index 0e8015f79c..1bfe447dce 100644
      }
      if (workspace !== undefined) {
 diff --git a/packages/api/session-controller/src/index.ts b/packages/api/session-controller/src/index.ts
-index 759c6b7f89..cc1a731c47 100644
+index c058f25a08..1e619f02e8 100644
 --- a/packages/api/session-controller/src/index.ts
 +++ b/packages/api/session-controller/src/index.ts
-@@ -308,8 +308,11 @@ export class SessionController extends TypertRemoteService {
+@@ -310,8 +310,11 @@ export class SessionController extends TypertRemoteService {
    }
  
    /**
@@ -152,10 +152,10 @@ index 759c6b7f89..cc1a731c47 100644
     */
    @Remote('fork')
 diff --git a/packages/api/session-controller/src/types.ts b/packages/api/session-controller/src/types.ts
-index 2e2a0d7c46..ccefbbf34f 100644
+index f421660088..e11c6a08b8 100644
 --- a/packages/api/session-controller/src/types.ts
 +++ b/packages/api/session-controller/src/types.ts
-@@ -291,6 +291,12 @@ export interface SessionRenameValue {
+@@ -295,6 +295,12 @@ export interface SessionRenameValue {
  export interface SessionForkRequest {
    readonly sessionId: SessionId
    readonly atSeq?: number

@@ -5,23 +5,23 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourceRoot = path.join(root, "vendor", "dsh");
-const publicBase = "a66e4702047846cdaa10c66c9d3df3951f5ea70d";
-const publicTag = "dsh-v0.1.2-rc.1";
-const patchedCommit = "943530221d169b73ff520a85eebd154e2d3a7cfe";
+const publicBase = "82a5fd61a7cf5c293cec4bdff68f455398d685e9";
+const publicTag = "dsh-v0.1.3-alpha.2";
+const patchedCommit = "046e750ed585363f949a9115179ccbc68d6881b3";
 const upstream = "https://github.com/deepseek-ai/deepseek-harness.git";
 
-// The vendored runtime ships four local commits on top of the public RC1 tag.
+// The vendored runtime ships six local commits on top of alpha.2.
 // Each entry reproduces one of them deterministically from its patch file:
 // identical tree, parents, message, and author/committer identity reproduce
 // the exact commit id pinned by src-tauri/src/main.rs.
 const patches = [
   {
     file: "dsh-fork-migration.patch",
-    commit: "594424bbe023d4dfabd858acf249e1849c6d7401",
+    commit: "77792d460c56bc29121bac3f44a50872811925dc",
     authorName: "Sparrived",
     authorEmail: "sparrived@outlook.com",
     authorDate: "2026-09-05T01:07:47+08:00",
-    committerDate: "2026-09-05T01:07:47+08:00",
+    committerDate: "2026-09-08T16:05:12+08:00",
     message: [
       "feat(session): 支持显式 preset 迁移副本",
       "",
@@ -35,11 +35,11 @@ const patches = [
   },
   {
     file: "dsh-reasoning-tokens.patch",
-    commit: "a1d266a9aa6eba55f00fb3aab3a4808c3e32ad6f",
+    commit: "6a3a3611582c3d3ff7f3bcd4298811ec0848d033",
     authorName: "Sparrived",
     authorEmail: "sparrived@outlook.com",
     authorDate: "2026-09-05T01:08:04+08:00",
-    committerDate: "2026-09-05T01:08:04+08:00",
+    committerDate: "2026-09-08T16:05:26+08:00",
     message: [
       "fix(llm-pi-ai): usage 透出 provider 上报的思考 tokens",
       "",
@@ -54,11 +54,11 @@ const patches = [
   },
   {
     file: "dsh-pwsh-reprobe.patch",
-    commit: "ffb1d5ffab43f8be33321f51fce99b25948f8400",
+    commit: "c2520a916e76a0150022b4b3ec61db13551cae02",
     authorName: "Sparrived",
     authorEmail: "sparrived@outlook.com",
     authorDate: "2026-09-05T01:08:22+08:00",
-    committerDate: "2026-09-05T01:08:22+08:00",
+    committerDate: "2026-09-08T16:07:52+08:00",
     message: [
       "fix(pwsh): 每次 spawn 前重新探测 Store 可执行文件",
       "",
@@ -70,11 +70,11 @@ const patches = [
   },
   {
     file: "dsh-storage-json-retry.patch",
-    commit: "0cfa6ad94b941613734f0efa31351819a9f86a5e",
+    commit: "2213bd1cd6441665ac04d045b2c1b9a776503d71",
     authorName: "Sparrived",
     authorEmail: "sparrived@outlook.com",
     authorDate: "2026-09-05T01:08:38+08:00",
-    committerDate: "2026-09-05T01:08:38+08:00",
+    committerDate: "2026-09-08T16:07:53+08:00",
     message: [
       "fix(storage-json): Windows 原子替换遇短暂锁定时有界重试",
       "",
@@ -92,15 +92,33 @@ const patches = [
   },
   {
     file: "dsh-unavailable-attachment-request-projection.patch",
-    commit: "943530221d169b73ff520a85eebd154e2d3a7cfe",
+    commit: "a2dbb93560dcdbdaefe9f085cc38d483ecb102bf",
     authorName: "Sparrived",
     authorEmail: "sparrived@outlook.com",
     authorDate: "2026-09-07T17:42:24+08:00",
-    committerDate: "2026-09-07T17:42:24+08:00",
+    committerDate: "2026-09-08T16:11:08+08:00",
     message: [
       "fix(llm): 兼容缺失历史附件",
       "",
       "仅将 ATTACHMENT_NOT_FOUND 的历史图片投影为本次请求的恢复文本，保留会话日志和其他附件错误。\\n\\n补充 pi-ai、DeepSeek 与共享内容投影回归测试，并记录双语维护说明。\\n\\n验证：vitest 191 项通过；npm run build:lib:host 通过；文档配对与 Agent Note 格式检查通过。",
+      "",
+    ].join("\n"),
+  },
+  {
+    file: "dsh-session-persistence-lazy-fs-ext.patch",
+    commit: "046e750ed585363f949a9115179ccbc68d6881b3",
+    authorName: "Sparrived",
+    authorEmail: "sparrived@outlook.com",
+    authorDate: "2026-09-08T16:12:24+08:00",
+    committerDate: "2026-09-08T16:12:24+08:00",
+    message: [
+      "fix(session-persistence): Windows 延迟加载 POSIX 锁模块",
+      "",
+      "改动：JSONL session persistence 仅在 POSIX 获取写锁时动态加载 fs-ext；Windows 继续使用既有的 koffi 命名信号量路径。",
+      "",
+      "原因：桌面运行时的受控部署不会执行原生依赖 install 脚本，而 Windows 启动不需要 POSIX flock；在模块求值时加载 fs-ext 会使桌面 Host 无法启动。",
+      "",
+      "验证：session-persistence-jsonl lease.spec.ts 10 通过、9 项 Windows 跳过；tsc -b packages/session/session-persistence-jsonl/tsconfig.json 通过。",
       "",
     ].join("\n"),
   },
@@ -152,7 +170,7 @@ if (!fs.existsSync(path.join(sourceRoot, ".git"))) {
 }
 
 // The patches are generated against LF worktree files. Git for Windows may
-// inherit core.autocrlf=true, which changes the public RC1 checkout before
+// inherit core.autocrlf=true, which changes the public alpha checkout before
 // git apply. Pin the temporary source checkout to LF on every platform.
 sourceGit(["config", "core.autocrlf", "false"]);
 sourceGit(["config", "core.eol", "lf"]);
@@ -166,7 +184,7 @@ if (current === patchedCommit) {
 
 sourceGit(["fetch", "--depth=1", "origin", "tag", publicTag]);
 sourceGit(["checkout", "--detach", publicBase]);
-if (sourceGit(["status", "--porcelain"])) throw new Error("公开 RC1 基线工作区不干净");
+if (sourceGit(["status", "--porcelain"])) throw new Error("公开 alpha 基线工作区不干净");
 
 for (const patch of patches) {
   // The repository patch itself can be checked out as CRLF by Git for Windows.
@@ -204,4 +222,4 @@ for (const patch of patches) {
   sourceGit(["reset", "--hard", commit]);
 }
 if (sourceGit(["status", "--porcelain"])) throw new Error("DSH 补丁应用后工作区不干净");
-console.log("✅ 已从公开 RC1 基线重建 DSH 补丁链：" + patchedCommit);
+console.log("✅ 已从公开 alpha 基线重建 DSH 补丁链：" + patchedCommit);

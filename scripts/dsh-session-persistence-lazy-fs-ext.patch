@@ -1,0 +1,25 @@
+diff --git a/packages/session/session-persistence-jsonl/src/lease.ts b/packages/session/session-persistence-jsonl/src/lease.ts
+index 033f96c5c4..7622bc04b7 100644
+--- a/packages/session/session-persistence-jsonl/src/lease.ts
++++ b/packages/session/session-persistence-jsonl/src/lease.ts
+@@ -31,7 +31,7 @@
+ import { mkdir, open, stat } from 'node:fs/promises'
+ import type { FileHandle } from 'node:fs/promises'
+ import { join } from 'node:path'
+-import { flock } from 'fs-ext'
++import type { flock as Flock } from 'fs-ext'
+ import { SessionAlreadyOwnedError } from '@deepseek-ai/dsh-session-persistence'
+ import type { SessionId } from '@deepseek-ai/dsh-session'
+ import { acquireLockHandleWin32, releaseLockHandleWin32 } from './win32.ts'
+@@ -44,8 +44,9 @@ type HeldLock =
+   | { readonly kind: 'posix'; readonly handle: FileHandle }
+   | { readonly kind: 'win32'; readonly handle: number }
+ 
+-/** Promise face over fs-ext's callback flock, pinned to its string-flag overload. */
+-function flockAsync(fd: number, flags: 'exnb' | 'un'): Promise<void> {
++/** Promise face over fs-ext's callback flock, loaded only on the POSIX lock path. */
++async function flockAsync(fd: number, flags: 'exnb' | 'un'): Promise<void> {
++  const { flock } = await import('fs-ext') as { flock: typeof Flock }
+   return new Promise((resolve, reject) => {
+     flock(fd, flags, (error) => {
+       if (error) reject(error)

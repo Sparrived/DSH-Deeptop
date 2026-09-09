@@ -1,5 +1,5 @@
 diff --git a/packages/shell/pwsh-local/src/index.ts b/packages/shell/pwsh-local/src/index.ts
-index 93133b37af..ca17bc3fde 100644
+index 99d7d1564b..cecd1fff09 100644
 --- a/packages/shell/pwsh-local/src/index.ts
 +++ b/packages/shell/pwsh-local/src/index.ts
 @@ -141,20 +141,18 @@ export class PwshLocalExecutor extends ShellExecutor {
@@ -128,21 +128,21 @@ index 191abba963..60ce88e961 100644
    }
    return 'pwsh'
 diff --git a/packages/shell/pwsh-local/tests/executor.spec.ts b/packages/shell/pwsh-local/tests/executor.spec.ts
-index 53047a62c8..7f94277d2e 100644
+index f46fd1f4a2..d20bfb063b 100644
 --- a/packages/shell/pwsh-local/tests/executor.spec.ts
 +++ b/packages/shell/pwsh-local/tests/executor.spec.ts
 @@ -9,7 +9,7 @@
   * writes CRLF on Windows, so exact text assertions normalize line endings.
   */
  
--import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
-+import { lstatSync, mkdirSync, mkdtempSync, readlinkSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
++import { lstatSync, mkdirSync, mkdtempSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
  import { tmpdir } from 'node:os'
  import { join } from 'node:path'
  import { spawnSync } from 'node:child_process'
-@@ -24,6 +24,19 @@ import type { ShellProcess } from '@deepseek-ai/dsh-shell'
- 
- const spillDir = mkdtempSync(join(tmpdir(), 'dsh-pwsh-exec-spec-'))
+@@ -34,6 +34,19 @@ afterEach(() => {
+   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+ })
  
 +function storeAliasFixture(): { alias: string; target: string } | undefined {
 +  if (process.platform !== 'win32' || process.env.LOCALAPPDATA === undefined) return undefined
@@ -160,7 +160,7 @@ index 53047a62c8..7f94277d2e 100644
  // The probe follows the executor's own resolution (Program Files installs on
  // Windows are found even when bare `pwsh` is not on PATH).
  const hasPwsh = spawnSync(resolvePwshPath(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'], { encoding: 'utf8' }).status === 0
-@@ -127,16 +140,61 @@ describe('resolvePwshPath and candidatePwshPaths (pure, every platform)', () =>
+@@ -138,17 +151,60 @@ describe('resolvePwshPath and candidatePwshPaths (pure, every platform)', () =>
        .toBe('pwsh')
    })
  
@@ -168,13 +168,15 @@ index 53047a62c8..7f94277d2e 100644
 -    // Store app execution aliases stat as EACCES but lstat as a link; a
 -    // dangling symlink reproduces that split on every platform.
 +  it.skipIf(process.platform === 'win32')('resolves a link-shaped PATH candidate to its executable target', () => {
-+    // Store app execution aliases reject stat through the alias (EACCES) but
-+    // expose their package target through readlink; a symlink to a real file
-+    // reproduces that split on every non-Windows platform.
      const dir = mkdtempSync(join(tmpdir(), 'dsh-pwsh-resolve-link-'))
+     tempDirs.push(dir)
      const store = join(dir, 'store')
 +    const target = join(dir, 'package', 'pwsh.exe')
-+    mkdirSync(store, { recursive: true })
+     mkdirSync(store, { recursive: true })
+-    const link = join(store, 'pwsh.exe')
+-    symlinkSync(join(dir, 'no-such-target.exe'), link)
+-    expect(resolvePwshPath(undefined, { ProgramFiles: join(dir, 'missing'), PATH: store }, 'win32'))
+-      .toBe(link)
 +    mkdirSync(join(dir, 'package'), { recursive: true })
 +    writeFileSync(target, '')
 +    symlinkSync(target, join(store, 'pwsh.exe'))
@@ -187,12 +189,10 @@ index 53047a62c8..7f94277d2e 100644
 +
 +  it.skipIf(process.platform === 'win32')('skips a link-shaped PATH candidate whose target is missing', () => {
 +    const dir = mkdtempSync(join(tmpdir(), 'dsh-pwsh-resolve-dangling-'))
++    tempDirs.push(dir)
 +    const store = join(dir, 'store')
-     mkdirSync(store, { recursive: true })
-     const link = join(store, 'pwsh.exe')
-     symlinkSync(join(dir, 'no-such-target.exe'), link)
--    expect(resolvePwshPath(undefined, { ProgramFiles: join(dir, 'missing'), PATH: store }, 'win32'))
--      .toBe(link)
++    mkdirSync(store, { recursive: true })
++    symlinkSync(join(dir, 'no-such-target.exe'), join(store, 'pwsh.exe'))
 +    expect(resolvePwshPath(undefined, {
 +      ProgramFiles: join(dir, 'missing'),
 +      PATH: store,
@@ -213,6 +213,7 @@ index 53047a62c8..7f94277d2e 100644
 +
 +  it('re-probes a repaired PATH candidate instead of retaining the first miss', () => {
 +    const dir = mkdtempSync(join(tmpdir(), 'dsh-pwsh-resolve-repair-'))
++    tempDirs.push(dir)
 +    const store = join(dir, 'store')
 +    const target = join(store, 'pwsh.exe')
 +    mkdirSync(store, { recursive: true })
@@ -227,42 +228,3 @@ index 53047a62c8..7f94277d2e 100644
    })
  
    it('skips a directory candidate and falls through to the PATH-resolution default', () => {
-@@ -187,6 +245,38 @@ describe('spawn construction (pure, every platform)', () => {
-     expect(ENCODING_PREAMBLE).toContain('[Console]::OutputEncoding')
-     expect(ENCODING_PREAMBLE).toContain('$OutputEncoding')
-   })
-+
-+  it.skipIf(process.platform !== 'win32')('re-probes automatic resolution before each spawn', async () => {
-+    const original = {
-+      ProgramFiles: process.env.ProgramFiles,
-+      PATH: process.env.PATH,
-+      SystemRoot: process.env.SystemRoot,
-+    }
-+    const dir = mkdtempSync(join(tmpdir(), 'dsh-pwsh-spawn-reprobe-'))
-+    const store = join(dir, 'store')
-+    const target = join(store, 'pwsh.exe')
-+    mkdirSync(store, { recursive: true })
-+    process.env.ProgramFiles = join(dir, 'no-program-files')
-+    process.env.PATH = store
-+    process.env.SystemRoot = join(dir, 'no-windows')
-+    try {
-+      const ctx = new Context()
-+      const subprocess = new CapturingSubprocessRuntime(ctx)
-+      await ctx.plugin(PwshLocalExecutor)
-+      await ctx.shell.run(ctx.shell.resolve({ command: 'Write-Output first' }))
-+      expect(subprocess.specs[0]!.argv[0]).toBe('pwsh')
-+      writeFileSync(target, '')
-+      await ctx.shell.run(ctx.shell.resolve({ command: 'Write-Output second' }))
-+      expect(subprocess.specs[1]!.argv[0]).toBe(target)
-+    } finally {
-+      if (original.ProgramFiles === undefined) delete process.env.ProgramFiles
-+      else process.env.ProgramFiles = original.ProgramFiles
-+      if (original.PATH === undefined) delete process.env.PATH
-+      else process.env.PATH = original.PATH
-+      if (original.SystemRoot === undefined) delete process.env.SystemRoot
-+      else process.env.SystemRoot = original.SystemRoot
-+    }
-+  })
- })
- 
- describe.skipIf(!hasPwsh)('PwshLocalExecutor.run', () => {

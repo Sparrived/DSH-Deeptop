@@ -14,7 +14,11 @@ const legacyOutputRoot = path.join(resourcesRoot, "dsh-runtime");
 const sourceNodeModules = path.join(sourceRoot, "node_modules");
 const cliManifestPath = path.join(sourceRoot, "apps", "cli", "package.json");
 const entry = "node_modules/@deepseek-ai/dsh/lib/bin.js";
-const RUNTIME_SMOKE_PACKAGES = ["@deepseek-ai/dsh-attachment-local"];
+const RUNTIME_SMOKE_PACKAGES = [
+  "@deepseek-ai/dsh-session-persistence-jsonl",
+  "@deepseek-ai/dsh-attachment-local",
+  "@deepseek-ai/dsh-client-file-upload",
+];
 const OPTIONAL_RUNTIME_PACKAGES = [
   ["@deepseek-ai/dsh-file-reference", "packages/context/file-reference", true],
   ["@deepseek-ai/dsh-file-reference-local", "packages/context/file-reference-local", true],

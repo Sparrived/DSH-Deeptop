@@ -1,17 +1,17 @@
 diff --git a/.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.i18n.yaml b/.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.i18n.yaml
-index a9d00bc3b9..f4dd13ec2c 100644
+index 12c82b20bb..591a3c4226 100644
 --- a/.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.i18n.yaml
 +++ b/.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.i18n.yaml
 @@ -2,5 +2,5 @@
  # side as of the last confirmed-consistent state. Both languages carry equal authority;
  # after editing either side, bring the other along and re-record with:
  #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md
--2026-07-05-reconstructable-requests.md: 3786de02d06c0b6c094297ae89ac3f84053e408d
--2026-07-05-reconstructable-requests.zh.md: 851045aca7dababd0da859f3b04b721c65382fc3
-+2026-07-05-reconstructable-requests.md: 2adb723300fe8fd23fffeda24d6e95c5f05b8453
-+2026-07-05-reconstructable-requests.zh.md: a7e8090d936f4c38624c0fae7b453d8f1fd60ed1
+-2026-07-05-reconstructable-requests.md: bca93a60bf07484d73f1faf50359b72a0d00b9a3
+-2026-07-05-reconstructable-requests.zh.md: c9d2a4a5d05456df8b0bd065bade8a41dd7e4e84
++2026-07-05-reconstructable-requests.md: 1ad397e31860bfd0fe5b9ef7e3b4ee16d5ee8ae6
++2026-07-05-reconstructable-requests.zh.md: 7bd69a6d40921604461e2bb0e0b073118cb6a8ae
 diff --git a/.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md b/.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md
-index 3786de02d0..2adb723300 100644
+index bca93a60bf..1ad397e318 100644
 --- a/.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md
 +++ b/.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md
 @@ -14,7 +14,7 @@ The reference shape for the happy path is MiniCode's `LLMClient`: a stateful con
@@ -24,7 +24,7 @@ index 3786de02d0..2adb723300 100644
  Prefix-cache stability is corollary #1, not the headline: an append-only log projected by a per-node pure function yields requests that are append-extensions of their predecessors whenever the header is unchanged — stability is emergent, not managed. Byte-exact audit/replay is corollary #2; resume and fork with *attributable* drift is corollary #3.
  
 diff --git a/.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.zh.md b/.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.zh.md
-index 851045aca7..a7e8090d93 100644
+index c9d2a4a5d0..7bd69a6d40 100644
 --- a/.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.zh.md
 +++ b/.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.zh.md
 @@ -14,7 +14,7 @@ Status: implemented
@@ -115,19 +115,19 @@ index 0000000000..1830e26509
 +- 还原原始附件对象仍是恢复图片本身的唯一方式；请求投影不修复存储。
 +- 一个不可用附件会修改该出现位置的提供方请求文本，并可能从该处起阻止提供方缓存复用。
 diff --git a/packages/llm/llm-deepseek/README.i18n.yaml b/packages/llm/llm-deepseek/README.i18n.yaml
-index 85043aa674..e8ded28b41 100644
+index 3943c96eca..0a4f06b24c 100644
 --- a/packages/llm/llm-deepseek/README.i18n.yaml
 +++ b/packages/llm/llm-deepseek/README.i18n.yaml
 @@ -2,5 +2,5 @@
  # side as of the last confirmed-consistent state. Both languages carry equal authority;
  # after editing either side, bring the other along and re-record with:
  #   pnpm run verify-translation-pairing --write packages/llm/llm-deepseek/README.md
--README.md: 58639be34cb116f3103f579b277504818cb82278
--README.zh.md: d5a5be0847bc8f3ad069e7bb1fff3a42e1662e5d
-+README.md: b6a35695afbc6ff12fb6890598b9392c73342bea
-+README.zh.md: f3ae40c4b2c343aa15c94cc4f307fcd78d4a2a68
+-README.md: 6c69083909c71631dde04b453b399cc6bf687110
+-README.zh.md: 9b6d35864dee20320e3f16bed82d8eecb4f39ec1
++README.md: a79d7938bc97778720e1e33c171bb90a538be55e
++README.zh.md: 4b5fe48401bc484385f598e3f020f33c00d4cae2
 diff --git a/packages/llm/llm-deepseek/README.md b/packages/llm/llm-deepseek/README.md
-index 58639be34c..b6a35695af 100644
+index 6c69083909..a79d7938bc 100644
 --- a/packages/llm/llm-deepseek/README.md
 +++ b/packages/llm/llm-deepseek/README.md
 @@ -74,7 +74,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
@@ -140,7 +140,7 @@ index 58639be34c..b6a35695af 100644
  The adapter normally uploads those exact request bytes through the DeepSeek Files API and sends file-id blocks. A failed or timed-out file resolution rebuilds the whole chat request with the same request versions as base64 data URLs; one request never mixes file ids and inline images. Cached ids are scoped by endpoint and API key, refreshed before expiry, invalidated from provider stale-file errors, and resolved through singleflight with waiter-local cancellation. Quota failure deletes one configured batch of the oldest harness-owned files before one upload retry.
  
 diff --git a/packages/llm/llm-deepseek/README.zh.md b/packages/llm/llm-deepseek/README.zh.md
-index d5a5be0847..f3ae40c4b2 100644
+index 9b6d35864d..4b5fe48401 100644
 --- a/packages/llm/llm-deepseek/README.zh.md
 +++ b/packages/llm/llm-deepseek/README.zh.md
 @@ -74,7 +74,7 @@ kind: "package-reference"
@@ -303,22 +303,22 @@ index 39dd9e25b5..98409a6622 100644
      const server = await mockServer([{ kind: 'sse', events: textEvents }])
      const old = { ...imageRef, attachmentId: AttachmentId(`sha256:${'c'.repeat(64)}`), bytes: 3 }
 diff --git a/packages/llm/llm-pi-ai/README.i18n.yaml b/packages/llm/llm-pi-ai/README.i18n.yaml
-index 803c42af07..85cb33c7a1 100644
+index 02ed82def7..ca2b2dda16 100644
 --- a/packages/llm/llm-pi-ai/README.i18n.yaml
 +++ b/packages/llm/llm-pi-ai/README.i18n.yaml
 @@ -2,5 +2,5 @@
  # side as of the last confirmed-consistent state. Both languages carry equal authority;
  # after editing either side, bring the other along and re-record with:
  #   pnpm run verify-translation-pairing --write packages/llm/llm-pi-ai/README.md
--README.md: 5994a72f28b0a52890cb7bf7a5bc2ee33eedf418
--README.zh.md: 5f1c893128714caf24941943c57eaf3ab43314e0
-+README.md: 1b6379bd071fd23bcabb56dd1ca50f0d2470957b
-+README.zh.md: 3cac79af5f43d634bbf96dcdc17340652b76d103
+-README.md: e9a59a830e694341174969670f59787a6fd34854
+-README.zh.md: 67c14746d8bb7fa36cd3b45b45d79b0e81d9050e
++README.md: ec4783d106ef3594fdf2628fd891abed300a50e0
++README.zh.md: 133b702afe9a65cb93d440487db5937214e2eb81
 diff --git a/packages/llm/llm-pi-ai/README.md b/packages/llm/llm-pi-ai/README.md
-index 5994a72f28..1b6379bd07 100644
+index e9a59a830e..ec4783d106 100644
 --- a/packages/llm/llm-pi-ai/README.md
 +++ b/packages/llm/llm-pi-ai/README.md
-@@ -174,7 +174,7 @@ Read these pages when the package-level contract is not enough. They move from t
+@@ -176,7 +176,7 @@ Read these pages when the package-level contract is not enough. They move from t
  
  #### What the model sees
  
@@ -328,10 +328,10 @@ index 5994a72f28..1b6379bd07 100644
  #### Token effect
  
 diff --git a/packages/llm/llm-pi-ai/README.zh.md b/packages/llm/llm-pi-ai/README.zh.md
-index 5f1c893128..3cac79af5f 100644
+index 67c14746d8..133b702afe 100644
 --- a/packages/llm/llm-pi-ai/README.zh.md
 +++ b/packages/llm/llm-pi-ai/README.zh.md
-@@ -174,7 +174,7 @@ pi-ai 不提供的路由需要 `api`、`baseURL` 与非空 `models` 列表；无
+@@ -176,7 +176,7 @@ pi-ai 不提供的路由需要 `api`、`baseURL` 与非空 `models` 列表；无
  
  #### 模型看到什么
  
@@ -472,57 +472,57 @@ index 902a288caa..239046b349 100644
      const readImageRequest = vi.fn((value: ImageAttachmentRef) => (
        Promise.resolve(requestImage(value, Uint8Array.of(1, 2, 3)))
 diff --git a/packages/llm/llm/README.i18n.yaml b/packages/llm/llm/README.i18n.yaml
-index e5a5b22f6a..5a3d192eda 100644
+index c5f4bad616..96eb3757d4 100644
 --- a/packages/llm/llm/README.i18n.yaml
 +++ b/packages/llm/llm/README.i18n.yaml
 @@ -2,5 +2,5 @@
  # side as of the last confirmed-consistent state. Both languages carry equal authority;
  # after editing either side, bring the other along and re-record with:
  #   pnpm run verify-translation-pairing --write packages/llm/llm/README.md
--README.md: 6baa020a9503f32a71231d30e78ec7a3d8862f2b
--README.zh.md: f985736da44a76b063f16915a53cb19979fe1962
-+README.md: b6d1a7331a3c26658e48e2bc4140a19a1d0be919
-+README.zh.md: f65abe5470cf57cb529accd428e1087eaf353749
+-README.md: 0f84af8418f916a77589907656ed310ae2bb73f7
+-README.zh.md: 2c306940af912176a87d80a2552808cc2b644554
++README.md: 45b75f6a536a2c66a37241564e66fa0e65b6244c
++README.zh.md: a53b883f9cbfcdbaaab1e78a1366c3cfd5c363a2
 diff --git a/packages/llm/llm/README.md b/packages/llm/llm/README.md
-index 6baa020a95..b6d1a7331a 100644
+index 0f84af8418..45b75f6a53 100644
 --- a/packages/llm/llm/README.md
 +++ b/packages/llm/llm/README.md
-@@ -99,7 +99,7 @@ The service is built on one separation: **the logical contract is provider-neutr
+@@ -101,7 +101,7 @@ The service is built on one separation: **the logical contract is provider-neutr
  
  ### Main flow
  
--A request is validated against its exact model's capability — context window, output default, reasoning efforts, and input modalities — and any adapter-configured defaults are materialized, then the whole request is deep-frozen. `prepareCall()` binds those facts, detached context, and retry policy to the exact adapter generation that performs terminal dispatch, so HMR or dynamic settings cannot combine one generation's image capability with another generation's endpoint. An image-capable adapter projects durable references into route-specific request versions; `resolveImageAttachmentAccess()` separately maps an attachment provider's optional host object into the current tool execution world without changing the request image or its `variantId`. A text-only route receives deterministic per-image placeholders, including nested tool-result images, without rewriting append-only session history. `offloadRequestImagesWithPolicy()` removes oldest images deterministically by raw or base64 size and count or byte quanta; the pure `offloadedImagePrefixCount()` exposes that decision so route-owned request pricing can reproduce it without building the projection. Adapters that charge visual tokens declare per-route `imageRequestPricing`, which `ctx.llm.imageRequestPricing(provider, model)` resolves synchronously for the token meter. Dispatch goes through the `llm/stream` waterfall, then chunks return as token-level deltas and every adapter outcome reaches the consumer as one terminal `finish` chunk.
-+A request is validated against its exact model's capability — context window, output default, reasoning efforts, and input modalities — and any adapter-configured defaults are materialized, then the whole request is deep-frozen. `prepareCall()` binds those facts, detached context, and retry policy to the exact adapter generation that performs terminal dispatch, so HMR or dynamic settings cannot combine one generation's image capability with another generation's endpoint. An image-capable adapter projects durable references into route-specific request versions; `resolveImageAttachmentAccess()` separately maps an attachment provider's optional host object into the current tool execution world without changing the request image or its `variantId`. A text-only route receives deterministic per-image placeholders, including nested tool-result images, without rewriting append-only session history. An image-capable adapter replaces an `ATTACHMENT_NOT_FOUND` reference with a distinct stable placeholder for that request; integrity and other attachment failures remain errors. `offloadRequestImagesWithPolicy()` removes oldest images deterministically by raw or base64 size and count or byte quanta; the pure `offloadedImagePrefixCount()` exposes that decision so route-owned request pricing can reproduce it without building the projection. Adapters that charge visual tokens declare per-route `imageRequestPricing`, which `ctx.llm.imageRequestPricing(provider, model)` resolves synchronously for the token meter. Dispatch goes through the `llm/stream` waterfall, then chunks return as token-level deltas and every adapter outcome reaches the consumer as one terminal `finish` chunk.
+-A request is validated against its exact model's capability — context window, output default, reasoning efforts, and input modalities — and any adapter-configured defaults are materialized, then the whole request is deep-frozen. `prepareCall()` binds those facts, detached context, and retry policy to the exact adapter generation that performs terminal dispatch, so HMR or dynamic settings cannot combine one generation's image capability with another generation's endpoint. An image-capable adapter projects durable references into route-specific request versions; `resolveImageAttachmentAccess()` separately maps an attachment provider's optional host object into the current tool execution world without changing the request image or its `variantId`. A text-only route receives deterministic per-image placeholders, including nested tool-result images, without rewriting append-only session history. Durable `FileBlock` references never reach any adapter: request assembly replaces each one, nested tool-result occurrences included, with deterministic handle text naming the file and its saved read-only path, resolved through the mounted attachment and filesystem providers. `ctx.llm.fileRequestText(ref)` exposes that exact synchronous projection to request measurement. `offloadRequestImagesWithPolicy()` removes oldest images deterministically by raw or base64 size and count or byte quanta; the pure `offloadedImagePrefixCount()` exposes that decision so route-owned request pricing can reproduce it without building the projection. Adapters that charge visual tokens declare per-route `imageRequestPricing`, which `ctx.llm.imageRequestPricing(provider, model)` resolves synchronously for the token meter. Dispatch goes through the `llm/stream` waterfall, then chunks return as token-level deltas and every adapter outcome reaches the consumer as one terminal `finish` chunk.
++A request is validated against its exact model's capability — context window, output default, reasoning efforts, and input modalities — and any adapter-configured defaults are materialized, then the whole request is deep-frozen. `prepareCall()` binds those facts, detached context, and retry policy to the exact adapter generation that performs terminal dispatch, so HMR or dynamic settings cannot combine one generation's image capability with another generation's endpoint. An image-capable adapter projects durable references into route-specific request versions; `resolveImageAttachmentAccess()` separately maps an attachment provider's optional host object into the current tool execution world without changing the request image or its `variantId`. A text-only route receives deterministic per-image placeholders, including nested tool-result images, without rewriting append-only session history. An image-capable adapter replaces an `ATTACHMENT_NOT_FOUND` reference with a distinct stable placeholder for that request; integrity and other attachment failures remain errors. Durable `FileBlock` references never reach any adapter: request assembly replaces each one, nested tool-result occurrences included, with deterministic handle text naming the file and its saved read-only path, resolved through the mounted attachment and filesystem providers. `ctx.llm.fileRequestText(ref)` exposes that exact synchronous projection to request measurement. `offloadRequestImagesWithPolicy()` removes oldest images deterministically by raw or base64 size and count or byte quanta; the pure `offloadedImagePrefixCount()` exposes that decision so route-owned request pricing can reproduce it without building the projection. Adapters that charge visual tokens declare per-route `imageRequestPricing`, which `ctx.llm.imageRequestPricing(provider, model)` resolves synchronously for the token meter. Dispatch goes through the `llm/stream` waterfall, then chunks return as token-level deltas and every adapter outcome reaches the consumer as one terminal `finish` chunk.
  
  ### Invariants
  
 diff --git a/packages/llm/llm/README.zh.md b/packages/llm/llm/README.zh.md
-index f985736da4..f65abe5470 100644
+index 2c306940af..a53b883f9c 100644
 --- a/packages/llm/llm/README.zh.md
 +++ b/packages/llm/llm/README.zh.md
-@@ -99,7 +99,7 @@ for await (const chunk of ctx.llm.stream({
+@@ -101,7 +101,7 @@ for await (const chunk of ctx.llm.stream({
  
  ### 主流程
  
--请求会对照其精确模型的能力——上下文窗口、输出默认值、推理强度与输入模态——校验，填入任何适配器配置的默认值，然后整个请求被深度冻结。`prepareCall()` 把这些事实、分离的上下文与重试策略绑定到执行最终分发的精确适配器代次，因此 HMR 或动态设置无法把一个代次的图片能力与另一代次的端点混用。支持图片的适配器把持久引用投影为路由专用请求版本；`resolveImageAttachmentAccess()` 会单独把附件提供方的可选宿主对象映射进当前工具执行世界，而不改变请求图片或其 `variantId`。纯文本路由接收确定性的逐图片占位符，包括嵌套工具结果图片，而不会改写仅追加会话历史。`offloadRequestImagesWithPolicy()` 按原始字节或 base64 大小以及图片数或字节步长，确定性地从最旧图片开始移除；纯函数 `offloadedImagePrefixCount()` 公开同一决策，使路由所属的请求定价无需构建投影即可复现它。对视觉 token 收费的适配器声明按路由的 `imageRequestPricing`，`ctx.llm.imageRequestPricing(provider, model)` 为 token meter 同步解析它。分发经过 `llm/stream` waterfall，随后分片以 token 级增量返回，每个适配器结果都以唯一一个终止 `finish` 分片到达消费方。
-+请求会对照其精确模型的能力——上下文窗口、输出默认值、推理强度与输入模态——校验，填入任何适配器配置的默认值，然后整个请求被深度冻结。`prepareCall()` 把这些事实、分离的上下文与重试策略绑定到执行最终分发的精确适配器代次，因此 HMR 或动态设置无法把一个代次的图片能力与另一代次的端点混用。支持图片的适配器把持久引用投影为路由专用请求版本；`resolveImageAttachmentAccess()` 会单独把附件提供方的可选宿主对象映射进当前工具执行世界，而不改变请求图片或其 `variantId`。纯文本路由接收确定性的逐图片占位符，包括嵌套工具结果图片，而不会改写仅追加会话历史。支持图片的适配器会把 `ATTACHMENT_NOT_FOUND` 引用替换为该次请求专有的稳定占位符；完整性错误和其他附件失败仍然报错。`offloadRequestImagesWithPolicy()` 按原始字节或 base64 大小以及图片数或字节步长，确定性地从最旧图片开始移除；纯函数 `offloadedImagePrefixCount()` 公开同一决策，使路由所属的请求定价无需构建投影即可复现它。对视觉 token 收费的适配器声明按路由的 `imageRequestPricing`，`ctx.llm.imageRequestPricing(provider, model)` 为 token meter 同步解析它。分发经过 `llm/stream` waterfall，随后分片以 token 级增量返回，每个适配器结果都以唯一一个终止 `finish` 分片到达消费方。
+-请求会对照其精确模型的能力——上下文窗口、输出默认值、推理强度与输入模态——校验，填入任何适配器配置的默认值，然后整个请求被深度冻结。`prepareCall()` 把这些事实、分离的上下文与重试策略绑定到执行最终分发的精确适配器代次，因此 HMR 或动态设置无法把一个代次的图片能力与另一代次的端点混用。支持图片的适配器把持久引用投影为路由专用请求版本；`resolveImageAttachmentAccess()` 会单独把附件提供方的可选宿主对象映射进当前工具执行世界，而不改变请求图片或其 `variantId`。纯文本路由接收确定性的逐图片占位符，包括嵌套工具结果图片，而不会改写仅追加会话历史。持久 `FileBlock` 引用永远不会到达任何适配器：请求组装把每个引用（包括嵌套工具结果中的出现）替换为确定性 handle 文本，指出文件与其只读保存路径，路径经由挂载的附件与文件系统提供方解析。`ctx.llm.fileRequestText(ref)` 向请求计量公开相同的同步投影。`offloadRequestImagesWithPolicy()` 按原始字节或 base64 大小以及图片数或字节步长，确定性地从最旧图片开始移除；纯函数 `offloadedImagePrefixCount()` 公开同一决策，使路由所属的请求定价无需构建投影即可复现它。对视觉 token 收费的适配器声明按路由的 `imageRequestPricing`，`ctx.llm.imageRequestPricing(provider, model)` 为 token meter 同步解析它。分发经过 `llm/stream` waterfall，随后分片以 token 级增量返回，每个适配器结果都以唯一一个终止 `finish` 分片到达消费方。
++请求会对照其精确模型的能力——上下文窗口、输出默认值、推理强度与输入模态——校验，填入任何适配器配置的默认值，然后整个请求被深度冻结。`prepareCall()` 把这些事实、分离的上下文与重试策略绑定到执行最终分发的精确适配器代次，因此 HMR 或动态设置无法把一个代次的图片能力与另一代次的端点混用。支持图片的适配器把持久引用投影为路由专用请求版本；`resolveImageAttachmentAccess()` 会单独把附件提供方的可选宿主对象映射进当前工具执行世界，而不改变请求图片或其 `variantId`。纯文本路由接收确定性的逐图片占位符，包括嵌套工具结果图片，而不会改写仅追加会话历史。支持图片的适配器会把 `ATTACHMENT_NOT_FOUND` 引用替换为该次请求专有的稳定占位符；完整性错误和其他附件失败仍然报错。持久 `FileBlock` 引用永远不会到达任何适配器：请求组装把每个引用（包括嵌套工具结果中的出现）替换为确定性 handle 文本，指出文件与其只读保存路径，路径经由挂载的附件与文件系统提供方解析。`ctx.llm.fileRequestText(ref)` 向请求计量公开相同的同步投影。`offloadRequestImagesWithPolicy()` 按原始字节或 base64 大小以及图片数或字节步长，确定性地从最旧图片开始移除；纯函数 `offloadedImagePrefixCount()` 公开同一决策，使路由所属的请求定价无需构建投影即可复现它。对视觉 token 收费的适配器声明按路由的 `imageRequestPricing`，`ctx.llm.imageRequestPricing(provider, model)` 为 token meter 同步解析它。分发经过 `llm/stream` waterfall，随后分片以 token 级增量返回，每个适配器结果都以唯一一个终止 `finish` 分片到达消费方。
  
  ### 不变式
  
 diff --git a/packages/llm/llm/src/content.ts b/packages/llm/llm/src/content.ts
-index 5880f82c98..af2db85ddd 100644
+index 8ec0c14d35..a241ad4d55 100644
 --- a/packages/llm/llm/src/content.ts
 +++ b/packages/llm/llm/src/content.ts
-@@ -2,7 +2,7 @@
- 
+@@ -3,7 +3,7 @@
  import type { ContentBlock } from './types.ts'
  import type { Message } from './message.ts'
--import type { AttachmentStore, ImageAttachmentRef, ImageMediaType, RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
-+import type { AttachmentId, AttachmentStore, ImageAttachmentRef, ImageMediaType, RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
+ import type {
+-  AttachmentStore, FileAttachmentRef, ImageAttachmentRef, ImageMediaType, RequestImageAttachment,
++  AttachmentId, AttachmentStore, FileAttachmentRef, ImageAttachmentRef, ImageMediaType, RequestImageAttachment,
+ } from '@deepseek-ai/dsh-attachment'
  import { assertNever } from '@deepseek-ai/dsh-util-values'
  
- /** Execution-world path that model tools can use to read one normalized attachment. */
-@@ -113,6 +113,15 @@ export function offloadedImageText(
+@@ -115,6 +115,15 @@ export function offloadedImageText(
    return `[${identity}${normalizedAccessText(ref, access)}]`
  }
  
@@ -538,7 +538,7 @@ index 5880f82c98..af2db85ddd 100644
  /**
   * True when typed model content contains an image block, walking nested
   * tool-result content. This is the one recursive image walk shared by every
-@@ -216,6 +225,30 @@ function replaceImagesForTextModel(blocks: readonly ContentBlock[]): ContentBloc
+@@ -290,6 +299,30 @@ function replaceImagesForTextModel(blocks: readonly ContentBlock[]): ContentBloc
    return next ?? blocks as ContentBlock[]
  }
  
@@ -569,7 +569,7 @@ index 5880f82c98..af2db85ddd 100644
  /**
   * Project durable image history into deterministic text for an exact text-only model.
   * @param messages - complete request history.
-@@ -229,6 +262,23 @@ export function projectImagesForTextModel(messages: readonly Message[]): readonl
+@@ -303,6 +336,23 @@ export function projectImagesForTextModel(messages: readonly Message[]): readonl
    })
  }
  
@@ -594,10 +594,10 @@ index 5880f82c98..af2db85ddd 100644
   * Number of oldest image occurrences one request projection removes, in whole
   * count and byte quanta, once a route budget is exceeded. The result depends
 diff --git a/packages/llm/llm/tests/content.spec.ts b/packages/llm/llm/tests/content.spec.ts
-index 748e20f412..5e7f30089c 100644
+index af114958b1..799b20e8d1 100644
 --- a/packages/llm/llm/tests/content.spec.ts
 +++ b/packages/llm/llm/tests/content.spec.ts
-@@ -8,7 +8,9 @@ import {
+@@ -11,7 +11,9 @@ import {
    offloadedImagePrefixCount,
    offloadRequestImagesWithPolicy,
    projectImagesForTextModel,
@@ -607,7 +607,7 @@ index 748e20f412..5e7f30089c 100644
    requestImageHandleText,
  } from '../src/index.ts'
  import type { ContentBlock, Message } from '../src/index.ts'
-@@ -320,6 +322,33 @@ describe('model-facing image access', () => {
+@@ -323,6 +325,33 @@ describe('model-facing image access', () => {
    })
  })
  
