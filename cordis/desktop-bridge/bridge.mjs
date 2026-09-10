@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 import { routeDesktopRequest } from './routes.mjs'
-import { initNetworkProxy, stopSystemProxyWatch } from './network-proxy.mjs'
+import { disposeNetworkProxy, initNetworkProxy, stopSystemProxyWatch } from './network-proxy.mjs'
 import { compactLiveEventFrames } from './display-history.mjs'
 import { MuxEventSynthesizer } from './events-mux.mjs'
 import { HostEventSynthesizer } from './events-host.mjs'
@@ -221,7 +221,7 @@ export class DesktopBridge {
     return this.write({ type: 'fatal', message: errorDetail(error) })
   }
 
-  dispose() {
+  async dispose() {
     this.closed = true
     if (this.liveFlushTimer !== undefined) clearTimeout(this.liveFlushTimer)
     this.liveFlushTimer = undefined
@@ -232,5 +232,6 @@ export class DesktopBridge {
     this.abort.abort()
     stopSystemProxyWatch()
     this.input?.close()
+    await disposeNetworkProxy()
   }
 }

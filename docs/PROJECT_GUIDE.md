@@ -19,7 +19,7 @@ Deeptop 是 DSH 的原生桌面工作台：
 
 ### 2.1 环境要求
 
-- Node.js 22.19+ 或 24+；
+- Node.js 22.21+ 或 24+；
 - Rust/Cargo 和 Tauri 桌面开发环境；
 - Node.js 在 `PATH` 中可用（npm 仅用于开发依赖安装）；
 - 首次生成内嵌 DSH 运行时时可访问 npm registry，或构建机已有源码依赖缓存；

@@ -7,10 +7,10 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourceRoot = path.join(root, "vendor", "dsh");
 const publicBase = "82a5fd61a7cf5c293cec4bdff68f455398d685e9";
 const publicTag = "dsh-v0.1.3-alpha.2";
-const patchedCommit = "046e750ed585363f949a9115179ccbc68d6881b3";
+const patchedCommit = "dece817b122c527e77a8f4a5cf955713f739630f";
 const upstream = "https://github.com/deepseek-ai/deepseek-harness.git";
 
-// The vendored runtime ships six local commits on top of alpha.2.
+// The vendored runtime ships seven local commits on top of alpha.2.
 // Each entry reproduces one of them deterministically from its patch file:
 // identical tree, parents, message, and author/committer identity reproduce
 // the exact commit id pinned by src-tauri/src/main.rs.
@@ -119,6 +119,24 @@ const patches = [
       "原因：桌面运行时的受控部署不会执行原生依赖 install 脚本，而 Windows 启动不需要 POSIX flock；在模块求值时加载 fs-ext 会使桌面 Host 无法启动。",
       "",
       "验证：session-persistence-jsonl lease.spec.ts 10 通过、9 项 Windows 跳过；tsc -b packages/session/session-persistence-jsonl/tsconfig.json 通过。",
+      "",
+    ].join("\n"),
+  },
+  {
+    file: "dsh-http-proxy-desktop-policy.patch",
+    commit: "dece817b122c527e77a8f4a5cf955713f739630f",
+    authorName: "Sparrived",
+    authorEmail: "sparrived@outlook.com",
+    authorDate: "2026-09-09T15:26:34+08:00",
+    committerDate: "2026-09-10T12:46:33+08:00",
+    message: [
+      "fix(http-proxy): 支持桌面动态代理策略",
+      "",
+      "改动：允许调用方将子进程环境解析为当前动态策略，并补齐 Windows ProxyOverride 的 IPv4 通配符与 <local> 绕过规则。",
+      "",
+      "原因：Deeptop 在运行期间切换显式或系统代理时，官方 DSH egress 与子进程必须使用同一份策略。",
+      "",
+      "验证：packages/util/http-proxy 93 项 Vitest 通过；tsc -b packages/util/http-proxy/tsconfig.json 通过。",
       "",
     ].join("\n"),
   },

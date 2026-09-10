@@ -239,6 +239,7 @@ const BUNDLED_DSH_RUNTIME_SMOKE_PACKAGES: &[&str] = &[
     "@deepseek-ai/dsh-session-persistence-jsonl",
     "@deepseek-ai/dsh-attachment-local",
     "@deepseek-ai/dsh-client-file-upload",
+    "@deepseek-ai/dsh-http-proxy",
 ];
 const RUNTIME_CACHE_MARKER: &str = ".complete";
 const NODEJS_DOWNLOAD_URL: &str = "https://nodejs.org/en/download";
@@ -250,7 +251,7 @@ const MAX_AUTO_RESTARTS: u32 = 3;
 /// Base delay for the first auto-restart; each consecutive crash doubles it.
 const AUTO_RESTART_BASE_DELAY: Duration = Duration::from_millis(1000);
 const BUNDLED_DSH_VERSION: &str = "0.1.3-alpha.2";
-const BUNDLED_DSH_SOURCE_COMMIT: &str = "046e750ed585363f949a9115179ccbc68d6881b3";
+const BUNDLED_DSH_SOURCE_COMMIT: &str = "dece817b122c527e77a8f4a5cf955713f739630f";
 const BRIDGE_PACKAGE_JSON: &str = include_str!("../../cordis/package.json");
 const BRIDGE_PATCH: &str = include_str!("../../cordis/cordis.patch.yml");
 const BRIDGE_ENTRY: &str = include_str!("../../cordis/desktop-bridge/index.mjs");
@@ -1777,7 +1778,7 @@ fn system_npm_available() -> bool {
 fn node_executable(app: &AppHandle) -> Result<PathBuf, String> {
     system_node_executable()
         .or_else(|| node_runtime::managed_executable(app))
-        .ok_or_else(|| "未找到满足 DSH 要求的 Node.js（需要 22.19 或 24 以上版本）".to_string())
+        .ok_or_else(|| "未找到满足 DSH 要求的 Node.js（需要 22.21 或 24 以上版本）".to_string())
 }
 
 fn node_and_npm_available(app: &AppHandle) -> (Option<PathBuf>, bool) {
@@ -2275,7 +2276,7 @@ impl BridgeManager {
                 state.node_installing = true;
                 state.node_available = false;
                 state.npm_available = false;
-                state.message = "未检测到兼容 Node.js，正在自动配置 Node.js 22.19.0...".to_string();
+                state.message = "未检测到兼容 Node.js，正在自动配置 Node.js 22.21.1...".to_string();
                 true
             })
             .unwrap_or(false);
@@ -2286,7 +2287,7 @@ impl BridgeManager {
                 generation,
                 "start",
                 "diagnostic",
-                "未检测到兼容 Node.js，正在从 nodejs.org 下载并校验 Node.js 22.19.0...",
+                "未检测到兼容 Node.js，正在从 nodejs.org 下载并校验 Node.js 22.21.1...",
             );
         }
         match node_runtime::install(app) {
@@ -5921,12 +5922,13 @@ mod tests {
             "runtimeSmokePackages": [
                 "@deepseek-ai/dsh-session-persistence-jsonl",
                 "@deepseek-ai/dsh-attachment-local",
-                "@deepseek-ai/dsh-client-file-upload"
+                "@deepseek-ai/dsh-client-file-upload",
+                "@deepseek-ai/dsh-http-proxy"
             ],
             "packageName": "@deepseek-ai/dsh",
             "packageVersion": "0.1.3-alpha.2",
             "entry": "node_modules/@deepseek-ai/dsh/lib/bin.js",
-            "sourceCommit": "046e750ed585363f949a9115179ccbc68d6881b3",
+            "sourceCommit": "dece817b122c527e77a8f4a5cf955713f739630f",
             "platform": runtime_platform(),
             "arch": runtime_arch(),
             "treeSha256": "0123456789012345678901234567890123456789012345678901234567890123",

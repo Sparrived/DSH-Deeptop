@@ -18,6 +18,7 @@ const RUNTIME_SMOKE_PACKAGES = [
   "@deepseek-ai/dsh-session-persistence-jsonl",
   "@deepseek-ai/dsh-attachment-local",
   "@deepseek-ai/dsh-client-file-upload",
+  "@deepseek-ai/dsh-http-proxy",
 ];
 const OPTIONAL_RUNTIME_PACKAGES = [
   ["@deepseek-ai/dsh-file-reference", "packages/context/file-reference", true],

@@ -107,7 +107,7 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 3. 将 `cordis/` 下的内置插件按嵌套目录写入 `$DSH_HOME/profiles/node_modules/deeptop-bridge`，因此无需全局安装该 Bundle。
 4. 保留用户已有的 desktop Profile Bundle 和 `$DSH_HOME/profiles/desktop/cordis.patch.yml` 修改。
 5. 从 Tauri 安装包的压缩 `dsh-runtime.tar.gz` 和清单读取固定版本的 DSH 源码构建产物和完整依赖树。
-6. Windows x64 未发现兼容的 Node.js 时，自动从 `nodejs.org` 下载固定的 Node.js 22.19.0 ZIP，使用编译期固定的 SHA-256 校验归档和 `node.exe`，再仅把 `node.exe` 写入应用本地运行时缓存；不会修改系统 `PATH`，也不需要 npm。
+6. Windows x64 未发现兼容的 Node.js 时，自动从 `nodejs.org` 下载固定的 Node.js 22.21.1 ZIP，使用编译期固定的 SHA-256 校验归档和 `node.exe`，再仅把 `node.exe` 写入应用本地运行时缓存；不会修改系统 `PATH`，也不需要 npm。
 7. 将归档安全解压到按源码提交、平台、架构和运行时树摘要命名的应用本地数据缓存；首次物化时会重新计算树摘要，缓存使用 `.complete` 标记并检查清单、入口和完成标记后复用，更新时保留旧版本缓存以便回滚。
 8. 通过受支持的系统 Node.js 或应用本地校验后的 Node.js 直接执行缓存中的 `@deepseek-ai/dsh/lib/bin.js`，不调用 npm、PATH 中的 `dsh`、全局安装、npm/npx 缓存或 registry。
 9. 启动内嵌 DSH 前会检查已经运行的 desktop DSH 进程及其 `DSH_HOME`；如果确认占用同一目录，应用会暂停启动并显示冲突弹窗。用户可以保持旧进程运行，或仅终止弹窗列出的 DSH 进程后继续启动 Deeptop。
@@ -119,7 +119,7 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 
 要求：
 
-- Node.js 22.19+ 或 24+；
+- Node.js 22.21+ 或 24+；
 - Rust/Cargo，以及 Tauri 所需的 Windows 桌面开发环境；
 - Node.js 位于 `PATH` 中（npm 仅用于开发依赖安装，不参与安装包运行时）；
 - 首次构建内嵌 DSH 运行时需要访问 npm registry，或构建机已准备好 DSH 源码依赖缓存；运行中的安装包不访问 registry；
@@ -235,7 +235,7 @@ Deeptop 的目标是“功能和契约兼容，界面和生命周期原生化”
 
 ### 找不到 Node.js
 
-Deeptop 通过系统 `PATH` 中的 Node.js 直接执行安装包内嵌的 DSH JavaScript；npm 不参与安装包运行时。请安装 Node.js 22.19+ 或 24+，确认启动 Deeptop 的进程继承了正确的 `PATH`，然后重试。
+Deeptop 通过系统 `PATH` 中的 Node.js 直接执行安装包内嵌的 DSH JavaScript；npm 不参与安装包运行时。请安装 Node.js 22.21+ 或 24+，确认启动 Deeptop 的进程继承了正确的 `PATH`，然后重试。
 
 ### DSH 启动失败或停留在“正在启动”
 

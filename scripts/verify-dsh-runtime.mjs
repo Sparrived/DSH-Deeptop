@@ -15,6 +15,7 @@ const runtimeSmokePackages = [
   "@deepseek-ai/dsh-session-persistence-jsonl",
   "@deepseek-ai/dsh-attachment-local",
   "@deepseek-ai/dsh-client-file-upload",
+  "@deepseek-ai/dsh-http-proxy",
 ];
 
 function readJson(filePath) {

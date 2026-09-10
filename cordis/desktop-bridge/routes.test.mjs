@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { routeDesktopRequest } from './routes.mjs'
 import { resolveDshHome } from './dsh-home.mjs'
 import { bridgeErrorFrame, DesktopBridge, writeBridgeFrame } from './bridge.mjs'
-import { applyProxy, initNetworkProxy, loadProxySetting, normalizeProxyOverride, parseWindowsProxyServer, setProxySetting, stopSystemProxyWatch } from './network-proxy.mjs'
+import { applyProxy, disposeNetworkProxy, initNetworkProxy, loadProxySetting, normalizeProxyOverride, parseWindowsProxyServer, setProxySetting, stopSystemProxyWatch } from './network-proxy.mjs'
 import { describePluginConfig, mutatePluginConfig } from './plugin-config.mjs'
 import { parseGitHubSource, selectSkillPath, validateRelativeRepoPath } from '../skill-installer/installer.mjs'
 import { createSessionTailRegistry } from './session-tails.mjs'
@@ -735,7 +735,7 @@ test('validates, persists, and routes the desktop HTTP proxy setting', async () 
     // With no explicit proxy, the effective source falls back to the system proxy (or none).
     assert.ok(direct.effective.source === 'system' || direct.effective.source === 'none')
   } finally {
-    await applyProxy({ enabled: false, url: '' })
+    await disposeNetworkProxy()
     if (previousHome === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previousHome
     await removePath(root, { recursive: true, force: true })
@@ -754,14 +754,50 @@ test('does not block bridge startup when a persisted proxy is unusable', async (
     assert.match(result.error, /HTTP\/HTTPS/)
   } finally {
     stopSystemProxyWatch()
-    applyProxy({ enabled: false, url: '' })
+    await disposeNetworkProxy()
     if (previousHome === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previousHome
     await removePath(root, { recursive: true, force: true })
   }
 })
 
-test('routes Node global fetch through the selected HTTP proxy', async () => {
+test('serializes concurrent desktop proxy settings', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-network-proxy-'))
+  const previousHome = process.env.DSH_HOME
+  process.env.DSH_HOME = root
+  try {
+    await Promise.all([
+      setProxySetting({ enabled: true, url: 'http://127.0.0.1:7890' }),
+      setProxySetting({ enabled: true, url: 'http://127.0.0.1:7891' }),
+    ])
+    assert.deepEqual(await loadProxySetting(), { enabled: true, url: 'http://127.0.0.1:7891/' })
+  } finally {
+    await disposeNetworkProxy()
+    if (previousHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previousHome
+    await removePath(root, { recursive: true, force: true })
+  }
+})
+
+test('does not reapply the proxy after its watcher stops', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-network-proxy-'))
+  const previousHome = process.env.DSH_HOME
+  process.env.DSH_HOME = root
+  try {
+    const initializing = initNetworkProxy()
+    stopSystemProxyWatch()
+    const result = await initializing
+    assert.equal(result.ok, true)
+    assert.equal(result.applied, false)
+  } finally {
+    await disposeNetworkProxy()
+    if (previousHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previousHome
+    await removePath(root, { recursive: true, force: true })
+  }
+})
+
+test('routes Node global fetch through the official DSH proxy policy', async () => {
   let received
   let receivedConnect
   const proxy = createServer((request, response) => {
@@ -777,8 +813,16 @@ test('routes Node global fetch through the selected HTTP proxy', async () => {
     proxy.once('error', reject)
     proxy.listen(0, '127.0.0.1', resolve)
   })
+  const origin = createServer((_request, response) => { response.end('direct') })
+  await new Promise((resolve, reject) => {
+    origin.once('error', reject)
+    origin.listen(0, '127.0.0.1', resolve)
+  })
   const address = proxy.address()
-  if (address === null || typeof address === 'string') throw new Error('test proxy did not bind a TCP port')
+  const originAddress = origin.address()
+  if (address === null || typeof address === 'string' || originAddress === null || typeof originAddress === 'string') {
+    throw new Error('test proxy or origin did not bind a TCP port')
+  }
   try {
     await applyProxy({ enabled: true, url: `http://127.0.0.1:${address.port}` })
     const response = await fetch('http://model.invalid/probe')
@@ -786,9 +830,14 @@ test('routes Node global fetch through the selected HTTP proxy', async () => {
     assert.deepEqual(received, { method: 'GET', url: 'http://model.invalid/probe', host: 'model.invalid' })
     await assert.rejects(fetch('https://model.invalid/probe'))
     assert.deepEqual(receivedConnect, { method: 'CONNECT', url: 'model.invalid:443', host: 'model.invalid' })
+    const direct = await fetch(`http://127.0.0.1:${originAddress.port}/probe`)
+    assert.equal(await direct.text(), 'direct', 'official policy never proxies loopback traffic')
   } finally {
-    await applyProxy({ enabled: false, url: '' })
-    await new Promise((resolve, reject) => proxy.close(error => error === undefined ? resolve() : reject(error)))
+    await disposeNetworkProxy()
+    await Promise.all([
+      new Promise((resolve, reject) => proxy.close(error => error === undefined ? resolve() : reject(error))),
+      new Promise((resolve, reject) => origin.close(error => error === undefined ? resolve() : reject(error))),
+    ])
   }
 })
 
@@ -796,11 +845,12 @@ test('parses Windows ProxyServer into a usable proxy URL', () => {
   assert.equal(parseWindowsProxyServer('127.0.0.1:7890'), 'http://127.0.0.1:7890')
   assert.equal(parseWindowsProxyServer('http=127.0.0.1:7890;https=127.0.0.1:7891'), 'http://127.0.0.1:7891')
   assert.equal(parseWindowsProxyServer('http=127.0.0.1:7890'), 'http://127.0.0.1:7890')
+  assert.equal(parseWindowsProxyServer('https=127.0.0.1:7891'), 'http://127.0.0.1:7891')
   assert.equal(parseWindowsProxyServer(''), undefined)
 })
 
-test('normalizes ProxyOverride into a rule list for the custom dispatcher', () => {
-  assert.deepEqual(normalizeProxyOverride('localhost;127.*;192.168.*;10.*;<local>'), ['localhost', '127.*', '192.168.*', '10.*', 'localhost'])
+test('normalizes ProxyOverride into DSH NO_PROXY rules', () => {
+  assert.deepEqual(normalizeProxyOverride('localhost;127.*;192.168.*;10.*;<LOCAL>'), ['localhost', '127.*', '192.168.*', '10.*', 'localhost', '<local>'])
   assert.deepEqual(normalizeProxyOverride(''), [])
 })
 
