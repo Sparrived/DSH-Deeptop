@@ -1947,6 +1947,7 @@
   "trajectory.title.request": "模型请求",
   "trajectory.title.requestConfig": "请求配置",
   "trajectory.title.routeContext": "路由上下文",
+  "trajectory.title.systemPrompt": "系统提示词",
   "trajectory.tool.count": "{count} 个工具",
   "trajectory.tool.error": "工具返回错误",
   "trajectory.tool.none": "无工具",

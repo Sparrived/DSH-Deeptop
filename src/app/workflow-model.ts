@@ -209,6 +209,21 @@ export function deliverablesFromHistory(entries: DshHistoryEntry[]) {
       const current = closingAssistantByTurn.get(turn);
       if (!current || event.seq > current.seq) closingAssistantByTurn.set(turn, { seq: event.seq, time: event.time });
     }
+    if (event.type === "deliverables/presented") {
+      // DSH 0.1.5 ships the `present` tool in the standard preset and records its
+      // delivery as this durable event instead of a diff card, so the presented
+      // paths are read from it; a presented file carries no diff statistics.
+      const turnKey = turn ?? String(event.seq);
+      const current = pathsByTurn.get(turnKey) ?? { seq: event.seq, time: event.time, paths: [], fileDiffs: {} };
+      current.seq = Math.max(current.seq, event.seq);
+      current.time = event.time;
+      for (const file of Array.isArray(event.data.files) ? event.data.files : []) {
+        const path = recordValue(file)?.path;
+        if (typeof path === "string" && path.trim().length > 0 && !current.paths.includes(path)) current.paths.push(path);
+      }
+      pathsByTurn.set(turnKey, current);
+      continue;
+    }
     const callId = eventToolCallId(event);
     if (event.type === "tool/call" && callId) {
       callViews.set(callId, view);
