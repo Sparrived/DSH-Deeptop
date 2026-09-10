@@ -562,7 +562,6 @@
   border-color: var(--line);
   border-left: 3px solid var(--good);
   background: var(--surface-raised);
-  box-shadow: var(--shadow-soft);
 }
 
 .tool-entry.tool-paired::before {
