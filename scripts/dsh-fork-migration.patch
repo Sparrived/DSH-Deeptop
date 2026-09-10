@@ -1,8 +1,8 @@
 diff --git a/packages/api/session-controller/src/commands.ts b/packages/api/session-controller/src/commands.ts
-index f3fa473e6c..afdb11ffed 100644
+index 35fc113408..1110e38283 100644
 --- a/packages/api/session-controller/src/commands.ts
 +++ b/packages/api/session-controller/src/commands.ts
-@@ -187,8 +187,11 @@ export class SessionCommandController {
+@@ -195,8 +195,11 @@ export class SessionCommandController {
    }
  
    /**
@@ -16,7 +16,7 @@ index f3fa473e6c..afdb11ffed 100644
     * @returns the new Session identity.
     */
    async fork(request: SessionForkRequest): Promise<SessionForkValue> {
-@@ -215,26 +218,35 @@ export class SessionCommandController {
+@@ -223,26 +226,35 @@ export class SessionCommandController {
        )
      }
      using source = observed
@@ -72,7 +72,7 @@ index f3fa473e6c..afdb11ffed 100644
      }
      let workspace: Workspace | undefined
      try {
-@@ -247,7 +259,33 @@ export class SessionCommandController {
+@@ -255,7 +267,33 @@ export class SessionCommandController {
        )
      }
      const childId = brandString<SessionId>(`session-${randomUUID()}`)
@@ -107,16 +107,14 @@ index f3fa473e6c..afdb11ffed 100644
      try {
        const { provider, model } = this.ctx.agentDefaultModel.currentSelection()
        await this.ctx.agents.create({
-@@ -263,13 +301,23 @@ export class SessionCommandController {
+@@ -271,13 +309,21 @@ export class SessionCommandController {
              : { agentPreset: composition.agentPreset }),
          },
          agentOptions: { provider, model },
 -        setup: composition.setup,
-+        setup: async (agentCtx) => {
-+          await composition.setup(agentCtx)
++        setup: async (agentCtx, agent) => {
++          await composition.setup(agentCtx, agent)
 +          if (requestedPreset !== undefined) {
-+            const agent = agentCtx.agent
-+            if (agent === undefined) throw new Error('fork migration setup has no agent')
 +            agent.session.append('agent-preset/selected', {
 +              agentPreset: composition.agentPreset ?? requestedPreset,
 +            })
@@ -134,10 +132,10 @@ index f3fa473e6c..afdb11ffed 100644
      }
      if (workspace !== undefined) {
 diff --git a/packages/api/session-controller/src/index.ts b/packages/api/session-controller/src/index.ts
-index c058f25a08..1e619f02e8 100644
+index b5e92ec6e9..28b5b6610a 100644
 --- a/packages/api/session-controller/src/index.ts
 +++ b/packages/api/session-controller/src/index.ts
-@@ -310,8 +310,11 @@ export class SessionController extends TypertRemoteService {
+@@ -327,8 +327,11 @@ export class SessionController extends TypertRemoteService {
    }
  
    /**
@@ -152,10 +150,10 @@ index c058f25a08..1e619f02e8 100644
     */
    @Remote('fork')
 diff --git a/packages/api/session-controller/src/types.ts b/packages/api/session-controller/src/types.ts
-index f421660088..e11c6a08b8 100644
+index 60f7a93e56..50aab42e49 100644
 --- a/packages/api/session-controller/src/types.ts
 +++ b/packages/api/session-controller/src/types.ts
-@@ -295,6 +295,12 @@ export interface SessionRenameValue {
+@@ -299,6 +299,12 @@ export interface SessionRenameValue {
  export interface SessionForkRequest {
    readonly sessionId: SessionId
    readonly atSeq?: number
@@ -169,7 +167,7 @@ index f421660088..e11c6a08b8 100644
  
  /** Identity of a newly forked Session. */
 diff --git a/packages/api/session-controller/tests/commands-create-fork.host.spec.ts b/packages/api/session-controller/tests/commands-create-fork.host.spec.ts
-index 42bb3fe508..61c0777d3a 100644
+index 42bb3fe508..c20927aa76 100644
 --- a/packages/api/session-controller/tests/commands-create-fork.host.spec.ts
 +++ b/packages/api/session-controller/tests/commands-create-fork.host.spec.ts
 @@ -3,7 +3,7 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -272,7 +270,7 @@ index 42bb3fe508..61c0777d3a 100644
 +    // The migration setup records the explicit selection only after the
 +    // composed setup settled.
 +    const append = vi.fn()
-+    await options.setup?.({ agent: { session: { append } } } as never)
++    await options.setup?.({} as never, { session: { append } } as never)
 +    expect(append).toHaveBeenCalledWith('agent-preset/selected', { agentPreset: 'minimal' })
 +    await ctx.fiber.dispose()
 +  })

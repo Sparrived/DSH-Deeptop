@@ -227,7 +227,11 @@ mod windows_process_environment {
     }
 }
 
-const DSH_PROFILE: &str = "desktop";
+/// The DSH profile this application owns. DSH reserves the name `desktop` for
+/// the upstream Electron application, so Deeptop boots its own profile.
+const DSH_PROFILE: &str = "deeptop";
+/// The profile name Deeptop used before DSH reserved `desktop`; migrated on boot.
+const LEGACY_DSH_PROFILE: &str = "desktop";
 const BUNDLED_DSH_PACKAGE: &str = "@deepseek-ai/dsh";
 const BUNDLED_DSH_RUNTIME_DIR: &str = "dsh-runtime";
 const BUNDLED_DSH_ARCHIVE: &str = "dsh-runtime.tar.gz";
@@ -250,8 +254,8 @@ const BRIDGE_TIMEOUT: Duration = Duration::from_secs(45);
 const MAX_AUTO_RESTARTS: u32 = 3;
 /// Base delay for the first auto-restart; each consecutive crash doubles it.
 const AUTO_RESTART_BASE_DELAY: Duration = Duration::from_millis(1000);
-const BUNDLED_DSH_VERSION: &str = "0.1.3-alpha.2";
-const BUNDLED_DSH_SOURCE_COMMIT: &str = "dece817b122c527e77a8f4a5cf955713f739630f";
+const BUNDLED_DSH_VERSION: &str = "0.1.5-rc.1";
+const BUNDLED_DSH_SOURCE_COMMIT: &str = "c8eeb3616c2a35d3547f8c48eb70de0350726a4a";
 const BRIDGE_PACKAGE_JSON: &str = include_str!("../../cordis/package.json");
 const BRIDGE_PATCH: &str = include_str!("../../cordis/cordis.patch.yml");
 const BRIDGE_ENTRY: &str = include_str!("../../cordis/desktop-bridge/index.mjs");
@@ -986,21 +990,21 @@ fn ensure_desktop_profile_manifest(path: &Path) -> Result<(), String> {
         .get("dependencies")
         .and_then(Value::as_object)
         .cloned()
-        .ok_or_else(|| "embedded desktop Profile 的 dependencies 必须是对象".to_string())?;
+        .ok_or_else(|| "embedded Deeptop Profile 的 dependencies 必须是对象".to_string())?;
     let mut manifest: Value = if path.exists() {
         let raw = fs::read_to_string(path)
-            .map_err(|error| format!("无法读取 desktop Profile：{error}"))?;
+            .map_err(|error| format!("无法读取 Deeptop Profile：{error}"))?;
         serde_json::from_str(&raw)
-            .map_err(|error| format!("desktop Profile 的 package.json 无效：{error}"))?
+            .map_err(|error| format!("Deeptop Profile 的 package.json 无效：{error}"))?
     } else {
         template
     };
 
     let root = manifest
         .as_object_mut()
-        .ok_or_else(|| "desktop Profile 的 package.json 必须是 JSON 对象".to_string())?;
+        .ok_or_else(|| "Deeptop Profile 的 package.json 必须是 JSON 对象".to_string())?;
     root.entry("name".to_string())
-        .or_insert_with(|| Value::String("dsh-profile-desktop".to_string()));
+        .or_insert_with(|| Value::String("dsh-profile-deeptop".to_string()));
     root.entry("private".to_string())
         .or_insert(Value::Bool(true));
     root.entry("dependencies".to_string())
@@ -1008,7 +1012,7 @@ fn ensure_desktop_profile_manifest(path: &Path) -> Result<(), String> {
     let dependencies = root
         .get_mut("dependencies")
         .and_then(Value::as_object_mut)
-        .ok_or_else(|| "desktop Profile 的 dependencies 必须是对象".to_string())?;
+        .ok_or_else(|| "Deeptop Profile 的 dependencies 必须是对象".to_string())?;
     for (name, version) in required_dependencies {
         dependencies.insert(name.clone(), version.clone());
     }
@@ -1017,17 +1021,17 @@ fn ensure_desktop_profile_manifest(path: &Path) -> Result<(), String> {
         .entry("dsh".to_string())
         .or_insert_with(|| json!({}))
         .as_object_mut()
-        .ok_or_else(|| "desktop Profile 的 dsh 字段必须是对象".to_string())?;
+        .ok_or_else(|| "Deeptop Profile 的 dsh 字段必须是对象".to_string())?;
     let profile = dsh
         .entry("profile".to_string())
         .or_insert_with(|| json!({}))
         .as_object_mut()
-        .ok_or_else(|| "desktop Profile 的 dsh.profile 字段必须是对象".to_string())?;
+        .ok_or_else(|| "Deeptop Profile 的 dsh.profile 字段必须是对象".to_string())?;
     let bundles = profile
         .entry("bundles".to_string())
         .or_insert_with(|| Value::Array(Vec::new()))
         .as_array_mut()
-        .ok_or_else(|| "desktop Profile 的 dsh.profile.bundles 字段必须是数组".to_string())?;
+        .ok_or_else(|| "Deeptop Profile 的 dsh.profile.bundles 字段必须是数组".to_string())?;
 
     // Migrate the old bridge name; loading both bundles duplicates every service entry.
     let mut user_bundles = Vec::new();
@@ -1037,7 +1041,7 @@ fn ensure_desktop_profile_manifest(path: &Path) -> Result<(), String> {
             | Some("deeptop-bridge")
             | Some("@dsh-desktop/bridge") => {}
             Some(_) => user_bundles.push(bundle),
-            None => return Err("desktop Profile 的 bundles 只能包含包名字符串".to_string()),
+            None => return Err("Deeptop Profile 的 bundles 只能包含包名字符串".to_string()),
         }
     }
     bundles.push(Value::String("@deepseek-ai/dsh-base".to_string()));
@@ -1047,7 +1051,7 @@ fn ensure_desktop_profile_manifest(path: &Path) -> Result<(), String> {
     let content = format!(
         "{}\n",
         serde_json::to_string_pretty(&manifest)
-            .map_err(|error| format!("无法序列化 desktop Profile：{error}"))?
+            .map_err(|error| format!("无法序列化 Deeptop Profile：{error}"))?
     );
     write_text(path, &content)
 }
@@ -1122,11 +1126,61 @@ fn bundled_bridge_files() -> [(&'static str, &'static str); 29] {
     ]
 }
 
+/// Whether one profile directory is the profile this application created.
+///
+/// DSH reserves the name `desktop` for the upstream Electron application, which
+/// owns its own `$DSH_HOME/profiles/desktop`. The legacy Deeptop profile shares
+/// that path, so the migration must identify its own profile before moving it:
+/// the template manifest name or the injected bridge bundle proves ownership.
+fn profile_belongs_to_deeptop(directory: &Path) -> bool {
+    let Ok(raw) = fs::read_to_string(directory.join("package.json")) else {
+        return false;
+    };
+    let Ok(manifest) = serde_json::from_str::<Value>(&raw) else {
+        return false;
+    };
+    if manifest.get("name").and_then(Value::as_str) == Some("dsh-profile-desktop") {
+        return true;
+    }
+    manifest
+        .pointer("/dsh/profile/bundles")
+        .and_then(Value::as_array)
+        .is_some_and(|bundles| {
+            bundles
+                .iter()
+                .any(|bundle| bundle.as_str() == Some("deeptop-bridge"))
+        })
+}
+
+/// Move a pre-1.5 Deeptop profile from the reserved `desktop` name to `deeptop`.
+///
+/// Profile data is user-owned (their patch edits, session pins and installed
+/// plugin dependencies), so the whole directory moves rather than being
+/// recreated. A profile that is not this application's — the upstream Electron
+/// desktop profile shares the old name — is left untouched, and a failure is
+/// reported instead of silently starting with an empty profile.
+fn migrate_legacy_desktop_profile(profiles: &Path) -> Result<(), String> {
+    let target = profiles.join(DSH_PROFILE);
+    if target.exists() {
+        return Ok(());
+    }
+    let legacy = profiles.join(LEGACY_DSH_PROFILE);
+    if !legacy.is_dir() || !profile_belongs_to_deeptop(&legacy) {
+        return Ok(());
+    }
+    fs::rename(&legacy, &target).map_err(|error| {
+        format!(
+            "无法把旧 desktop Profile 迁移为 deeptop Profile：{error}；请退出正在使用该 Profile 的 DSH 进程后重试"
+        )
+    })
+}
+
 fn materialize_desktop_profile() -> Result<(), String> {
     let profiles = dsh_home().join("profiles");
+    migrate_legacy_desktop_profile(&profiles)?;
     let profile_dir = profiles.join(DSH_PROFILE);
     fs::create_dir_all(&profile_dir)
-        .map_err(|error| format!("无法创建 desktop Profile：{error}"))?;
+        .map_err(|error| format!("无法创建 Deeptop Profile：{error}"))?;
     ensure_desktop_profile_manifest(&profile_dir.join("package.json"))?;
     let profile_patch = profile_dir.join("cordis.patch.yml");
     write_if_missing(&profile_patch, PROFILE_PATCH_TEMPLATE)?;
@@ -1911,15 +1965,21 @@ fn process_command_line_matches_dsh(name: &str, command_line: &str) -> bool {
     }
     let lower = command_line.to_ascii_lowercase();
     let arguments: Vec<&str> = lower.split_whitespace().collect();
-    let desktop_profile = arguments.iter().enumerate().any(|(index, argument)| {
-        (*argument == "--profile" && arguments.get(index + 1) == Some(&"desktop"))
-            || *argument == "--profile=desktop"
+    let owned_profile = arguments.iter().enumerate().any(|(index, argument)| {
+        // A legacy Deeptop instance still boots the pre-1.5 profile name, so both
+        // names count as this application's own process.
+        matches!(*argument, "--profile=deeptop" | "--profile=desktop")
+            || (*argument == "--profile"
+                && matches!(
+                    arguments.get(index + 1),
+                    Some(&"deeptop") | Some(&"desktop")
+                ))
     });
     let normalized = lower.replace('\\', "/");
     let dsh_entry = normalized.contains("@deepseek-ai/dsh/")
         || normalized.contains("/dsh/lib/bin.js")
         || normalized.contains(" dsh/lib/bin.js");
-    dsh_entry && desktop_profile
+    dsh_entry && owned_profile
 }
 
 #[cfg(windows)]
@@ -2021,7 +2081,7 @@ fn list_external_dsh_processes() -> Result<Vec<DshProcessInfo>, String> {
                 "-NoProfile",
                 "-NonInteractive",
                 "-Command",
-                r#"$ErrorActionPreference='Stop'; Get-CimInstance Win32_Process | Where-Object { $_.Name -match '(?i)^node(?:\.exe)?$' -and $_.CommandLine -and $_.CommandLine -match '(?i)(dsh|@deepseek-ai)' -and $_.CommandLine -match '(?i)--profile\s+desktop' } | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"#,
+                r#"$ErrorActionPreference='Stop'; Get-CimInstance Win32_Process | Where-Object { $_.Name -match '(?i)^node(?:\.exe)?$' -and $_.CommandLine -and $_.CommandLine -match '(?i)(dsh|@deepseek-ai)' -and $_.CommandLine -match '(?i)--profile\s+(?:deeptop|desktop)' } | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"#,
             ])
             .output()
             .map_err(|error| format!("无法检查 DSH 进程：{error}"))?;
@@ -5478,6 +5538,7 @@ fn open_themes_directory() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    use super::migrate_legacy_desktop_profile;
     use super::{
         base64_encode, bound_log_text, bridge_stdout_log_summary, bundled_bridge_files, dsh_home,
         dsh_homes_match, extract_runtime_archive, format_log_line, format_utc_datetime,
@@ -5489,6 +5550,7 @@ mod tests {
         LogStore, RuntimePhase, TraySessionMenuItem, TraySessionMenuSnapshot, TraySessionStatus,
         MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES, RUNTIME_CACHE_MARKER,
     };
+    use std::fs;
 
     #[test]
     fn reports_cached_node_and_npm_status() {
@@ -5664,11 +5726,16 @@ mod tests {
     fn recognizes_only_node_dsh_desktop_processes() {
         assert!(process_command_line_matches_dsh(
             "node.exe",
+            "node.exe C:\\tools\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js --profile deeptop"
+        ));
+        // A legacy Deeptop instance still holds the pre-1.5 profile name.
+        assert!(process_command_line_matches_dsh(
+            "node.exe",
             "node.exe C:\\tools\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js --profile desktop"
         ));
         assert!(!process_command_line_matches_dsh(
             "pwsh.exe",
-            "pwsh -Command dsh --profile desktop"
+            "pwsh -Command dsh --profile deeptop"
         ));
         assert!(!process_command_line_matches_dsh(
             "node.exe",
@@ -5676,8 +5743,48 @@ mod tests {
         ));
         assert!(!process_command_line_matches_dsh(
             "node.exe",
-            "node.exe C:\\tools\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js --profile desktoply"
+            "node.exe C:\\tools\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js --profile deeptoply"
         ));
+    }
+
+    #[test]
+    fn migrates_only_its_own_legacy_profile() {
+        let root = std::env::temp_dir().join(format!(
+            "deeptop-profile-migration-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let profiles = root.join("profiles");
+        let legacy = profiles.join("desktop");
+
+        // The upstream Electron desktop profile shares the old name and must survive.
+        let upstream = profiles.join("desktop-upstream");
+        fs::create_dir_all(&upstream).expect("create upstream profile");
+        fs::write(
+            upstream.join("package.json"),
+            r#"{"name":"dsh-profile-electron","dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@deepseek-ai/dsh-web-app"]}}}"#,
+        )
+        .expect("write upstream manifest");
+
+        fs::create_dir_all(&legacy).expect("create legacy profile");
+        fs::write(
+            legacy.join("package.json"),
+            r#"{"name":"dsh-profile-desktop","dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","deeptop-bridge"]}}}"#,
+        )
+        .expect("write legacy manifest");
+        fs::create_dir_all(legacy.join("node_modules")).expect("create legacy node_modules");
+
+        migrate_legacy_desktop_profile(&profiles).expect("migrate legacy profile");
+        assert!(profiles.join("deeptop").join("package.json").exists());
+        assert!(profiles.join("deeptop").join("node_modules").is_dir());
+        assert!(!legacy.exists());
+
+        // A foreign profile is never moved, and a second pass is a no-op.
+        migrate_legacy_desktop_profile(&profiles).expect("second migration is a no-op");
+        assert!(upstream.join("package.json").exists());
+        assert!(!profiles.join("deeptop-upstream").exists());
+
+        fs::remove_dir_all(&root).expect("clean the profile fixture");
     }
 
     #[test]
@@ -5926,9 +6033,9 @@ mod tests {
                 "@deepseek-ai/dsh-http-proxy"
             ],
             "packageName": "@deepseek-ai/dsh",
-            "packageVersion": "0.1.3-alpha.2",
+            "packageVersion": "0.1.5-rc.1",
             "entry": "node_modules/@deepseek-ai/dsh/lib/bin.js",
-            "sourceCommit": "dece817b122c527e77a8f4a5cf955713f739630f",
+            "sourceCommit": "c8eeb3616c2a35d3547f8c48eb70de0350726a4a",
             "platform": runtime_platform(),
             "arch": runtime_arch(),
             "treeSha256": "0123456789012345678901234567890123456789012345678901234567890123",

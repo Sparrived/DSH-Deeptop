@@ -5,19 +5,19 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourceRoot = path.join(root, "vendor", "dsh");
-const publicBase = "82a5fd61a7cf5c293cec4bdff68f455398d685e9";
-const publicTag = "dsh-v0.1.3-alpha.2";
-const patchedCommit = "dece817b122c527e77a8f4a5cf955713f739630f";
+const publicBase = "183f08e9c6dde7e36cd2318eaee70b0da08fb35e";
+const publicTag = "dsh-v0.1.5-rc.1";
+const patchedCommit = "c8eeb3616c2a35d3547f8c48eb70de0350726a4a";
 const upstream = "https://github.com/deepseek-ai/deepseek-harness.git";
 
-// The vendored runtime ships seven local commits on top of alpha.2.
+// The vendored runtime ships six local commits on top of 0.1.5-rc.1.
 // Each entry reproduces one of them deterministically from its patch file:
 // identical tree, parents, message, and author/committer identity reproduce
 // the exact commit id pinned by src-tauri/src/main.rs.
 const patches = [
   {
     file: "dsh-fork-migration.patch",
-    commit: "77792d460c56bc29121bac3f44a50872811925dc",
+    commit: "3dafeb1fea7e5a86c569b806346f3a36c36b28a6",
     authorName: "Sparrived",
     authorEmail: "sparrived@outlook.com",
     authorDate: "2026-09-05T01:07:47+08:00",
@@ -35,7 +35,7 @@ const patches = [
   },
   {
     file: "dsh-reasoning-tokens.patch",
-    commit: "6a3a3611582c3d3ff7f3bcd4298811ec0848d033",
+    commit: "40940d154a6c8b21eee4774aaf6a4b614412257d",
     authorName: "Sparrived",
     authorEmail: "sparrived@outlook.com",
     authorDate: "2026-09-05T01:08:04+08:00",
@@ -54,7 +54,7 @@ const patches = [
   },
   {
     file: "dsh-pwsh-reprobe.patch",
-    commit: "c2520a916e76a0150022b4b3ec61db13551cae02",
+    commit: "1542741287dc5fe1973b91b3ea979ead575b6ada",
     authorName: "Sparrived",
     authorEmail: "sparrived@outlook.com",
     authorDate: "2026-09-05T01:08:22+08:00",
@@ -70,7 +70,7 @@ const patches = [
   },
   {
     file: "dsh-storage-json-retry.patch",
-    commit: "2213bd1cd6441665ac04d045b2c1b9a776503d71",
+    commit: "a33421e236d44e478c19877f0d657b96c46df0ba",
     authorName: "Sparrived",
     authorEmail: "sparrived@outlook.com",
     authorDate: "2026-09-05T01:08:38+08:00",
@@ -92,7 +92,7 @@ const patches = [
   },
   {
     file: "dsh-unavailable-attachment-request-projection.patch",
-    commit: "a2dbb93560dcdbdaefe9f085cc38d483ecb102bf",
+    commit: "5a86e191fb98e52ae9834e05c0a33461d31b8fc9",
     authorName: "Sparrived",
     authorEmail: "sparrived@outlook.com",
     authorDate: "2026-09-07T17:42:24+08:00",
@@ -105,26 +105,8 @@ const patches = [
     ].join("\n"),
   },
   {
-    file: "dsh-session-persistence-lazy-fs-ext.patch",
-    commit: "046e750ed585363f949a9115179ccbc68d6881b3",
-    authorName: "Sparrived",
-    authorEmail: "sparrived@outlook.com",
-    authorDate: "2026-09-08T16:12:24+08:00",
-    committerDate: "2026-09-08T16:12:24+08:00",
-    message: [
-      "fix(session-persistence): Windows 延迟加载 POSIX 锁模块",
-      "",
-      "改动：JSONL session persistence 仅在 POSIX 获取写锁时动态加载 fs-ext；Windows 继续使用既有的 koffi 命名信号量路径。",
-      "",
-      "原因：桌面运行时的受控部署不会执行原生依赖 install 脚本，而 Windows 启动不需要 POSIX flock；在模块求值时加载 fs-ext 会使桌面 Host 无法启动。",
-      "",
-      "验证：session-persistence-jsonl lease.spec.ts 10 通过、9 项 Windows 跳过；tsc -b packages/session/session-persistence-jsonl/tsconfig.json 通过。",
-      "",
-    ].join("\n"),
-  },
-  {
     file: "dsh-http-proxy-desktop-policy.patch",
-    commit: "dece817b122c527e77a8f4a5cf955713f739630f",
+    commit: "c8eeb3616c2a35d3547f8c48eb70de0350726a4a",
     authorName: "Sparrived",
     authorEmail: "sparrived@outlook.com",
     authorDate: "2026-09-09T15:26:34+08:00",

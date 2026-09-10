@@ -128,7 +128,7 @@ index 191abba963..60ce88e961 100644
    }
    return 'pwsh'
 diff --git a/packages/shell/pwsh-local/tests/executor.spec.ts b/packages/shell/pwsh-local/tests/executor.spec.ts
-index f46fd1f4a2..d20bfb063b 100644
+index 6f8a4f28b3..09657e2331 100644
 --- a/packages/shell/pwsh-local/tests/executor.spec.ts
 +++ b/packages/shell/pwsh-local/tests/executor.spec.ts
 @@ -9,7 +9,7 @@
@@ -140,9 +140,9 @@ index f46fd1f4a2..d20bfb063b 100644
  import { tmpdir } from 'node:os'
  import { join } from 'node:path'
  import { spawnSync } from 'node:child_process'
-@@ -34,6 +34,19 @@ afterEach(() => {
-   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
- })
+@@ -46,6 +46,19 @@ function createContext(): Context {
+   return ctx
+ }
  
 +function storeAliasFixture(): { alias: string; target: string } | undefined {
 +  if (process.platform !== 'win32' || process.env.LOCALAPPDATA === undefined) return undefined
@@ -157,10 +157,10 @@ index f46fd1f4a2..d20bfb063b 100644
 +
 +const storeAlias = storeAliasFixture()
 +
- // The probe follows the executor's own resolution (Program Files installs on
- // Windows are found even when bare `pwsh` is not on PATH).
- const hasPwsh = spawnSync(resolvePwshPath(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'], { encoding: 'utf8' }).status === 0
-@@ -138,17 +151,60 @@ describe('resolvePwshPath and candidatePwshPaths (pure, every platform)', () =>
+ /** A private file barrier keeps the command alive until the test releases it. */
+ function commandBarrier() {
+   const dir = mkdtempSync(join(tmpdir(), 'dsh-pwsh-barrier-'))
+@@ -159,17 +172,60 @@ describe('resolvePwshPath and candidatePwshPaths (pure, every platform)', () =>
        .toBe('pwsh')
    })
  

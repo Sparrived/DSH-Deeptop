@@ -26,7 +26,7 @@ index 9bc2f98c4c..fdcd19b867 100644
  }
  
 diff --git a/packages/llm/llm-pi-ai/tests/convert.spec.ts b/packages/llm/llm-pi-ai/tests/convert.spec.ts
-index 3b6428d153..e3674d8aa4 100644
+index 74ecb3d71d..7c8f17df5c 100644
 --- a/packages/llm/llm-pi-ai/tests/convert.spec.ts
 +++ b/packages/llm/llm-pi-ai/tests/convert.spec.ts
 @@ -10,12 +10,13 @@ import { toPiContext } from '../src/context.ts'
@@ -44,7 +44,7 @@ index 3b6428d153..e3674d8aa4 100644
      totalTokens: input + output + cacheRead + cacheWrite,
      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
    }
-@@ -973,15 +974,17 @@ describe('mapStopReason / mapUsage', () => {
+@@ -974,15 +975,17 @@ describe('mapStopReason / mapUsage', () => {
      })
    })
  
