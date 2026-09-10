@@ -1862,6 +1862,39 @@ fn bundled_dsh_package_label(runtime: &Path) -> Result<String, String> {
     Ok(format!("{BUNDLED_DSH_PACKAGE}@{version}（内嵌）"))
 }
 
+/// Inherited environment names that must not reach the embedded Host.
+///
+/// `NODE_OPTIONS` can inject `--require` hooks or a different loader into the
+/// Host process, or stop it from starting at all, and the package-manager
+/// variables redirect registry, credentials, and script policy. They describe
+/// whoever launched this application, not the fixed deployment it ships.
+const DSH_ENV_DENY_EXACT: &[&str] = &["NODE_OPTIONS"];
+const DSH_ENV_DENY_PREFIXES: &[&str] = &["npm_", "pnpm_", "corepack_", "dsh_desktop_"];
+
+/// Whether one inherited environment name belongs to the launcher rather than
+/// to the embedded deployment. Windows environment names are case-insensitive.
+fn is_launcher_environment_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    DSH_ENV_DENY_EXACT
+        .iter()
+        .any(|exact| name.eq_ignore_ascii_case(exact))
+        || DSH_ENV_DENY_PREFIXES
+            .iter()
+            .any(|prefix| lower.starts_with(prefix))
+}
+
+/// Drop launcher-owned variables from one Host command, leaving every other
+/// inherited variable (including `DSH_*` product configuration) intact.
+fn scrub_launcher_environment(command: &mut Command) {
+    for (name, _) in std::env::vars_os() {
+        if let Some(name) = name.to_str() {
+            if is_launcher_environment_name(name) {
+                command.env_remove(name);
+            }
+        }
+    }
+}
+
 /// Create a direct Node launch for the packaged DSH entry.  Do not invoke npm
 /// or a dsh shell shim: those could select a user-installed package instead of
 /// the resource shipped with this application.
@@ -1876,6 +1909,7 @@ fn bundled_dsh_launch(app: &AppHandle, node: PathBuf) -> Result<DshLaunch, Strin
         .env("DSH_HOME", dsh_home())
         .env("DEEPTOP_DSH_RUNTIME_ROOT", &runtime)
         .env_remove("DSH_CWD");
+    scrub_launcher_environment(&mut command);
     #[cfg(windows)]
     configure_hidden_process(&mut command);
     #[cfg(unix)]
@@ -5538,6 +5572,7 @@ fn open_themes_directory() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    use super::is_launcher_environment_name;
     use super::migrate_legacy_desktop_profile;
     use super::{
         base64_encode, bound_log_text, bridge_stdout_log_summary, bundled_bridge_files, dsh_home,
@@ -5720,6 +5755,38 @@ mod tests {
             )),
             std::path::PathBuf::from(r"\\server\share\resources")
         );
+    }
+
+    #[test]
+    fn scrubs_only_launcher_owned_environment_names() {
+        for denied in [
+            "NODE_OPTIONS",
+            "node_options",
+            "npm_config_registry",
+            "NPM_CONFIG_REGISTRY",
+            "PNPM_HOME",
+            "COREPACK_HOME",
+            "DSH_DESKTOP_PROFILE",
+        ] {
+            assert!(
+                is_launcher_environment_name(denied),
+                "{denied} must not reach the embedded Host"
+            );
+        }
+        // The Host's own configuration and the deployment paths must survive.
+        for kept in [
+            "DSH_HOME",
+            "DSH_TOOLS_MODE",
+            "DSH_TELEMETRY_MODE",
+            "DEEPTOP_DSH_RUNTIME_ROOT",
+            "PATH",
+            "HOME",
+        ] {
+            assert!(
+                !is_launcher_environment_name(kept),
+                "{kept} must reach the embedded Host"
+            );
+        }
     }
 
     #[test]
