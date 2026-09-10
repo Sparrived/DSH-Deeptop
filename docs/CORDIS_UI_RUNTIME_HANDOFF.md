@@ -34,7 +34,7 @@
 
 `cordis/session-pins/index.mjs` 提供 `SessionPinsService`，服务名为 `sessionPins`，使用 `session_pins` Storage Domain 保存工作区到有序会话 ID 的映射。服务依赖 `storageDomain` 和 `workspaceRegistry`，负责成员校验、串行 mutation、工作区清理、会话清理和服务销毁时的写入排空。
 
-旧版 `$DSH_HOME/profiles/desktop/session-pins.json` 只在新 Domain 的 `legacyImported` 标记为 false 时导入一次。旧 JSON 的解析和成员过滤位于无依赖的 `cordis/session-pins/model.mjs`，根目录测试可以直接覆盖；真正的 Cordis Service 初始化、Domain 持久化和销毁需要通过 DSH Profile 或内嵌运行时验证。
+旧版 `$DSH_HOME/profiles/deeptop/session-pins.json` 只在新 Domain 的 `legacyImported` 标记为 false 时导入一次。旧 JSON 的解析和成员过滤位于无依赖的 `cordis/session-pins/model.mjs`，根目录测试可以直接覆盖；真正的 Cordis Service 初始化、Domain 持久化和销毁需要通过 DSH Profile 或内嵌运行时验证。
 
 `cordis/desktop-bridge/routes.mjs` 不再拥有置顶文件的读写和 mutation queue，只通过 `ctx.get('sessionPins')` 调用服务。`workspace.list`、工作区 mutation 返回值仍包含 `pinnedSessionIds`，所以 React 的搜索、拖拽、排序和现有置顶入口保持不变。服务缺失时列表可以按无置顶降级，但写入必须明确失败。
 
@@ -143,7 +143,7 @@ Host function plugin 使用命名导出 `name`、`inject`、`apply`，不要添�
 2. ✅ `message-annotation-store.test.mjs` 覆盖 Host 返回当前注记后的版本冲突、同一 generation 的慢 list 不覆盖较新 mutation，以及 A(gen1) → B → A(gen3) 的迟到读取；旧编辑以稳定错误码失败，当前注记进入 Client cache，Badge 不被旧内容覆盖。
 3. ✅ 已覆盖 Popup 取消：取消输入不调用 Host Remote，也不显示保存成功/保存中通知。Store 通过 `dispose()` 和 Client `AbortSignal` 清理 Session listener、cache 与订阅。
 4. ✅ `desktop-ui-runtime.test.mjs` 覆盖 Host down 时在慢插件 teardown 前同步撤销 Slot、bridge event、Session listener 与 Session generation；Host coordinator 还覆盖快速 down/up、初始 catalog 失败重试、初始不可用快照和 unmount 期间的过期恢复抑制。
-5. ✅ `message-annotations-host.test.mjs` 从当前 Tauri 内嵌 `0.1.1-rc.2` 归档启动隔离的 desktop Profile，覆盖真实 `ui.plugin.list`/受限 Remote、A → B → A 后才释放旧 A 响应、空 Session 不读取且不渲染、Host 进程重启后的注记重新加载，以及禁用 `message-annotations-ui` 后清单、Slot 和 Remote 同时失效。
+5. ✅ `message-annotations-host.test.mjs` 从当前 Tauri 内嵌 `0.1.5-rc.1` 归档启动隔离的 Deeptop Profile，覆盖真实 `ui.plugin.list`/受限 Remote、A → B → A 后才释放旧 A 响应、空 Session 不读取且不渲染、Host 进程重启后的注记重新加载，以及禁用 `message-annotations-ui` 后清单、Slot 和 Remote 同时失效。
 6. ✅ 真实启动发现并修复 UI Registry routes 未被 Tauri 物化的问题；Rust 测试现在检查所有已物化 Bridge 模块的本地 ESM 依赖。行内注记 CSS 暂不单独拆分，继续复用主应用样式。
 
 ### P1：按 Slot 扩展官方领域 UI

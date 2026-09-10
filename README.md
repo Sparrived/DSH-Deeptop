@@ -126,10 +126,10 @@ After launch, wait for the embedded DSH runtime to become ready, pick or create 
 
 ## Extending Deeptop
 
-Add user-defined capabilities to the DSH desktop Profile first instead of duplicating them in Rust or React. Persistence patches live at:
+Add user-defined capabilities to the `deeptop` DSH profile first instead of duplicating them in Rust or React. Persistence patches live at:
 
 ```text
-$DSH_HOME/profiles/desktop/cordis.patch.yml
+$DSH_HOME/profiles/deeptop/cordis.patch.yml
 ```
 
 Recommended order:

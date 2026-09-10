@@ -3,8 +3,8 @@
 ## 基线
 
 - 对比对象：官方 `deepseek-ai/deepseek-harness` WebUI。
-- 对比版本：`7f4408325ff7dece0b98a13185dd3576d0605f60`（`dsh-v0.1.1-rc.2`，基于官方 `dsh-v0.1.1-rc.2` 并保留 Deeptop 的 preset fork 迁移、pi-ai 思考 tokens 与 PowerShell Store 重探测补丁）。
-- 运行时版本：`@deepseek-ai/dsh@0.1.1-rc.2`，由 `vendor/dsh` 子模块源码构建。
+- 对比版本：`d3eceb61eea73ce1f4e624e346bbec9e857c10eb`（`dsh-v0.1.5-rc.1`，基于官方 `dsh-v0.1.5-rc.1` 并保留 Deeptop 的 preset fork 迁移、pi-ai 思考 tokens、PowerShell Store 重探测、storage-json 原子替换重试、缺失历史附件投影与官方 http-proxy 桌面策略六条补丁）。
+- 运行时版本：`@deepseek-ai/dsh@0.1.5-rc.1`，由 `vendor/dsh` 子模块源码构建。
 - 定位：Deeptop 是纯桌面端运行框架；WebUI 仅作为领域能力和契约参考，不把纯 WebUI Client runtime、界面和生命周期列为桌面兼容目标。
 - 原则：复用现有 DSH ApiProxy、Host/Cordis 插件、Remote、Projection 和事件契约；只有桌面传输和原生 UI 边界做必要适配。
 
@@ -70,7 +70,7 @@
 
 ### 插件兼容边界
 
-- [x] Host/Cordis 插件：桌面 Profile 与 DSH Host 共用同一套 Service、Provider、Session 和 ApiProxy；新增插件可以继续通过 Profile 注入。
+- [x] Host/Cordis 插件：Deeptop Profile 与 DSH Host 共用同一套 Service、Provider、Session 和 ApiProxy；新增插件可以继续通过 Profile 注入。
 - [~] Client/Remote 插件：Remote 方法和官方转发事件已具备 loopback transport；插件需要通过 `src/lib/desktop-client-runtime.ts` 适配，不能直接把 WebUI 的 `dsh.client` bundle 当作 Vite 模块加载。
 - [-] WebUI client bundle：`window.__ModuleLoader__`、Cordis client runner、slot registry、动态客户端插件生命周期和纯 WebUI 界面不属于纯桌面端兼容目标。
 
@@ -95,6 +95,30 @@
 - [x] P1 官方契约深化：Schemastery Schema 驱动设置表单（Provider/插件命名空间，凭据 Host 保管、写只输入）、Subagent 递归树（任意深度懒加载导航）、Workflow 成员卡打开子会话、Web 搜索/抓取与 Skill 领域卡片。
 - [x] P2 桌面体验补齐：数学公式（KaTeX）与附件画廊 Lightbox、Host `ui-theme` 双向同步、zh/en 语言切换（官方 `locale` 命名空间联动）、长会话虚拟化（`content-visibility` + 会话隔离历史分页缓存）。
 - [x] 明确未推进，保留为缺口：完整音频/视频附件画廊、更深度虚拟滚动（当前为浏览器级跳过渲染）。
+
+## DSH 0.1.5-rc.1 适配与 Web 借鉴清单
+
+### 本轮适配（已完成）
+
+- 内嵌运行时升级到 `0.1.5-rc.1`，六条本地补丁在新基线上重新派生；`fs-ext` 延迟加载补丁作废——上游改用预编译 `@deepseek-ai/node-addon-system/flock`，其加载器在 Windows 上只做纯 JS 判定，不再在模块求值时加载原生依赖。
+- 会话格式 v2→v3 由官方迁移目录吸收：`system/message` 成为 surface 节点 0、`request/header.header.system` 退休、`surfaceOp` 的 replace 改为 `startSeq/endSeq`、`tool/code-dispatch*` 改名 `tool/ptc-dispatch*`。Bridge 依赖的 `sessionController.page()` 契约未变（记录仍为 `{ type: 'event', event }`），Deeptop 只比较 `surfaceOp === 'append'`，因此除系统提示词可见性外无需改动。
+- 轨迹 Inspector 改从 `system/message` 读取系统提示词（此前来自已退休的 `header.system`）；会话转录仍不把该节点渲染为消息气泡，与官方 `never renders a system/message as a transcript bubble` 一致。
+- 官方 `standard` preset 新增 `present` 工具，其交付以持久事件 `deliverables/presented` 记录；生成文件卡片改为读取该事件，presented 文件不携带 diff 统计。
+
+### Web 借鉴清单（本轮仅登记，未实施）
+
+以下按价值排序，均为上游 `apps/web` 与 `packages/client` 在 0.1.3→0.1.5 之间的改进：
+
+1. 可停靠右栏（`ui-dockkit`）：标签、分栏、五区拖放停靠、浮动面板与按会话布局；模型层与设计系统分离，状态机可移植。工作量最大。
+2. 文件在停靠标签中按行打开，取代模态详情列：以 `openFile(path, { line })` 传递读取调用的 1-based `offset`，并按 `(kind, contentId)` 去重。
+3. 输入区统一提交模式：`resolveSubmitMode()` 让 Enter 与发送按钮共享同一判定，仅在点击确实投递普通消息时才显示 Queue/Steer 标签。
+4. 统计改为两个图标胶囊加视口钳制的详情弹窗，取代单行密集统计条。
+5. Markdown/代码打磨：行号装订线不进入复制内容、稳定的代码块滚动容器、行内代码文件提及按钮、本地路径图片加载失败时回退到作者文本。
+6. 统一反馈对话框：编译期闭合的分类枚举、toast，以及防止迟到结果关闭新草稿的代次守卫。
+7. 共享文件类型分类与图标，供附件、链接字形、交付卡片与文件树复用。
+8. presented 文件卡片：应用内预览加下拉菜单（默认应用打开 / 定位），带分阶段状态与基于能力的禁用。
+
+明确排除：停靠库的设计系统样式、上游传输与 HTTP 路由、浏览器存储与下载、Blob iframe 预览运行时，以及 WebUI 的 ModuleLoader/slot 客户端生命周期。
 
 ## 后续顺序
 

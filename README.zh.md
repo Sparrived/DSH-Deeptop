@@ -30,7 +30,7 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 | --- | --- | --- |
 | 会话 | 已支持 | 持久化列表、历史恢复、历史向前分页、实时事件、重命名、搜索、分叉、归档、恢复和删除归档会话。 |
 | 对话 | 已支持 | assistant/reasoning 流式拼装、Markdown/GFM、图片附件、排队/steering（引导）提示、队列编辑/移除、停止和消息重试。重试会创建可恢复的前缀分支，不回滚原会话。 |
-| 工作区 | 已支持 | 原生目录选择、创建/重命名/删除、会话归属、分组和排序；会话置顶状态由 desktop Profile 的 `session-pins` Host Plugin 持久化。选定路径会作为会话 `cwd` 传入 DSH。 |
+| 工作区 | 已支持 | 原生目录选择、创建/重命名/删除、会话归属、分组和排序；会话置顶状态由 Deeptop Profile 的 `session-pins` Host Plugin 持久化。选定路径会作为会话 `cwd` 传入 DSH。 |
 | 系统托盘 | 已支持 | 显示未读、最近与更多会话并可直接跳转；Windows 使用固定宽度的 Deeptop 弹窗，跟随应用的 Light、Dark、System 与自定义 CSS 主题。 |
 <!-- @deeptop-pets:start readme-zh-feature -->
 | 互动宠物 | 已支持 | 独立透明置顶窗口可跨应用和显示器拖动，并响应点击、长按和任务状态；共享养成层保存饱食、心情和亲密度，支持喂食、摸摸和陪玩，换皮不会重置状态且可单独暂停。活动列表按 Deeptop 的“需要输入、阻塞、已完成未读、运行中”顺序显示多个会话，卡片可处理会话并切换到照顾面板。第三方宠物使用不含脚本的 `.deeptop-pet` 精灵包导入、导出和分享，总开关会直接销毁窗口。需要完全移除源码时执行 `npm run pets:remove`。 |
@@ -77,7 +77,7 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
                        │ deeptop/1 JSONL
 ┌──────────────────────▼───────────────────────┐
 │ node <installed @deepseek-ai/dsh bin>         │
-│ --profile desktop                             │
+│ --profile deeptop                             │
 │ dsh-base + deeptop-bridge + 用户 Profile      │
 └──────────────────────┬───────────────────────┘
                        │ 同一 Cordis 树
@@ -103,9 +103,9 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 桌面端启动时会执行以下准备工作：
 
 1. 读取 `DSH_HOME`；未设置时，Windows 默认使用 `%USERPROFILE%\.dsh`，Unix-like 系统默认使用 `$HOME/.dsh`。
-2. 创建 `$DSH_HOME/profiles/desktop`，写入或补齐 desktop Profile 清单。
+2. 创建 `$DSH_HOME/profiles/deeptop`，写入或补齐 Deeptop Profile 清单。
 3. 将 `cordis/` 下的内置插件按嵌套目录写入 `$DSH_HOME/profiles/node_modules/deeptop-bridge`，因此无需全局安装该 Bundle。
-4. 保留用户已有的 desktop Profile Bundle 和 `$DSH_HOME/profiles/desktop/cordis.patch.yml` 修改。
+4. 保留用户已有的 Deeptop Profile Bundle 和 `$DSH_HOME/profiles/deeptop/cordis.patch.yml` 修改。
 5. 从 Tauri 安装包的压缩 `dsh-runtime.tar.gz` 和清单读取固定版本的 DSH 源码构建产物和完整依赖树。
 6. Windows x64 未发现兼容的 Node.js 时，自动从 `nodejs.org` 下载固定的 Node.js 22.21.1 ZIP，使用编译期固定的 SHA-256 校验归档和 `node.exe`，再仅把 `node.exe` 写入应用本地运行时缓存；不会修改系统 `PATH`，也不需要 npm。
 7. 将归档安全解压到按源码提交、平台、架构和运行时树摘要命名的应用本地数据缓存；首次物化时会重新计算树摘要，缓存使用 `.complete` 标记并检查清单、入口和完成标记后复用，更新时保留旧版本缓存以便回滚。
@@ -172,12 +172,12 @@ npm run version:check
 
 内嵌 DSH 来自 `vendor/dsh` 子模块锁定的 DeepSeek Harness 提交；构建脚本会先构建 Host 产物，再按 `pnpm-lock.yaml` 部署生产依赖，生成无 workspace 链接的压缩 `dsh-runtime.tar.gz` 资源和配套清单。校验器会比对归档内外清单、重新计算最终归档的运行时树摘要，并真实加载启动必需模块及其原生依赖。升级 DSH 时应更新子模块指针、运行时清单，并重新验证归档、缓存解压、Profile、ApiProxy 方法、Remote 契约和事件投影。
 
-## 扩展桌面 Profile
+## 扩展 Deeptop Profile
 
-用户自定义 DSH 能力应优先加入 desktop Profile，而不是直接改 Rust 启动器或 React 领域逻辑。桌面 Profile 的用户补丁位置是：
+用户自定义 DSH 能力应优先加入 Deeptop Profile，而不是直接改 Rust 启动器或 React 领域逻辑。Deeptop Profile 的用户补丁位置是：
 
 ```text
-$DSH_HOME/profiles/desktop/cordis.patch.yml
+$DSH_HOME/profiles/deeptop/cordis.patch.yml
 ```
 
 示例：加入一个本地 Cordis 插件（路径必须是绝对路径）：
@@ -210,7 +210,7 @@ export function apply(ctx: Context) {
 4. 只有 WebUI Client UI 时，用原生 React 实现桌面入口，不直接加载 WebUI Client bundle。
 5. 新增 Bridge 路由时，必须加入 `cordis/desktop-bridge/routes.mjs` 的显式 allowlist，并补充测试。
 
-不要直接编辑运行时生成的 `$DSH_HOME/profiles/node_modules/deeptop-bridge` 内容；重启时这些文件会由应用重新物化。需要持久化用户扩展时，请改 desktop Profile 的 `cordis.patch.yml`。
+不要直接编辑运行时生成的 `$DSH_HOME/profiles/node_modules/deeptop-bridge` 内容；重启时这些文件会由应用重新物化。需要持久化用户扩展时，请改 Deeptop Profile 的 `cordis.patch.yml`。
 
 ## 兼容边界与已知缺口
 
@@ -239,7 +239,7 @@ Deeptop 通过系统 `PATH` 中的 Node.js 直接执行安装包内嵌的 DSH Ja
 
 ### DSH 启动失败或停留在“正在启动”
 
-打开运行时 Inspector 查看 DSH 状态和诊断信息，确认 `DSH_HOME` 可写、安装包的 `dsh-runtime.tar.gz` 与 `dsh-runtime-manifest.json` 完整，应用本地数据中的版本缓存已生成且包含 DSH 入口，desktop Profile 的 JSON/YAML 没有被破坏。修改 Profile 后可通过应用的刷新运行时操作重新启动 DSH。
+打开运行时 Inspector 查看 DSH 状态和诊断信息，确认 `DSH_HOME` 可写、安装包的 `dsh-runtime.tar.gz` 与 `dsh-runtime-manifest.json` 完整，应用本地数据中的版本缓存已生成且包含 DSH 入口，Deeptop Profile 的 JSON/YAML 没有被破坏。修改 Profile 后可通过应用的刷新运行时操作重新启动 DSH。
 
 ### 浏览器预览没有会话
 
@@ -247,7 +247,7 @@ Deeptop 通过系统 `PATH` 中的 Node.js 直接执行安装包内嵌的 DSH Ja
 
 ### 修改了插件但没有生效
 
-确认修改的是 `$DSH_HOME/profiles/desktop/cordis.patch.yml`，而不是生成的 `profiles/node_modules/deeptop-bridge/cordis.patch.yml`；然后刷新 DSH 运行时。插件依赖、Profile 注入顺序和 Host 错误可在 Inspector/诊断信息中检查。
+确认修改的是 `$DSH_HOME/profiles/deeptop/cordis.patch.yml`，而不是生成的 `profiles/node_modules/deeptop-bridge/cordis.patch.yml`；然后刷新 DSH 运行时。插件依赖、Profile 注入顺序和 Host 错误可在 Inspector/诊断信息中检查。
 
 ### 排查崩溃或请求失败
 
