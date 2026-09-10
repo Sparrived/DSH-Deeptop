@@ -1,9 +1,10 @@
 // Session history records → desktop display entries.
 //
-// DSH 0.1.3 returns raw v2 `{ type: 'event', event }` records; completed
-// Assistant streams are embedded in their final durable event. The legacy
-// chunkrow codec is retained only so stored pre-upgrade sessions can still be
-// rendered when a compatible Host returns those rows.
+// DSH 0.1.5 `sessionController.page()` returns logical `{ type: 'event', event }`
+// records: the Host's codec already expanded every packed run, and a completed
+// Assistant stream is embedded in its final durable event. The chunkrow
+// expansion below is defensive only — it matches the retired packed-row wire
+// form, which no shipped Host emits.
 
 function record(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : undefined

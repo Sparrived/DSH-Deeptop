@@ -1,4 +1,4 @@
-// Desktop Host API calls over DSH 0.1.3-alpha.2 in-process Typert services.
+// Desktop Host API calls over DSH 0.1.5-rc.1 in-process Typert services.
 //
 // Each function maps one legacy `api.<namespace>.<method>` surface onto the
 // service that owns the verb:

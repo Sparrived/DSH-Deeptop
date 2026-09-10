@@ -165,7 +165,7 @@ async function exportSessionZip(ctx, payload) {
   if (payload.includeDescendants !== undefined && typeof payload.includeDescendants !== 'boolean') {
     throw new Error('session.exportZip requires sessionId and an optional boolean includeDescendants')
   }
-  // DSH 0.1.3 intentionally keeps raw artifacts behind persistence. Export
+  // DSH 0.1.5 intentionally keeps raw artifacts behind persistence. Export
   // stays unavailable until an upstream public archive contract exists.
   throw codedError(
     'session-export-unavailable',
@@ -351,7 +351,7 @@ async function deleteArchivedSession(ctx, payload, signal) {
       return { deleted: false, archivedSessionIds: [...state.archivedSessionIds] }
     }
 
-    // DSH 0.1.3 keeps session artifact locations private. Never infer an
+    // DSH 0.1.5 keeps session artifact locations private. Never infer an
     // on-disk path from a snapshot or reach into a private persistence method.
     throw codedError(
       'session-delete-unavailable',
@@ -363,7 +363,7 @@ async function deleteArchivedSession(ctx, payload, signal) {
 
 async function repairCorruptSession(ctx, payload) {
   const sessionId = sessionIdFromPayload(payload, 'session.repairCorrupt')
-  // DSH 0.1.3 intentionally hides physical artifacts behind persistence.
+  // DSH 0.1.5 intentionally hides physical artifacts behind persistence.
   throw codedError(
     'session-repair-unavailable',
     '当前 DSH 运行时不公开安全的会话日志修复接口',

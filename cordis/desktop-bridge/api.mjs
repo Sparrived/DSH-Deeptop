@@ -1,4 +1,4 @@
-// Desktop Host API adapter over DSH 0.1.3-alpha.2 in-process services.
+// Desktop Host API adapter over DSH 0.1.5-rc.1 in-process services.
 //
 // The retired `ctx.apiProxy` facade used RPC envelopes and HTTP; the same
 // verbs are owned by Typert Remote services

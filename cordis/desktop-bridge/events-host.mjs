@@ -1,4 +1,4 @@
-// Host-channel event synthesis for the desktop bridge (DSH 0.1.3-alpha.2).
+// Host-channel event synthesis for the desktop bridge (DSH 0.1.5-rc.1).
 //
 // The retired dsh-host-apiproxy `events.host` stream used to be the only host
 // frame source. DSH owns the same facts in services/events the desktop
