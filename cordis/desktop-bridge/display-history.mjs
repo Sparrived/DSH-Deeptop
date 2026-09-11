@@ -34,6 +34,20 @@ function deltaText(chunk) {
   return undefined
 }
 
+/**
+ * Whether one seq belongs to the transient Assistant stream band.
+ *
+ * In-progress output is not durable: the mux synthesizes its frames with
+ * negative seqs (`events-mux.mjs`) so they stay ordered among themselves
+ * without colliding with durable log seqs. Transient frames are display-only
+ * and must never take part in durable sequence accounting (page cursors,
+ * event counts, transcript position), so every consumer of a raw seq asks
+ * this first.
+ */
+export function isTransientStreamSeq(seq) {
+  return typeof seq === 'number' && Number.isFinite(seq) && seq < 0
+}
+
 /** Return raw event sequence ranges represented by one display entry. */
 export function displayEntrySequenceRanges(entry) {
   return entry?.compactedEventSeqRanges
@@ -183,7 +197,9 @@ function pageStartSequence(entries) {
   for (const entry of entries) {
     const candidates = [entry.displayPageStartSeq, entry.event.seq]
     for (const seq of candidates) {
-      if (Number.isFinite(seq) && (start === undefined || seq < start)) start = seq
+      // A live stream frame is not a durable event: paging before it would ask
+      // the Host for a seq that never existed.
+      if (Number.isFinite(seq) && !isTransientStreamSeq(seq) && (start === undefined || seq < start)) start = seq
     }
   }
   return start
@@ -470,7 +486,10 @@ export function displayHistoryStartSequence(entries) {
 
 /** Count unique raw events represented by compacted display entries. */
 export function displayHistoryEventCount(entries) {
-  return mergeDisplaySequenceRanges(...entries.map(displayEntrySequenceRanges))
+  const durableRanges = entries
+    .map(displayEntrySequenceRanges)
+    .map(ranges => ranges.filter(([start]) => !isTransientStreamSeq(start)))
+  return mergeDisplaySequenceRanges(...durableRanges)
     .reduce((count, [start, end]) => count + end - start + 1, 0)
 }
 

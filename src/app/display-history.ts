@@ -3,6 +3,7 @@ import {
   compactHistoryEntries as compactDisplayHistory,
   displayHistoryEventCount as displayEventCount,
   displayHistoryStartSequence as displayHistoryStartSeq,
+  isTransientStreamSeq,
   mergeHistoryEntries as mergeDisplayHistory,
 } from "../../cordis/desktop-bridge/display-history.mjs";
 
@@ -10,6 +11,7 @@ export {
   compactDisplayHistory,
   displayEventCount,
   displayHistoryStartSeq,
+  isTransientStreamSeq,
   mergeDisplayHistory,
 };
 

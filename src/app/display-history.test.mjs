@@ -194,6 +194,33 @@ test("keeps finalized reasoning at its first chunk position around tool events",
   assert.equal(transcriptFromHistory(compacted).find(item => item.kind === "reasoning")?.seqFrom, 2);
 });
 
+test("renders transient live stream frames after the durable transcript", () => {
+  const durable = [
+    entry(1, "turn/start", { turn: 1 }),
+    entry(2, "user/message", { turn: 1, step: 1, content: [{ type: "text", text: "hello" }] }),
+    entry(3, "step/start", { turn: 1, step: 1 }),
+    finalMessage(4, "first answer"),
+  ];
+  // The mux synthesizes in-progress output in a negative, non-durable seq band.
+  const live = [
+    entry(Number.MIN_SAFE_INTEGER, "assistant/chunk", { turn: 1, step: 2, chunk: { type: "reasoning-delta", index: 0, text: "thinking" } }),
+    entry(Number.MIN_SAFE_INTEGER + 1, "assistant/chunk", { turn: 1, step: 2, chunk: { type: "reasoning-delta", index: 0, text: " harder" } }),
+    entry(Number.MIN_SAFE_INTEGER + 2, "assistant/chunk", { turn: 1, step: 2, chunk: { type: "text-delta", index: 1, text: "second answer" } }),
+  ];
+  const history = mergeHistoryEntries(compactHistoryEntries(durable), live);
+  const items = transcriptFromHistory(history);
+
+  // Live rows belong to the conversation end, never above loaded history.
+  assert.deepEqual(items.map(item => item.kind), ["user", "assistant", "reasoning", "assistant"]);
+  assert.equal(items.at(-2).text, "thinking harder");
+  assert.equal(items.at(-2).streaming, true);
+  assert.equal(items.at(-1).text, "second answer");
+  assert.equal(items.at(-1).streaming, true);
+  // Paging and counts describe durable log events only.
+  assert.equal(displayHistoryStartSequence(history), 1);
+  assert.equal(displayHistoryEventCount(history), durable.length);
+});
+
 test("preserves non-overlapping compacted pages that lack per-token lengths", () => {
   const older = compactHistoryEntries(Array.from({ length: 1_000 }, (_, index) => chunk(index + 1, "a")));
   const newer = compactHistoryEntries(Array.from({ length: 1_000 }, (_, index) => chunk(index + 1_001, "b")));

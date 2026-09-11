@@ -18,6 +18,7 @@ import {
   streamKey,
 } from "./message-model.ts";
 import { deliverablesFromHistory, workflowViewsFromHistory } from "./workflow-model.ts";
+import { isTransientStreamSeq } from "./display-history.ts";
 import { turnTimingItems } from "./session-events.ts";
 import { toolDomainCard } from "./tool-domain.ts";
 import type { TranscriptItem } from "./model-types";
@@ -41,6 +42,19 @@ function entryStartOf(entry: DshHistoryEntry): number | undefined {
   if (Array.isArray(first) && typeof first[0] === "number") return first[0];
   if (entry.displayFirstChunkSeq !== undefined) return entry.displayFirstChunkSeq;
   return entry.event?.seq;
+}
+
+/**
+ * Durable rows keep their log seq order. In-progress stream rows carry the
+ * bridge's transient (negative) seq band because they have no durable seq yet:
+ * they are always newer than every durable row, so they render at the end of
+ * the conversation instead of jumping above history.
+ */
+function transcriptOrder(left: TranscriptItem, right: TranscriptItem): number {
+  const leftLive = isTransientStreamSeq(left.seq);
+  const rightLive = isTransientStreamSeq(right.seq);
+  if (leftLive !== rightLive) return leftLive ? 1 : -1;
+  return (left.seq ?? Number.MAX_SAFE_INTEGER) - (right.seq ?? Number.MAX_SAFE_INTEGER);
 }
 
 export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLocale = "zh"): TranscriptItem[] {
@@ -177,7 +191,7 @@ export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLoca
   }
   // 轮次时间在轮次结束后直接展示在会话里；final sort 会按 seq 放到本轮内容之后。
   for (const timing of turnTimingItems(orderedEntries, locale)) items.push(timing);
-  items.sort((left, right) => (left.seq ?? Number.MAX_SAFE_INTEGER) - (right.seq ?? Number.MAX_SAFE_INTEGER));
+  items.sort(transcriptOrder);
   // Pair by the runtime call id; completion order is not guaranteed for parallel tools.
   const paired: TranscriptItem[] = [];
   const pendingCalls = new Map<string, number>();

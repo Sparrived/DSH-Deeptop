@@ -7,6 +7,8 @@ export function mergeHistoryEntries(
 ): DshHistoryEntry[];
 export function displayHistoryStartSequence(entries: readonly DshHistoryEntry[]): number | undefined;
 export function displayHistoryEventCount(entries: readonly DshHistoryEntry[]): number;
+/** True for the negative, non-durable seq band the mux uses for live stream frames. */
+export function isTransientStreamSeq(seq: number | undefined): boolean;
 export function displayEntrySequenceRanges(entry: DshHistoryEntry): Array<[start: number, end: number]>;
 export function mergeDisplaySequenceRanges(
   ...groups: Array<ReadonlyArray<readonly [start: number, end: number]>>

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { MuxEventSynthesizer } from './events-mux.mjs'
+import { isTransientStreamSeq } from './display-history.mjs'
 
 /** Run one control frame through the synthesizer and capture its emits. */
 function synthesize(frame) {
@@ -66,6 +67,8 @@ test('normalizes alpha assistant stream deltas into desktop chunks', async () =>
   stream({ agent: { session: { id: 'session-1' } }, frame: { type: 'start', attemptId: 'attempt-1', revision: 2, turn: 3, step: 4 } })
   stream({ agent: { session: { id: 'session-1' } }, frame: { type: 'chunk', attemptId: 'attempt-1', revision: 3, index: 0, time: 123, chunk: { type: 'text-delta', index: 0, text: 'hi' } } })
   stream({ agent: { session: { id: 'session-1' } }, frame: { type: 'chunk', attemptId: 'attempt-1', revision: 4, index: 1, time: 124, chunk: { type: 'text-delta', index: 0, text: ' there' } } })
+  // The projection treats this band as non-durable; keep both sides aligned.
+  assert.ok(emitted.every(item => isTransientStreamSeq(item.payload.event.seq)))
   assert.deepEqual(emitted.map(item => item.payload), [
     {
       type: 'session/event',
