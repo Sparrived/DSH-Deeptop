@@ -18,11 +18,32 @@ function read(relativePath) {
   return fs.readFileSync(path.join(root, relativePath), "utf8");
 }
 
+/**
+ * Apply one reference file's line endings to freshly generated content.
+ *
+ * The generators below always emit LF, but a Windows checkout with
+ * `core.autocrlf=true` holds these manifests as CRLF. Writing LF back makes git
+ * report a content-identical file as modified, so every `version:set` leaves a
+ * phantom change behind. Generated content is normalized first so already-CRLF
+ * input cannot accumulate carriage returns.
+ *
+ * @param content - generated content, in LF.
+ * @param reference - the file as it currently exists on disk.
+ * @returns the content using the reference file's line endings.
+ */
+export function preserveLineEndings(content, reference) {
+  const firstNewline = reference.indexOf("\n");
+  const eol = firstNewline > 0 && reference[firstNewline - 1] === "\r" ? "\r\n" : "\n";
+  const normalized = content.replace(/\r\n/g, "\n");
+  return eol === "\n" ? normalized : normalized.replace(/\n/g, eol);
+}
+
 function write(relativePath, content) {
   const absolutePath = path.join(root, relativePath);
   const current = fs.readFileSync(absolutePath, "utf8");
-  if (current !== content) {
-    fs.writeFileSync(absolutePath, content, "utf8");
+  const next = preserveLineEndings(content, current);
+  if (current !== next) {
+    fs.writeFileSync(absolutePath, next, "utf8");
     console.log(`updated ${relativePath}`);
   }
 }
@@ -109,13 +130,18 @@ function setVersion(input) {
   check(version);
 }
 
-if (mode === "set") {
-  if (!suppliedVersion) {
-    throw new Error("用法：npm run version:set -- <版本号>");
+// Only run the CLI when this file is the entry point, so the pure helpers above
+// stay importable by tests without touching the real manifests.
+const entry = process.argv[1];
+if (entry !== undefined && path.resolve(entry) === fileURLToPath(import.meta.url)) {
+  if (mode === "set") {
+    if (!suppliedVersion) {
+      throw new Error("用法：npm run version:set -- <版本号>");
+    }
+    setVersion(suppliedVersion);
+  } else if (mode === "check") {
+    check(suppliedVersion);
+  } else {
+    throw new Error(`未知操作 ${mode}，可用操作：set、check`);
   }
-  setVersion(suppliedVersion);
-} else if (mode === "check") {
-  check(suppliedVersion);
-} else {
-  throw new Error(`未知操作 ${mode}，可用操作：set、check`);
 }
