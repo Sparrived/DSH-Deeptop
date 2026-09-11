@@ -1,6 +1,6 @@
 import { ExternalLink, FileText } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
-import { isValidElement, memo, useEffect, useState, type HTMLAttributes, type ReactNode } from "react";
+import { memo, useEffect, useState, type ImgHTMLAttributes, type ReactNode } from "react";
 import { SKIP, visit } from "unist-util-visit";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
@@ -8,6 +8,7 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import { decodeFileLink, entityHost, FILE_LINK_PREFIX, pathLabel, splitMessageEntities } from "./message-entities";
+import { MarkdownCodeBlock } from "./markdown-code-block";
 import { t, type UiLocale } from "../app/i18n";
 
 function remarkMessageEntities() {
@@ -26,35 +27,20 @@ function remarkMessageEntities() {
   };
 }
 
-function textFromNode(node: ReactNode): string {
-  if (typeof node === "string" || typeof node === "number") return String(node);
-  if (Array.isArray(node)) return node.map(textFromNode).join("");
-  if (isValidElement<{ children?: ReactNode }>(node)) return textFromNode(node.props.children);
-  return "";
-}
-
-function MarkdownCodeBlock({ children, locale, ...props }: HTMLAttributes<HTMLPreElement> & { locale: UiLocale }) {
-  const [copied, setCopied] = useState(false);
-  const code = textFromNode(children).replace(/\n$/, "");
-
-  async function copyCode() {
-    try {
-      await navigator.clipboard.writeText(code);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      setCopied(false);
-    }
+/**
+ * One markdown image.
+ *
+ * A destination that cannot load — an unreachable URL, or a local path the
+ * webview is not allowed to read — falls back to the authored text instead of a
+ * broken image. The failed destination is remembered rather than a boolean, so
+ * a corrected source is retried instead of staying replaced forever.
+ */
+function MarkdownImage({ src, alt, ...props }: ImgHTMLAttributes<HTMLImageElement>) {
+  const [failedSource, setFailedSource] = useState<string | null>(null);
+  if (typeof src !== "string" || src.length === 0 || failedSource === src) {
+    return <span className="markdown-image-fallback">{alt || src || ""}</span>;
   }
-
-  return (
-    <div className="markdown-code-block">
-      <pre {...props}>{children}</pre>
-      <button className="markdown-code-copy" type="button" onClick={() => void copyCode()} title={t("markdown.copyCode", locale)} aria-label={t("markdown.copyCode", locale)}>
-        {copied ? t("markdown.copied", locale) : t("markdown.copy", locale)}
-      </button>
-    </div>
-  );
+  return <img {...props} src={src} alt={alt ?? ""} onError={() => setFailedSource(src)} />;
 }
 
 type MarkdownEntityActions = {
@@ -137,6 +123,9 @@ function createMarkdownComponents(actions: MarkdownEntityActions, locale: UiLoca
     );
   },
   pre: ({ children, node, ...props }) => <MarkdownCodeBlock {...props} locale={locale}>{children}</MarkdownCodeBlock>,
+  img: ({ src, alt, node, ...props }) => (
+    <MarkdownImage {...props} src={typeof src === "string" ? src : undefined} alt={typeof alt === "string" ? alt : undefined} />
+  ),
   table: ({ children, node, ...props }) => (
     <div className="markdown-table-wrap">
       <table {...props}>{children}</table>

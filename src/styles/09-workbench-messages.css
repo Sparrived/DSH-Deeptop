@@ -181,6 +181,39 @@
   text-transform: uppercase;
 }
 
+/*
+ * Line-number gutter. The digits are the CSS counter's generated content, not
+ * DOM text, so selecting or copying a block yields the source alone. The fixed
+ * width keeps every code column aligned; a block longer than four digits widens
+ * the gutter instead of overlapping the code.
+ */
+.message-text .markdown-code-block.numbered pre code {
+  counter-reset: source-line;
+}
+
+.message-text .markdown-code-block.numbered .md-code-line::before {
+  counter-increment: source-line;
+  content: counter(source-line);
+  display: inline-block;
+  width: 2.6em;
+  margin-right: 1em;
+  color: var(--code-muted);
+  text-align: right;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.message-text .markdown-image-fallback {
+  display: inline-block;
+  max-width: 100%;
+  padding: 2px 8px;
+  border: 1px dashed var(--code-border);
+  border-radius: 4px;
+  color: var(--code-muted);
+  font: 12px/1.6 var(--mono);
+  overflow-wrap: anywhere;
+}
+
 .message-text a {
   color: var(--accent-deep);
   text-decoration: underline;

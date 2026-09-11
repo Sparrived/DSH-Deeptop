@@ -47,13 +47,19 @@ Deeptop 已对齐的行为：`src/app/submit-mode.ts` 提供同一判定的纯�
 
 Deeptop 现状：`src/components/ComposerShell.tsx:302-306` 是那行密集文本，而分析能力已经集中在 `src/components/SessionDashboard.tsx`（上下文环形与进度、token 构成环图、输入/输出账本、时间范围切换、TTFT 与 decode 速度）。上游这条对 Deeptop 属于外观与入口调整，不新增分析能力，因此不做。
 
-### 5. Markdown 与代码块细节 `[ ]`
+### 5. Markdown 与代码块细节 `[x]`
 
-上游 `packages/client/ui-primitives/src/markdown/CodeBlock.tsx` 的行号用 CSS `counter(source-line)` 画在装订线上、不进入 DOM 文本，所以复制代码不会带出行号；代码块滚动容器有稳定的 `data-code-block-content` 句柄，流式更新时保持滚动位置。
+上游 `packages/client/ui-primitives/src/markdown/CodeBlock.tsx` 的行号用 CSS `counter(source-line)` 画在装订线上、不进入 DOM 文本，所以复制代码不会带出行号；代码块滚动容器有稳定的 `data-code-block-content` 句柄，流式更新时保持滚动位置；Markdown 图片加载失败时回退渲染作者写的 `alt` 或目标文本，并按来源作 key，使被修正的来源能够重挂载。
 
-Deeptop 现状：`src/lib/markdown.tsx:36` 的 `MarkdownCodeBlock` 支持单块复制但没有行号，也没有独立的滚动容器句柄；行内代码里的路径已经可点（`src/lib/markdown.tsx:66` 的 `MessageEntityLink`），消息级复制与复制菜单已有（`src/components/ConversationTranscript.tsx:882`、`:1021-1161`）。
+Deeptop 已对齐：
 
-量级：小，可按"行号 + 单块复制不误带行号"与"流式滚动稳定"分两次做。
+- 代码块渲染抽到 `src/lib/markdown-code-block.tsx`，逐行输出 `.md-code-line`，行号由 `src/styles/09-workbench-messages.css` 的 `.md-code-line::before` 用 CSS 计数器生成，因此数字不在 DOM 文本中，选中或复制得到的是源码本身；复制按钮与整块文本共用同一份行数据（`src/lib/code-block.ts` 的 `codeBlockLines()`），二者不会各算一套。
+- `<pre>` 是滚动容器（`overflow: auto`），带上 `data-code-block-content` 句柄，并在每次重渲染后用 `useLayoutEffect` 恢复上一次的横向偏移——流式消息逐帧重解析 Markdown 时，代码块不会跳回左端。
+- Markdown 图片改用 `MarkdownImage`（`src/lib/markdown.tsx`）：加载失败或来源缺失时渲染 `alt` 或来源文本，并记录**失败的来源**而非布尔值，使来源被修正后重新尝试加载。
+
+量级：小。行内代码里的路径已可点（`MessageEntityLink`），消息级复制与复制菜单已有（`src/components/ConversationTranscript.tsx`）。
+
+未做：本地路径图片的解析。浏览器无法直接读取任意本地文件，上游为此有一套本地路径图片词汇表，Deeptop 需要先有"按行/按路径读取文件内容"的 Bridge 通道（见第 2 条），否则只能像现在这样落到失败回退文本。
 
 ### 6. 逐消息反馈界面 `[-]`
 
