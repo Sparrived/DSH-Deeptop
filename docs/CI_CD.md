@@ -10,7 +10,7 @@
 每次 Pull Request 和主分支推送会并行执行三组检查：
 
 1. **Frontend build and tests**
-   - Node.js 22.19.0；
+   - Node.js 22.21.1；
    - `npm ci`，使用 `package-lock.json` 的确定性依赖安装；
    - `npm run version:check`，确保 npm、Bridge、Tauri 和 Cargo 清单版本一致；
    - `npm run build`，执行 TypeScript 检查和 Vite 构建；

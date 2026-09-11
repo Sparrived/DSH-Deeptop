@@ -47,7 +47,7 @@ class DesktopHost {
     this.closed = false;
     this.nextRequest = 1;
     const entry = path.join(runtimeRoot, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
-    this.child = spawn(process.execPath, [entry, "--profile", "desktop"], {
+    this.child = spawn(process.execPath, [entry, "--profile", "deeptop"], {
       cwd: dshHome,
       env: {
         ...process.env,
@@ -267,7 +267,7 @@ function materializedBridgeFiles(mainSource) {
 }
 
 async function materializeProfile(dshHome) {
-  const profileDir = path.join(dshHome, "profiles", "desktop");
+  const profileDir = path.join(dshHome, "profiles", "deeptop");
   const bridgeDir = path.join(dshHome, "profiles", "node_modules", "deeptop-bridge");
   await Promise.all([mkdir(profileDir, { recursive: true }), mkdir(bridgeDir, { recursive: true })]);
   await Promise.all([
@@ -289,12 +289,16 @@ async function materializeProfile(dshHome) {
 }
 
 function sessionEvents(messageId, createdAt) {
+  // A format-v2 log the current Host migrates on open: the v2-to-v3 migration
+  // promotes the system prompt into its own surface node, which it can only do
+  // once an open step exists before the first surface event.
   return [
     { type: "turn/start", seq: 0, time: createdAt + 1, data: { turn: 1 } },
+    { type: "step/start", seq: 1, time: createdAt + 2, data: { turn: 1, step: 1 } },
     {
       type: "user/message",
-      seq: 1,
-      time: createdAt + 2,
+      seq: 2,
+      time: createdAt + 3,
       data: {
         id: messageId,
         role: "user",
@@ -303,25 +307,8 @@ function sessionEvents(messageId, createdAt) {
       },
       surfaceOp: "append",
     },
-    { type: "step/start", seq: 2, time: createdAt + 3, data: { turn: 1, step: 1 } },
-    {
-      type: "assistant/message",
-      seq: 3,
-      time: createdAt + 4,
-      data: {
-        turn: 1,
-        step: 1,
-        message: {
-          id: `${messageId}-answer`,
-          role: "assistant",
-          content: [{ type: "text", text: "seed answer" }],
-          source: { kind: "model", provider: "fixture", model: "fixture" },
-        },
-      },
-      surfaceOp: "append",
-    },
-    { type: "step/end", seq: 4, time: createdAt + 5, data: { turn: 1, step: 1 } },
-    { type: "turn/end", seq: 5, time: createdAt + 6, data: { turn: 1, reason: { kind: "completed" } } },
+    { type: "step/end", seq: 3, time: createdAt + 4, data: { turn: 1, step: 1 } },
+    { type: "turn/end", seq: 4, time: createdAt + 5, data: { turn: 1, reason: { kind: "completed" } } },
   ];
 }
 
@@ -330,16 +317,17 @@ async function seedSession(dshHome, sessionId, messageId, createdAt) {
   await mkdir(directory, { recursive: true });
   const header = {
     type: "session",
-    version: 0,
+    version: 2,
     id: sessionId,
     createdAt,
+    isSeeded: false,
     delegationDepth: 0,
     agentPreset: "standard",
   };
   const checksum = { params: { [constants.ZSTD_c_checksumFlag]: 1 } };
   const headerFrame = zstdCompressSync(`${JSON.stringify(header)}\n`, checksum);
   const eventsFrame = zstdCompressSync(`${sessionEvents(messageId, createdAt).map(JSON.stringify).join("\n")}\n`, checksum);
-  await writeFile(path.join(directory, "session.jsonl.zstd"), Buffer.concat([headerFrame, eventsFrame]));
+  await writeFile(path.join(directory, "session.v2.jsonl.zstd"), Buffer.concat([headerFrame, eventsFrame]));
 }
 
 async function loadMessageAnnotationsClient() {
@@ -380,7 +368,7 @@ function renderBadge(runtime, session, messageId) {
       sessionId: session.sessionId,
       messageId,
       role: "user",
-      seq: 1,
+      seq: 0,
     },
   });
   return element ? renderToStaticMarkup(element) : "";

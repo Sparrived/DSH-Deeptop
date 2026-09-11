@@ -1,15 +1,8 @@
-// Mux-channel event synthesis for the desktop bridge (DSH 0.1.2-rc.1).
+// Mux-channel event synthesis for the desktop bridge.
 //
-// The rc.2 `events.mux` stream aggregated session events, queue/jobs/
-// projection control state, and the approval/question answerer surfaces into
-// one frame stream. rc.1 owns the same facts in three places the desktop
-// subscribes directly:
-//   global `session/event`            →  session/event frames (no tool view:
-//                                        rc.1 keeps presentation client-side)
-//   sessionController.control()       →  queue/jobs/projection frames
-//   approval/request +                →  approval/question requested/resolved
-//     user-questions/request             frames (waterfall answerers)
-// Frame shapes are the pre-existing desktop wire contract.
+// DSH exposes durable session events, transient Assistant stream frames,
+// control state, and approval/question answerers separately. This module keeps
+// the established desktop wire contract while forwarding those sources.
 
 import { randomUUID } from 'node:crypto'
 
@@ -22,6 +15,8 @@ export class MuxEventSynthesizer {
     this.signal = signal
     this.registry = this.createAnswerRegistry()
     this.pendingAnswers = new Map()
+    this.assistantAttempts = new Map()
+    this.nextAssistantStreamSeq = Number.MIN_SAFE_INTEGER
     this.disposers = []
   }
 
@@ -70,8 +65,49 @@ export class MuxEventSynthesizer {
           type: 'session/event',
           sessionId: session.id,
           event,
-          // rc.1 removed the host-computed tool view; the desktop derives its
-          // own presentation from the raw event like the web client.
+        },
+      })
+    }))
+
+    // Alpha.1 moved in-progress output out of the durable log. Adapt its
+    // process-local frames to the desktop's existing assistant/chunk surface.
+    this.disposers.push(ctx.on('agent/assistant-stream', ({ agent, frame }) => {
+      if (!agent || !frame || typeof agent.session?.id !== 'string') return
+      const attemptKey = `${agent.session.id}/${frame.attemptId}`
+      if (frame.type === 'start') {
+        if (!Number.isSafeInteger(frame.revision) || !Number.isSafeInteger(frame.turn) || !Number.isSafeInteger(frame.step)) return
+        this.assistantAttempts.set(attemptKey, { turn: frame.turn, step: frame.step, nextIndex: 0 })
+        return
+      }
+      if (frame.type === 'end') {
+        this.assistantAttempts.delete(attemptKey)
+        return
+      }
+      const attempt = this.assistantAttempts.get(attemptKey)
+      if (attempt === undefined
+        || !Number.isSafeInteger(frame.index)
+        || frame.index < 0
+        || frame.index !== attempt.nextIndex
+        || !Number.isSafeInteger(frame.time)
+        || !frame.chunk
+        || typeof frame.chunk !== 'object') return
+      attempt.nextIndex += 1
+      const chunk = frame.chunk
+      if (chunk.type !== 'text-delta' && chunk.type !== 'reasoning-delta' && chunk.type !== 'tool-call-delta') return
+      push({
+        rpcId: randomUUID(),
+        payload: {
+          type: 'session/event',
+          sessionId: agent.session.id,
+          event: {
+            type: 'assistant/chunk',
+            // Transient chunks have no durable seq. Keep them in a separate
+            // negative range while preserving arrival order; Alpha revisions
+            // grow for every frame and cannot determine chunk ordering.
+            seq: this.nextAssistantStreamSeq++,
+            time: frame.time,
+            data: { turn: attempt.turn, step: attempt.step, chunk },
+          },
         },
       })
     }))

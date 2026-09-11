@@ -257,6 +257,7 @@ import { defaultWorkingIndicator, normalizeWorkingIndicator } from "./app/workin
 import { externalLaunchKey } from "./lib/external-launch";
 import { DEFAULT_PERMISSION_OPTIONS, isDefaultPermission, readStoredDefaultModel, readStoredDefaultPermission, writeStoredDefaultModel, writeStoredDefaultPermission, type DefaultPermission } from "./app/session-defaults";
 import { isSchemaEnvelope, schemaEnumChoices, schemaNodeAtPath } from "./app/schema-model";
+import { resolveSubmitMode } from "./app/submit-mode";
 import {
   reconcileSessionIndicators,
   sessionIndicatorForHistory,
@@ -3759,7 +3760,10 @@ function AppContent() {
       }
     }
     setLoading(true);
-    setNotice(promptMode === "steer" ? t("notice.steering", locale) : t("notice.sending", locale));
+    // An idle session has no turn to steer, so the preferred mode applies only
+    // while one is running; the notices and the payload share this resolution.
+    const submitMode = resolveSubmitMode(promptMode, activeRunning);
+    setNotice(submitMode === "steer" ? t("notice.steering", locale) : t("notice.sending", locale));
     try {
       const sessionId = await ensureSession();
       const admissionModels = await desktopRequest("session.models", { sessionId });
@@ -3783,7 +3787,7 @@ function AppContent() {
       }
       const promptPayload: DshSessionPromptPayload = {
         sessionId,
-        mode: promptMode,
+        mode: submitMode,
         content: promptContentParts(text, attachments),
         clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       };
@@ -3791,7 +3795,7 @@ function AppContent() {
       setComposer("");
       setAttachments([]);
       void refreshSessionStats(sessionId);
-      setNotice(promptMode === "steer" ? t("notice.steered", locale) : t("notice.sent", locale));
+      setNotice(submitMode === "steer" ? t("notice.steered", locale) : t("notice.sent", locale));
     } catch (error) {
       setErrorNotice(errorText(error, locale));
     } finally {

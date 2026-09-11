@@ -14,7 +14,12 @@ const legacyOutputRoot = path.join(resourcesRoot, "dsh-runtime");
 const sourceNodeModules = path.join(sourceRoot, "node_modules");
 const cliManifestPath = path.join(sourceRoot, "apps", "cli", "package.json");
 const entry = "node_modules/@deepseek-ai/dsh/lib/bin.js";
-const RUNTIME_SMOKE_PACKAGES = ["@deepseek-ai/dsh-attachment-local"];
+const RUNTIME_SMOKE_PACKAGES = [
+  "@deepseek-ai/dsh-session-persistence-jsonl",
+  "@deepseek-ai/dsh-attachment-local",
+  "@deepseek-ai/dsh-client-file-upload",
+  "@deepseek-ai/dsh-http-proxy",
+];
 const OPTIONAL_RUNTIME_PACKAGES = [
   ["@deepseek-ai/dsh-file-reference", "packages/context/file-reference", true],
   ["@deepseek-ai/dsh-file-reference-local", "packages/context/file-reference-local", true],
@@ -384,7 +389,16 @@ if (isRuntimeReady(currentManifest, packageVersion)) {
 const buildToolsReady =
   fs.existsSync(path.join(sourceNodeModules, "typescript", "bin", "tsc")) &&
   fs.existsSync(path.join(sourceNodeModules, "tsdown", "dist", "run.mjs"));
-if (!fs.existsSync(sourceNodeModules) || !buildToolsReady) {
+// An existing node_modules does not prove it matches the checked-out lockfile: a
+// vendored version bump changes dependencies while the build tools stay present,
+// and the stale packages then fail the Host build as a long list of unrelated
+// type errors. pnpm copies the lockfile verbatim into the store, so a different
+// copy means this tree must be reinstalled.
+const installedLockfile = path.join(sourceNodeModules, ".pnpm", "lock.yaml");
+const sourceLockfile = path.join(sourceRoot, "pnpm-lock.yaml");
+const lockfileStale = !fs.existsSync(installedLockfile)
+  || fs.readFileSync(installedLockfile, "utf8") !== fs.readFileSync(sourceLockfile, "utf8");
+if (!fs.existsSync(sourceNodeModules) || !buildToolsReady || lockfileStale) {
   const corepack = process.platform === "win32" ? "corepack.cmd" : "corepack";
   run(corepack, ["pnpm", "install", "--frozen-lockfile"], sourceRoot, { CI: "true" });
 }

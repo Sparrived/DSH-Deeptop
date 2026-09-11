@@ -19,7 +19,7 @@ Deeptop 是 DSH 的原生桌面工作台：
 
 ### 2.1 环境要求
 
-- Node.js 22.19+ 或 24+；
+- Node.js 22.21+ 或 24+；
 - Rust/Cargo 和 Tauri 桌面开发环境；
 - Node.js 在 `PATH` 中可用（npm 仅用于开发依赖安装）；
 - 首次生成内嵌 DSH 运行时时可访问 npm registry，或构建机已有源码依赖缓存；
@@ -80,8 +80,8 @@ npm run version:check
 | `cordis/*/index.mjs` | 各个内置 Cordis 插件的独立入口和服务依赖声明 |
 | `cordis/desktop-bridge/bridge.mjs` | `deeptop/1` JSONL 协议、请求处理和事件转发 |
 | `cordis/desktop-bridge/routes.mjs` | 桌面 API allowlist、Host API 转发和原生边界操作 |
-| `cordis/cordis.patch.yml` | 内置 desktop Profile 的 DSH Host/Cordis 插件组合 |
-| `cordis/desktop-profile.json` | desktop Profile 的基础 Bundle 清单 |
+| `cordis/cordis.patch.yml` | 内置 Deeptop Profile 的 DSH Host/Cordis 插件组合 |
+| `cordis/desktop-profile.json` | Deeptop Profile 的基础 Bundle 清单 |
 | `PLUGIN_COMPATIBILITY.md` | 插件兼容分层和未完成事项 |
 | `DEEPTOP_UI_RUNTIME.md` | Client Module、Slot、Bridge 能力和桌面 UI 插件的实施设计 |
 | `REFACTORING_CORDIS_UI_RUNTIME.md` | 合并 UI Runtime 后的重构基线、功能归属和实施顺序 |
@@ -97,7 +97,7 @@ Tauri setup
   -> materialize_desktop_profile()
   -> discover dsh on PATH, npm global, $DSH_HOME, or npx cache
   -> npm install --prefix $DSH_HOME (only when every existing source is unavailable)
-  -> launch dsh or npm exec --offline -- dsh --profile desktop
+  -> launch dsh or npm exec --offline -- dsh --profile deeptop
   -> pipe stdin/stdout/stderr
   -> receive { type: "ready", protocol: "deeptop/1" }
   -> emit dsh-runtime-status
@@ -138,10 +138,10 @@ $DSH_HOME/
 
 应用启动时：
 
-- 如果 desktop Profile 不存在，则使用仓库内 `cordis/desktop-profile.json` 模板；
+- 如果 Deeptop Profile 不存在，则使用仓库内 `cordis/desktop-profile.json` 模板；
 - 始终确保 `@deepseek-ai/dsh-base` 和 `deeptop-bridge` 位于 Bundle 列表前部；
 - 保留用户添加的其他 Bundle；
-- 只在用户文件不存在时，才由 `cordis/profile.patch.yml` 模板创建 `profiles/desktop/cordis.patch.yml`，并创建 workspace 文件；
+- 只在用户文件不存在时，才由 `cordis/profile.patch.yml` 模板创建 `profiles/deeptop/cordis.patch.yml`，并创建 workspace 文件；
 - 将 `cordis/<plugin>/` 的嵌套布局写入 `profiles/node_modules/deeptop-bridge`，以兼容包名供 DSH 解析；
 - 升级时先写嵌套模块，再切换 package manifest 和 patch，最后清理旧平铺生成文件；
 - 每次启动都会同步内置 Bundle，因此不要直接修改生成目录。
@@ -149,7 +149,7 @@ $DSH_HOME/
 用户要添加 Cordis 插件时，应修改：
 
 ```text
-$DSH_HOME/profiles/desktop/cordis.patch.yml
+$DSH_HOME/profiles/deeptop/cordis.patch.yml
 ```
 
 示例：
@@ -210,7 +210,7 @@ Rust 将 Bridge 帧转发为 `deeptop-bridge-event`，React 再通过 `bridge-ev
 
 | 问题 | 首选位置 |
 | --- | --- |
-| 需要新增 Session、Agent、Tool、Storage 或权限语义 | DSH 官方插件 / desktop Profile |
+| 需要新增 Session、Agent、Tool、Storage 或权限语义 | DSH 官方插件 / Deeptop Profile |
 | 需要复用官方 Host 服务但桌面端没有入口 | `cordis/desktop-bridge/routes.mjs` + `src/lib/desktop.ts` |
 | 需要复用 Remote/Projection/Host event | `desktop-client-runtime.ts` + `bridge-event-handler.ts` |
 | 需要展示或编辑状态 | `src/components/` + `src/app/` |
@@ -254,17 +254,17 @@ Rust 将 Bridge 帧转发为 `deeptop-bridge-event`，React 再通过 `bridge-ev
 1. 检查运行时 Inspector 的状态和诊断文本。
 2. 确认 Node.js 在 `PATH` 中可用，并检查安装包的 `dsh-runtime.tar.gz`、`dsh-runtime-manifest.json`、应用本地数据中的版本缓存（目录名包含源码提交、平台、架构和摘要前缀）和 CLI 入口清单；若缓存被篡改或 `treeSha256` 不匹配，启动器会删除该缓存并重新解压。
 3. 确认 `DSH_HOME` 可写。
-4. 检查 `$DSH_HOME/profiles/desktop/package.json` 和 `cordis.patch.yml` 是否为有效内容。
+4. 检查 `$DSH_HOME/profiles/deeptop/package.json` 和 `cordis.patch.yml` 是否为有效内容。
 5. 刷新 DSH 运行时，观察新的启动日志。
 
 ### Profile 插件未加载
 
 确认：
 
-- 修改的是 `$DSH_HOME/profiles/desktop/cordis.patch.yml`；
+- 修改的是 `$DSH_HOME/profiles/deeptop/cordis.patch.yml`；
 - 插件 `name` 使用绝对路径或可由 Profile 解析的包名；
 - 插件 ID 未与已有服务冲突；
-- 依赖已经能被 desktop Profile 解析；
+- 依赖已经能被 Deeptop Profile 解析；
 - 没有把改动写到自动生成的 `profiles/node_modules/deeptop-bridge`。
 
 ### 某个面板不可用
@@ -284,7 +284,7 @@ Deeptop 启动的是 `vendor/dsh` 固定提交构建的 DSH 版本；运行时�
 
 判断能力是否可用时，应以当前 Profile、`cordis/desktop-bridge/routes.mjs`、`src/lib/desktop.ts` 和事件处理代码为依据。未出现在这些边界中的 DSH 能力不能视为已支持；可选域缺失时，面板应保持不可用。版本升级后应重新验证：
 
-- desktop Profile 的 Bundle 依赖和插件加载顺序；
+- Deeptop Profile 的 Bundle 依赖和插件加载顺序；
 - ApiProxy 方法的参数、返回值和错误结构；
 - Remote namespace/method、Projection 字段和事件语义；
 - 历史恢复、实时事件、取消、超时和 DSH 重启行为。

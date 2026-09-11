@@ -1,6 +1,6 @@
-// Per-session durable tail registry for rc.1 history page cuts.
+// Per-session durable tail registry for Alpha history page cuts.
 //
-// rc.1 `sessionController.page()` has no "latest log" sentinel: its
+// Alpha `sessionController.page()` has no "latest log" sentinel: its
 // `throughSeq` is an inclusive real log cut obtained from the session's
 // current durable tail. This registry remembers the tail each live
 // `session/event` reveals and caches cold observations, so a history request

@@ -1,0 +1,305 @@
+diff --git a/packages/util/http-proxy/src/index.ts b/packages/util/http-proxy/src/index.ts
+index f12de6f093..2cad2fcb86 100644
+--- a/packages/util/http-proxy/src/index.ts
++++ b/packages/util/http-proxy/src/index.ts
+@@ -19,5 +19,7 @@ export {
+   installProxyFromEnvironment,
+   proxyEnvironmentForChild,
+   proxyRouteFor,
++  type ProxyChildEnvironment,
++  type ProxyInstallOptions,
+   type ProxyRoute,
+ } from './install.ts'
+diff --git a/packages/util/http-proxy/src/install.ts b/packages/util/http-proxy/src/install.ts
+index 1bd05bbcd3..a8b86237a9 100644
+--- a/packages/util/http-proxy/src/install.ts
++++ b/packages/util/http-proxy/src/install.ts
+@@ -34,6 +34,16 @@ let active: ProxyPolicy | undefined
+  */
+ let inheritedProxyEnv: Readonly<Record<string, string | undefined>> | undefined
+ 
++/** Whether child processes inherit the user's original variables or this installation's resolved policy. */
++export type ProxyChildEnvironment = 'inherited' | 'resolved'
++let childEnvironment: ProxyChildEnvironment = 'inherited'
++
++/** Options for one proxy installation. */
++export interface ProxyInstallOptions {
++  /** Give children this policy's resolved HTTP(S) variables instead of an outer launch environment. */
++  readonly childEnvironment?: ProxyChildEnvironment
++}
++
+ /** The dispatcher installed with {@link active}, so a route can hand back the one already routing. */
+ let installed: Dispatcher | undefined
+ 
+@@ -171,8 +181,13 @@ async function createPolicyDispatcher(policy: ProxyPolicy): Promise<Dispatcher>
+  * @param policy - the resolved policy to install.
+  * @returns a disposer restoring the previous dispatcher, policy, and environment, then closing the agent.
+  */
+-async function installGlobalProxy(policy: ProxyPolicy): Promise<() => Promise<void>> {
++async function installGlobalProxy(
++  policy: ProxyPolicy,
++  options: ProxyInstallOptions = {},
++): Promise<() => Promise<void>> {
+   const previousPolicy = active
++  const previousChildEnvironment = childEnvironment
++  childEnvironment = options.childEnvironment ?? 'inherited'
+   if (policy.source === 'none') {
+     // A direct policy mounted over an installed one must actually stop proxying. Recording the policy
+     // alone would leave the previous agent as the global dispatcher, so a plain `fetch()` would keep
+@@ -182,6 +197,7 @@ async function installGlobalProxy(policy: ProxyPolicy): Promise<() => Promise<vo
+       active = policy
+       return () => {
+         active = previousPolicy
++        childEnvironment = previousChildEnvironment
+         return Promise.resolve()
+       }
+     }
+@@ -191,34 +207,51 @@ async function installGlobalProxy(policy: ProxyPolicy): Promise<() => Promise<vo
+     // user's own values return for the window and the outer install's come back when it ends. An
+     // install underneath that proxied nothing published nothing, and there is nothing to put back.
+     const restoreEnv = inheritedProxyEnv === undefined ? undefined : writeProxyEnv(inheritedProxyEnv)
+-    const undici = await import('undici')
+-    const previous = undici.getGlobalDispatcher()
+-    const direct = new undici.Agent()
+-    undici.setGlobalDispatcher(direct)
++    try {
++      const undici = await import('undici')
++      const previous = undici.getGlobalDispatcher()
++      const direct = new undici.Agent()
++      undici.setGlobalDispatcher(direct)
++      active = policy
++      installed = undefined
++      return async () => {
++        undici.setGlobalDispatcher(previous)
++        active = previousPolicy
++        childEnvironment = previousChildEnvironment
++        installed = previousInstalled
++        restoreEnv?.()
++        await direct.close()
++      }
++    } catch (error) {
++      childEnvironment = previousChildEnvironment
++      restoreEnv?.()
++      throw error
++    }
++  }
++  const restoreEnv = applyPolicyEnv(policy)
++  let agent: Dispatcher | undefined
++  try {
++    const { getGlobalDispatcher, setGlobalDispatcher } = await import('undici')
++    const previousDispatcher = getGlobalDispatcher()
++    const previousInstalled = installed
++    const nextAgent = await createPolicyDispatcher(policy)
++    agent = nextAgent
++    setGlobalDispatcher(nextAgent)
+     active = policy
+-    installed = undefined
++    installed = nextAgent
+     return async () => {
+-      undici.setGlobalDispatcher(previous)
++      setGlobalDispatcher(previousDispatcher)
+       active = previousPolicy
++      childEnvironment = previousChildEnvironment
+       installed = previousInstalled
+-      restoreEnv?.()
+-      await direct.close()
++      restoreEnv()
++      await nextAgent.close()
+     }
+-  }
+-  const restoreEnv = applyPolicyEnv(policy)
+-  const { getGlobalDispatcher, setGlobalDispatcher } = await import('undici')
+-  const previousDispatcher = getGlobalDispatcher()
+-  const previousInstalled = installed
+-  const agent = await createPolicyDispatcher(policy)
+-  setGlobalDispatcher(agent)
+-  active = policy
+-  installed = agent
+-  return async () => {
+-    setGlobalDispatcher(previousDispatcher)
+-    active = previousPolicy
+-    installed = previousInstalled
++  } catch (error) {
++    childEnvironment = previousChildEnvironment
+     restoreEnv()
+-    await agent.close()
++    await agent?.close()
++    throw error
+   }
+ }
+ 
+@@ -262,7 +295,19 @@ async function installGlobalProxy(policy: ProxyPolicy): Promise<() => Promise<vo
+ export function proxyEnvironmentForChild(): Readonly<Record<string, string | undefined>> {
+   const policy = active
+   const inherited = inheritedProxyEnv
+-  if (policy === undefined || policy.source === 'none' || inherited === undefined) return {}
++  if (policy === undefined) return {}
++  if (childEnvironment === 'resolved') {
++    const overlay: Record<string, string | undefined> = Object.fromEntries(PROXY_ENV_NAMES.map(name => [name, undefined]))
++    overlay.NODE_USE_ENV_PROXY = undefined
++    if (policy.source === 'none') return overlay
++    overlay.NODE_USE_ENV_PROXY = '1'
++    for (const [field, names] of Object.entries(POLICY_ENV_NAMES)) {
++      const resolved = policy[field as keyof typeof POLICY_ENV_NAMES]
++      for (const name of names) overlay[name] = resolved
++    }
++    return overlay
++  }
++  if (policy.source === 'none' || inherited === undefined) return {}
+   const overlay: Record<string, string | undefined> = { NODE_USE_ENV_PROXY: '1' }
+   for (const [field, names] of Object.entries(POLICY_ENV_NAMES)) {
+     const resolved = policy[field as keyof typeof POLICY_ENV_NAMES]
+@@ -296,10 +341,11 @@ export function proxyEnvironmentForChild(): Readonly<Record<string, string | und
+ export async function installProxyFromEnvironment(
+   env: EnvLookup,
+   report: (message: string) => void,
++  options?: ProxyInstallOptions,
+ ): Promise<() => Promise<void>> {
+   const { policy, diagnostics } = resolveProxyPolicy(env)
+   for (const diagnostic of diagnostics) report(diagnostic.message)
+-  return await installGlobalProxy(policy)
++  return await installGlobalProxy(policy, options)
+ }
+ 
+ /**
+diff --git a/packages/util/http-proxy/src/policy.ts b/packages/util/http-proxy/src/policy.ts
+index cf89f09709..d87f0c4a8a 100644
+--- a/packages/util/http-proxy/src/policy.ts
++++ b/packages/util/http-proxy/src/policy.ts
+@@ -239,9 +239,20 @@ function splitHostPort(entry: string): { host: string; port?: string } {
+ /** One IPv4 octet, so a loopback match cannot accept `127.999.1.1`. */
+ const OCTET = '(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)'
+ 
++/** Every valid dotted IPv4 address. */
++const IPV4_ADDRESS = new RegExp(`^${OCTET}\\.${OCTET}\\.${OCTET}\\.${OCTET}$`)
++
+ /** The whole `127.0.0.0/8` block, not just its first address. */
+ const LOOPBACK_IPV4 = new RegExp(`^127\\.${OCTET}\\.${OCTET}\\.${OCTET}$`)
+ 
++/** Match the trailing IPv4 wildcard spelling Windows ProxyOverride emits, such as `10.*` or `192.168.*`. */
++function matchesIpv4Wildcard(pattern: string, host: string): boolean {
++  const parts = pattern.split('.')
++  if (parts.length < 2 || parts.at(-1) !== '*' || !IPV4_ADDRESS.test(host)) return false
++  const hostParts = host.split('.')
++  return parts.slice(0, -1).every((part, index) => /^\d+$/.test(part) && part === hostParts[index])
++}
++
+ /**
+  * Whether a host names this machine.
+  *
+@@ -265,11 +276,16 @@ export function isLoopbackHost(hostname: string): boolean {
+   return LOOPBACK_IPV4.test(host.startsWith('::ffff:') ? host.slice('::ffff:'.length) : host)
+ }
+ 
++/** A WinINet `<local>` token bypasses bare intranet hostnames, but not IP literals. */
++function isWinInetLocalName(host: string): boolean {
++  return !host.includes('.') && !host.includes(':') && !/^\d+$/.test(host)
++}
++
+ /**
+  * Decide whether a bypass list exempts one URL. An entry names a host and matches it together with
+  * every subdomain under it — `example.com` also bypasses `api.example.com` — and a leading `.` or
+  * `*.` is accepted as the same thing; an entry may carry a `:port`, and `*` bypasses everything.
+- * CIDR notation is not matched —
++ * The Windows `<local>` token also bypasses a bare intranet hostname. CIDR notation is not matched —
+  * an operating system's bypass list often carries `10.0.0.0/8`, which must be rewritten as suffixes.
+  *
+  * @param noProxy - the effective bypass list.
+@@ -284,12 +300,12 @@ export function bypassesProxy(noProxy: string, url: URL): boolean {
+   for (const raw of noProxy.split(/[,\s]+/)) {
+     const entry = raw.trim().toLowerCase()
+     if (entry === '') continue
+-    if (entry === '*') return true
++    if (entry === '*' || (entry === '<local>' && isWinInetLocalName(host))) return true
+     const split = splitHostPort(entry)
+     if (split.port !== undefined && split.port !== port) continue
+     const candidate = split.host.replace(/^\*?\./, '').replace(/\.$/, '')
+     if (candidate === '') continue
+-    if (host === candidate || host.endsWith(`.${candidate}`)) return true
++    if (matchesIpv4Wildcard(candidate, host) || host === candidate || host.endsWith(`.${candidate}`)) return true
+   }
+   return false
+ }
+diff --git a/packages/util/http-proxy/tests/install.spec.ts b/packages/util/http-proxy/tests/install.spec.ts
+index a717bec599..88d4b3b7ac 100644
+--- a/packages/util/http-proxy/tests/install.spec.ts
++++ b/packages/util/http-proxy/tests/install.spec.ts
+@@ -364,6 +364,55 @@ describe('proxyEnvironmentForChild', () => {
+   })
+ })
+ 
++describe('resolved child environments', () => {
++  it('hands children a dynamic desktop policy instead of the launch environment', async () => {
++    await withCleanProxyEnv(async () => {
++      process.env.HTTP_PROXY = nestedUrl
++      const { dispose } = await install(env({ HTTP_PROXY: proxyUrl, HTTPS_PROXY: proxyUrl, NO_PROXY: 'desktop.local' }))
++      try {
++        const desktop = await installProxyFromEnvironment(
++          env({ HTTP_PROXY: nestedUrl, HTTPS_PROXY: nestedUrl, NO_PROXY: 'desktop.local' }),
++          () => undefined,
++          { childEnvironment: 'resolved' },
++        )
++        try {
++          expect(proxyEnvironmentForChild()).toMatchObject({
++            HTTP_PROXY: nestedUrl,
++            HTTPS_PROXY: nestedUrl,
++            NO_PROXY: 'desktop.local,localhost,127.0.0.1,::1,[::1]',
++            NODE_USE_ENV_PROXY: '1',
++          })
++        } finally {
++          await desktop()
++        }
++      } finally {
++        await dispose()
++      }
++    })
++  })
++
++  it('removes launch proxy values from children when the desktop selects direct mode', async () => {
++    await withCleanProxyEnv(async () => {
++      process.env.HTTP_PROXY = proxyUrl
++      const { dispose } = await install(proxyAll())
++      try {
++        const desktop = await installProxyFromEnvironment(env({}), () => undefined, { childEnvironment: 'resolved' })
++        try {
++          expect(proxyEnvironmentForChild()).toMatchObject({
++            HTTP_PROXY: undefined,
++            HTTPS_PROXY: undefined,
++            NODE_USE_ENV_PROXY: undefined,
++          })
++        } finally {
++          await desktop()
++        }
++      } finally {
++        await dispose()
++      }
++    })
++  })
++})
++
+ describe('installing over an existing installation', () => {
+   it('stops proxying when the mounted policy proxies nothing', async () => {
+     const outer = await install(proxyAll())
+diff --git a/packages/util/http-proxy/tests/policy.spec.ts b/packages/util/http-proxy/tests/policy.spec.ts
+index daed8e5790..90b121c9e1 100644
+--- a/packages/util/http-proxy/tests/policy.spec.ts
++++ b/packages/util/http-proxy/tests/policy.spec.ts
+@@ -208,6 +208,18 @@ describe('bypassesProxy', () => {
+     expect(bypassesProxy('10.0.0.0/8', new URL('http://10.1.2.3/a'))).toBe(false)
+   })
+ 
++  it('matches the trailing IPv4 wildcards emitted by Windows ProxyOverride', () => {
++    expect(bypassesProxy('10.*,192.168.*', new URL('http://10.1.2.3/a'))).toBe(true)
++    expect(bypassesProxy('10.*,192.168.*', new URL('http://192.168.4.5/a'))).toBe(true)
++    expect(bypassesProxy('10.*,192.168.*', new URL('http://172.16.0.1/a'))).toBe(false)
++  })
++
++  it('matches WinINet <local> only for bare intranet hostnames', () => {
++    expect(bypassesProxy('<local>', new URL('http://intranet/a'))).toBe(true)
++    expect(bypassesProxy('<local>', new URL('http://intranet.example/a'))).toBe(false)
++    expect(bypassesProxy('<local>', new URL('http://10.1.2.3/a'))).toBe(false)
++  })
++
+   it('skips blank and bracket-only entries', () => {
+     expect(bypassesProxy(' , , [ , .', new URL('http://example.com/a'))).toBe(false)
+   })

@@ -1947,6 +1947,7 @@
   "trajectory.title.request": "Model request",
   "trajectory.title.requestConfig": "Request config",
   "trajectory.title.routeContext": "Route context",
+  "trajectory.title.systemPrompt": "System prompt",
   "trajectory.tool.count": "{count} tools",
   "trajectory.tool.error": "Tool returned an error",
   "trajectory.tool.none": "No tools",

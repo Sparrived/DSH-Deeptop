@@ -1,14 +1,14 @@
-// Desktop Host API calls over DSH 0.1.2-rc.1 in-process Typert services.
+// Desktop Host API calls over DSH 0.1.5-rc.1 in-process Typert services.
 //
-// Each function maps one legacy `api.<namespace>.<method>` surface (the rc.2
-// dsh-host-apiproxy facade) onto the rc.1 service that owns the verb:
+// Each function maps one legacy `api.<namespace>.<method>` surface onto the
+// service that owns the verb:
 // sessionController / workspaceController / settingsController /
 // credentialsController / directoryPickerController / subagents /
 // sessionSkillCatalog / agentPresets / goals / llm. Calls return plain
 // values; failures throw coded errors (DesktopBridge maps them to the wire
-// error frame). Where rc.1 dropped a verb the desktop surface still needs
-// (history models assembly, host describe, session export), the desktop
-// composes the value from rc.1 services itself.
+// error frame). The bridge composes the remaining desktop-only values from
+// official in-process services; raw artifact routes stay unavailable until DSH
+// publishes a public persistence contract.
 
 import { randomUUID } from 'node:crypto'
 import { codedError, requireService } from './api.mjs'
@@ -34,7 +34,7 @@ function addressForSession(sessionId) {
   return { kind: 'session', sessionId }
 }
 
-// ── rc.1 history page cuts ─────────────────────────────────────────────────
+// ── Alpha history page cuts ────────────────────────────────────────────────
 //
 // `sessionController.page()` rejects a missing/negative throughSeq: the value
 // must be an inclusive seq that exists in the durable log. The desktop has no
@@ -146,12 +146,12 @@ export async function sessionCreate(ctx, payload) {
     if (typeof agentPreset === 'string') request.agentPreset = agentPreset
   }
   const value = await controller(ctx, 'sessionController').create(request)
-  // rc.1 value is { sessionId }; the frontend contract carries optional agentPreset.
+  // Alpha value is { sessionId }; the frontend contract carries optional agentPreset.
   return value
 }
 
 /**
- * One message-aligned history page. rc.1 page() takes a durable address, an
+ * One message-aligned history page. Alpha page() takes a durable address, an
  * inclusive real log cut (`throughSeq`, from the session's current durable
  * tail) and an optional backward cursor. The value shape is the frontend
  * contract: { events, hasMore } with every event wrapped like the desktop wire
@@ -207,7 +207,7 @@ export async function sessionPrompt(ctx, payload, signal) {
   const sessionId = request.sessionId
   if (typeof sessionId !== 'string') throw codedError('bad-request', 'session.prompt requires sessionId', {})
   if (!Array.isArray(request.content)) throw codedError('bad-request', 'session.prompt requires content', {})
-  // rc.1 prompt requires a client-minted requestId and an explicit mode
+  // Alpha prompt requires a client-minted requestId and an explicit mode
   // ('queue' when the caller did not choose steer).
   const response = await controller(ctx, 'sessionController').prompt({
     sessionId,
@@ -263,7 +263,7 @@ export async function sessionTurnOutline(ctx, payload) {
 }
 
 /**
- * rc.1 model catalog plus desktop enrichments the frontend model picker
+ * Alpha model catalog plus desktop enrichments the frontend model picker
  * needs (current selection, image limits, resolved context window).
  */
 export async function sessionModels(ctx, payload) {
@@ -395,11 +395,16 @@ export async function subagentPrompt(ctx, payload, signal) {
   }
   const content = request.content
   if (content === undefined) throw codedError('bad-request', 'subagent.prompt requires content', {})
+  const delivery = request.delivery === undefined ? 'queue' : request.delivery
+  if (delivery !== 'queue' && delivery !== 'steer') {
+    throw codedError('bad-request', 'subagent.prompt delivery must be queue or steer', {})
+  }
   return controller(ctx, 'subagents').prompt({
     requestId: randomUUID(),
     parentSessionId: request.parentSessionId,
     childSessionId: request.childSessionId,
     mode: 'continuable',
+    delivery,
     content,
     ...(typeof request.clientTimeZone === 'string' ? { clientTimeZone: request.clientTimeZone } : {}),
   }, signal)
@@ -440,7 +445,7 @@ export async function hostOpenPath(ctx, payload, signal) {
   return controller(ctx, 'sessionController').openWorkspacePath({ path }, signal)
 }
 
-/** rc.1 dropped host.describe; compose the one-shot host snapshot from services. */
+/** Compose the one-shot host snapshot from mounted Alpha services. */
 export async function hostDescribe(ctx) {
   const agentDefaultModel = ctx.get?.('agentDefaultModel')
   const selection = agentDefaultModel?.currentSelection?.()

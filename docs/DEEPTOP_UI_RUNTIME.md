@@ -1533,7 +1533,7 @@ Phase 3 之前，不应把主 WebView Client Realm 视为不受信任插件沙�
 
 ### 16.3 真实 Host 组合测试
 
-`npm run test:ui-runtime:host` 从 Tauri 同一份 `dsh-runtime.tar.gz` 启动隔离的 `dsh --profile desktop`，按 `bundled_bridge_files()` 物化当前 Bridge，并通过真实 JSONL 协议和 Storage Domain 验证内置消息注记插件。该测试覆盖插件发现和受限 Remote、两个 Session 快速切换时迟到结果隔离、空 Session 不读取/不渲染、Host 进程重启后持久注记重新加载，以及禁用 Host UI Plugin 后清单、Slot 和 Remote 同时失效；生成的运行时缓存位于已忽略的 `work/`，Profile、Session 和 Storage 数据位于系统临时目录并在结束时删除。
+`npm run test:ui-runtime:host` 从 Tauri 同一份 `dsh-runtime.tar.gz` 启动隔离的 `dsh --profile deeptop`，按 `bundled_bridge_files()` 物化当前 Bridge，并通过真实 JSONL 协议和 Storage Domain 验证内置消息注记插件。该测试覆盖插件发现和受限 Remote、两个 Session 快速切换时迟到结果隔离、空 Session 不读取/不渲染、Host 进程重启后持久注记重新加载，以及禁用 Host UI Plugin 后清单、Slot 和 Remote 同时失效；生成的运行时缓存位于已忽略的 `work/`，Profile、Session 和 Storage 数据位于系统临时目录并在结束时删除。
 
 ### 16.4 React Slot 测试
 

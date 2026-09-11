@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { Check, ChevronDown, Paperclip, Send, Square, X } from "lucide-react";
 import { shortcutMatches, type SendShortcut } from "../app/keyboard-shortcut";
+import { resolveSubmitMode } from "../app/submit-mode";
 import { ComposerCandidates } from "./ComposerCandidates";
 import { ModelPicker } from "./ModelPicker";
 import { PermissionPicker } from "./PermissionPicker";
@@ -123,6 +124,16 @@ export function ComposerShell({
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const modeMenuRef = useRef<HTMLDivElement | null>(null);
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
+
+  // The picker records the preference; this is what the gesture actually
+  // delivers, resolved by the same rule the submission itself uses. The button
+  // only claims a Queue/Steer delivery when a plain message would really be
+  // delivered: a running turn, a deliverable draft, and no `/` command line.
+  const submitMode = resolveSubmitMode(promptMode, activeRunning);
+  const deliverableDraft = composer.trim().length > 0 || attachments.length > 0;
+  const sendLabel = activeRunning && deliverableDraft && !composer.trimStart().startsWith("/")
+    ? (submitMode === "steer" ? t("composer.steerLabel", locale) : t("composer.queueLabel", locale))
+    : t("composer.send", locale);
 
   useEffect(() => {
     if (!modeMenuOpen) return;
@@ -279,8 +290,8 @@ export function ComposerShell({
             type="button"
             onClick={onAction}
             disabled={(!composer.trim() && attachments.length === 0) || loading || !runtimeAvailable}
-            aria-label={t("composer.send", locale)}
-            title={`${t("composer.send", locale)}（${sendShortcut}）`}
+            aria-label={sendLabel}
+            title={`${sendLabel}（${sendShortcut}）`}
           >
             <Send aria-hidden="true" />
           </button>

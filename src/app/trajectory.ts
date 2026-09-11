@@ -371,6 +371,27 @@ export function buildTrajectoryRecords(entries: DshHistoryEntry[], locale: UiLoc
       continue;
     }
 
+    if (event.type === "system/message") {
+      // DSH 0.1.5 moved the system prompt out of `request/header.system` into
+      // its own surface node, so the prompt is read from the event that now
+      // carries it; an empty content array is the documented "no prompt" node.
+      const message = recordValue(data.message) ?? {};
+      const prompt = contentText(message.content, locale);
+      put({
+        key: `system-${event.seq}`,
+        seq: event.seq,
+        time: event.time,
+        kind: "system",
+        status: "info",
+        title: t("trajectory.title.systemPrompt", locale),
+        summary: prompt ? preview(prompt) : t("trajectory.text.noContent", locale),
+        detail: pretty({ content: message.content, source: message.source, surfaceOp: event.surfaceOp }),
+        turn,
+        step,
+      });
+      continue;
+    }
+
     if (event.type === "request/header") {
       const header = recordValue(data.header) ?? {};
       const config = recordValue(header.config) ?? {};

@@ -66,7 +66,7 @@ ask_user_question、todo_write、web 搜索/抓取、workflow、plan 与 compact
 - [desktop-client-runtime.ts](src/lib/desktop-client-runtime.ts)：提供 loopback `remote.invoke` 和官方转发事件订阅；
 - [routes.mjs](cordis/desktop-bridge/routes.mjs)：校验并 allowlist 桌面 API，转发 Remote 和 Host 下载能力；
 - [bridge-event-handler.ts](src/app/bridge-event-handler.ts)：把 Session Projection 和 Host 事件映射为 React 状态；
-- [cordis.patch.yml](cordis/cordis.patch.yml)：配置官方 Host 插件和桌面 Profile。
+- [cordis.patch.yml](cordis/cordis.patch.yml)：配置官方 Host 插件和 Deeptop Profile。
 
 ### 不直接复用的内容
 

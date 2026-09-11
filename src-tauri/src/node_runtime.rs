@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager};
 use zip::ZipArchive;
 
-const NODE_VERSION: &str = "22.19.0";
+const NODE_VERSION: &str = "22.21.1";
 const RUNTIME_DIRECTORY: &str = "node-runtime";
 const DOWNLOAD_MAX_BYTES: u64 = 96 * 1024 * 1024;
 const EXECUTABLE_MAX_BYTES: u64 = 128 * 1024 * 1024;
@@ -30,10 +30,10 @@ struct NodeArchive {
 fn archive_for(platform: &str, arch: &str) -> Option<NodeArchive> {
     match (platform, arch) {
         ("windows", "x64") => Some(NodeArchive {
-            url: "https://nodejs.org/dist/v22.19.0/node-v22.19.0-win-x64.zip",
-            archive_sha256: "ea3fad0e67a991d8477d8c01344b56e69c676ccb733f065b22436994b1253f86",
-            executable_sha256: "995a3fb3cefad590cd3f4b321532a4b9582fb9c6575320ed2e3e894caac3e362",
-            executable_entry: "node-v22.19.0-win-x64/node.exe",
+            url: "https://nodejs.org/dist/v22.21.1/node-v22.21.1-win-x64.zip",
+            archive_sha256: "3c624e9fbe07e3217552ec52a0f84e2bdc2e6ffa7348f3fdfb9fbf8f42e23fcf",
+            executable_sha256: "471961cb355311c9a9dd8ba417eca8269ead32a2231653084112554cda52e8b3",
+            executable_entry: "node-v22.21.1-win-x64/node.exe",
         }),
         _ => None,
     }
@@ -110,7 +110,7 @@ fn parse_node_version(value: &str) -> Option<Version> {
 }
 
 fn supports_dsh(version: &Version) -> bool {
-    version.major >= 24 || (version.major == 22 && version.minor >= 19)
+    version.major >= 24 || (version.major == 22 && version.minor >= 21)
 }
 
 fn command_output(path: &Path, argument: &str) -> Option<std::process::Output> {
@@ -272,7 +272,7 @@ pub fn install(app: &AppHandle) -> Result<PathBuf, String> {
         return Ok(path);
     }
     let archive = archive_for(platform(), arch()).ok_or_else(|| {
-        "当前平台暂不支持自动配置 Node.js；请在浏览器中安装 Node.js 22.19 或更高版本后重试"
+        "当前平台暂不支持自动配置 Node.js；请在浏览器中安装 Node.js 22.21 或更高版本后重试"
             .to_string()
     })?;
     let root = runtime_root(app)?;
@@ -332,11 +332,11 @@ mod tests {
 
     #[test]
     fn accepts_only_dsh_compatible_node_versions() {
-        assert!(!supports_dsh(&parse_node_version("v22.18.0").unwrap()));
-        assert!(supports_dsh(&parse_node_version("v22.19.0\n").unwrap()));
+        assert!(!supports_dsh(&parse_node_version("v22.20.0").unwrap()));
+        assert!(supports_dsh(&parse_node_version("v22.21.0\n").unwrap()));
         assert!(!supports_dsh(&parse_node_version("v23.0.0").unwrap()));
         assert!(supports_dsh(&parse_node_version("v24.0.0").unwrap()));
-        assert!(parse_node_version("node 22.19.0").is_none());
+        assert!(parse_node_version("node 22.21.0").is_none());
     }
 
     #[test]
@@ -344,16 +344,16 @@ mod tests {
         let archive = archive_for("windows", "x64").unwrap();
         assert_eq!(
             archive.url,
-            "https://nodejs.org/dist/v22.19.0/node-v22.19.0-win-x64.zip"
+            "https://nodejs.org/dist/v22.21.1/node-v22.21.1-win-x64.zip"
         );
-        assert_eq!(archive.executable_entry, "node-v22.19.0-win-x64/node.exe");
+        assert_eq!(archive.executable_entry, "node-v22.21.1-win-x64/node.exe");
         assert_eq!(
             archive.archive_sha256,
-            "ea3fad0e67a991d8477d8c01344b56e69c676ccb733f065b22436994b1253f86"
+            "3c624e9fbe07e3217552ec52a0f84e2bdc2e6ffa7348f3fdfb9fbf8f42e23fcf"
         );
         assert_eq!(
             archive.executable_sha256,
-            "995a3fb3cefad590cd3f4b321532a4b9582fb9c6575320ed2e3e894caac3e362"
+            "471961cb355311c9a9dd8ba417eca8269ead32a2231653084112554cda52e8b3"
         );
         assert!(archive_for("linux", "x64").is_none());
     }

@@ -24,7 +24,7 @@ permissions:
   contents: read
 
 env:
-  NODE_VERSION: 22.19.0
+  NODE_VERSION: 22.21.1
 
 concurrency:
   group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}

@@ -11,7 +11,7 @@ Rust Bridge Manager
    ⇅ JSONL stdin/stdout（deeptop/1）
 DSH Host 进程
    ⇄ Cordis services / ApiProxy / Remote / Projection / events
-DSH desktop Profile
+Deeptop Profile
 ```
 
 仓库中的 Cordis 源码按插件独立存放在 `cordis/`，并以兼容运行时 Bundle `deeptop-bridge` 运行在 DSH 的 Cordis 树内，所以它能直接访问 `apiProxy`、`typertGateway`、`llm`、`workspaceRegistry`、`sessionPersistence`、`sessions` 等 Host 服务。它不是独立 daemon，也不是第二个 Agent runtime。
@@ -44,20 +44,20 @@ Rust 启动器在 `src-tauri/src/main.rs` 中内嵌以下资源：
 启动时会：
 
 1. 计算 `DSH_HOME`；
-2. 创建 `$DSH_HOME/profiles/desktop`；
-3. 合并 desktop Profile 的 Bundle 清单，确保 `@deepseek-ai/dsh-base` 和 `deeptop-bridge` 存在；
+2. 创建 `$DSH_HOME/profiles/deeptop`；
+3. 合并 Deeptop Profile 的 Bundle 清单，确保 `@deepseek-ai/dsh-base` 和 `deeptop-bridge` 存在；
 4. 保留用户添加的其他 Bundle；
 5. 只在用户文件不存在时创建 `cordis.patch.yml`；
 6. 将 `cordis/<plugin>/` 的嵌套布局写到 `$DSH_HOME/profiles/node_modules/deeptop-bridge`；模块完成后再切换 package manifest 和 patch，并清理旧平铺生成文件。
 
-这样桌面端可以按 Profile 解析 Bridge，同时又不会覆盖用户的 desktop Profile 扩展。运行时资源来自安装包内的固定 DSH 源码构建，资源目录只读；系统 Node.js 只执行归档解压缓存中的 `@deepseek-ai/dsh/lib/bin.js`，不会使用 PATH、全局 npm、`$DSH_HOME` prefix、npm/npx 缓存或 registry。
+这样桌面端可以按 Profile 解析 Bridge，同时又不会覆盖用户的 Deeptop Profile 扩展。运行时资源来自安装包内的固定 DSH 源码构建，资源目录只读；系统 Node.js 只执行归档解压缓存中的 `@deepseek-ai/dsh/lib/bin.js`，不会使用 PATH、全局 npm、`$DSH_HOME` prefix、npm/npx 缓存或 registry。
 
 ### 2.2 DSH 子进程
 
 Rust 通过 Tauri `resource_dir()` 定位压缩 `dsh-runtime.tar.gz` 和配套清单，校验版本、平台、架构后，将归档安全解压到应用本地数据目录中按源码提交命名的缓存；缓存完成后直接启动系统 Node.js：
 
 ```text
-node <app-local-data>/dsh-runtime/<source-commit>-<platform>-<arch>-<tree-digest-prefix>/node_modules/@deepseek-ai/dsh/lib/bin.js --profile desktop
+node <app-local-data>/dsh-runtime/<source-commit>-<platform>-<arch>-<tree-digest-prefix>/node_modules/@deepseek-ai/dsh/lib/bin.js --profile deeptop
 ```
 
 归档只允许普通文件和目录，拒绝绝对路径、`..`、反斜杠、符号链接、硬链接和其他特殊条目；源码构建阶段拒绝链接，缓存启动前重新计算 `treeSha256`，临时目录完成校验并将 `.complete` 原子提交后才作为最终缓存。缓存创建使用可释放的跨进程文件锁，失败的临时目录会在下次启动时清理。
@@ -240,7 +240,7 @@ Deeptop 的桌面运行时使用 Vite 打包的 React、Tauri event 和自己的
 
 | 插件提供的内容 | Deeptop 做法 |
 | --- | --- |
-| Host/Cordis service | 加入 desktop Profile，直接复用 |
+| Host/Cordis service | 加入 Deeptop Profile，直接复用 |
 | Host + Remote | Host 加入 Profile，Remote 经 `desktopClientRuntime` 接入 |
 | Projection/event | 复用官方字段和事件，在 `bridge-event-handler.ts` 做映射 |
 | 只有 WebUI Client UI | 不加载 Client bundle，用原生 React 实现有价值的入口 |
@@ -250,7 +250,7 @@ Deeptop 的桌面运行时使用 Vite 打包的 React、Tauri event 和自己的
 新增插件的推荐检查顺序：
 
 1. 是否已有 Host 半包？
-2. 依赖是否能在 desktop Profile 中解析？
+2. 依赖是否能在 Deeptop Profile 中解析？
 3. 是否有 Remote namespace、Projection 或事件？
 4. 是否存在插件缺失时的能力探测？
 5. 是否覆盖持久化恢复、实时运行、失败、取消和快速切换？
@@ -278,7 +278,7 @@ Bridge 会把 AbortSignal 传给 Gateway/API。新增长任务时，必须确保
 
 | 需求 | 先看/修改 |
 | --- | --- |
-| 新 DSH 服务或 Agent 行为 | 独立的 `cordis/<plugin>/`、`cordis/cordis.patch.yml`、desktop Profile |
+| 新 DSH 服务或 Agent 行为 | 独立的 `cordis/<plugin>/`、`cordis/cordis.patch.yml`、Deeptop Profile |
 | 新 API 路由 | `cordis/desktop-bridge/routes.mjs`、`src/lib/desktop.ts`、对应测试 |
 | 新 Remote 能力 | `src/lib/desktop-client-runtime.ts`、`bridge-event-handler.ts` |
 | 新 Projection/UI 状态 | `src/app/`、`src/App.tsx`、相关 component |
@@ -291,7 +291,7 @@ Bridge 会把 AbortSignal 传给 Gateway/API。新增长任务时，必须确保
 
 一个非 WebUI 专属的 DSH 插件或能力达到原生兼容，至少应满足：
 
-- Host 插件能随 desktop Profile 启动并满足官方依赖；
+- Host 插件能随 Deeptop Profile 启动并满足官方依赖；
 - Remote 方法的参数、返回值、错误和取消语义保持官方契约；
 - Projection/事件在历史恢复和实时运行两条路径一致更新；
 - React 原生界面能完成主要用户操作；

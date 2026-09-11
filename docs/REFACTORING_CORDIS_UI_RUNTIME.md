@@ -18,7 +18,7 @@
 
 ### 现状问题
 
-会话置顶原先由平铺的 Bridge `routes.mjs` 私有读写 `$DSH_HOME/profiles/desktop/session-pins.json`，并在 Bridge 路由中维护串行写入、工作区清理和会话清理。这样持久化领域逻辑与路由、工作区 API 装饰耦合，不能被其它 Host Consumer 复用。
+会话置顶原先由平铺的 Bridge `routes.mjs` 私有读写 `$DSH_HOME/profiles/deeptop/session-pins.json`，并在 Bridge 路由中维护串行写入、工作区清理和会话清理。这样持久化领域逻辑与路由、工作区 API 装饰耦合，不能被其它 Host Consumer 复用。
 
 ### 已采用的目标结构
 
@@ -41,18 +41,18 @@ cordis/session-pins/
 
 ### 验收
 
-- desktop Profile 启动并挂载 `deeptop-bridge/session-pins`。
+- Deeptop Profile 启动并挂载 `deeptop-bridge/session-pins`。
 - Tauri 物化所有 Bridge exports，旧 Profile 首次启动时导入 `session-pins.json`。
 - 置顶/取消置顶、工作区列表装饰、会话迁移和删除清理保持原有结果。
 - 置顶写入在服务缺失或初始化失败时明确失败；列表读取可以按无置顶降级，不伪造写入成功。
 - 服务销毁前关闭新的 mutation，等待已接受写入并关闭 domain。
-- 根目录测试覆盖旧数据解析、重复数据过滤和有效成员过滤；Bridge 测试覆盖服务委托、列表装饰和路由兼容。真实 Service 初始化、domain 持久化和销毁由 desktop Profile 的 DSH 运行时验证。
+- 根目录测试覆盖旧数据解析、重复数据过滤和有效成员过滤；Bridge 测试覆盖服务委托、列表装饰和路由兼容。真实 Service 初始化、domain 持久化和销毁由 Deeptop Profile 的 DSH 运行时验证。
 
 ## 第二批：消息注记 UI Consumer（已完成）
 
 Host Service `message-annotations.mjs` 保持注记的 compare-and-set、Session identity 检查和持久化顺序。内置 `message-annotations-ui` Host Plugin 已登记 `conversation.message.actions`，内置 Client Module 通过受限 `messageAnnotations` Remote 读取和修改注记；`ConversationTranscript` 只提供最小消息 context 与 App-owned Popup/notice facade。
 
-组件级专项测试已补齐：`message-annotations-client.test.mjs` 验证 Action/Badge 的激活、渲染、停用清理、Popup 取消，以及 list 在首次 render 与订阅建立之间完成时的 mounted Badge 重渲染；`message-annotation-store.test.mjs` 验证 Session 代际保护、同代慢 list 不覆盖较新 mutation、A → B → A 的迟到读取、Host 版本冲突回填和 store dispose。Store 的 Session listener、cache 与订阅由 `dispose()` 清理，并绑定 Client Module 的 `AbortSignal`。`desktop-ui-runtime.test.mjs` 还覆盖 Host down 时在慢插件 teardown 前同步撤销 Slot、事件、Session listener、Remote/Storage、声明式 invoke 与 Host prompt；module load、activate、deactivate 及迟到 cleanup 均有界，异步 event/Session handler 失败不会阻断 sibling。Host lifecycle 使用 availability epoch、listener-first 状态补种与 listener 注册退避，覆盖快速 down/up/down、共享 Runtime stale owner 及 disabled → enabled 重启。`message-annotations-host.test.mjs` 使用当前 Tauri 内嵌运行时和 desktop Profile 真实启动 DSH，验证 A → B → A 后释放旧 A 响应、Host 重启后的持久注记重新加载、空 Session 和插件缺失降级；该验收同时确保 Tauri 物化 Bridge 的所有本地 ESM 依赖。外部 UI Plugin 不能通过该 facade 访问 Tauri、Node 或任意 App 状态。
+组件级专项测试已补齐：`message-annotations-client.test.mjs` 验证 Action/Badge 的激活、渲染、停用清理、Popup 取消，以及 list 在首次 render 与订阅建立之间完成时的 mounted Badge 重渲染；`message-annotation-store.test.mjs` 验证 Session 代际保护、同代慢 list 不覆盖较新 mutation、A → B → A 的迟到读取、Host 版本冲突回填和 store dispose。Store 的 Session listener、cache 与订阅由 `dispose()` 清理，并绑定 Client Module 的 `AbortSignal`。`desktop-ui-runtime.test.mjs` 还覆盖 Host down 时在慢插件 teardown 前同步撤销 Slot、事件、Session listener、Remote/Storage、声明式 invoke 与 Host prompt；module load、activate、deactivate 及迟到 cleanup 均有界，异步 event/Session handler 失败不会阻断 sibling。Host lifecycle 使用 availability epoch、listener-first 状态补种与 listener 注册退避，覆盖快速 down/up/down、共享 Runtime stale owner 及 disabled → enabled 重启。`message-annotations-host.test.mjs` 使用当前 Tauri 内嵌运行时和 Deeptop Profile 真实启动 DSH，验证 A → B → A 后释放旧 A 响应、Host 重启后的持久注记重新加载、空 Session 和插件缺失降级；该验收同时确保 Tauri 物化 Bridge 的所有本地 ESM 依赖。外部 UI Plugin 不能通过该 facade 访问 Tauri、Node 或任意 App 状态。
 
 ## 第三批：官方领域 UI Consumer
 

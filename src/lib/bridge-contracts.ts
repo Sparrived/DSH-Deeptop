@@ -258,7 +258,7 @@ const agents = {
   },
   "subagent.prompt": {
     requires: "subagents",
-    payload: {} as { parentSessionId: string; childSessionId: string; mode: string; content: DshSessionPromptPayload["content"]; clientTimeZone?: string },
+    payload: {} as { parentSessionId: string; childSessionId: string; mode: string; delivery?: "queue" | "steer"; content: DshSessionPromptPayload["content"]; clientTimeZone?: string },
     value: {} as unknown,
   },
   "subagent.interrupt": {

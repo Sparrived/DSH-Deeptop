@@ -1,8 +1,3 @@
-import { randomBytes } from 'node:crypto'
-import { mkdtemp, open, readFile, rename, rm, stat } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { isAbsolute, join } from 'node:path'
-import { repairCorruptLog } from './session-repair.mjs'
 import { resolveDshHome } from './dsh-home.mjs'
 import { parseGitHubSource } from '../skill-installer/installer.mjs'
 import { describePluginConfig, filterInventory, mutatePluginConfig } from './plugin-config.mjs'
@@ -27,8 +22,6 @@ import {
 import { loadProxySetting, resolveEffectiveProxy, setProxySetting } from './network-proxy.mjs'
 import { compactHistoryEntries } from './display-history.mjs'
 import { codedError, resolveAgent, requireService } from './api.mjs'
-import { unfoldRecords } from './session-records.mjs'
-import { buildZip } from './zip-writer.mjs'
 import {
   agentPresetCopy,
   agentPresetList,
@@ -88,55 +81,7 @@ function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-const MEDIA_EXTENSIONS = {
-  'image/png': 'png',
-  'image/jpeg': 'jpg',
-  'image/webp': 'webp',
-  'image/gif': 'gif',
-}
-
-function collectImageRefs(content, refs) {
-  if (!Array.isArray(content)) return
-  const pending = [...content]
-  while (pending.length > 0) {
-    const block = pending.pop()
-    if (!isRecord(block)) continue
-    if (block.type === 'image' && isRecord(block.attachment) && typeof block.attachment.attachmentId === 'string') {
-      refs.set(block.attachment.attachmentId, block.attachment)
-    }
-    if (Array.isArray(block.content)) pending.push(...block.content)
-  }
-}
-
-function collectArtifactImageRefs(content, refs) {
-  for (const line of content.split('\n')) {
-    if (line === '') continue
-    let event
-    try {
-      event = JSON.parse(line)
-    } catch {
-      continue
-    }
-    const data = isRecord(event.data) ? event.data : undefined
-    if (!data) continue
-    collectImageRefs(data.content, refs)
-    if (isRecord(data.message)) collectImageRefs(data.message.content, refs)
-    if (Array.isArray(data.inserted)) {
-      for (const message of data.inserted) {
-        if (isRecord(message)) collectImageRefs(message.content, refs)
-      }
-    }
-    if (isRecord(data.chunk) && data.chunk.type === 'block-end') collectImageRefs([data.chunk.block], refs)
-  }
-}
-
-function mediaEntryPath(ref) {
-  const extension = MEDIA_EXTENSIONS[ref.mediaType]
-  if (extension === undefined) throw new Error(`session export found image with unsupported media type ${JSON.stringify(ref.mediaType)}`)
-  return `media/${ref.attachmentId}.${extension}`
-}
-
-// rc.1 keeps the registry's durable archive set but publishes no restore or
+// Alpha keeps the registry's durable archive set but publishes no restore or
 // permanent-delete verbs. Route-owned mutations must use the registry queue so
 // they cannot overwrite archiveSession or ordinary workspace writes.
 function serializeArchiveMutation(registry, operation) {
@@ -158,14 +103,20 @@ function requireToolSettings(ctx, { nativeDirectory = false } = {}) {
   }
 }
 
+const REMOTE_METHODS = new Set(['commands/list', 'commands/execute'])
+
 async function invokeRemote(ctx, payload, signal) {
   if (!isRecord(payload)
     || typeof payload.namespace !== 'string'
-    || payload.namespace.trim() === ''
     || typeof payload.method !== 'string'
-    || payload.method.trim() === ''
     || !isRecord(payload.args)) {
     throw new Error('remote.invoke requires namespace, method and object args')
+  }
+  if (!REMOTE_METHODS.has(`${payload.namespace}/${payload.method}`)) {
+    throw codedError('remote-unavailable', 'desktop bridge does not expose this Remote method', {
+      namespace: payload.namespace,
+      method: payload.method,
+    })
   }
   const gateway = ctx.get?.('typertGateway')
   if (!gateway || typeof gateway.invoke !== 'function') {
@@ -209,84 +160,18 @@ async function referenceSessions(ctx, payload, signal) {
   return { items: await service.remoteExportCandidates(agent, payload.query ?? '', signal) };
 }
 
-async function exportSessionZip(ctx, payload, signal) {
-  if (!isRecord(payload)
-    || typeof payload.sessionId !== 'string'
-    || payload.sessionId.trim() === ''
-    || (payload.includeDescendants !== undefined && typeof payload.includeDescendants !== 'boolean')) {
+async function exportSessionZip(ctx, payload) {
+  const sessionId = sessionIdFromPayload(payload, 'session.exportZip')
+  if (payload.includeDescendants !== undefined && typeof payload.includeDescendants !== 'boolean') {
     throw new Error('session.exportZip requires sessionId and an optional boolean includeDescendants')
   }
-  const persistence = ctx.get?.('sessionPersistence')
-  const attachments = ctx.get?.('attachments')
-  if (!persistence || typeof persistence.readRaw !== 'function') {
-    throw codedError('session-export-unavailable', '会话导出需要可用的会话持久化后端', { capability: 'sessionPersistence' })
-  }
-  const flush = ctx.get?.('sessions')
-  signal?.throwIfAborted()
-  const headers = await persistence.list(signal)
-  const safeSessionId = payload.sessionId.replace(/[^A-Za-z0-9_-]/g, '_')
-
-  const rawFor = async sessionId => {
-    signal?.throwIfAborted()
-    if (flush && typeof flush.get === 'function' && typeof flush.flush === 'function') {
-      const live = flush.get(sessionId)
-      if (live !== undefined) await flush.flush(live)
-    }
-    signal?.throwIfAborted()
-    const raw = await persistence.readRaw(sessionId, signal)
-    if (raw === undefined) throw new Error(`session ${JSON.stringify(sessionId)} 没有可导出的日志文件`)
-    return raw
-  }
-
-  const root = await rawFor(payload.sessionId)
-  const entries = [{ path: root.filename, content: root.content }]
-  const media = new Map()
-  collectArtifactImageRefs(root.content, media)
-  if (payload.includeDescendants === true) {
-    const pending = [payload.sessionId]
-    const seen = new Set([payload.sessionId])
-    while (pending.length > 0) {
-      const parent = pending.shift()
-      for (const header of headers) {
-        if (header?.parentSession !== parent || header.origin !== 'subagent' || seen.has(header.id)) continue
-        seen.add(header.id)
-        const raw = await rawFor(header.id)
-        entries.push({ path: `subagents/${header.id.replace(/[^A-Za-z0-9_-]/g, '_')}/${raw.filename}`, content: raw.content })
-        collectArtifactImageRefs(raw.content, media)
-        pending.push(header.id)
-      }
-    }
-  }
-  if (media.size > 0 && (!attachments || typeof attachments.readImage !== 'function')) {
-    throw codedError('session-export-unavailable', '会话导出需要可用的附件存储后端', { capability: 'attachments' })
-  }
-  for (const ref of media.values()) {
-    signal?.throwIfAborted()
-    const stored = await attachments.readImage(ref, signal)
-    signal?.throwIfAborted()
-    entries.push({ path: mediaEntryPath(stored.ref), data: stored.data })
-  }
-  const archive = buildZip(entries)
-  signal?.throwIfAborted()
-  const directory = await mkdtemp(join(tmpdir(), 'deeptop-session-export-'))
-  const tempPath = join(directory, 'session.zip')
-  try {
-    const handle = await open(tempPath, 'w')
-    try {
-      await handle.writeFile(archive)
-    } finally {
-      await handle.close()
-    }
-  } catch (error) {
-    await rm(directory, { recursive: true, force: true }).catch(() => undefined)
-    throw error
-  }
-  return {
-    tempPath,
-    contentType: 'application/zip',
-    filename: `dsh-session-${safeSessionId}.zip`,
-    size: archive.byteLength,
-  }
+  // DSH 0.1.5 intentionally keeps raw artifacts behind persistence. Export
+  // stays unavailable until an upstream public archive contract exists.
+  throw codedError(
+    'session-export-unavailable',
+    '当前 DSH 运行时不公开安全的会话导出接口',
+    { sessionId },
+  )
 }
 
 function optionalSessionPins(ctx) {
@@ -456,34 +341,6 @@ async function restoreWorkspaceSession(ctx, payload) {
   })
 }
 
-function attachedSession(ctx, sessionId) {
-  const session = ctx.get?.('sessions')?.get?.(sessionId)
-  const agent = ctx.get?.('agents')?.get?.(sessionId)
-  return { session, agent }
-}
-
-function assertSessionDetachedForDelete(ctx, sessionId) {
-  const attached = attachedSession(ctx, sessionId)
-  if (attached.session === undefined && attached.agent === undefined) return
-  const error = new Error(
-    `会话 "${sessionId}" 仍附着在当前 Deeptop Host（不代表仍在运行）；请重启 DSH 运行时后再永久删除`,
-  )
-  error.code = 'session-attached'
-  error.details = { sessionId }
-  throw error
-}
-
-async function finalizeArchivedSessionDeletion(ctx, registry, state, sessionId) {
-  await optionalSessionPins(ctx)?.clearSession(sessionId)
-  for (const workspace of registry.list()) await workspace.detachSession(sessionId)
-  const nextArchivedSessionIds = state.archivedSessionIds.filter((id) => id !== sessionId)
-  await persistArchivedSessionIds(registry, state, nextArchivedSessionIds)
-  registry.headers?.delete(sessionId)
-  registry.sessionPaths?.delete(sessionId)
-  registry.invalidSessionPaths?.delete(sessionId)
-  return { deleted: true, archivedSessionIds: nextArchivedSessionIds }
-}
-
 async function deleteArchivedSession(ctx, payload, signal) {
   const sessionId = sessionIdFromPayload(payload, 'workspace.deleteArchivedSession')
   const registry = archiveRegistry(ctx)
@@ -494,92 +351,24 @@ async function deleteArchivedSession(ctx, payload, signal) {
       return { deleted: false, archivedSessionIds: [...state.archivedSessionIds] }
     }
 
-    const persistence = ctx.get?.('sessionPersistence')
-    if (!persistence || typeof persistence.list !== 'function') {
-      throw new Error('session deletion requires a persistence backend')
-    }
-    const header = (await persistence.list(signal)).find((item) => item?.id === sessionId)
-    signal?.throwIfAborted()
-    let artifactPath
-    if (header !== undefined) {
-      if (typeof persistence.locate !== 'function') {
-        throw new Error('the current persistence backend does not expose a deletable session artifact')
-      }
-      const location = persistence.locate(header)
-      if (!location || typeof location.path !== 'string' || !isAbsolute(location.path)) {
-        throw new Error('the current persistence backend does not expose a deletable session artifact')
-      }
-      artifactPath = location.path
-    }
-
-    assertSessionDetachedForDelete(ctx, sessionId)
-    signal?.throwIfAborted()
-    if (artifactPath !== undefined) await rm(artifactPath, { force: true })
-    return finalizeArchivedSessionDeletion(ctx, registry, state, sessionId)
+    // DSH 0.1.5 keeps session artifact locations private. Never infer an
+    // on-disk path from a snapshot or reach into a private persistence method.
+    throw codedError(
+      'session-delete-unavailable',
+      '当前 DSH 运行时不公开安全的会话永久删除接口',
+      { sessionId },
+    )
   })
 }
 
-/** Read one session artifact under a revision-stable loop, like DSH's own reader. */
-async function readStableArtifact(path, signal) {
-  for (;;) {
-    signal?.throwIfAborted()
-    const before = await stat(path, { bigint: true })
-    const buffer = await readFile(path, { signal })
-    signal?.throwIfAborted()
-    const after = await stat(path, { bigint: true })
-    if (before.size === after.size && before.mtimeNs === after.mtimeNs && before.ino === after.ino) {
-      return buffer
-    }
-  }
-}
-
-/** Durable replace of a session artifact: fsync a sibling temp file, then rename. */
-async function writeArtifactAtomically(path, bytes) {
-  const tmp = `${path}.${randomBytes(6).toString('hex')}.repair.tmp`
-  const handle = await open(tmp, 'wx', 0o600)
-  try {
-    await handle.writeFile(bytes)
-    await handle.sync()
-  } finally {
-    await handle.close()
-  }
-  try {
-    await rename(tmp, path)
-  } catch (error) {
-    await rm(tmp, { force: true })
-    throw error
-  }
-}
-
-/**
- * Repair a session log that DSH refuses to open after a crash left a torn
- * JSONL tail inside the last complete Zstandard frame. Committed records are
- * preserved; the uncommitted torn tail is dropped. When the log is already
- * readable it is left untouched and `repaired` is false.
- */
-async function repairCorruptSession(ctx, payload, signal) {
+async function repairCorruptSession(ctx, payload) {
   const sessionId = sessionIdFromPayload(payload, 'session.repairCorrupt')
-  const persistence = ctx.get?.('sessionPersistence')
-  if (!persistence || typeof persistence.list !== 'function' || typeof persistence.locate !== 'function') {
-    throw new Error('session.repairCorrupt requires a persistence backend with artifact locations')
-  }
-  if (ctx.get?.('sessions')?.get?.(sessionId) !== undefined || ctx.get?.('agents')?.get?.(sessionId) !== undefined) {
-    throw new Error(`session "${sessionId}" 仍在运行，请先停止它再修复日志`)
-  }
-  const header = (await persistence.list(signal)).find((item) => item?.id === sessionId)
-  signal?.throwIfAborted()
-  if (!header) throw new Error(`session "${sessionId}" 在持久化存储中不存在`)
-  const location = persistence.locate(header)
-  if (!location || typeof location.path !== 'string' || !isAbsolute(location.path)) {
-    throw new Error('当前持久化后端不暴露可修复的会话日志文件')
-  }
-  const buffer = await readStableArtifact(location.path, signal)
-  const repair = repairCorruptLog(buffer)
-  if (!repair.changed) {
-    return { repaired: false, recoveredEvents: repair.recoveredEvents, droppedTorn: repair.droppedTorn, droppedSeqGap: repair.droppedSeqGap }
-  }
-  await writeArtifactAtomically(location.path, repair.bytes)
-  return { repaired: true, recoveredEvents: repair.recoveredEvents, droppedTorn: repair.droppedTorn, droppedSeqGap: repair.droppedSeqGap }
+  // DSH 0.1.5 intentionally hides physical artifacts behind persistence.
+  throw codedError(
+    'session-repair-unavailable',
+    '当前 DSH 运行时不公开安全的会话日志修复接口',
+    { sessionId },
+  )
 }
 
 function messageAnnotations(ctx) {
@@ -617,7 +406,8 @@ function probeDesktopCapabilities(ctx) {
     llm: has(get('llm'), 'resolveModelInfo'),
     plugins: has(ctx.pluginInventory, 'list'),
     tools: home !== undefined && has(sessionController, 'canOpenWorkspacePath'),
-    sessionExport: typeof get('sessionPersistence')?.readRaw === 'function',
+    // Alpha.2 does not publish a safe raw-artifact export contract yet.
+    sessionExport: false,
     commands: has(get('typertGateway'), 'invoke'),
     uiPlugins: has(get('deeptopUiRegistry'), 'list'),
   }

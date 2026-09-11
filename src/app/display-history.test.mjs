@@ -306,3 +306,44 @@ test("drops a failed retry attempt and settles an unfinished terminal stream", (
   assert.equal(assistant.streaming, false);
   assert.equal(compacted.filter(item => item.event.type === "assistant/chunk").length, 1);
 });
+
+test("lists files the present tool delivered through its durable event", () => {
+  const history = [
+    entry(1, "step/start", { turn: 1, step: 1 }),
+    entry(2, "assistant/message", { turn: 1, step: 1, message: { role: "assistant", content: [] } }),
+    entry(3, "deliverables/presented", {
+      turn: 1,
+      callId: "call-1",
+      files: [{ path: "build/report.html", description: "report" }, { path: "build/plot.png" }],
+    }),
+  ];
+
+  const deliverable = transcriptFromHistory(history).find(item => item.kind === "deliverables");
+
+  assert.deepEqual(deliverable.files, ["build/report.html", "build/plot.png"]);
+});
+
+test("shows the v3 system prompt node in the trajectory but not in the transcript", () => {
+  const history = [
+    entry(1, "step/start", { turn: 1, step: 1 }),
+    entry(2, "system/message", {
+      turn: 1,
+      step: 1,
+      message: {
+        id: "system-1",
+        role: "system",
+        source: { kind: "plugin", plugin: "@deepseek-ai/dsh-system-prompt" },
+        content: [{ type: "text", text: "be brief" }],
+      },
+      surfaceOp: "append",
+    }),
+    entry(3, "request/header", { turn: 1, step: 1, header: { config: { provider: "mock", model: "mock" }, tools: [] } }),
+  ];
+
+  const system = buildTrajectoryRecords(history).find(record => record.key === "system-2");
+  assert.equal(system.kind, "system");
+  assert.equal(system.summary, "be brief");
+
+  // Upstream never renders the prompt node as a chat bubble.
+  assert.equal(transcriptFromHistory(history).some(item => item.text === "be brief"), false);
+});
