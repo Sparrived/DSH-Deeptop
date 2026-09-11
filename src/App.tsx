@@ -2058,7 +2058,14 @@ function AppContent() {
   async function loadRuntimeDetails(sessionItems = sessions) {
     if (!desktop) return;
     const workspaceVersion = workspaceRequestRef.current;
-    const [hostResult, presetResult, workspaceResult, settingsResult, providerResult, modelResult, pluginResult, pluginConfigResult, capabilityResult] = await Promise.allSettled([
+    // Provider 改动只让 Host 目录（llm.models）失效，发送框用的却是活动会话目录
+    // （session.models）：分组来自 Host、routable 来自 Host 与投影的比对结果，
+    // 所以这里必须一起重取，否则已打开的会话仍显示改动前的模型与可路由状态。
+    const activeSessionId = activeSessionRef.current;
+    const sessionModelsRequest = activeSessionId
+      ? desktopRequest("session.models", { sessionId: activeSessionId })
+      : Promise.resolve(null);
+    const [hostResult, presetResult, workspaceResult, settingsResult, providerResult, modelResult, pluginResult, pluginConfigResult, capabilityResult, sessionModelsResult] = await Promise.allSettled([
       desktopRequest("host.describe"),
       desktopRequest("agentPreset.list"),
       desktopRequest("workspace.list"),
@@ -2068,6 +2075,7 @@ function AppContent() {
       desktopRequest("plugin.list"),
       desktopRequest("plugin.config.describe"),
       desktopRequest("desktop.capabilities"),
+      sessionModelsRequest,
     ]);
     if (hostResult.status === "fulfilled") setRuntimeDetails(hostResult.value);
     if (presetResult.status === "fulfilled") {
@@ -2112,6 +2120,14 @@ function AppContent() {
     if (settingsResult.status === "fulfilled") setSettings(settingsResult.value);
     if (providerResult.status === "fulfilled") setProviders(providerResult.value.providers);
     if (modelResult.status === "fulfilled") setHostModels(modelResult.value);
+    // 晚到的响应不得覆盖用户已切换过去的会话；imageLimits 只在实时投影里，
+    // 重取的目录没有它时保留发送框已有的值。
+    if (sessionModelsResult.status === "fulfilled" && sessionModelsResult.value && activeSessionRef.current === activeSessionId) {
+      const refreshedModels = sessionModelsResult.value;
+      setModels((current) => current?.imageLimits && !refreshedModels.imageLimits
+        ? { ...refreshedModels, imageLimits: current.imageLimits }
+        : refreshedModels);
+    }
     if (pluginResult.status === "fulfilled") {
       setPluginInventory(pluginResult.value.entries);
       setExcludedPlugins(pluginResult.value.excluded ?? []);
@@ -2255,6 +2271,17 @@ function AppContent() {
     const result = await desktopRequest("settings.describe");
     setSettings(result);
     return result;
+  }
+
+  // 命名空间写入后的刷新。Provider 命名空间直接决定模型路由（Settings > Models
+  // 的 JSON/Schema 编辑器也写这里），必须走完整运行时刷新，让 Host 目录与活动
+  // 会话目录一起失效；其它命名空间只重读设置视图。
+  async function refreshAfterSettingsWrite(ns: string) {
+    if (providers.some((provider) => provider.settingsNs === ns)) {
+      await loadRuntimeDetails();
+      return;
+    }
+    await refreshSettings();
   }
 
   function stagePresetForNextSession(id: string) {
@@ -2467,6 +2494,7 @@ function AppContent() {
 
   async function saveSettings() {
     if (!settingsDraft) return;
+    const { ns } = settingsDraft;
     try {
       const patch = parseJsonObject(settingsDraft.value, locale);
       const ops = settingsOps(settingsDraft.original, patch, [], settingsDraft.secrets);
@@ -2475,13 +2503,13 @@ function AppContent() {
         return;
       }
       await desktopRequest("settings.mutate", {
-        ns: settingsDraft.ns,
+        ns,
         ops,
         expectedRevision: settingsDraft.revision,
       });
       setSettingsDraft(null);
-      await refreshSettings();
-      setNotice(t("notice.namespaceUpdated", locale, { ns: settingsDraft.ns }));
+      await refreshAfterSettingsWrite(ns);
+      setNotice(t("notice.namespaceUpdated", locale, { ns }));
     } catch (error) {
       setErrorNotice(errorText(error, locale));
     }
@@ -2501,7 +2529,7 @@ function AppContent() {
         expectedRevision: revision,
       });
       if (settingsDraft?.ns === ns) setSettingsDraft(null);
-      await refreshSettings();
+      await refreshAfterSettingsWrite(ns);
       setNotice(t("notice.namespaceUpdated", locale, { ns }));
     } catch (error) {
       setErrorNotice(errorText(error, locale));
