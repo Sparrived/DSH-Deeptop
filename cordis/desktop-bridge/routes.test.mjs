@@ -1403,22 +1403,23 @@ test('enriches model metadata concurrently', async () => {
   assert.equal(result.groups[0].models.length, 2)
 })
 
-test('serves the whole-log turn outline from the sessionProjections unit', async () => {
+test('serves a cold session whole-log turn outline from the query projection', async () => {
+  let disposed = false
   const ctx = {
-    get: key => key === 'sessions' ? {
-      get: () => ({ id: 'session-1' }),
-    } : key === 'sessionProjections' ? {
-      snapshot: (session, keys) => {
-        assert.equal(session.id, 'session-1')
-        assert.deepEqual(keys, ['turnOutline'])
+    get: key => key === 'sessionQuery' ? {
+      observeSession: async (sessionId, options) => {
+        assert.equal(sessionId, 'session-1')
+        assert.deepEqual(options, { signal, projectionMode: 'all' })
         return {
-          asOfSeq: 40,
-          values: {
-            turnOutline: [
-              { turn: 1, seq: 4, prompt: 'hello', response: 'hi back' },
-              { turn: 2, seq: 21, prompt: 'next', response: '' },
-            ],
+          projections: {
+            values: {
+              turnOutline: [
+                { turn: 1, seq: 4, prompt: 'hello', response: 'hi back' },
+                { turn: 2, seq: 21, prompt: 'next', response: '' },
+              ],
+            },
           },
+          [Symbol.dispose]: () => { disposed = true },
         }
       },
     } : undefined,
@@ -1428,14 +1429,13 @@ test('serves the whole-log turn outline from the sessionProjections unit', async
   assert.equal(result.sessionId, 'session-1')
   assert.equal(result.entries.length, 2)
   assert.deepEqual(result.entries[0], { turn: 1, seq: 4, prompt: 'hello', response: 'hi back' })
+  assert.equal(disposed, true)
 })
 
 test('turn outline degrades to an empty list when the projection unit is missing', async () => {
   const ctx = {
-    get: key => key === 'sessions' ? {
-      get: () => ({ id: 'session-1' }),
-    } : key === 'sessionProjections' ? {
-      snapshot: () => ({ asOfSeq: 3, values: {} }),
+    get: key => key === 'sessionQuery' ? {
+      observeSession: async () => ({ projections: { values: {} }, [Symbol.dispose]: () => {} }),
     } : undefined,
   }
 
@@ -1446,8 +1446,12 @@ test('turn outline degrades to an empty list when the projection unit is missing
 
 test('turn outline rejects an unknown session', async () => {
   const ctx = {
-    get: key => key === 'sessions' ? {
-      get: () => undefined,
+    get: key => key === 'sessionQuery' ? {
+      observeSession: async () => {
+        const error = new Error('session "session-missing" not found')
+        error.code = 'SESSION_QUERY_SESSION_NOT_FOUND'
+        throw error
+      },
     } : undefined,
   }
   await assert.rejects(
