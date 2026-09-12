@@ -11,6 +11,9 @@ type DeliverablesPanelProps = {
   locale?: UiLocale;
   onToggle: () => void;
   embedded?: boolean;
+  /** 在右栏停靠标签中打开交付文件；这是卡片主体的默认动作。 */
+  onOpenFile: (path: string, location?: { line?: number }) => void | Promise<void>;
+  /** 交给系统文件管理器；只用于“在文件夹中显示”。 */
   onOpenSessionPath: (path: string) => void | Promise<void>;
 };
 
@@ -29,7 +32,7 @@ function fileDirectory(path: string, locale: UiLocale) {
   return directory || t("deliverables.workspaceDir", locale);
 }
 
-export function DeliverablesPanel({ item, activeSession, collapsed, locale = "zh", onToggle, embedded = false, onOpenSessionPath }: DeliverablesPanelProps) {
+export function DeliverablesPanel({ item, activeSession, collapsed, locale = "zh", onToggle, embedded = false, onOpenSessionPath, onOpenFile }: DeliverablesPanelProps) {
   const files = item.files ?? [];
   const fileDiffs = item.fileDiffs ?? {};
   const diffTotals = Object.values(fileDiffs).reduce(
@@ -74,7 +77,7 @@ export function DeliverablesPanel({ item, activeSession, collapsed, locale = "zh
           {files.map((path) => {
             const diff = fileDiffs[path];
             return (
-              <button className="deliverable-file" type="button" key={`${item.key}-${path}`} onClick={() => void onOpenSessionPath(path)} title={path} aria-label={diff ? t("deliverables.openFileAriaDetailed", locale, { path, added: diff.added, removed: diff.removed }) : t("deliverables.openFileAria", locale, { path })}>
+              <button className="deliverable-file" type="button" key={`${item.key}-${path}`} onClick={() => void onOpenFile(path)} title={path} aria-label={diff ? t("deliverables.openFileAriaDetailed", locale, { path, added: diff.added, removed: diff.removed }) : t("deliverables.openFileAria", locale, { path })}>
                 <span className="deliverable-file-type" aria-hidden="true">{fileTypeLabel(path)}</span>
                 <span className="deliverable-file-copy"><strong>{pathBasename(path)}</strong><small>{fileDirectory(path, locale)}</small></span>
                 {diff && <span className="deliverable-file-diff" aria-label={t("deliverables.addedRemoved", locale, { added: diff.added, removed: diff.removed })}><b>+{diff.added}</b><b>−{diff.removed}</b></span>}

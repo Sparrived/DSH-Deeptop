@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { displayToolName, hasVisibleToolArguments, isPrimaryToolArgument, orderedToolArguments, parseToolArgs, toolArgsLayout, toolCallDescription, toolCallEditDiff, toolCallSummary, toolTodoItems, visibleToolArguments } from "./tool-call-display.ts";
+import { displayToolName, hasVisibleToolArguments, isPrimaryToolArgument, orderedToolArguments, parseToolArgs, toolArgsLayout, toolCallDescription, toolCallEditDiff, toolCallOpenLine, toolCallSummary, toolTodoItems, visibleToolArguments } from "./tool-call-display.ts";
 
 test("formats MCP tool names without the internal prefix", () => {
   assert.equal(displayToolName("mcp__vendor__read"), "vendor · read");
@@ -140,4 +140,21 @@ test("falls back safely when description is missing or blank", () => {
   assert.equal(toolCallDescription(undefined), undefined);
   assert.equal(toolCallDescription({ description: "   " }), undefined);
   assert.equal(toolCallDescription({ description: 1 }), undefined);
+});
+
+test("derives the 1-based open line from a read call's offset", () => {
+  assert.equal(toolCallOpenLine("read", { file_path: "src/App.tsx", offset: 42 }), 42);
+  assert.equal(toolCallOpenLine(" read ", { offset: 7.9 }), 7);
+  assert.equal(toolCallOpenLine("read_file", { offset: 3 }), 3);
+  // 只有读取类工具的 offset 表示起始行；写入/编辑/终端的 offset 不参与定位。
+  assert.equal(toolCallOpenLine("write", { offset: 42 }), undefined);
+  assert.equal(toolCallOpenLine("pwsh", { offset: 42 }), undefined);
+  assert.equal(toolCallOpenLine("read", {}), undefined);
+  assert.equal(toolCallOpenLine("read", undefined), undefined);
+  assert.equal(toolCallOpenLine(undefined, { offset: 1 }), undefined);
+  // 非法 offset 不产生定位行，打开文件时按文件开头显示。
+  assert.equal(toolCallOpenLine("read", { offset: 0 }), undefined);
+  assert.equal(toolCallOpenLine("read", { offset: -5 }), undefined);
+  assert.equal(toolCallOpenLine("read", { offset: "42" }), undefined);
+  assert.equal(toolCallOpenLine("read", { offset: Number.NaN }), undefined);
 });

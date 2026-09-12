@@ -1,0 +1,447 @@
+/*
+ * 可停靠右栏。
+ *
+ * 结构：.dock-rail（网格最后一列）
+ *   ├─ .dock-rail-resizer        骑在左缘的宽度拖拽手柄
+ *   ├─ .dock-rail-tree           布局树
+ *   │    └─ .dock-rail-split     row/column 轴分栏（flex + 分数尺寸）
+ *   │         └─ .dock-rail-split-child  分栏孩子（flex-basis 由模型给出）
+ *   │              └─ .dock-rail-pane    标签组
+ *   │                   ├─ .dock-rail-tabbar  标签栏（拖拽手柄 + 关闭）
+ *   │                   └─ .dock-rail-pane-body
+ *   │                        └─ .dock-rail-tab-host  单个标签的正文宿主
+ *   └─ .dock-rail-empty          空栏提示，同时也是第一个面板的落点
+ *
+ * 面板类标签的正文由 DockFrame 把自己的正文节点挂进 .dock-rail-tab-host，
+ * 文件类标签的正文由 React 直接渲染在同一个宿主里。
+ */
+
+.dock-rail {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface);
+  /* 分隔线只在右栏真的承载内容时出现：宽度为 0 的轨道不该留下 1px 边框。 */
+  border-left: 1px solid transparent;
+}
+
+.dock-rail.has-content { border-left-color: var(--line); }
+
+@media (max-width: 760px) {
+  .dock-rail { display: none; }
+}
+
+/* 非会话页（看板/轨迹）不显示右栏，但布局与正文宿主保留，
+   停靠面板的内容因此不会被卸载。 */
+.dock-rail.hidden-page {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.dock-rail-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  z-index: 30;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.dock-rail-resizer::after {
+  position: absolute;
+  inset: 0 3px;
+  border-radius: 3px;
+  background: transparent;
+  content: "";
+}
+
+.dock-rail-resizer:hover::after,
+.dock-rail-resizing .dock-rail-resizer::after {
+  background: var(--accent);
+}
+
+body.dock-rail-resizing,
+body.dock-rail-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+body.dock-split-resizing,
+body.dock-split-resizing * {
+  user-select: none !important;
+}
+
+body.dock-tab-dragging,
+body.dock-tab-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
+/* ── 空栏 ───────────────────────────────────────────────────────────────── */
+
+.dock-rail-empty {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 8px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.dock-rail-empty-icon { display: grid; place-items: center; font-size: 20px; }
+.dock-rail-empty strong { font-size: 12px; letter-spacing: 0.02em; }
+.dock-rail-empty p { margin: 0; font-size: 9px; line-height: 1.5; }
+
+.dock-rail-empty.drop-active {
+  outline: 1px dashed var(--accent);
+  outline-offset: -4px;
+  color: var(--accent-deep);
+}
+
+/* ── 布局树 ─────────────────────────────────────────────────────────────── */
+
+.dock-rail-tree {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dock-rail-split {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dock-rail-split.axis-row { flex-direction: row; }
+.dock-rail-split.axis-column { flex-direction: column; }
+
+.dock-rail-split-child {
+  position: relative;
+  display: flex;
+  flex-grow: 0;
+  flex-shrink: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dock-rail-split-resizer {
+  position: absolute;
+  z-index: 25;
+  background: transparent;
+  touch-action: none;
+}
+
+.dock-rail-split.axis-row > .dock-rail-split-child > .dock-rail-split-resizer {
+  top: 0;
+  bottom: 0;
+  right: -4px;
+  width: 8px;
+  cursor: col-resize;
+}
+
+.dock-rail-split.axis-column > .dock-rail-split-child > .dock-rail-split-resizer {
+  left: 0;
+  right: 0;
+  bottom: -4px;
+  height: 8px;
+  cursor: row-resize;
+}
+
+.dock-rail-split-resizer::after {
+  position: absolute;
+  inset: 3px;
+  border-radius: 3px;
+  background: transparent;
+  content: "";
+}
+
+.dock-rail-split-resizer:hover::after {
+  background: var(--accent);
+}
+
+/* ── 标签组 ─────────────────────────────────────────────────────────────── */
+
+.dock-rail-pane {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-bottom: 1px solid var(--line);
+}
+
+.dock-rail-pane:last-child { border-bottom: 0; }
+
+.dock-rail-tabbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: stretch;
+  gap: 2px;
+  min-width: 0;
+  padding: 4px 4px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-bottom: 1px solid var(--line);
+  scrollbar-width: none;
+}
+
+.dock-rail-tabbar::-webkit-scrollbar { height: 0; }
+
+.dock-rail-tabbar-spacer { flex: 1 1 auto; min-width: 4px; }
+
+.dock-rail-tab {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-width: 0;
+  max-width: 200px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 6px 6px 0 0;
+  color: var(--muted);
+}
+
+.dock-rail-tab.selected {
+  border-color: var(--line);
+  background: var(--surface-raised);
+  color: var(--ink);
+}
+
+.dock-rail-tab.dragging { opacity: 0.45; }
+
+.dock-rail-tab-main {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 5px 4px 5px 8px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.dock-rail-tab-icon { display: grid; place-items: center; font-size: 13px; }
+.dock-rail-tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-rail-tab-detail {
+  max-width: 80px;
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dock-rail-tab-close,
+.dock-rail-pane-close {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.dock-rail-tab-close { margin-right: 3px; font-size: 12px; }
+.dock-rail-pane-close { align-self: center; margin-bottom: 3px; font-size: 13px; }
+
+.dock-rail-tab-close:hover,
+.dock-rail-pane-close:hover { background: var(--surface-sunken, var(--paper-deep)); color: var(--danger); }
+
+.dock-rail-pane-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 标签正文宿主：停用时 display:none，但仍挂载，标签切换不丢状态。 */
+.dock-rail-tab-host {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dock-rail-tab-host.is-inactive { display: none; }
+
+/* ── 拖拽落点提示 ───────────────────────────────────────────────────────── */
+
+.dock-rail-dropzone {
+  position: absolute;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent-deep);
+  font-size: 10px;
+  pointer-events: none;
+}
+
+.dock-rail-dropzone span {
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: var(--surface-raised);
+}
+
+.dock-rail-dropzone.zone-center { inset: 18%; }
+.dock-rail-dropzone.zone-left { inset: 0 60% 0 0; }
+.dock-rail-dropzone.zone-right { inset: 0 0 0 60%; }
+.dock-rail-dropzone.zone-top { inset: 0 0 60% 0; }
+.dock-rail-dropzone.zone-bottom { inset: 60% 0 0 0; }
+
+.dock-rail-drag-hint {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  z-index: 45;
+  transform: translateX(-50%);
+  padding: 3px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--accent-deep);
+  font-size: 10px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* ── 停靠标签里的文件预览 ───────────────────────────────────────────────── */
+
+.dock-file-view {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface-raised);
+}
+
+.dock-file-head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.dock-file-copy { display: flex; flex: 1 1 auto; min-width: 0; flex-direction: column; gap: 1px; }
+.dock-file-copy strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.dock-file-copy small {
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dock-file-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 4px; }
+
+.dock-file-actions button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.dock-file-actions button:hover { border-color: var(--accent); color: var(--accent-deep); }
+
+.dock-file-note {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.dock-file-note button {
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.dock-file-note.is-error { color: var(--danger); }
+.dock-file-note.is-warning { color: var(--accent-deep); }
+.dock-file-note.is-muted { border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; }
+
+.dock-file-lines {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 0 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.dock-file-line { display: flex; align-items: flex-start; gap: 10px; padding: 0 10px 0 0; }
+
+.dock-file-line-number {
+  flex: 0 0 auto;
+  width: 44px;
+  padding-right: 6px;
+  border-right: 1px solid var(--line);
+  color: var(--muted);
+  text-align: right;
+  user-select: none;
+}
+
+.dock-file-line code {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: transparent;
+  color: inherit;
+  white-space: pre;
+}
+
+.dock-file-line.is-target {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.dock-file-line.is-target .dock-file-line-number { color: var(--accent-deep); font-weight: 700; }

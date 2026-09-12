@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { composerReferenceText, detectComposerTrigger, droppedImageMediaType, imageBatchLimitError, imageDimensionLimitError, imageLimitsFromProjection, insertComposerCandidate, modelPickerGroups, modelSupportsImages, promptContentParts, referenceComposerCandidates, relativeWorkspacePath, insertComposerText, formatRuntimeLog, formatRuntimeLogs, runtimeLogMatches, questionAnswerItems, firstUnansweredQuestionIndex, sessionPath, planEffectiveTarget, planReviewOf, sessionIsVisible, subagentTreeKey, subagentTreeChildId, subagentTreeParentId } from "./ui-model.ts";
+import { composerReferenceText, detectComposerTrigger, droppedImageMediaType, fileTabDetail, imageBatchLimitError, imageDimensionLimitError, imageLimitsFromProjection, insertComposerCandidate, modelPickerGroups, modelSupportsImages, promptContentParts, referenceComposerCandidates, relativeWorkspacePath, insertComposerText, formatRuntimeLog, formatRuntimeLogs, runtimeLogMatches, questionAnswerItems, firstUnansweredQuestionIndex, sessionPath, planEffectiveTarget, planReviewOf, sessionIsVisible, subagentTreeKey, subagentTreeChildId, subagentTreeParentId } from "./ui-model.ts";
 
 test("keeps ordinary fork sessions visible while hiding subagents", () => {
   const base = { sessionId: "session-1", updatedAt: 1, running: false, blank: false, cwd: "C:\\temp" };
@@ -147,6 +147,15 @@ test("resolves relative message paths with the session platform separator", () =
   assert.equal(sessionPath("C:\\repo", "src/App.tsx"), "C:\\repo\\src\\App.tsx");
   assert.equal(sessionPath("/workspace/repo", "src\\App.tsx"), "/workspace/repo/src/App.tsx");
   assert.equal(sessionPath("/workspace/repo", "README.md"), "/workspace/repo/README.md");
+});
+
+test("labels a dock file tab with its directory and tolerates bare names", () => {
+  assert.equal(fileTabDetail("src/App.tsx"), "src");
+  assert.equal(fileTabDetail("src\\app\\dock-layout.ts"), "src\\app");
+  assert.equal(fileTabDetail("src/components/DockRail.tsx"), "src/components");
+  assert.equal(fileTabDetail("README.md"), "");
+  assert.equal(fileTabDetail(""), "");
+  assert.equal(fileTabDetail("/README.md"), "");
 });
 
 test("detects @ references and preserves path queries", () => {

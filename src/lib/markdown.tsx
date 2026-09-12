@@ -44,7 +44,7 @@ function MarkdownImage({ src, alt, ...props }: ImgHTMLAttributes<HTMLImageElemen
 }
 
 type MarkdownEntityActions = {
-  onOpenPath?: (path: string) => void | Promise<void>;
+  onOpenPath?: (path: string, location?: { line?: number }) => void | Promise<void>;
   onCheckPath?: (path: string) => Promise<boolean>;
   onOpenUrl?: (url: string) => void | Promise<void>;
 };

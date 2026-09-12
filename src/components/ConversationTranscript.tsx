@@ -10,7 +10,7 @@ import type { TurnRailItem } from "../app/turn-rail-model";
 import { MarkdownContent } from "../lib/markdown";
 
 type MarkdownEntityActions = {
-  onOpenPath?: (path: string) => void | Promise<void>;
+  onOpenPath?: (path: string, location?: { line?: number }) => void | Promise<void>;
   onCheckPath?: (path: string) => Promise<boolean>;
   onOpenUrl?: (url: string) => void | Promise<void>;
 };
@@ -71,7 +71,7 @@ type ConversationTranscriptProps = {
   onCopySelection: (text: string) => void | Promise<void>;
   onRetryMessage?: (seq: number) => void | Promise<void>;
   onForkSession: (sessionId: string, seq?: number) => void | Promise<void>;
-  onOpenSessionPath: (path: string) => void | Promise<void>;
+  onOpenSessionPath: (path: string, location?: { line?: number }) => void | Promise<void>;
   onOpenUrl: (url: string) => void | Promise<void>;
   /** Open a workflow member's child session (childId → subagent history). */
   onOpenWorkflowMember?: (childId: string, label: string) => void | Promise<void>;
@@ -146,7 +146,7 @@ function ToolEntryView({
   toolStatus: "error" | "returned" | "running";
   locale: UiLocale;
   onOpenUrl: (url: string) => void | Promise<void>;
-  onOpenPath: (path: string) => void | Promise<void>;
+  onOpenPath: (path: string, location?: { line?: number }) => void | Promise<void>;
 }) {
   const [showRawArgs, setShowRawArgs] = useState(false);
   const [showRawResult, setShowRawResult] = useState(false);
@@ -753,7 +753,7 @@ type TranscriptArticleProps = {
   onRequestCopyMenu: (item: TranscriptItem, x: number, y: number, target: EventTarget | null) => void;
   onRetryMessage?: (seq: number) => void | Promise<void>;
   onForkSession: (sessionId: string, seq?: number) => void | Promise<void>;
-  onOpenPath: (path: string) => void | Promise<void>;
+  onOpenPath: (path: string, location?: { line?: number }) => void | Promise<void>;
   onCheckPath: (path: string) => Promise<boolean>;
   onOpenUrl: (url: string) => void | Promise<void>;
   onOpenWorkflowMember?: (childId: string, label: string) => void | Promise<void>;

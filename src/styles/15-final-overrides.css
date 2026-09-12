@@ -1412,72 +1412,23 @@
   padding: 6px 6px 2px;
 }
 
-/* 钉住的 Dock：portal 进 workspace-layout 左侧的流内分栏层，成为真实网格列。
-   模板为侧栏 | 左分栏 | 对话；层未激活时宽度为 0。
-   分栏宽度由 App 写入 --pin-left-width（纯模型 dock-pin 计算），
-   拖拽分栏内缘的手柄可调整并持久化。 */
-.pin-layer { display: none; min-width: 0; min-height: 0; }
-
+/* 可停靠右栏：workspace-layout 的最后一列，模板为侧栏 | 对话 | 右栏。
+   右栏宽度由 App 写入 --dock-rail-width（纯模型 dock-layout 计算），拖拽期间
+   DockRail 把实时宽度写到 --dock-rail-drag-width 上，松手才持久化。
+   显式锁定列位：右栏宽度为 0 时它仍占一个 0 宽轨道，若依赖自动布局，
+   对话面板会被顺移进空轨道而消失。详细样式见 24-dock-rail.css。 */
 @media (min-width: 761px) {
   .workspace-layout {
-    grid-template-columns: var(--sidebar-width, 320px) var(--pin-left-width, 0px) minmax(0, 1fr);
+    /* 右栏再宽也不超过窗口的 45%：窄窗口下不能让对话列被挤到不可用。 */
+    grid-template-columns:
+      var(--sidebar-width, 320px)
+      minmax(0, 1fr)
+      minmax(0, min(var(--dock-rail-drag-width, var(--dock-rail-width, 0px)), 45%));
   }
 
-  /* 收起的分栏层是 display:none，不占网格轨道；若依赖自动布局，
-     对话面板会被顺移进宽度为 0 的左分栏轨道而消失。这里显式锁定列位。 */
   .workspace-layout > .session-sidebar { grid-column: 1; }
-  .workspace-layout > .pin-layer-left { grid-column: 2; }
-  .workspace-layout > .conversation-panel { grid-column: 3; }
-
-  .pin-layer.active {
-    display: flex;
-    position: relative;
-    flex-direction: column;
-    gap: var(--right-surface-gap, 12px);
-    padding: 10px 12px;
-    overflow: hidden;
-  }
-
-  /* 分栏内缘的宽度拖拽手柄：骑在层与对话列的分界上。 */
-  .pin-layer.active > .pin-layer-resizer {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 8px;
-    z-index: 30;
-    cursor: col-resize;
-    touch-action: none;
-  }
-  .pin-layer-left.active > .pin-layer-resizer { right: -4px; }
-  .pin-layer.active > .pin-layer-resizer::after,
-  body.pin-layer-resizing .pin-layer.active > .pin-layer-resizer::after {
-    position: absolute;
-    inset: 0 3px;
-    border-radius: 3px;
-    background: transparent;
-    content: "";
-  }
-  .pin-layer.active > .pin-layer-resizer:hover::after,
-  body.pin-layer-resizing .pin-layer.active > .pin-layer-resizer::after {
-    background: var(--accent);
-  }
-
-  /* 分栏内的卡片铺满整列高度；同侧多个钉住卡片纵向均分。 */
-  .pin-layer.active .dock-frame-card {
-    position: static;
-    transform: none;
-    width: 100%;
-    max-height: none;
-    height: auto;
-    flex: 1 1 0;
-    min-height: 220px;
-  }
-}
-
-body.pin-layer-resizing,
-body.pin-layer-resizing * {
-  cursor: col-resize !important;
-  user-select: none !important;
+  .workspace-layout > .conversation-panel { grid-column: 2; }
+  .workspace-layout > .dock-rail { grid-column: 3; }
 }
 
 

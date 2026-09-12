@@ -28,6 +28,8 @@ const TERMINAL_TOOLS = new Set(["bash", "pwsh", "shell", "powershell"]);
 const FILE_TOOLS = new Set(["read", "read_image", "write", "edit", "glob", "grep", "str_replace_editor"]);
 const WEB_TOOLS = new Set(["web_search", "web_fetch", "websearch", "webfetch"]);
 const DELEGATION_TOOLS = new Set(["subagent", "subagent_fork", "workflow", "ralph"]);
+/** 从参数里的 1-based `offset` 推出定位行的读取类工具。 */
+const READ_TOOLS = new Set(["read", "read_file", "readfile", "view"]);
 const FALLBACK_SUMMARY_FIELDS = ["file_path", "path", "url", "command", "query", "prompt", "objective", "pattern", "name", "id"];
 const SUMMARY_MAX_CHARS = 180;
 
@@ -207,6 +209,21 @@ export function toolArgsLayout(toolName: string | undefined, args: ToolArgsObjec
 /** Whether a stable tool profile promotes this argument into its primary panel. */
 export function isPrimaryToolArgument(toolName: string | undefined, key: string): boolean {
   return TOOL_ARG_PROFILES[normalizedToolName(toolName)]?.primary.includes(key) ?? false;
+}
+
+/**
+ * 读取类工具要定位到的 1-based 行号。
+ *
+ * 上游从 read 调用的 `offset` 推出定位行，Deeptop 沿用同一约定：read 工具的
+ * `offset` 本身就是 1-based 起始行，因此点击工具行里的路径可以直接在右栏把
+ * 文件展开到那一行——即使读取结果尚未落盘也成立，因为行号只依赖调用参数。
+ */
+export function toolCallOpenLine(toolName: string | undefined, args: ToolArgsObject | undefined): number | undefined {
+  if (!args) return undefined;
+  if (!READ_TOOLS.has(normalizedToolName(toolName))) return undefined;
+  const offset = args.offset;
+  if (typeof offset !== "number" || !Number.isFinite(offset) || offset < 1) return undefined;
+  return Math.floor(offset);
 }
 
 /** Order stable tool arguments without dropping unrecognised extension fields. */

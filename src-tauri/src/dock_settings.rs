@@ -1,56 +1,55 @@
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs, path::PathBuf};
+use serde_json::Value;
+use std::{fs, path::PathBuf};
 use tauri::{AppHandle, Manager};
-
-use super::dock_position::valid_id;
 
 const SETTINGS_FILE: &str = "dock-settings.json";
 
-/// 钉住分栏层的自定义宽度（px）；缺失表示该侧使用按 Dock 求和的默认宽度。
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct PinColumnWidths {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub left: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub right: Option<u32>,
-}
+/// 右栏宽度（px）的夹取范围；与前端 dock-layout 模型的常量保持一致。
+const DOCK_RAIL_MIN_WIDTH: u32 = 260;
+const DOCK_RAIL_MAX_WIDTH: u32 = 960;
 
-/// 与前端 dock-pin 模型的夹取范围保持一致。
-const PIN_LAYER_MIN_WIDTH: u32 = 220;
-const PIN_LAYER_MAX_WIDTH: u32 = 800;
-
-fn clamp_pin_layer_width(value: Option<u32>) -> Option<u32> {
-    value.map(|width| width.clamp(PIN_LAYER_MIN_WIDTH, PIN_LAYER_MAX_WIDTH))
-}
-
-/// 丢弃越界的分栏宽度，保证配置文件里的 columnWidths 始终可用。
-pub(crate) fn sanitize_column_widths(widths: PinColumnWidths) -> PinColumnWidths {
-    PinColumnWidths {
-        left: clamp_pin_layer_width(widths.left),
-        right: clamp_pin_layer_width(widths.right),
-    }
-}
+/// 布局快照的体积上限。布局本身是小型布局树，超过这个体积只能是损坏或被
+/// 篡改的输入，直接丢弃而不是把它继续写回配置文件。
+const LAYOUT_MAX_BYTES: usize = 64 * 1024;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DockSettings {
     #[serde(default)]
     pub auto_collapse_on_outside_click: bool,
-    /// 钉住的 Dock id 集合；只保留通过 id 校验的条目。
+    /// 可停靠右栏的布局树快照（`DockLayout` 的 JSON 形式）。
+    ///
+    /// 结构校验属于前端的纯模型（`src/app/dock-layout.ts` 的
+    /// `normalizeDockLayout`），这里是传输与体积守卫：只接受 JSON 对象，
+    /// 并拒绝超过 `LAYOUT_MAX_BYTES` 的快照。
     #[serde(default)]
-    pub pinned: HashMap<String, bool>,
-    /// 用户拖拽调整后的钉住分栏层宽度；按侧记录，缺失表示使用默认宽度。
-    #[serde(default)]
-    pub column_widths: PinColumnWidths,
+    pub layout: Value,
+    /// 用户拖拽调整后的右栏宽度；缺失表示使用默认宽度。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rail_width: Option<u32>,
 }
 
-/// 丢弃非法键并压缩掉 false 值，保证配置文件里的 pinned 始终是精简的 true 映射。
-pub(crate) fn sanitize_pinned(pinned: HashMap<String, bool>) -> HashMap<String, bool> {
-    pinned
-        .into_iter()
-        .filter(|(id, pinned)| *pinned && valid_id(id).is_ok())
-        .collect()
+fn clamp_rail_width(value: Option<u32>) -> Option<u32> {
+    value.map(|width| width.clamp(DOCK_RAIL_MIN_WIDTH, DOCK_RAIL_MAX_WIDTH))
+}
+
+/// 丢弃无法解释的布局快照，保证配置文件里的 layout 始终是可用的对象。
+pub(crate) fn sanitize_layout(layout: Value) -> Value {
+    match layout {
+        Value::Object(entries) => {
+            let bounded = Value::Object(entries);
+            if serde_json::to_vec(&bounded)
+                .map(|bytes| bytes.len() > LAYOUT_MAX_BYTES)
+                .unwrap_or(true)
+            {
+                Value::Null
+            } else {
+                bounded
+            }
+        }
+        _ => Value::Null,
+    }
 }
 
 fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -69,7 +68,18 @@ pub fn load(app: &AppHandle) -> Result<DockSettings, String> {
         }
         Err(error) => return Err(format!("读取 Dock 设置失败：{error}")),
     };
-    serde_json::from_str(&content).map_err(|error| format!("解析 Dock 设置失败：{error}"))
+    let settings: DockSettings =
+        serde_json::from_str(&content).map_err(|error| format!("解析 Dock 设置失败：{error}"))?;
+    Ok(sanitize(settings))
+}
+
+/// 归一化任意来源的 Dock 设置（读取与写入共用同一条路径）。
+pub fn sanitize(settings: DockSettings) -> DockSettings {
+    DockSettings {
+        layout: sanitize_layout(settings.layout),
+        rail_width: clamp_rail_width(settings.rail_width),
+        ..settings
+    }
 }
 
 pub fn save(app: &AppHandle, settings: &DockSettings) -> Result<(), String> {
@@ -113,80 +123,91 @@ pub fn get(app: AppHandle) -> Result<DockSettings, String> {
 }
 
 pub fn set(app: AppHandle, settings: DockSettings) -> Result<DockSettings, String> {
-    let settings = DockSettings {
-        pinned: sanitize_pinned(settings.pinned),
-        column_widths: sanitize_column_widths(settings.column_widths),
-        ..settings
-    };
+    let settings = sanitize(settings);
     save(&app, &settings)?;
     Ok(settings)
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use serde_json::json;
 
-    use super::{sanitize_column_widths, sanitize_pinned, DockSettings, PinColumnWidths};
+    use super::{sanitize, sanitize_layout, DockSettings, LAYOUT_MAX_BYTES};
 
     #[test]
-    fn defaults_to_disabled_outside_click_collapse_and_no_pins() {
+    fn defaults_to_disabled_outside_click_collapse_and_an_empty_layout() {
         let settings = DockSettings::default();
         assert!(!settings.auto_collapse_on_outside_click);
-        assert!(settings.pinned.is_empty());
-        assert_eq!(settings.column_widths, PinColumnWidths::default());
+        assert!(settings.layout.is_null());
+        assert_eq!(settings.rail_width, None);
     }
 
     #[test]
     fn serializes_a_stable_desktop_protocol() {
-        let mut pinned = HashMap::new();
-        pinned.insert("todo-dock".to_string(), true);
         let value = serde_json::to_value(DockSettings {
             auto_collapse_on_outside_click: true,
-            pinned,
-            column_widths: PinColumnWidths {
-                left: Some(420),
-                right: None,
-            },
+            layout: json!({ "root": null, "tabs": {} }),
+            rail_width: Some(420),
         })
         .unwrap();
         assert_eq!(value["autoCollapseOnOutsideClick"], true);
-        assert_eq!(value["pinned"]["todo-dock"], true);
-        assert_eq!(value["columnWidths"]["left"], 420);
-        assert!(value["columnWidths"].get("right").is_none());
+        assert_eq!(value["layout"]["tabs"], json!({}));
+        assert_eq!(value["railWidth"], 420);
     }
 
     #[test]
-    fn deserializes_legacy_settings_without_pins_or_widths() {
+    fn omits_an_absent_rail_width() {
+        let value = serde_json::to_value(DockSettings::default()).unwrap();
+        assert!(value.get("railWidth").is_none());
+    }
+
+    #[test]
+    fn deserializes_legacy_settings_without_layout_or_width() {
         let settings: DockSettings =
             serde_json::from_str("{\"autoCollapseOnOutsideClick\":true}").unwrap();
         assert!(settings.auto_collapse_on_outside_click);
-        assert!(settings.pinned.is_empty());
-        assert_eq!(settings.column_widths, PinColumnWidths::default());
+        assert!(settings.layout.is_null());
+        assert_eq!(settings.rail_width, None);
     }
 
     #[test]
-    fn sanitizes_pinned_entries() {
-        let mut pinned = HashMap::new();
-        pinned.insert("todo-dock".to_string(), true);
-        pinned.insert("bad id".to_string(), true);
-        pinned.insert("".to_string(), true);
-        pinned.insert("git-dock".to_string(), false);
-        let sanitized = sanitize_pinned(pinned);
-        assert_eq!(sanitized.len(), 1);
-        assert!(sanitized.contains_key("todo-dock"));
+    fn ignores_retired_pin_fields_from_older_settings_files() {
+        let raw = "{\"pinned\":{\"git-dock\":true},\"columnWidths\":{\"left\":420}}";
+        let settings: DockSettings = serde_json::from_str(raw).unwrap();
+        let value = serde_json::to_value(settings).unwrap();
+        assert!(value.get("pinned").is_none());
+        assert!(value.get("columnWidths").is_none());
     }
 
     #[test]
-    fn clamps_custom_column_widths_into_range() {
-        let widths = sanitize_column_widths(PinColumnWidths {
-            left: Some(80),
-            right: Some(2_000),
+    fn drops_layout_snapshots_that_are_not_objects() {
+        assert!(sanitize_layout(json!(null)).is_null());
+        assert_eq!(sanitize_layout(json!("nope")), serde_json::Value::Null);
+        assert_eq!(sanitize_layout(json!([1, 2])), serde_json::Value::Null);
+        let kept = sanitize_layout(json!({ "root": null, "tabs": {} }));
+        assert!(kept.is_object());
+    }
+
+    #[test]
+    fn drops_oversized_layout_snapshots() {
+        let huge = json!({ "root": { "kind": "pane", "id": "x".repeat(LAYOUT_MAX_BYTES) } });
+        assert!(sanitize_layout(huge).is_null());
+    }
+
+    #[test]
+    fn clamps_the_rail_width_into_range() {
+        let settings = sanitize(DockSettings {
+            auto_collapse_on_outside_click: false,
+            layout: json!({}),
+            rail_width: Some(80),
         });
-        assert_eq!(widths.left, Some(220));
-        assert_eq!(widths.right, Some(800));
-        assert_eq!(
-            sanitize_column_widths(PinColumnWidths::default()),
-            PinColumnWidths::default()
-        );
+        assert_eq!(settings.rail_width, Some(260));
+        let settings = sanitize(DockSettings {
+            auto_collapse_on_outside_click: false,
+            layout: json!({}),
+            rail_width: Some(2_000),
+        });
+        assert_eq!(settings.rail_width, Some(960));
+        assert_eq!(sanitize(DockSettings::default()).rail_width, None);
     }
 }

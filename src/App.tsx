@@ -36,9 +36,10 @@ import { GoalSurfacePanel, type GoalAction } from "./components/GoalSurfacePanel
 import { UtilityDockShelf, UtilityPanelEmptyState, type UtilityDockId } from "./components/UtilityDockShelf";
 import { WindowChrome } from "./components/WindowChrome";
 import { DockSettingsProvider, useDockSettings } from "./app/dock-settings";
-import { clampPinLayerWidth, computePinLayerWidths, PIN_LAYER_MAX_WIDTH, PIN_LAYER_MIN_WIDTH, resolvePinLayerWidths, type PinLayerWidths } from "./app/dock-pin";
 import { buildActiveSessionView } from "./app/active-session-view";
-import { DockPinLayersProvider, type DockPinLayerElements, type DockPinLayerSide } from "./components/DockPinLayers";
+import { DOCK_RAIL_DEFAULT_WIDTH, DOCK_RAIL_EMPTY_WIDTH, type DockTab } from "./app/dock-layout";
+import { DockRail } from "./components/DockRail";
+import { DockedFileView } from "./components/DockedFileView";
 import { PopupDialog } from "./components/PopupDialog";
 import { PluginInstallDialog, type PluginInstallDraft } from "./components/PluginInstallDialog";
 import { useProviderSettings } from "./app/useProviderSettings";
@@ -204,6 +205,8 @@ import {
   settingsOps,
   valueAtPath,
   sessionPath,
+  fileTabDetail,
+  pathBasename,
   presetDisplayName,
   projectName,
   sessionIsVisible,
@@ -898,7 +901,18 @@ function AppContent() {
     locale,
   });
   // @deeptop-pets:end app-system-hook
-  const { settings: dockSettings, loaded: dockSettingsLoaded, updateSettings: updateDockSettings, pinnedDocks } = useDockSettings();
+  const {
+    settings: dockSettings,
+    loaded: dockSettingsLoaded,
+    updateSettings: updateDockSettings,
+    layout: dockLayout,
+    drag: dockDrag,
+    findTabByKey: findDockTabByKey,
+    activateTab: activateDockTab,
+    closeTab: closeDockTab,
+    openTab: openDockTab,
+    resetLayout: resetDockLayout,
+  } = useDockSettings();
   const [dockSettingsUpdating, setDockSettingsUpdating] = useState(false);
 
   async function updateDockSettingsWithNotice(patch: Partial<import("./lib/desktop").DockSettings>) {
@@ -1772,86 +1786,40 @@ function AppContent() {
   }, [conversationPageActive]);
   const subagentEntries = subagents?.entries ?? [];
   const childSubagents = subagentEntries.filter((entry): entry is ChildSubagentEntry => entry.kind === "child");
-  // 钉住的 Dock 卡片 portal 进左右两个流内分栏层，对话列由网格布局天然让位。
-  // 看板/轨迹页不显示 Dock，因此也不能让已钉住的 Dock 继续占据分栏。
-  const dockExpandedById: Record<string, boolean> = conversationPageActive ? {
-    "terminal-dock": terminalOpen,
-    "workspace-files-dock": filesOpen,
-    "git-dock": gitOpen,
-  } : {};
-  const pinLayerWidths = computePinLayerWidths({ pinned: pinnedDocks, expandedById: dockExpandedById });
-  const customPinColumnWidths = dockSettings.columnWidths;
-  const resolvedPinLayerWidths = resolvePinLayerWidths({ computed: pinLayerWidths, custom: customPinColumnWidths });
-  // 分栏宽度拖拽：拖拽期间用本地实时宽度渲染，松手后才持久化到 Dock 设置。
-  const [pinLayerResize, setPinLayerResize] = useState<{ side: DockPinLayerSide; startX: number; startWidth: number; base: PinLayerWidths } | null>(null);
-  const [pinLayerResizeWidths, setPinLayerResizeWidths] = useState<PinLayerWidths | null>(null);
-  const effectivePinLayerWidths = pinLayerResizeWidths ?? resolvedPinLayerWidths;
-  const beginPinLayerResize = useCallback((event: ReactPointerEvent<HTMLDivElement>, side: DockPinLayerSide) => {
-    event.preventDefault();
-    setPinLayerResize({
-      side,
-      startX: event.clientX,
-      startWidth: side === "left" ? effectivePinLayerWidths.left : effectivePinLayerWidths.right,
-      base: effectivePinLayerWidths,
+  // 可停靠右栏：停靠状态由布局树权威决定，浮动卡片只负责未停靠时的位置。
+  // 看板/轨迹页不显示右栏，但布局保留，回到对话页即恢复。
+  const dockedPanels: Record<string, DockTab | null> = {
+    "terminal-dock": findDockTabByKey("terminal-dock"),
+    "workspace-files-dock": findDockTabByKey("workspace-files-dock"),
+    "git-dock": findDockTabByKey("git-dock"),
+  };
+  /**
+   * 左侧窄栏入口的点击语义：已停靠时把标签带到前台（关闭由右栏标签负责），
+   * 未停靠时沿用原来的展开/收起浮动卡片。
+   */
+  const toggleDockPanel = (kind: string, setFloatingOpen: (update: (open: boolean) => boolean) => void) => {
+    const docked = dockedPanels[kind];
+    if (docked) {
+      activateDockTab(docked.id);
+      return;
+    }
+    setFloatingOpen((open) => !open);
+  };
+  /**
+   * 在右栏按行打开文件。标签按路径去重：重复点击是复用并定位到新的行，
+   * 而不是再开一个标签。
+   */
+  const openSessionFile = (path: string, location?: { line?: number }) => {
+    const session = sessionsRef.current.find((item) => item.sessionId === activeSessionRef.current);
+    const resolved = sessionPath(session?.cwd ?? workspace, path);
+    openDockTab({
+      kind: "file",
+      title: pathBasename(path) || path,
+      detail: fileTabDetail(path),
+      path: resolved,
+      line: location?.line,
     });
-    setPinLayerResizeWidths(effectivePinLayerWidths);
-    document.body.classList.add("pin-layer-resizing");
-  }, [effectivePinLayerWidths]);
-  const resetPinLayerWidth = useCallback((side: DockPinLayerSide) => {
-    void updateDockSettings({
-      columnWidths: {
-        left: side === "left" ? undefined : (customPinColumnWidths?.left ?? undefined),
-        right: side === "right" ? undefined : (customPinColumnWidths?.right ?? undefined),
-      },
-    }).catch(() => undefined);
-  }, [customPinColumnWidths, updateDockSettings]);
-  useEffect(() => {
-    if (!pinLayerResize) return;
-    const resizeWidthFor = (clientX: number): { side: DockPinLayerSide; width: number } => {
-      const delta = clientX - pinLayerResize.startX;
-      const raw = pinLayerResize.side === "left" ? pinLayerResize.startWidth + delta : pinLayerResize.startWidth - delta;
-      return { side: pinLayerResize.side, width: clampPinLayerWidth(raw) ?? pinLayerResize.startWidth };
-    };
-    const handlePointerMove = (event: globalThis.PointerEvent) => {
-      setPinLayerResizeWidths((current) => {
-        if (!current) return current;
-        const { side, width } = resizeWidthFor(event.clientX);
-        return { ...current, [side]: width };
-      });
-    };
-    const settle = (persisted: boolean, clientX?: number) => {
-      document.body.classList.remove("pin-layer-resizing");
-      setPinLayerResize(null);
-      setPinLayerResizeWidths(null);
-      if (!persisted || clientX === undefined) return;
-      const { side, width } = resizeWidthFor(clientX);
-      void updateDockSettings({
-        columnWidths: {
-          left: side === "left" ? width : (customPinColumnWidths?.left ?? undefined),
-          right: side === "right" ? width : (customPinColumnWidths?.right ?? undefined),
-        },
-      }).catch(() => undefined);
-    };
-    const handlePointerUp = (event: globalThis.PointerEvent) => settle(true, event.clientX);
-    const handleAbort = () => settle(false);
-    document.addEventListener("pointermove", handlePointerMove);
-    document.addEventListener("pointerup", handlePointerUp);
-    document.addEventListener("pointercancel", handleAbort);
-    window.addEventListener("blur", handleAbort);
-    return () => {
-      document.removeEventListener("pointermove", handlePointerMove);
-      document.removeEventListener("pointerup", handlePointerUp);
-      document.removeEventListener("pointercancel", handleAbort);
-      window.removeEventListener("blur", handleAbort);
-    };
-  }, [pinLayerResize, customPinColumnWidths, updateDockSettings]);
-  const [pinLayerElements, setPinLayerElements] = useState<DockPinLayerElements>({ left: null, right: null });
-  // ref 回调必须保持稳定标识：内联箭头函数每次渲染都是新引用，React 每次提交都会
-  // detach(null)/attach(element) 并触发 setState，形成无限更新循环（React #185，
-  // 主界面首次渲染即整树卸载、窗口黑屏）。
-  const registerLeftPinLayer = useCallback((element: HTMLElement | null) => {
-    setPinLayerElements((current) => (current.left === element ? current : { ...current, left: element }));
-  }, []);
+  };
   const composerTrigger = useMemo(() => detectComposerTrigger(composer), [composer]);
   const composerCandidates = useMemo<ComposerCandidate[]>(() => {
     if (!composerTrigger) return [];
@@ -5160,6 +5128,7 @@ function AppContent() {
       embedded
       onToggle={() => setActiveUtilityPanel(null)}
       onOpenSessionPath={openSessionPath}
+      onOpenFile={openSessionFile}
     /> : <UtilityPanelEmptyState icon={<PackageOpen />} title={t("utility.deliverablesEmptyTitle", locale)} description={t("utility.deliverablesEmpty", locale)} />}
     subagent={childSubagents.length > 0 ? <div className="subagent-workbench">
       <SubagentDock
@@ -5209,8 +5178,14 @@ function AppContent() {
         onEditCommand={(command) => { if (desktop) document.execCommand(command); }}
       />
 
-      <DockPinLayersProvider value={conversationPageActive ? pinLayerElements : { left: null, right: null }}>
-      <div className="workspace-layout" style={{ "--sidebar-width": `${sidebarWidth}px`, "--pin-left-width": `${effectivePinLayerWidths.left}px` } as CSSProperties}>
+      <div
+        className="workspace-layout"
+        style={{
+          "--sidebar-width": `${sidebarWidth}px`,
+          // 空栏平时不占位，只有在拖拽面板时才展开成可命中的落点条。
+          "--dock-rail-width": `${!conversationPageActive ? 0 : dockLayout.root ? (dockSettings.railWidth ?? DOCK_RAIL_DEFAULT_WIDTH) : (dockDrag ? DOCK_RAIL_EMPTY_WIDTH : 0)}px`,
+        } as CSSProperties}
+      >
         <SessionSidebar
           locale={locale}
           search={search}
@@ -5274,22 +5249,6 @@ function AppContent() {
             document.body.classList.add("sidebar-resizing");
           }}
         />
-
-        <div className={`pin-layer pin-layer-left${pinLayerWidths.left > 0 ? " active" : ""}`} ref={registerLeftPinLayer} aria-hidden={!pinLayerWidths.left}>
-          {pinLayerWidths.left > 0 && (
-            <div
-              className="pin-layer-resizer"
-              role="separator"
-              aria-orientation="vertical"
-              aria-label={t("layout.resizeLeftPinAria", locale)}
-              aria-valuemin={PIN_LAYER_MIN_WIDTH}
-              aria-valuemax={PIN_LAYER_MAX_WIDTH}
-              aria-valuenow={effectivePinLayerWidths.left}
-              onPointerDown={(event) => beginPinLayerResize(event, "left")}
-              onDoubleClick={() => resetPinLayerWidth("left")}
-            />
-          )}
-        </div>
 
         <section className={`conversation-panel${conversationPageActive ? "" : " page-non-conversation"}`}>
           <ConversationHeader
@@ -5358,7 +5317,7 @@ function AppContent() {
               onForkSession={forkSession}
                onOpenUrl={openMessageUrl}
                onOpenWorkflowMember={openWorkflowChild}
-                             onOpenSessionPath={openSessionPath}
+                             onOpenSessionPath={openSessionFile}
               turnItems={railItems}
               turnActiveTurn={railActiveTurn}
               turnBusyTurn={turnBusy}
@@ -5385,14 +5344,14 @@ function AppContent() {
                 locale={locale}
                 workspace={workspace}
                 collapsed={!terminalOpen}
-                onToggle={() => setTerminalOpen((open) => !open)}
+                onToggle={() => toggleDockPanel("terminal-dock", setTerminalOpen)}
                 onError={setErrorNotice}
               />
               <WorkspaceFilesPanel
                 locale={locale}
                 workspace={workspace}
                 collapsed={filesCollapsed}
-                onToggle={() => setFilesOpen((open) => !open)}
+                onToggle={() => toggleDockPanel("workspace-files-dock", setFilesOpen)}
                  onAddPathToComposer={addPathToComposer}
                 onError={setErrorNotice}
               />
@@ -5400,7 +5359,7 @@ function AppContent() {
                 locale={locale}
                 workspace={workspace}
                 collapsed={!gitOpen}
-                onToggle={() => setGitOpen((open) => !open)}
+                onToggle={() => toggleDockPanel("git-dock", setGitOpen)}
                 onError={setErrorNotice}
               />
             </div>
@@ -5529,8 +5488,21 @@ function AppContent() {
           />
            </section>
 
+        <DockRail
+          locale={locale}
+          visible={conversationPageActive}
+          renderTabBody={(tab) => tab.kind === "file" && tab.path
+            ? <DockedFileView
+              key={tab.id}
+              path={tab.path}
+              line={tab.line}
+              cwd={activeSession?.cwd ?? workspace}
+              locale={locale}
+              onError={setErrorNotice}
+            />
+            : null}
+        />
       </div>
-      </DockPinLayersProvider>
 
          {showInspector && (
           <div className="inspector-modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="inspector-title">
@@ -5601,7 +5573,7 @@ function AppContent() {
                  </nav>
 
                 <section className="settings-main">
-                   {settingsSection === "dock" && <SettingsDockPanel locale={locale} settings={dockSettings} loaded={dockSettingsLoaded} updating={dockSettingsUpdating} onUpdate={updateDockSettingsWithNotice} />}
+                   {settingsSection === "dock" && <SettingsDockPanel locale={locale} settings={dockSettings} loaded={dockSettingsLoaded} updating={dockSettingsUpdating} dockedTabs={Object.keys(dockLayout.tabs).length} onUpdate={updateDockSettingsWithNotice} onResetLayout={() => resetDockLayout()} />}
                   {/* @deeptop-pets:start app-settings-panel */}
                   {(settingsSection as string) === "pets" && <SettingsPetPanel
                     locale={locale}

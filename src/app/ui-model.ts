@@ -451,6 +451,13 @@ export function pathBasename(path: string) {
   return separator >= 0 ? normalized.slice(separator + 1) : normalized;
 }
 
+/** 路径所在的目录，作为停靠标签的副标题；没有目录时返回空串。 */
+export function fileTabDetail(path: string) {
+  const normalized = path.replace(/[\\/]+$/, "");
+  const separator = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
+  return separator > 0 ? normalized.slice(0, separator) : "";
+}
+
 export function pluginDisplayName(moduleName: string) {
   return (moduleName.startsWith("@") ? moduleName.slice(moduleName.indexOf("/") + 1) : moduleName)
     .replace(/^cordis:/, "")

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { ArrowUpRight, Check, LoaderCircle } from "lucide-react";
 import type { UiLocale } from "./i18n";
 import { t } from "./i18n";
-import { isPrimaryToolArgument, orderedToolArguments, parseToolArgs, toolArgsLayout, toolTodoItems, type ToolArgsLayout, type ToolArgsObject, type ToolTodoItem } from "./tool-call-display";
+import { isPrimaryToolArgument, orderedToolArguments, parseToolArgs, toolArgsLayout, toolCallOpenLine, toolTodoItems, type ToolArgsLayout, type ToolArgsObject, type ToolTodoItem } from "./tool-call-display";
 
 /**
  * Render durable tool arguments as task-oriented rows. Every call keeps a
@@ -102,7 +102,7 @@ function FieldValue({ value, locale }: { value: unknown; locale: UiLocale }) {
   return <span className="tool-field-tree"><JsonPreview value={value} /></span>;
 }
 
-function PathField({ value, locale, onOpenPath }: { value: string; locale: UiLocale; onOpenPath?: (path: string) => void | Promise<void> }) {
+function PathField({ value, locale, line, onOpenPath }: { value: string; locale: UiLocale; line?: number; onOpenPath?: (path: string, location?: { line?: number }) => void | Promise<void> }) {
   const [error, setError] = useState("");
   const [opening, setOpening] = useState(false);
   const segments = value.split(/[\\/]/u).filter(Boolean);
@@ -112,7 +112,7 @@ function PathField({ value, locale, onOpenPath }: { value: string; locale: UiLoc
     setOpening(true);
     setError("");
     try {
-      await onOpenPath(value);
+      await onOpenPath(value, line === undefined ? undefined : { line });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -121,7 +121,7 @@ function PathField({ value, locale, onOpenPath }: { value: string; locale: UiLoc
   }
   return <span className="tool-path-wrap"><span className="tool-path">
     {segments.map((segment, index) => <span key={index} className={`tool-path-segment${index === segments.length - 1 ? " is-last" : ""}`}>{segment}</span>)}
-    {onOpenPath && <button type="button" className="tool-path-open" disabled={opening} onClick={() => void open()} aria-label={t("deliverables.openFileAria", locale, { path: value })}><ArrowUpRight aria-hidden="true" /></button>}
+    {onOpenPath && <button type="button" className="tool-path-open" disabled={opening} onClick={() => void open()} aria-label={line === undefined ? t("deliverables.openFileAria", locale, { path: value }) : t("deliverables.openFileAtLineAria", locale, { path: value, line })}><ArrowUpRight aria-hidden="true" /></button>}
   </span>{error && <small className="tool-field-open-error">{error}</small>}</span>;
 }
 
@@ -192,16 +192,18 @@ function TodoListField({ todos, locale }: { todos: ToolTodoItem[]; locale: UiLoc
   </ol>;
 }
 
-function FieldRow({ toolName, keyName, kind, value, locale, onOpenPath, onOpenUrl, layout, primary }: {
+function FieldRow({ toolName, keyName, kind, value, locale, onOpenPath, onOpenUrl, layout, primary, openLine }: {
   toolName?: string;
   keyName: string;
   kind: FieldKind;
   value: unknown;
   locale: UiLocale;
-  onOpenPath?: (path: string) => void | Promise<void>;
+  onOpenPath?: (path: string, location?: { line?: number }) => void | Promise<void>;
   onOpenUrl?: (url: string) => void | Promise<void>;
   layout: ToolArgsLayout;
   primary: boolean;
+  /** 读取类工具的 1-based 定位行；只对路径字段生效。 */
+  openLine?: number;
 }) {
   const todos = (toolName?.toLowerCase() === "todo_write" || toolName?.toLowerCase() === "write_todo") && keyName === "todos" ? toolTodoItems(value) : undefined;
   const normalizedToolName = toolName?.trim().toLowerCase();
@@ -213,7 +215,7 @@ function FieldRow({ toolName, keyName, kind, value, locale, onOpenPath, onOpenUr
     <span className="tool-field-key">{keyName}</span>
     <div className="tool-field-value">
       {todos ? <TodoListField todos={todos} locale={locale} />
-        : kind === "path" && typeof value === "string" ? <PathField value={value} locale={locale} onOpenPath={onOpenPath} />
+        : kind === "path" && typeof value === "string" ? <PathField value={value} locale={locale} line={openLine} onOpenPath={onOpenPath} />
         : kind === "command" && typeof value === "string" ? <CommandField value={value} locale={locale} />
           : kind === "longtext" && typeof value === "string" ? <LongTextField value={value} locale={locale} />
             : kind === "url" && typeof value === "string" ? <UrlField value={value} onOpenUrl={onOpenUrl} />
@@ -230,7 +232,7 @@ export function ToolArgsView({ text, toolName, args, locale, onOpenPath, onOpenU
   /** Parsed once by the call header when it also needs the call description. */
   args?: ToolArgsObject;
   locale: UiLocale;
-  onOpenPath?: (path: string) => void | Promise<void>;
+  onOpenPath?: (path: string, location?: { line?: number }) => void | Promise<void>;
   onOpenUrl?: (url: string) => void | Promise<void>;
 }) {
   const parsed = useMemo(() => args ?? parseToolArgs(text), [args, text]);
@@ -245,10 +247,12 @@ export function ToolArgsView({ text, toolName, args, locale, onOpenPath, onOpenU
   const classified = entries.map(([key, value]) => ({ key, kind: classify(key, value), value }));
   const visible = expanded ? classified : classified.slice(0, VISIBLE_FIELDS);
   const hidden = classified.length - visible.length;
+  // 读取类工具把定位行带给路径字段：点击即在右栏展开到那一行。
+  const openLine = toolCallOpenLine(toolName, parsed);
 
   return <div className={`tool-args tool-args-${layout}`}>
     <div className="tool-args-rows">
-      {visible.map((entry) => <FieldRow key={entry.key} toolName={toolName} keyName={entry.key} kind={entry.kind} value={entry.value} locale={locale} onOpenPath={onOpenPath} onOpenUrl={onOpenUrl} layout={layout} primary={isPrimaryToolArgument(toolName, entry.key)} />)}
+      {visible.map((entry) => <FieldRow key={entry.key} toolName={toolName} keyName={entry.key} kind={entry.kind} value={entry.value} locale={locale} onOpenPath={onOpenPath} onOpenUrl={onOpenUrl} layout={layout} primary={isPrimaryToolArgument(toolName, entry.key)} openLine={entry.kind === "path" ? openLine : undefined} />)}
     </div>
     {hidden > 0 && <button type="button" className="tool-args-more" onClick={() => setExpanded(true)}>{t("conversation.tool.moreFields", locale, { count: hidden })}</button>}
   </div>;
