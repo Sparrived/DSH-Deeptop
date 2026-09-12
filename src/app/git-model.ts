@@ -123,3 +123,18 @@ export function gitRefKind(ref: string): GitRefKind {
   if (trimmed.startsWith("tag:")) return "tag";
   return "branch";
 }
+
+/**
+ * 提交行下方"文件块"的高度（px）。虚拟化按这个高度计算展开行的占位，
+ * 因此这里的数值必须与 `git-dock.css` 里 `.git-commit-children*` 的尺寸一致：
+ * 容器上下内边距合计、单个文件行高、动作行（含其上间距）。
+ */
+export const GIT_COMMIT_CHILD_ROW_HEIGHT = 24;
+export const GIT_COMMIT_CHILD_PADDING = 10;
+export const GIT_COMMIT_CHILD_ACTIONS = 30;
+
+/** 展开的提交行需要追加的高度；`fileCount` 为 0 时表示只有加载/错误提示。 */
+export function gitCommitChildrenHeight(fileCount: number, hasActions: boolean): number {
+  const rows = Math.max(0, fileCount);
+  return GIT_COMMIT_CHILD_PADDING + rows * GIT_COMMIT_CHILD_ROW_HEIGHT + (hasActions ? GIT_COMMIT_CHILD_ACTIONS : 0);
+}

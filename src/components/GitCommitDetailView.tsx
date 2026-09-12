@@ -8,6 +8,7 @@ import {
 import { errorText } from "../app/model";
 import { formatRelativeTime } from "../app/git-model";
 import { t, type UiLocale } from "../app/i18n";
+import { GitCommitFiles } from "./GitCommitFiles";
 import { GitDiffBody } from "./GitDiffBody";
 
 /**
@@ -113,23 +114,12 @@ export function GitCommitDetailView({
         <span>{t("git.fileCount", locale, { count: detail.files.length })}</span>
       </div>
       {detail.body && <pre className="git-commit-detail-body">{detail.body}</pre>}
-      <div className="git-commit-detail-files">
-        {detail.files.map((file) => (
-          <button
-            key={file.path}
-            type="button"
-            className={`git-commit-file-row ${diffPath === file.path ? "active" : ""}`}
-            onClick={() => setDiffPath((current) => (current === file.path ? null : file.path))}
-            title={t("git.viewFileDiff", locale, { path: file.path })}
-          >
-            <span className="git-commit-file-path" title={file.path}>{file.path}</span>
-            <span className="git-commit-file-stats">
-              {file.additions > 0 && <span className="git-stat-add">+{file.additions}</span>}
-              {file.deletions > 0 && <span className="git-stat-del">−{file.deletions}</span>}
-            </span>
-          </button>
-        ))}
-      </div>
+      <GitCommitFiles
+        files={detail.files}
+        activePath={diffPath}
+        locale={locale}
+        onOpenFile={(path) => setDiffPath((current) => (current === path ? null : path))}
+      />
       {diffPath && (
         <div className="git-commit-diff">
           <div className="git-diff-header">

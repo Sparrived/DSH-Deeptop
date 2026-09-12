@@ -694,6 +694,25 @@
 
 /* incoming / outgoing 合成行：整行是一个可点击的"区间入口" */
 .git-graph-row-synthetic { cursor: pointer; }
+/* 展开行：提交行下方追加文件块（左列续画泳道，右列是文件与动作） */
+.git-graph-row.expanded { background: var(--surface-soft); --git-graph-row-bg: var(--surface-soft); }
+.git-commit-children {
+  display: flex;
+  align-items: stretch;
+  background: color-mix(in srgb, var(--surface-soft) 60%, transparent);
+  border-bottom: 1px solid var(--line);
+}
+.git-commit-children-graph { flex: 0 0 auto; display: block; }
+/* 尺寸必须与 git-model 的 gitCommitChildrenHeight 保持一致：
+   上下内边距合计 10、单个文件行 24、动作行 30 */
+.git-commit-children-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 8px 6px 0;
+}
+.git-commit-children-body .git-commit-detail-files { margin-top: 0; }
+.git-commit-children-body .git-commit-file-row { height: 24px; }
+.git-commit-children-body .git-commit-detail-actions { margin-top: 6px; height: 30px; align-items: center; }
 .git-graph-synthetic {
   display: flex;
   align-items: center;

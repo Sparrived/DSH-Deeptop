@@ -327,3 +327,68 @@ export function insertGraphMarkers(
 
   return { rows, columnCount: layout.columnCount };
 }
+
+/** 每行占用的高度：提交行是固定行高，展开的提交行额外带上"文件块"的高度。 */
+export function gitGraphRowHeights<T extends { hash: string }>(
+  rows: readonly T[],
+  extraHeightOf?: (row: T) => number,
+): number[] {
+  return rows.map((row) => GIT_GRAPH_ROW_HEIGHT + Math.max(0, extraHeightOf?.(row) ?? 0));
+}
+
+/** 行顶部偏移的前缀和，长度为 rows.length + 1；最后一项即内容总高度。 */
+export function gitGraphRowOffsets(heights: readonly number[]): number[] {
+  const offsets: number[] = [0];
+  for (const height of heights) offsets.push(offsets[offsets.length - 1] + height);
+  return offsets;
+}
+
+/**
+ * 可见行区间 `[first, last)`：按偏移做二分查找，再向上下各放宽 overscanPx。
+ * 行高不固定（展开的提交行更高），所以不能用 scrollTop / 行高 直接算下标。
+ */
+export function gitGraphVisibleRange(
+  offsets: readonly number[],
+  scrollTop: number,
+  viewportHeight: number,
+  overscanPx: number,
+): { first: number; last: number } {
+  const count = Math.max(0, offsets.length - 1);
+  if (count === 0) return { first: 0, last: 0 };
+  const top = Math.max(0, scrollTop - overscanPx);
+  const bottom = scrollTop + Math.max(0, viewportHeight) + overscanPx;
+  return { first: firstRowIndexAt(offsets, top), last: lastRowIndexAt(offsets, bottom) };
+}
+
+/** 顶部偏移不超过 y 的最后一行（即包含 y 的那一行）；y 超过内容末尾时返回最后一行。 */
+function firstRowIndexAt(offsets: readonly number[], y: number): number {
+  const count = offsets.length - 1;
+  if (count <= 0) return 0;
+  if (y >= offsets[count]) return count - 1;
+  let low = 0;
+  let high = count - 1;
+  let found = 0;
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    if (offsets[mid] <= y) {
+      found = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return found;
+}
+
+/** 顶部偏移 < y 的行数，也就是需要渲染到（不含）的下标。 */
+function lastRowIndexAt(offsets: readonly number[], y: number): number {
+  const count = offsets.length - 1;
+  let low = 0;
+  let high = count;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (offsets[mid] < y) low = mid + 1;
+    else high = mid;
+  }
+  return low;
+}

@@ -84,6 +84,10 @@ function collectElements(node, type, found = []) {
   return found;
 }
 
+/** 悬浮卡片现在挂在列表层，从整棵树里找。 */
+function tooltipOf(tree) {
+  return collectElements(tree, "div").find((node) => node.props.className === "git-graph-tooltip") ?? null;
+}
 async function loadGitTreeGraphExports(react) {
   const compiled = await build({
     entryPoints: [fileURLToPath(new URL("./GitTreeGraph.tsx", import.meta.url))],
@@ -160,9 +164,9 @@ test("draws a straight lane, a merge arc, a converging shift and a HEAD ring", a
   });
 
   const [head, first, second, root] = collectElements(tree, "button");
-  // HEAD 行：带孔圆环（内层用行底色打出孔）
+  // HEAD 行：命中区 + 圆环 + 打孔的圆（悬浮只在节点上触发，所以命中区比可见圆略大）
   const headCircles = collectElements(head, "circle");
-  assert.equal(headCircles.length, 2);
+  assert.equal(headCircles.length, 3);
   assert.ok(headCircles.some((node) => node.props.className === "git-graph-node-hole"));
   // 合并线：从圆点平拉到目标列左缘，再用圆弧落进目标列底部
   assert.ok(collectElements(head, "path").some((node) => node.props.d === "M 18 12 A 12 12 0 0 1 24 24 M 18 12 H 12"));
@@ -192,17 +196,45 @@ test("shows reference chips and opens the commit tooltip on hover", async () => 
     collectElements(first, "span").filter((node) => node.props.className?.startsWith("git-graph-ref git-ref-")).map((node) => node.props.title),
     ["HEAD -> main", "tag: v1.0"],
   );
-  assert.equal(collectElements(tree, "span").filter((node) => node.props.className === "git-graph-tooltip").length, 0);
+  assert.equal(tooltipOf(tree), null);
+  // 行内文字悬浮不弹卡片：行按钮上没有悬浮处理
+  assert.equal(first.props.onMouseEnter, undefined);
+  assert.equal(first.props.onMouseLeave, undefined);
 
-  first.props.onMouseEnter();
+  // 只有悬浮到提交节点上才出现详情卡片
+  const node = collectElements(first, "g").find((element) => element.props.className === "git-graph-node");
+  assert.ok(node, "每行都应有一个节点分组");
+  assert.equal(typeof node.props.onMouseEnter, "function");
+  node.props.onMouseEnter();
   tree = renderer.render(GitTreeGraph, props);
-  first = collectElements(tree, "button")[0];
-  const tooltip = collectElements(first, "span").find((node) => node.props.className === "git-graph-tooltip");
-  assert.ok(tooltip, "hover 后应出现提交详情提示");
+  const tooltip = tooltipOf(tree);
+  assert.ok(tooltip, "悬浮节点后应出现提交详情提示");
   assert.ok(
-    collectElements(tooltip, "span").some((node) => node.props.className === "git-graph-tooltip-subject" && node.props.children === "tip commit"),
+    collectElements(tooltip, "div").some((node) => node.props.className === "git-graph-tooltip-subject" && node.props.children === "tip commit"),
   );
   assert.ok(tooltip.props.style.left > 0);
+  // 卡片挂在列表层并由行偏移定位（不是塞进行按钮里，否则会被行高裁掉）
+  assert.equal(tooltip.type, "div");
+  // 首行贴顶展开：否则按节点垂直居中的卡片会被滚动容器上沿切掉
+  assert.equal(tooltip.props.style.top, 0);
+  assert.equal(tooltip.props.style.transform, "none");
+
+  // 靠下的行仍然是"以节点为中心"的默认定位
+  const deeper = renderer.render(GitTreeGraph, {
+    ...props,
+    lines: [commit(0, [1]), commit(1, [2]), commit(2, [3]), commit(3, [4]), commit(4, [])],
+  });
+  const deeperNode = collectElements(collectElements(deeper, "button")[4], "g")
+    .find((element) => element.props.className === "git-graph-node");
+  assert.equal(typeof deeperNode?.props.onMouseEnter, "function");
+  deeperNode.props.onMouseEnter();
+  const deeperTooltip = tooltipOf(renderer.render(GitTreeGraph, {
+    ...props,
+    lines: [commit(0, [1]), commit(1, [2]), commit(2, [3]), commit(3, [4]), commit(4, [])],
+  }));
+  assert.ok(deeperTooltip, "靠下的行也应出现卡片");
+  assert.ok(deeperTooltip.props.style.top > 0);
+  assert.equal(deeperTooltip.props.style.transform, undefined);
 });
 
 test("renders the tail lane placeholder while more history can be loaded", async () => {

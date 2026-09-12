@@ -11,6 +11,9 @@ import {
   gitGraphLayout,
   gitGraphMergePath,
   gitGraphWidth,
+  gitGraphRowHeights,
+  gitGraphRowOffsets,
+  gitGraphVisibleRange,
   insertGraphMarkers,
   MAX_INLINE_REFS,
   splitInlineRefs,
@@ -285,6 +288,27 @@ test("skips markers whose anchor is outside the loaded window", () => {
   assert.equal(untouched, layout);
   // 没有标记时不复制行
   assert.equal(insertGraphMarkers(layout, {}), layout);
+});
+
+test("computes offsets and the visible range with variable row heights", () => {
+  const rows = [{ hash: "a" }, { hash: "b" }, { hash: "c" }];
+  // 第二行展开，多出 100px
+  const heights = gitGraphRowHeights(rows, (row) => (row.hash === "b" ? 100 : 0));
+  assert.deepEqual(heights, [24, 124, 24]);
+  const offsets = gitGraphRowOffsets(heights);
+  assert.deepEqual(offsets, [0, 24, 148, 172]);
+
+  // 视口覆盖第 0 行与展开行
+  assert.deepEqual(gitGraphVisibleRange(offsets, 0, 60, 0), { first: 0, last: 2 });
+  // 滚到展开块内部时仍覆盖第 1 行（它比视口高）
+  assert.deepEqual(gitGraphVisibleRange(offsets, 100, 40, 0), { first: 1, last: 2 });
+  // 展开块很高：滚到它的下半部分时它仍是"包含 y 的那一行"
+  assert.deepEqual(gitGraphVisibleRange(offsets, 132, 40, 0), { first: 1, last: 3 });
+  // overscan 向两侧放宽
+  assert.deepEqual(gitGraphVisibleRange(offsets, 24, 24, 30), { first: 0, last: 2 });
+  // 边界：空列表与超出范围的滚动位置
+  assert.deepEqual(gitGraphVisibleRange([0], 0, 100, 0), { first: 0, last: 0 });
+  assert.deepEqual(gitGraphVisibleRange(offsets, 10_000, 40, 0), { first: 2, last: 3 });
 });
 
 test("geometry helpers stay inside the row and line up with lane centers", () => {

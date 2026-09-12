@@ -15,6 +15,7 @@ import {
   discardGitPaths,
   dropGitStash,
   fetchGit,
+  getGitCommitDetail,
   getGitFileDiff,
   getGitMergeBase,
   getGitOperationState,
@@ -41,6 +42,7 @@ import {
   type GitCommandResult,
   type WorkspaceGitBranch,
   type WorkspaceGitCommit,
+  type WorkspaceGitCommitDetail,
   type WorkspaceGitFile,
   type WorkspaceGitGraphLine,
   type WorkspaceGitOperationState,
@@ -50,6 +52,11 @@ import {
 } from "../lib/desktop";
 import { errorText } from "../app/model";
 import { buildHunkPatch, parseGitDiff } from "../app/git-diff";
+import {
+  GIT_GRAPH_ROW_HEIGHT,
+  gitGraphLaneLinePath,
+  type GitGraphRow,
+} from "../app/git-graph-layout";
 import { onGitChanged, notifyGitChanged } from "../app/git-events";
 import { dockTabKey } from "../app/dock-layout";
 import { useDockSettings } from "../app/dock-settings";
@@ -58,6 +65,10 @@ import {
   canUnstageFile,
   formatRelativeTime,
   gitFileLabel,
+  GIT_COMMIT_CHILD_PADDING,
+  GIT_COMMIT_CHILD_ROW_HEIGHT,
+  gitCommitChildrenHeight,
+  gitGraphLaneColor,
   gitFileMark,
   groupGitBranches,
   groupGitFiles,
@@ -78,6 +89,7 @@ import { DockFrame } from "./DockFrame";
 import { PopupDialog } from "./PopupDialog";
 import { GitTreeGraph } from "./GitTreeGraph";
 import { GitCommitDetailView } from "./GitCommitDetailView";
+import { GitCommitFiles } from "./GitCommitFiles";
 import { GitDiffBody } from "./GitDiffBody";
 import { GitMergeConflictView } from "./GitMergeConflictView";
 import { t, type UiLocale } from "../app/i18n";
@@ -100,6 +112,13 @@ type GitDockProps = {
 };
 
 const GIT_RAIL_LABEL = "Git";
+
+/** 展开行里的提交详情缓存项（loading/error 各占一行占位）。 */
+type GitCommitFilesEntry = {
+  detail: WorkspaceGitCommitDetail | null;
+  loading: boolean;
+  error: string | null;
+};
 
 type GitRunningOperation = Exclude<WorkspaceGitOperationState["operation"], "none">;
 
@@ -173,6 +192,11 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   const [commitsLoading, setCommitsLoading] = useState(false);
   // 只保存"选中的提交哈希"：提交详情与逐文件差异由 GitCommitDetailView 自己加载
   const [selectedCommitHash, setSelectedCommitHash] = useState<string | null>(null);
+  // 图谱里展开的提交（文件块显示在该行下方而不是面板底部）
+  const [expandedCommits, setExpandedCommits] = useState<ReadonlySet<string>>(new Set());
+  // 展开行的详情缓存：键是提交哈希，避免每次收放都重新读一遍
+  const [commitFiles, setCommitFiles] = useState<Record<string, GitCommitFilesEntry>>({});
+  const commitFilesRef = useRef<Record<string, GitCommitFilesEntry>>({});
   const [branches, setBranches] = useState<WorkspaceGitBranch[] | null>(null);
   const [branchesLoading, setBranchesLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -476,6 +500,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     setGraph(null);
     setGraphHasMore(true);
     setGraphStale(false);
+    collapseExpandedCommits();
     void refreshAll();
   }, [workspace, refreshAll]);
 
@@ -621,6 +646,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     const next = rev || null;
     graphRevRef.current = next;
     setGraphRev(next);
+    collapseExpandedCommits();
     // 过滤条件变化必须从第一页重取，不能沿用旧窗口
     requestGraph({ keepWindow: false });
   }
@@ -628,6 +654,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   function toggleGraphSimplify(enabled: boolean) {
     graphSimplifyRef.current = enabled;
     setGraphSimplify(enabled);
+    collapseExpandedCommits();
     requestGraph({ keepWindow: false });
   }
 
@@ -852,6 +879,116 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     }
   }
 
+  /**
+   * 点击提交行：在它下方展开/收起改动文件块（与 VS Code 图谱一致），
+   * 首次展开时懒加载提交详情并缓存。
+   */
+  async function toggleCommitRow(hash: string) {
+    const willExpand = !expandedCommits.has(hash);
+    setExpandedCommits((current) => {
+      const next = new Set(current);
+      if (next.has(hash)) next.delete(hash);
+      else next.add(hash);
+      return next;
+    });
+    if (!willExpand || commitFilesRef.current[hash]) return;
+    commitFilesRef.current = { ...commitFilesRef.current, [hash]: { detail: null, loading: true, error: null } };
+    setCommitFiles(commitFilesRef.current);
+    try {
+      const detail = await getGitCommitDetail(workspace, hash);
+      commitFilesRef.current = { ...commitFilesRef.current, [hash]: { detail, loading: false, error: null } };
+    } catch (error) {
+      const message = errorText(error, locale);
+      commitFilesRef.current = { ...commitFilesRef.current, [hash]: { detail: null, loading: false, error: message } };
+      onError(t("git.error.readDetailFailed", locale, { error: message }));
+    }
+    setCommitFiles(commitFilesRef.current);
+  }
+
+  /** 展开行追加的高度：必须与 renderCommitChildren 渲染出来的高度一致。 */
+  function commitChildrenHeight(row: GitGraphRow): number {
+    const entry = commitFiles[row.hash];
+    if (!entry || entry.loading || entry.error || !entry.detail) {
+      return GIT_COMMIT_CHILD_PADDING + GIT_COMMIT_CHILD_ROW_HEIGHT;
+    }
+    return gitCommitChildrenHeight(entry.detail.files.length, true);
+  }
+
+  /** 在右栏打开"某提交里某文件"的差异标签。 */
+  function openCommitFileTab(hash: string, path: string) {
+    openTab({
+      kind: "git-commit-file",
+      title: path.split("/").pop() || path,
+      detail: hash.slice(0, 7),
+      contentKey: `commit-file:${hash}:${path}`,
+      payload: { cwd: workspace, hash, path },
+    });
+  }
+
+  /** 收起全部展开行：切换图谱过滤条件或换工作区时调用。 */
+  function collapseExpandedCommits() {
+    commitFilesRef.current = {};
+    setCommitFiles({});
+    setExpandedCommits(new Set());
+  }
+
+  /** 提交动作行：面板详情与图谱展开块共用同一份按钮。 */
+  function renderCommitActions(detail: { hash: string }) {
+    return (
+      <>
+        <button type="button" disabled={copyingHash === detail.hash} onClick={() => void handleCopyHash(detail.hash)}>
+          {copyingHash === detail.hash ? t("git.copied", locale) : t("git.copyHash", locale)}
+        </button>
+        <button type="button" disabled={busy} title={t("git.tagCreateTitle", locale)} onClick={() => setTagDialog({ value: "", message: "", hash: detail.hash })}>{t("git.tagCreate", locale)}</button>
+        <button type="button" disabled={busy} title={t("git.branchFromCommitTitle", locale)} onClick={() => setBranchDialog({ mode: "create", value: "", from: detail.hash })}>{t("git.branchFromCommit", locale)}</button>
+        <button type="button" disabled={busy} title={t("git.openInDockTitle", locale)} onClick={() => openCommitTab(detail)}>{t("git.openInDock", locale)}</button>
+        <button type="button" disabled={busy} title={t("git.cherryPickTitle", locale)} onClick={() => void runMutation(() => cherryPickGitCommit(workspace, detail.hash, "start"), t("git.cherryPick", locale))}>{t("git.cherryPick", locale)}</button>
+        <button type="button" disabled={busy} title={t("git.revertTitle", locale)} onClick={() => void runMutation(() => revertGitCommit(workspace, detail.hash), t("git.revert", locale))}>{t("git.revert", locale)}</button>
+        <button type="button" disabled={busy} title={t("git.resetSoftTitle", locale)} onClick={() => void runMutation(() => resetGitTo(workspace, detail.hash, "soft"), t("git.resetSoft", locale))}>{t("git.resetSoft", locale)}</button>
+        <button type="button" className="danger" disabled={busy} title={t("git.resetHardTitle", locale)} onClick={() => setConfirmTarget({ kind: "reset-hard", hash: detail.hash, shortHash: detail.hash.slice(0, 7) })}>{t("git.resetHard", locale)}</button>
+      </>
+    );
+  }
+
+  /** 图谱里展开行下方的内容：左侧续画泳道，右侧是文件列表与动作。 */
+  function renderCommitChildren(row: GitGraphRow, context: { graphWidth: number }) {
+    const entry = commitFiles[row.hash];
+    const height = commitChildrenHeight(row);
+    return (
+      <div className="git-commit-children">
+        <svg className="git-commit-children-graph" width={context.graphWidth} height={height} aria-hidden="true">
+          {row.outputLanes.map((lane, index) => (
+            <path
+              key={`child-lane${index}`}
+              d={gitGraphLaneLinePath(index)}
+              fill="none"
+              stroke={gitGraphLaneColor(lane.color)}
+              strokeWidth={1.5}
+              strokeLinecap="round"
+              transform={`scale(1 ${height / GIT_GRAPH_ROW_HEIGHT})`}
+            />
+          ))}
+        </svg>
+        <div className="git-commit-children-body">
+          {!entry || entry.loading ? (
+            <div className="git-empty">{t("git.loadingDetail", locale)}</div>
+          ) : entry.error ? (
+            <div className="git-diff-empty">{t("git.error.readDetailFailed", locale, { error: entry.error })}</div>
+          ) : entry.detail ? (
+            <>
+              <GitCommitFiles
+                files={entry.detail.files}
+                locale={locale}
+                onOpenFile={(path) => openCommitFileTab(row.hash, path)}
+              />
+              <div className="git-commit-detail-actions">{renderCommitActions(entry.detail)}</div>
+            </>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
   // 选中即展开：提交详情由 GitCommitDetailView 自己加载，这里只记录选中项。
   function selectCommitByHash(hash: string) {
     setSelectedCommitHash((current) => (current === hash ? null : hash));
@@ -861,7 +998,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
    * 在右栏开一个提交详情标签：与「图谱/历史」面板并排对照。
    * 按 `commit:<hash>` 去重，重复打开同一个提交是复用并激活。
    */
-  function openCommitTab(detail: { hash: string; subject: string; author: string }) {
+  function openCommitTab(detail: { hash: string; subject?: string }) {
     openTab({
       kind: "git-commit",
       title: detail.subject || detail.hash.slice(0, 7),
@@ -1248,13 +1385,16 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                 ) : (
                   <GitTreeGraph
                     lines={graph}
-                    selectedHash={selectedCommitHash}
-                    onSelect={selectCommitByHash}
+                    selectedHash={null}
+                    onSelect={(hash) => void toggleCommitRow(hash)}
                     onLoadMore={loadMoreGraph}
                     hasMore={graphHasMore}
                     loadingMore={graphLoadingMore}
                     markers={graphMarkers}
                     onOpenRange={openRangeTab}
+                    expandedHashes={expandedCommits}
+                    renderRowChildren={renderCommitChildren}
+                    rowChildrenHeight={commitChildrenHeight}
                     locale={locale}
                   />
                   )}
@@ -1282,7 +1422,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                   ))}
                 </div>
               )}
-              {selectedCommitHash && (
+              {historyView === "list" && selectedCommitHash && (
                 <GitCommitDetailView
                   workspace={workspace}
                   hash={selectedCommitHash}
@@ -1295,20 +1435,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                       <button type="button" className="git-diff-close" aria-label={t("git.closeDetail", locale)} onClick={() => setSelectedCommitHash(null)}><X aria-hidden="true" /></button>
                     </div>
                   )}
-                  renderActions={(detail) => (
-                    <>
-                      <button type="button" disabled={copyingHash === detail.hash} onClick={() => void handleCopyHash(detail.hash)}>
-                        {copyingHash === detail.hash ? t("git.copied", locale) : t("git.copyHash", locale)}
-                      </button>
-                      <button type="button" disabled={busy} title={t("git.tagCreateTitle", locale)} onClick={() => setTagDialog({ value: "", message: "", hash: detail.hash })}>{t("git.tagCreate", locale)}</button>
-                      <button type="button" disabled={busy} title={t("git.branchFromCommitTitle", locale)} onClick={() => setBranchDialog({ mode: "create", value: "", from: detail.hash })}>{t("git.branchFromCommit", locale)}</button>
-                      <button type="button" disabled={busy} title={t("git.openInDockTitle", locale)} onClick={() => openCommitTab(detail)}>{t("git.openInDock", locale)}</button>
-                      <button type="button" disabled={busy} title={t("git.cherryPickTitle", locale)} onClick={() => void runMutation(() => cherryPickGitCommit(workspace, detail.hash, "start"), t("git.cherryPick", locale))}>{t("git.cherryPick", locale)}</button>
-                      <button type="button" disabled={busy} title={t("git.revertTitle", locale)} onClick={() => void runMutation(() => revertGitCommit(workspace, detail.hash), t("git.revert", locale))}>{t("git.revert", locale)}</button>
-                      <button type="button" disabled={busy} title={t("git.resetSoftTitle", locale)} onClick={() => void runMutation(() => resetGitTo(workspace, detail.hash, "soft"), t("git.resetSoft", locale))}>{t("git.resetSoft", locale)}</button>
-                      <button type="button" className="danger" disabled={busy} title={t("git.resetHardTitle", locale)} onClick={() => setConfirmTarget({ kind: "reset-hard", hash: detail.hash, shortHash: detail.hash.slice(0, 7) })}>{t("git.resetHard", locale)}</button>
-                    </>
-                  )}
+                  renderActions={(detail) => renderCommitActions(detail)}
                 />
               )}
             </div>

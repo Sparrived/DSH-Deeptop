@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { DockedFileView } from "./DockedFileView";
+import { DockedGitCommitFile } from "./DockedGitCommitFile";
 import { DockedGitDiff } from "./DockedGitDiff";
 import { DockedGitRange } from "./DockedGitRange";
 import { GitCommitDetailView } from "./GitCommitDetailView";
@@ -39,6 +40,13 @@ const DOCK_TAB_RENDERERS: Record<string, DockTabRenderer> = {
     const hash = tab.payload?.hash;
     if (!hash) return null;
     return <GitCommitDetailView workspace={tab.payload?.cwd ?? ""} hash={hash} locale={locale} onError={onError} />;
+  },
+  "git-commit-file": ({ tab, locale, onError }) => {
+    const hash = tab.payload?.hash;
+    const path = tab.payload?.path;
+    const cwd = tab.payload?.cwd;
+    if (!hash || !path || !cwd) return null;
+    return <DockedGitCommitFile cwd={cwd} hash={hash} path={path} locale={locale} onError={onError} />;
   },
   "git-diff": ({ tab, locale, onError }) => {
     const path = tab.payload?.path;
