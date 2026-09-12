@@ -119,35 +119,35 @@ async function loadTranscriptExports(react) {
   return module.exports;
 }
 
-test("reopening a Think entry restores the full reasoning body", async () => {
+test("folding a Think entry keeps one reasoning body surface", async () => {
   const renderer = createHookRenderer();
   const { ReasoningEntry } = await loadTranscriptExports(renderer.react);
   const props = { text: "First reasoning line\nSecond reasoning line", streaming: false, locale: "en" };
 
   let tree = renderer.render(ReasoningEntry, props);
-  tree.props.onToggle({ currentTarget: { open: true } });
-  tree = renderer.render(ReasoningEntry, props);
+  assert.equal(tree.props["data-open"], "false");
   const firstPre = findElement(tree, "pre");
   const firstBody = createPre();
   firstPre.props.ref(firstBody);
   renderer.flushEffects();
   assert.equal(firstBody.textContent, props.text);
 
-  tree.props.onToggle({ currentTarget: { open: false } });
+  // Unfolding is a state change, not a remount: React keeps the same body ref,
+  // so the incremental text node survives.
+  findElement(tree, "button").props.onClick();
   tree = renderer.render(ReasoningEntry, props);
-  firstPre.props.ref(null);
-  renderer.flushEffects();
-  assert.equal(findElement(tree, "pre"), null);
+  assert.equal(tree.props["data-open"], "true");
+  assert.equal(findElement(tree, "pre").props.ref, firstPre.props.ref);
 
-  tree.props.onToggle({ currentTarget: { open: true } });
+  // Folding again keeps the body mounted with its text intact, so the collapse
+  // can animate and the reasoning is never lost.
+  findElement(tree, "button").props.onClick();
   tree = renderer.render(ReasoningEntry, props);
-  const reopenedPre = findElement(tree, "pre");
-  const reopenedBody = createPre();
-  reopenedPre.props.ref(reopenedBody);
+  assert.equal(tree.props["data-open"], "false");
   renderer.flushEffects();
 
-  assert.equal(reopenedBody.textContent, props.text);
-  assert.equal(reopenedBody.childNodes.length, 1);
+  assert.equal(firstBody.textContent, props.text);
+  assert.equal(firstBody.childNodes.length, 1);
 });
 
 test("streaming assistant keeps one Markdown surface when animation is unavailable", async () => {
@@ -167,8 +167,13 @@ test("streaming assistant keeps one Markdown surface when animation is unavailab
   assert.equal(tree.props.text, "first second");
   assert.equal(tree.props.className, "message-text streaming-assistant-text");
 
-  tree = renderer.render(StreamingAssistantText, { text: "first second third", locale: "en" });
-  assert.equal(tree.props.text, "first second third");
+  // A frame that opens a line marks it for the quick fade-in; the next frame
+  // drops the mark again so only the fresh line fades.
+  tree = renderer.render(StreamingAssistantText, { text: "first second\nthird", locale: "en" });
+  assert.equal(tree.props.className, "message-text streaming-assistant-text streaming-ink-fresh");
+  renderer.flushEffects();
+  tree = renderer.render(StreamingAssistantText, { text: "first second\nthird line", locale: "en" });
+  assert.equal(tree.props.className, "message-text streaming-assistant-text");
 
   // A reset frame must reach the same single Markdown surface.
   tree = renderer.render(StreamingAssistantText, { text: "reset", locale: "en" });
@@ -207,7 +212,7 @@ test("streaming text frames reveal bursts adaptively and preserve Unicode pairs"
 
 test("a pending line break makes the stream grow whole lines", async () => {
   const renderer = createHookRenderer();
-  const { nextStreamingTextFrame, streamingTextFrameDelay } = await loadTranscriptExports(renderer.react);
+  const { nextStreamingTextFrame, streamingTextFrameDelay, streamingFrameOpensLine } = await loadTranscriptExports(renderer.react);
 
   // Four pending lines: paint two, keep two for the smooth reveal.
   assert.equal(nextStreamingTextFrame("", "one\ntwo\nthree\nfour\n"), "one\ntwo\n");
@@ -224,6 +229,11 @@ test("a pending line break makes the stream grow whole lines", async () => {
   const singleLine = streamingTextFrameDelay("", "still typing one line");
   assert.equal(streamingTextFrameDelay("", "aa\nbb\n"), singleLine);
   assert.ok(streamingTextFrameDelay("", "one\ntwo\nthree\nfour\n") < singleLine);
+
+  // The fade-in hangs off the frame that opened a line, not off every frame.
+  assert.equal(streamingFrameOpensLine(1, "one\ntwo\nthree"), true);
+  assert.equal(streamingFrameOpensLine(1, "one\ntwo more"), false);
+  assert.equal(streamingFrameOpensLine(0, "single line"), false);
 });
 
 test("a live Think entry unfolds itself and folds back when the step ends", async () => {
@@ -235,29 +245,25 @@ test("a live Think entry unfolds itself and folds back when the step ends", asyn
   // running state, and shows the live label.
   let tree = renderer.render(ReasoningEntry, { text, streaming: true, locale: "en" });
   assert.equal(tree.props["data-state"], "running");
-  assert.equal(tree.props.open, true);
-  assert.ok(findElement(tree, "pre"));
+  assert.equal(tree.props["data-open"], "true");
 
   // A reader who collapses it keeps it collapsed while more thinking arrives.
-  tree.props.onToggle({ currentTarget: { open: false } });
+  findElement(tree, "button").props.onClick();
   tree = renderer.render(ReasoningEntry, { text: `${text}\nThird reasoning line`, streaming: true, locale: "en" });
   renderer.flushEffects();
   tree = renderer.render(ReasoningEntry, { text: `${text}\nThird reasoning line`, streaming: true, locale: "en" });
-  assert.equal(tree.props.open, false);
-  assert.equal(findElement(tree, "pre"), null);
+  assert.equal(tree.props["data-open"], "false");
 
-  // The step ends: the entry folds back to the one-line chip by itself.
+  // Thinking stops: the entry folds back to the one-line chip by itself.
   tree = renderer.render(ReasoningEntry, { text, streaming: false, locale: "en" });
   renderer.flushEffects();
   tree = renderer.render(ReasoningEntry, { text, streaming: false, locale: "en" });
   assert.equal(tree.props["data-state"], "ok");
-  assert.equal(tree.props.open, false);
-  assert.equal(findElement(tree, "pre"), null);
+  assert.equal(tree.props["data-open"], "false");
 
-  // A thinking step that is already finished at first paint stays folded.
+  // A step that is already finished at first paint stays folded.
   const fresh = createHookRenderer();
   const { ReasoningEntry: FreshEntry } = await loadTranscriptExports(fresh.react);
   const settled = fresh.render(FreshEntry, { text, streaming: false, locale: "en" });
-  assert.equal(settled.props.open, false);
-  assert.equal(findElement(settled, "pre"), null);
+  assert.equal(settled.props["data-open"], "false");
 });

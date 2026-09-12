@@ -432,12 +432,12 @@
   transition: none;
 }
 
-.reasoning-entry[data-state="running"] > summary {
+.reasoning-entry[data-state="running"] > .reasoning-summary {
   position: relative;
   overflow: hidden;
 }
 
-.reasoning-entry[data-state="running"] > summary::after {
+.reasoning-entry[data-state="running"] > .reasoning-summary::after {
   position: absolute;
   inset-block: 0;
   left: 0;
@@ -464,7 +464,7 @@
 
 .injected-entry summary,
 .tool-entry summary,
-.reasoning-entry summary,
+.reasoning-entry .reasoning-summary,
 .workflow-entry summary {
   min-width: 0;
   min-height: 44px;
@@ -479,23 +479,21 @@
 
 .injected-entry summary::-webkit-details-marker,
 .tool-entry summary::-webkit-details-marker,
-.reasoning-entry summary::-webkit-details-marker,
-.workflow-entry summary::-webkit-details-marker,
-.reasoning-entry summary::marker {
+.workflow-entry summary::-webkit-details-marker {
   display: none;
   content: "";
 }
 
 .injected-entry summary:hover,
 .tool-entry summary:hover,
-.reasoning-entry summary:hover,
+.reasoning-entry .reasoning-summary:hover,
 .workflow-entry summary:hover {
   background: var(--surface-soft);
 }
 
 .injected-entry summary strong,
 .tool-entry summary,
-.reasoning-entry summary,
+.reasoning-entry .reasoning-summary,
 .workflow-entry summary {
   color: var(--ink-muted);
   font-size: 13px;
@@ -523,7 +521,7 @@
 
 .injected-entry summary em,
 .tool-entry summary em,
-.reasoning-entry summary em,
+.reasoning-entry .reasoning-summary em,
 .workflow-entry summary em {
   min-width: 0;
   margin-left: auto;
@@ -535,11 +533,11 @@
   white-space: nowrap;
 }
 
-.reasoning-entry summary {
+.reasoning-entry .reasoning-summary {
   position: relative;
 }
 
-.reasoning-entry summary em {
+.reasoning-entry .reasoning-summary em {
   position: absolute;
   right: 14px;
   z-index: 1;

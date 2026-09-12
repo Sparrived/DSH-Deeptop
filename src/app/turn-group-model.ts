@@ -79,10 +79,13 @@ function buildGroup(items: readonly TranscriptItem[]): TranscriptTurnGroup {
 }
 
 /**
- * 按用户提示把 transcript 切成一轮一组。只有最后一组可能仍在运行：会话运行中
- * 时它保持展开，其余已结束的轮次默认收起中间步骤。
+ * 按用户提示把 transcript 切成一轮一组。只有最后一组可能仍在运行：整轮
+ * （Agent loop）尚未结束时它保持展开，其余已结束的轮次默认收起中间步骤。
+ *
+ * `loopLive` 必须描述「这一轮是否还会继续产出」，而不是「某一次模型返回是否
+ * 还在流式输出」：一轮里可能有几十个 step，任何一个 step 结束都不该收起步骤区。
  */
-export function groupTranscriptTurns(items: readonly TranscriptItem[], activeRunning: boolean): readonly TranscriptTurnGroup[] {
+export function groupTranscriptTurns(items: readonly TranscriptItem[], loopLive: boolean): readonly TranscriptTurnGroup[] {
   const groups: TranscriptTurnGroup[] = [];
   let current: TranscriptItem[] = [];
   let hasPrompt = false;
@@ -99,7 +102,7 @@ export function groupTranscriptTurns(items: readonly TranscriptItem[], activeRun
   }
   flush();
   const lastIndex = groups.length - 1;
-  if (lastIndex < 0 || !activeRunning || groups[lastIndex].live) return groups;
+  if (lastIndex < 0 || !loopLive || groups[lastIndex].live) return groups;
   return groups.map((group, index) => (index === lastIndex ? { ...group, live: true } : group));
 }
 

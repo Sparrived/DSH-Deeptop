@@ -5292,6 +5292,7 @@ function AppContent() {
               historyLoadingOlder={historyLoadingOlder}
               transcriptFollowing={transcriptFollowing}
               trajectoryOpen={trajectoryOpen}
+              turnLive={hasLiveTurn}
               workspace={workspace}
               runtimeDirectory={status.runtimeDirectory}
               modelName={models?.current.model ?? defaultModelName}

@@ -520,7 +520,7 @@ textarea:focus-visible {
 }
 
 .tool-entry summary,
-.reasoning-entry summary,
+.reasoning-entry .reasoning-summary,
 .workflow-entry summary,
 .injected-entry summary {
   min-height: 38px;
@@ -528,7 +528,7 @@ textarea:focus-visible {
 }
 
 .tool-entry summary:hover,
-.reasoning-entry summary:hover,
+.reasoning-entry .reasoning-summary:hover,
 .workflow-entry summary:hover,
 .injected-entry summary:hover {
   background: color-mix(in srgb, var(--accent) 7%, var(--paper-deep));

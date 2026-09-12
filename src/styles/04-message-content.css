@@ -13,6 +13,31 @@
   overflow-wrap: anywhere;
 }
 
+/* 多行文字流按整行推进：每开一行，最新一行先落到 --stream-ink 再淡回 1，
+   所以整行是快速渐显而不是整块弹出。遮罩挂在最后一个 Markdown 块上，这样
+   只影响最后一行——流式插入符占的是容器自己的行，不参与遮罩。 */
+@property --stream-ink {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
+
+.streaming-assistant-text {
+  --stream-ink: 1;
+  transition: --stream-ink var(--motion-standard) var(--motion-ease-enter);
+}
+
+.streaming-assistant-text > :last-child {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1.7em), rgb(0 0 0 / var(--stream-ink)) calc(100% - 1.45em));
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 1.7em), rgb(0 0 0 / var(--stream-ink)) calc(100% - 1.45em));
+}
+
+/* 新行出现的那一帧直接落到低墨量，随后一帧恢复，过渡把过程补成渐显。 */
+.streaming-assistant-text.streaming-ink-fresh {
+  --stream-ink: .3;
+  transition: none;
+}
+
 .streaming-assistant-text::after {
   content: "";
   display: inline-block;
@@ -32,6 +57,11 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .streaming-assistant-text {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+
   .streaming-assistant-text::after {
     animation: none;
     opacity: .65;

@@ -1607,23 +1607,24 @@
   color: #6f716b;
 }
 
-.reasoning-entry summary {
+.reasoning-entry .reasoning-summary {
   display: flex;
   align-items: center;
   gap: 7px;
+  width: 100%;
   min-height: 28px;
   padding: 5px 9px;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
   cursor: pointer;
-  list-style: none;
   font-family: var(--mono);
   font-size: 9px;
+  text-align: left;
 }
 
-.reasoning-entry summary::-webkit-details-marker {
-  display: none;
-}
-
-.reasoning-entry summary em {
+.reasoning-entry .reasoning-summary em {
   min-width: 0;
   overflow: hidden;
   color: #979990;

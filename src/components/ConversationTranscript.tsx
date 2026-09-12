@@ -47,6 +47,8 @@ type ConversationTranscriptProps = {
   activeSession: DshSessionSummary | null;
   activeSessionId: string | null;
   activeRunning: boolean;
+  /** True while a turn (the whole Agent loop) is open, from turn/start → turn/end. */
+  turnLive?: boolean;
   loading: boolean;
   workingIndicator: WorkingIndicatorSettings;
   historyHasMore: boolean;
@@ -413,7 +415,9 @@ function MessageStatsLine({ stats, locale }: { stats?: MessageStats; locale: UiL
   return values.length > 0 ? <div className="message-stats" aria-label={t("conversation.stats.aria", locale)}>{values}</div> : null;
 }
 
-function useIncrementalText(text: string, enabled = true) {
+// Keeps one text node per body and appends the streamed suffix into it, so a
+// long reasoning block never re-parses or re-creates its DOM while it grows.
+function useIncrementalText(text: string) {
   const textNodeRef = useRef<Text | null>(null);
   const renderedLengthRef = useRef(0);
   const setBodyRef = useCallback((pre: HTMLPreElement | null) => {
@@ -434,7 +438,6 @@ function useIncrementalText(text: string, enabled = true) {
   }, []);
 
   useEffect(() => {
-    if (!enabled) return;
     const textNode = textNodeRef.current;
     if (!textNode) return;
     const renderedLength = renderedLengthRef.current;
@@ -446,7 +449,7 @@ function useIncrementalText(text: string, enabled = true) {
     if (text.length < renderedLength || diverged) textNode.data = text;
     else if (text.length > renderedLength) textNode.appendData(text.slice(renderedLength));
     renderedLengthRef.current = text.length;
-  }, [enabled, text]);
+  }, [text]);
   return setBodyRef;
 }
 
@@ -506,14 +509,22 @@ export function streamingTextFrameDelay(visibleText: string, targetText: string)
     : STREAMING_TEXT_FRAME_MS;
 }
 
+/** Whether one reveal frame opened a line; that fresh line fades in instead of popping. */
+export function streamingFrameOpensLine(previousLines: number, visibleText: string) {
+  return newlineCount(visibleText) > previousLines;
+}
+
 function useSmoothStreamingText(text: string) {
   const [visibleText, setVisibleText] = useState(text);
   const targetTextRef = useRef(text);
   targetTextRef.current = text;
+  const previousLinesRef = useRef(newlineCount(text));
   const canAnimate = typeof window !== "undefined"
     && !(typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   const isPrefix = text.startsWith(visibleText);
   const needsFrame = canAnimate && isPrefix && visibleText !== text;
+  const visible = canAnimate && isPrefix ? visibleText : text;
+  const opensLine = streamingFrameOpensLine(previousLinesRef.current, visible);
 
   useEffect(() => {
     if (!canAnimate || !isPrefix) {
@@ -529,15 +540,22 @@ function useSmoothStreamingText(text: string) {
     // consume the latest burst instead of restarting the delay for every token.
   }, [canAnimate, isPrefix, needsFrame, visibleText]);
 
-  return canAnimate && isPrefix ? visibleText : text;
+  // The freshly revealed line is marked for one frame only: the quick fade that
+  // follows is the transition back to the resting ink level.
+  useEffect(() => {
+    previousLinesRef.current = newlineCount(visible);
+  }, [visible]);
+
+  return { visible, opensLine };
 }
 
 // Pace bursty token batches into short, adaptive frames while continuing to
 // parse the visible prefix as Markdown. Large backlogs fast-forward so the UI
 // stays close to the model instead of replaying a long typewriter animation.
 export const StreamingAssistantText = memo(function StreamingAssistantText({ text, locale, onOpenPath, onCheckPath, onOpenUrl }: { text: string; locale: UiLocale } & MarkdownEntityActions) {
-  const visibleText = useSmoothStreamingText(text);
-  return <MarkdownContent text={visibleText} className="message-text streaming-assistant-text" locale={locale} onOpenPath={onOpenPath} onCheckPath={onCheckPath} onOpenUrl={onOpenUrl} />;
+  const { visible, opensLine } = useSmoothStreamingText(text);
+  const className = `message-text streaming-assistant-text${opensLine ? " streaming-ink-fresh" : ""}`;
+  return <MarkdownContent text={visible} className={className} locale={locale} onOpenPath={onOpenPath} onCheckPath={onCheckPath} onOpenUrl={onOpenUrl} />;
 }, (previous, next) => previous.text === next.text && previous.locale === next.locale);
 
 function reasoningSummary(text: string, streaming: boolean) {
@@ -561,13 +579,13 @@ function reasoningSummary(text: string, streaming: boolean) {
   return "";
 }
 
-// The reasoning body is mounted on demand and appended incrementally while its
-// details entry remains open. A live step unfolds itself into a taller body that
-// follows the newest line, then folds back to the one-line chip when the step
-// ends, unless the reader unfolded it themselves.
+// The reasoning body stays mounted and is appended incrementally, so it survives
+// folding and can animate. A live step unfolds itself into a taller body that
+// follows the newest line, then folds back to the one-line chip as soon as the
+// step stops thinking, unless the reader unfolded it themselves.
 export const ReasoningEntry = memo(function ReasoningEntry({ text, streaming, locale }: { text: string; streaming: boolean; locale: UiLocale }) {
   const [open, setOpen] = useState(streaming);
-  const bodyRef = useIncrementalText(text, open);
+  const bodyRef = useIncrementalText(text);
   const followRef = useRef<HTMLPreElement | null>(null);
   const streamingRef = useRef(streaming);
   const attachBodyRef = useCallback((pre: HTMLPreElement | null) => {
@@ -579,8 +597,8 @@ export const ReasoningEntry = memo(function ReasoningEntry({ text, streaming, lo
     [text, streaming, locale],
   );
 
-  // Streaming is a step boundary, not a per-token state: the unfold happens
-  // once when thinking starts and the fold once when it ends.
+  // Thinking is a phase, not a per-token state: the unfold happens once when
+  // thinking starts and the fold once when it stops.
   useEffect(() => {
     if (streamingRef.current === streaming) return;
     streamingRef.current = streaming;
@@ -594,15 +612,20 @@ export const ReasoningEntry = memo(function ReasoningEntry({ text, streaming, lo
   }, [streaming, text]);
 
   return (
-    <details
-      className="reasoning-entry"
-      data-state={streaming ? "running" : "ok"}
-      open={open}
-      onToggle={(event) => setOpen(event.currentTarget.open)}
-    >
-      <summary><span className="reasoning-marker">{streaming ? t("conversation.reasoning.running", locale) : "Think"}</span><em>{summary}</em></summary>
-      {open && <div className="reasoning-body"><pre aria-live="off" ref={attachBodyRef} /></div>}
-    </details>
+    <div className="reasoning-entry" data-state={streaming ? "running" : "ok"} data-open={open ? "true" : "false"}>
+      <button
+        type="button"
+        className="reasoning-summary"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span className="reasoning-marker">{streaming ? t("conversation.reasoning.running", locale) : "Think"}</span>
+        <em>{summary}</em>
+      </button>
+      <div className="reasoning-collapse">
+        <div className="reasoning-body"><pre aria-live="off" ref={attachBodyRef} /></div>
+      </div>
+    </div>
   );
 }, (prev, next) => prev.text === next.text && prev.streaming === next.streaming && prev.locale === next.locale);
 
@@ -1045,6 +1068,7 @@ export function ConversationTranscript({
   activeSession,
   activeSessionId,
   activeRunning,
+  turnLive = false,
   loading,
   workingIndicator,
   historyHasMore,
@@ -1081,11 +1105,13 @@ export function ConversationTranscript({
   const [previewGallery, setPreviewGallery] = useState<PreviewGallery | null>(null);
   const enteredTranscriptKeys = useEnteredTranscriptKeys(transcript, activeSessionId);
 
-  // 轮次分组：提示 → 中间步骤 → 答复。步骤区默认跟随轮次状态（运行中展开、
-  // 结束后收起），`stepOverrides` 只记住读者手动切换过的那几轮。
+  // 轮次分组：提示 → 中间步骤 → 答复。步骤区默认跟随整轮状态（Agent loop 还在
+  // 跑就展开、整轮结束后收起），`stepOverrides` 只记住读者手动切换过的那几轮。
+  // 一轮里有几十个 step，任何一次模型返回结束都不算「整轮结束」。
+  const loopLive = activeRunning || turnLive;
   const turnGroups = useMemo(
-    () => groupTranscriptTurns(transcript.filter((item) => item.kind !== "deliverables"), activeRunning),
-    [activeRunning, transcript],
+    () => groupTranscriptTurns(transcript.filter((item) => item.kind !== "deliverables"), loopLive),
+    [loopLive, transcript],
   );
   const [stepOverrides, setStepOverrides] = useState<Record<string, boolean>>({});
 
@@ -1216,26 +1242,27 @@ export function ConversationTranscript({
           {turnGroups.map((group) => {
             const stepsOpen = stepOverrides[group.key] ?? group.live;
             const stepSummary = group.steps.length > 0 ? stepKindSummary(group, locale) : "";
+            const stepCount = t("conversation.steps.count", locale, { count: group.steps.length });
             return (
               <section className="turn-group" data-turn-state={group.live ? "live" : "settled"} key={group.key}>
                 {group.head.map(renderTranscriptItem)}
                 {group.steps.length > 0 && (
-                  <details
-                    className="turn-steps"
-                    open={stepsOpen}
-                    onToggle={(event) => {
-                      const open = event.currentTarget.open;
-                      setStepOverrides((current) => applyStepToggle(current, group.key, open, group.live));
-                    }}
-                  >
-                    <summary>
+                  <div className="turn-steps" data-open={stepsOpen ? "true" : "false"}>
+                    <button
+                      type="button"
+                      className="turn-steps-summary"
+                      aria-expanded={stepsOpen}
+                      aria-label={`${t("conversation.steps.label", locale)} ${stepCount}`}
+                      onClick={() => setStepOverrides((current) => applyStepToggle(current, group.key, !stepsOpen, group.live))}
+                    >
                       <span className="turn-steps-state" aria-hidden="true" />
-                      <span className="turn-steps-label">{t("conversation.steps.label", locale)}</span>
-                      <span className="turn-steps-count">{t("conversation.steps.count", locale, { count: group.steps.length })}</span>
+                      <span className="turn-steps-count">{stepCount}</span>
                       {stepSummary && <span className="turn-steps-breakdown">{stepSummary}</span>}
-                    </summary>
-                    <div className="turn-steps-body">{group.steps.map(renderTranscriptItem)}</div>
-                  </details>
+                    </button>
+                    <div className="turn-steps-collapse">
+                      <div className="turn-steps-body">{group.steps.map(renderTranscriptItem)}</div>
+                    </div>
+                  </div>
                 )}
                 {group.tail.map(renderTranscriptItem)}
               </section>

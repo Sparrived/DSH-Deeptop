@@ -35,13 +35,32 @@ function turnEndText(reason: unknown, kind: string, locale: UiLocale = "zh") {
   return t("conversation.turnFailed", locale);
 }
 
-/** Earliest raw seq one history entry renders as a transcript row. */
+/**
+ * Earliest durable seq among candidates.
+ *
+ * In-progress output lives in the mux's negative stream band, and a step that
+ * absorbed live chunks keeps that negative seq as its `displayFirstChunkSeq`.
+ * Anchoring a durable row there would push it into the live band at the very end
+ * of the conversation, piling finished Think rows under the newest message
+ * instead of leaving each one at its own step.
+ */
+function durableSeq(...candidates: Array<number | undefined>): number | undefined {
+  for (const candidate of candidates) {
+    if (typeof candidate === "number" && Number.isFinite(candidate) && !isTransientStreamSeq(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+/** Earliest durable seq one history entry renders as a transcript row. */
 function entryStartOf(entry: DshHistoryEntry): number | undefined {
   const ranges = entry.compactedEventSeqRanges ?? entry.event?.compactedEventSeqRanges;
-  const first = Array.isArray(ranges) ? ranges[0] : undefined;
-  if (Array.isArray(first) && typeof first[0] === "number") return first[0];
-  if (entry.displayFirstChunkSeq !== undefined) return entry.displayFirstChunkSeq;
-  return entry.event?.seq;
+  if (Array.isArray(ranges)) {
+    for (const range of ranges) {
+      const start = durableSeq(Array.isArray(range) ? range[0] : undefined);
+      if (start !== undefined) return start;
+    }
+  }
+  return durableSeq(entry.displayFirstChunkSeq, entry.event?.seq);
 }
 
 /**
@@ -59,7 +78,10 @@ function transcriptOrder(left: TranscriptItem, right: TranscriptItem): number {
 
 export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLocale = "zh"): TranscriptItem[] {
   const items: TranscriptItem[] = [];
-  const streams = new Map<string, { text: string; reasoning: string; seq: number; time: number; streaming: boolean }>();
+  // `thinking` tracks whether the newest delta of a live stream was reasoning:
+  // thinking ends the moment the step moves on to answer text or tool arguments,
+  // so the Think box folds there instead of waiting for the whole step to end.
+  const streams = new Map<string, { text: string; reasoning: string; seq: number; time: number; streaming: boolean; thinking: boolean }>();
   const orderedEntries = [...entries].sort((left, right) => left.event.seq - right.event.seq);
   const messageStats = assistantMessageStats(orderedEntries);
   for (const entry of orderedEntries) {
@@ -69,13 +91,22 @@ export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLoca
     if (event.type === "assistant/chunk") {
       const chunk = recordValue(event.data.chunk);
       const type = typeof chunk?.type === "string" ? chunk.type : "";
+      const key = streamKey(event);
+      const current = streams.get(key);
       if ((type === "text-delta" || type === "reasoning-delta") && typeof chunk?.text === "string") {
-        const key = streamKey(event);
-        const current = streams.get(key) ?? { text: "", reasoning: "", seq: event.seq, time: event.time, streaming: true };
-        if (type === "text-delta") current.text += chunk.text;
-        else current.reasoning += chunk.text;
-        current.time = event.time;
-        streams.set(key, current);
+        const stream = current ?? { text: "", reasoning: "", seq: event.seq, time: event.time, streaming: true, thinking: false };
+        if (type === "text-delta") {
+          stream.text += chunk.text;
+          stream.thinking = false;
+        } else {
+          stream.reasoning += chunk.text;
+          stream.thinking = true;
+        }
+        stream.time = event.time;
+        streams.set(key, stream);
+      } else if (current && type === "tool-call-delta") {
+        // Tool arguments follow the thinking of the same step.
+        current.thinking = false;
       }
       continue;
     }
@@ -132,7 +163,9 @@ export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLoca
       const segments = contentSegments(assistantContent(event));
       const reasoning = segments.reasoning || stream?.reasoning || "";
       const text = segments.text || stream?.text || "";
-      const reasoningSeq = stream?.seq ?? entry.displayFirstChunkSeq ?? event.seq;
+      // Keep the Think row at its first durable chunk position (the live band is
+      // not a position), falling back to the message's own durable seq.
+      const reasoningSeq = durableSeq(stream?.seq, entry.displayFirstChunkSeq, event.seq) ?? event.seq;
       const reasoningFrom = entryStartOf(entry);
       if (reasoning) items.push({ key: `reasoning-${event.seq}`, kind: "reasoning", label: "Think", text: reasoning, seq: reasoningSeq, seqFrom: reasoningFrom === undefined ? undefined : Math.min(reasoningFrom, reasoningSeq), time: event.time });
       if (text || segments.images.length > 0) items.push({ key: `event-${event.seq}`, kind: "assistant", label: "DSH", text, images: segments.images, seq: event.seq, seqFrom: entryStartOf(entry), messageId, time: event.time, stats: messageStats.get(event.seq) });
@@ -180,7 +213,8 @@ export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLoca
     }
   }
   for (const [key, stream] of streams) {
-    if (stream.reasoning) items.push({ key: `reasoning-${key}-${stream.seq}`, kind: "reasoning", label: "Think", text: stream.reasoning, seq: stream.seq, time: stream.time, streaming: stream.streaming });
+    // A live Think row is streaming only while reasoning is what arrives last.
+    if (stream.reasoning) items.push({ key: `reasoning-${key}-${stream.seq}`, kind: "reasoning", label: "Think", text: stream.reasoning, seq: stream.seq, time: stream.time, streaming: stream.streaming && stream.thinking });
     if (stream.text) items.push({ key: `stream-${key}-${stream.seq}`, kind: "assistant", label: "DSH", text: stream.text, seq: stream.seq, time: stream.time, streaming: stream.streaming });
   }
   for (const workflow of workflowViewsFromHistory(orderedEntries, locale)) {

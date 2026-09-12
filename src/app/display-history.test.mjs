@@ -213,12 +213,68 @@ test("renders transient live stream frames after the durable transcript", () => 
   // Live rows belong to the conversation end, never above loaded history.
   assert.deepEqual(items.map(item => item.kind), ["user", "assistant", "reasoning", "assistant"]);
   assert.equal(items.at(-2).text, "thinking harder");
-  assert.equal(items.at(-2).streaming, true);
+  // The step already streamed answer text, so thinking is over: the Think entry
+  // must fold while the answer is still arriving.
+  assert.equal(items.at(-2).streaming, false);
   assert.equal(items.at(-1).text, "second answer");
   assert.equal(items.at(-1).streaming, true);
   // Paging and counts describe durable log events only.
   assert.equal(displayHistoryStartSequence(history), 1);
   assert.equal(displayHistoryEventCount(history), durable.length);
+});
+
+test("live thinking stays streaming until the step moves on", () => {
+  const durable = [
+    entry(1, "turn/start", { turn: 1 }),
+    entry(2, "user/message", { turn: 1, step: 1, content: [{ type: "text", text: "hello" }] }),
+  ];
+  const live = [
+    entry(Number.MIN_SAFE_INTEGER, "assistant/chunk", { turn: 1, step: 1, chunk: { type: "reasoning-delta", index: 0, text: "thinking" } }),
+  ];
+  const thinking = transcriptFromHistory(mergeHistoryEntries(compactHistoryEntries(durable), live));
+  assert.equal(thinking.at(-1).kind, "reasoning");
+  assert.equal(thinking.at(-1).streaming, true);
+
+  // Tool arguments end the thinking phase of the same step.
+  const withToolDelta = transcriptFromHistory(mergeHistoryEntries(compactHistoryEntries(durable), [
+    ...live,
+    entry(Number.MIN_SAFE_INTEGER + 1, "assistant/chunk", { turn: 1, step: 1, chunk: { type: "tool-call-delta", index: 1, argumentsDelta: "{\"path\":" } }),
+  ]));
+  assert.equal(withToolDelta.at(-1).kind, "reasoning");
+  assert.equal(withToolDelta.at(-1).streaming, false);
+
+  // A step that ends closes the Think entry as before.
+  const settled = transcriptFromHistory(mergeHistoryEntries(compactHistoryEntries([...durable, entry(9, "step/end", { turn: 1, step: 1 })]), live));
+  assert.equal(settled.at(-1).streaming, false);
+});
+
+test("a durable step anchors its Think row at its own durable seq", () => {
+  // A step that absorbed live frames keeps the transient seq as its
+  // `displayFirstChunkSeq`; anchoring the Think row there would push every
+  // finished Think row into the live band under the newest message.
+  const history = [
+    entry(1, "turn/start", { turn: 1 }),
+    entry(2, "user/message", { turn: 1, step: 1, content: [{ type: "text", text: "hello" }] }),
+    {
+      ...entry(20, "assistant/message", {
+        turn: 1,
+        step: 1,
+        message: {
+          role: "assistant",
+          content: [{ type: "reasoning", text: "thinking" }, { type: "text", text: "answer" }],
+        },
+      }),
+      displayFirstChunkSeq: -30,
+      compactedEventSeqRanges: [[-30, -25], [20, 20]],
+    },
+  ];
+  const items = transcriptFromHistory(history);
+  const reasoning = items.find((item) => item.kind === "reasoning");
+
+  assert.equal(reasoning.text, "thinking");
+  assert.equal(reasoning.seq, 20);
+  assert.equal(reasoning.seqFrom, 20);
+  assert.deepEqual(items.map((item) => item.kind), ["user", "reasoning", "assistant"]);
 });
 
 test("preserves non-overlapping compacted pages that lack per-token lengths", () => {
