@@ -445,3 +445,15 @@ body.dock-tab-dragging * {
 }
 
 .dock-file-line.is-target .dock-file-line-number { color: var(--accent-deep); font-weight: 700; }
+
+/* 标签正文占位：类型未登记或标签属于另一个工作区时的说明块 */
+.dock-tab-notice {
+  display: grid;
+  gap: 6px;
+  padding: 18px 16px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.dock-tab-notice strong { color: var(--ink); font-size: 13px; }
+.dock-tab-notice p { margin: 0; overflow-wrap: anywhere; }

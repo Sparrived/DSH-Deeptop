@@ -39,7 +39,7 @@ import { DockSettingsProvider, useDockSettings } from "./app/dock-settings";
 import { buildActiveSessionView } from "./app/active-session-view";
 import { DOCK_RAIL_DEFAULT_WIDTH, DOCK_RAIL_EMPTY_WIDTH, type DockTab } from "./app/dock-layout";
 import { DockRail } from "./components/DockRail";
-import { DockedFileView } from "./components/DockedFileView";
+import { DockTabBody } from "./components/DockTabBody";
 import { PopupDialog } from "./components/PopupDialog";
 import { PluginInstallDialog, type PluginInstallDraft } from "./components/PluginInstallDialog";
 import { useProviderSettings } from "./app/useProviderSettings";
@@ -5494,16 +5494,15 @@ function AppContent() {
         <DockRail
           locale={locale}
           visible={conversationPageActive}
-          renderTabBody={(tab) => tab.kind === "file" && tab.path
-            ? <DockedFileView
+          renderTabBody={(tab) => (
+            <DockTabBody
               key={tab.id}
-              path={tab.path}
-              line={tab.line}
-              cwd={activeSession?.cwd ?? workspace}
+              tab={tab}
+              workspace={activeSession?.cwd ?? workspace}
               locale={locale}
               onError={setErrorNotice}
             />
-            : null}
+          )}
         />
       </div>
 

@@ -50,6 +50,11 @@ export type DockTab = {
   path?: string;
   /** 文件类标签的 1-based 定位行。 */
   line?: number;
+  /**
+   * 内容类型自己的附加数据（例如 git 标签的提交哈希与归属仓库）。
+   * 键值都是字符串且有长度上限，归一化时逐项丢弃非法值而不是整条标签。
+   */
+  payload?: Record<string, string>;
 };
 
 export type DockLayout = {
@@ -69,6 +74,10 @@ const MIN_SPLIT_FRACTION = 0.08;
 /** 布局树允许的最大节点数与 nesting 深度，用于持久化输入的归一化。 */
 const MAX_LAYOUT_NODES = 64;
 const MAX_LAYOUT_DEPTH = 8;
+/** 标签附加数据的体积上限：键数 / 键长 / 值长，逐项丢弃超限项。 */
+const MAX_PAYLOAD_KEYS = 12;
+const MAX_PAYLOAD_KEY_LENGTH = 32;
+const MAX_PAYLOAD_VALUE_LENGTH = 512;
 
 export function emptyDockLayout(): DockLayout {
   return { root: null, tabs: {} };
@@ -441,7 +450,57 @@ function normalizeTab(raw: unknown): DockTab | null {
   if (typeof source.detail === "string") tab.detail = source.detail.slice(0, 200);
   if (typeof source.path === "string" && source.path.length > 0) tab.path = source.path.slice(0, 4096);
   if (typeof source.line === "number" && Number.isInteger(source.line) && source.line > 0) tab.line = source.line;
+  const payload = normalizeTabPayload(source.payload);
+  if (payload) tab.payload = payload;
   return tab;
+}
+
+/**
+ * 归一化标签附加数据：只保留字符串键值，超长值截断，超出键数预算的键丢弃。
+ * 返回 undefined 表示这条标签没有可用的附加数据。
+ */
+function normalizeTabPayload(raw: unknown): Record<string, string> | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const payload: Record<string, string> = {};
+  let count = 0;
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (count >= MAX_PAYLOAD_KEYS) break;
+    if (key.length === 0 || key.length > MAX_PAYLOAD_KEY_LENGTH) continue;
+    if (typeof value !== "string") continue;
+    payload[key] = value.slice(0, MAX_PAYLOAD_VALUE_LENGTH);
+    count += 1;
+  }
+  return count > 0 ? payload : undefined;
+}
+
+/** 标签归属的工作区根目录；不携带归属信息的标签返回 null（表示不限工作区）。 */
+export function dockTabWorkspace(tab: DockTab): string | null {
+  const cwd = tab.payload?.cwd;
+  return typeof cwd === "string" && cwd.length > 0 ? cwd : null;
+}
+
+/** 两个工作区路径是否指同一处：大小写、分隔符与结尾斜杠归一后比较；
+ * 任一侧缺失都视为“不限工作区”。 */
+export function dockWorkspacesMatch(left: string | null, right: string | null): boolean {
+  if (!left || !right) return true;
+  return normalizeDockPath(left) === normalizeDockPath(right);
+}
+
+export type DockTabBodyState = "ready" | "foreign" | "unknown";
+
+/**
+ * 判定某个标签在给定工作区下该渲染什么：
+ * - `foreign`：标签属于另一个工作区（例如切了工作区但 git 标签还留在布局里）；
+ * - `unknown`：内容类型没有在渲染层登记；
+ * - `ready`：交给登记过的渲染器。
+ */
+export function dockTabBodyState(
+  tab: DockTab,
+  workspace: string | null,
+  isKnownKind: (kind: string) => boolean,
+): DockTabBodyState {
+  if (!dockWorkspacesMatch(dockTabWorkspace(tab), workspace)) return "foreign";
+  return isKnownKind(tab.kind) ? "ready" : "unknown";
 }
 
 /**

@@ -9,7 +9,10 @@ import {
   closeDockTab,
   collectDockPanes,
   dockAxisForZone,
+  dockTabBodyState,
   dockTabKey,
+  dockTabWorkspace,
+  dockWorkspacesMatch,
   dockZoneAt,
   emptyDockLayout,
   findDockPane,
@@ -269,4 +272,72 @@ test("keeps unknown tab kinds so a newer layout is not wiped on downgrade", () =
 
   const unknownKind = open(emptyDockLayout(), { id: "tab-x", kind: "mystery", title: "Mystery" });
   assert.equal(findDockTabByKey(unknownKind, "mystery").id, "tab-x");
+});
+
+test("normalizes tab payloads item by item instead of dropping the tab", () => {
+  const layout = normalizeDockLayout({
+    tabs: {
+      "tab-git": {
+        id: "tab-git",
+        kind: "git-commit",
+        title: "Commit",
+        payload: {
+          hash: "abc123",
+          cwd: "D:/repo",
+          droppedNumber: 42,
+          droppedNull: null,
+          "": "empty key",
+          ["k".repeat(33)]: "key too long",
+          long: "x".repeat(600),
+        },
+      },
+    },
+    root: { kind: "pane", id: "pane-1", tabIds: ["tab-git"], activeTabId: "tab-git" },
+  });
+  const payload = layout.tabs["tab-git"].payload;
+  assert.deepEqual(Object.keys(payload).sort(), ["cwd", "hash", "long"]);
+  assert.equal(payload.hash, "abc123");
+  assert.equal(payload.long.length, 512);
+
+  // 非对象、空对象、全非法值都视为没有附加数据
+  const plain = normalizeDockLayout({
+    tabs: { "tab-file": { id: "tab-file", kind: "file", title: "a.ts", path: "a.ts", payload: [1, 2] } },
+    root: { kind: "pane", id: "pane-1", tabIds: ["tab-file"], activeTabId: "tab-file" },
+  });
+  assert.equal(plain.tabs["tab-file"].payload, undefined);
+  const emptyPayload = normalizeDockLayout({
+    tabs: { "tab-file": { id: "tab-file", kind: "file", title: "a.ts", path: "a.ts", payload: {} } },
+    root: { kind: "pane", id: "pane-1", tabIds: ["tab-file"], activeTabId: "tab-file" },
+  });
+  assert.equal(emptyPayload.tabs["tab-file"].payload, undefined);
+
+  // 键数上限：超出预算的键被丢弃，标签本身保留
+  const many = {};
+  for (let index = 0; index < 20; index += 1) many[`key${index}`] = "value";
+  const bounded = normalizeDockLayout({
+    tabs: { "tab-file": { id: "tab-file", kind: "file", title: "a.ts", path: "a.ts", payload: many } },
+    root: { kind: "pane", id: "pane-1", tabIds: ["tab-file"], activeTabId: "tab-file" },
+  });
+  assert.equal(Object.keys(bounded.tabs["tab-file"].payload).length, 12);
+});
+
+test("decides whether a tab body is ready, foreign or unknown", () => {
+  const known = (kind) => kind === "file" || kind === "git-commit";
+  const gitTab = tab("git-commit", { payload: { cwd: "D:/Repo", hash: "abc" } });
+
+  assert.equal(dockTabWorkspace(gitTab), "D:/Repo");
+  assert.equal(dockTabWorkspace(tab("file", { path: "a.ts" })), null);
+  // 分隔符、大小写、结尾斜杠归一后视为同一工作区
+  assert.equal(dockTabBodyState(gitTab, "d:\\repo\\", known), "ready");
+  assert.equal(dockTabBodyState(gitTab, "D:/other", known), "foreign");
+  // 不携带归属信息的标签不受工作区限制
+  assert.equal(dockTabBodyState(tab("file", { path: "a.ts" }), "D:/other", known), "ready");
+  // 归属判定优先于类型判定：属于别的工作区时不去渲染
+  assert.equal(dockTabBodyState(tab("mystery", { payload: { cwd: "D:/other" } }), "D:/repo", known), "foreign");
+  assert.equal(dockTabBodyState(tab("mystery"), "D:/repo", known), "unknown");
+
+  assert.equal(dockWorkspacesMatch(null, "D:/repo"), true);
+  assert.equal(dockWorkspacesMatch("D:/repo", null), true);
+  assert.equal(dockWorkspacesMatch("D:/repo", "D:/repo/"), true);
+  assert.equal(dockWorkspacesMatch("D:/repo", "D:/other"), false);
 });
