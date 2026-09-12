@@ -5,6 +5,7 @@ import {
   GIT_GRAPH_LANE_WIDTH,
   GIT_GRAPH_NODE_RADIUS,
   GIT_GRAPH_ROW_HEIGHT,
+  GIT_GRAPH_TEXT_GAP,
   gitGraphLaneLinePath,
   gitGraphLaneShiftPath,
   gitGraphLaneX,
@@ -12,6 +13,7 @@ import {
   gitGraphMergePath,
   gitGraphWidth,
   gitGraphAnchorDelta,
+  gitGraphRowWidth,
   gitGraphRowHeights,
   gitGraphRowOffsets,
   gitGraphVisibleRange,
@@ -330,6 +332,18 @@ test("compensates scrolling when a measured row height lands", () => {
   assert.equal(gitGraphAnchorDelta(after, collapsed, 200), -140);
   // 空偏移不炸
   assert.equal(gitGraphAnchorDelta([0], [0, 24], 0), 0);
+});
+test("sizes each row's graph column from the lanes that row actually uses", () => {
+  // 单列直行：只有 0 号泳道 → 文字紧贴节点
+  const straight = layoutOf(commit(0, [1]), commit(1, [])).rows[0];
+  assert.equal(gitGraphRowWidth(straight), GIT_GRAPH_LANE_WIDTH + GIT_GRAPH_TEXT_GAP);
+  // 向右经过本行的泳道也要算进去，否则连线会压到文字
+  const branchy = layoutOf(commit(0, [1, 2]), commit(1, [2]), commit(2, [])).rows[0];
+  assert.ok(branchy.columnCount > 1);
+  assert.equal(gitGraphRowWidth(branchy), GIT_GRAPH_LANE_WIDTH * branchy.columnCount + GIT_GRAPH_TEXT_GAP);
+  // 同一行展开块与文字用同一宽度：不会出现文件列表比文字更靠左/靠右
+  const last = layoutOf(commit(0, [1]), commit(1, [])).rows[1];
+  assert.ok(gitGraphRowWidth(last) >= GIT_GRAPH_LANE_WIDTH + GIT_GRAPH_TEXT_GAP);
 });
 test("geometry helpers stay inside the row and line up with lane centers", () => {
   assert.equal(GIT_GRAPH_LANE_WIDTH * 2, GIT_GRAPH_ROW_HEIGHT);

@@ -713,6 +713,8 @@
 .git-commit-children {
   display: flex;
   align-items: stretch;
+  /* 必须与 .git-graph-row 的左内边距一致：否则块内泳道竖线会比行内竖线左移，看起来就是连线错位 */
+  padding-left: 4px;
   background: color-mix(in srgb, var(--surface-soft) 60%, transparent);
   border-bottom: 1px solid var(--line);
 }

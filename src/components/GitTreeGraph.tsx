@@ -11,6 +11,7 @@ import {
   gitGraphLaneX,
   gitGraphLayout,
   gitGraphMergePath,
+  gitGraphRowWidth,
   gitGraphRowHeights,
   gitGraphRowOffsets,
   gitGraphVisibleRange,
@@ -228,6 +229,7 @@ export function GitTreeGraph({
   if (layout.rows.length === 0) return null;
 
   const total = layout.rows.length;
+  // 全局列宽：底部泳道占位与悬浮卡片定位用（卡片位置固定，不随行左右跳）
   const svgWidth = gitGraphWidth(layout.columnCount);
   const firstRow = Math.min(rowWindow.first, Math.max(0, total - 1));
   const lastRow = Math.max(firstRow + 1, Math.min(total, rowWindow.last));
@@ -271,6 +273,8 @@ export function GitTreeGraph({
         const syntheticColor = row.synthetic === "incoming" ? "var(--git-graph-remote)" : "var(--git-graph-local)";
         const nodeColor = row.synthetic ? syntheticColor : gitGraphLaneColor(row.color);
         const { visible: visibleRefs, overflow: overflowRefs } = splitInlineRefs(row.refs);
+        // 逐行按自己用到的泳道数决定图谱列宽：文字紧贴节点，而不是统一按全局最大列宽缩进
+        const rowWidth = gitGraphRowWidth(row);
         const syntheticLabel = row.synthetic === "incoming"
           ? t("gitGraph.incoming", locale, { count: row.count ?? 0 })
           : t("gitGraph.outgoing", locale, { count: row.count ?? 0 });
@@ -292,7 +296,7 @@ export function GitTreeGraph({
               aria-current={selected ? "true" : undefined}
               aria-expanded={row.synthetic ? undefined : expanded}
             >
-              <svg className="git-graph-cell" width={svgWidth} height={ROW_H} aria-hidden="true">
+              <svg className="git-graph-cell" width={rowWidth} height={ROW_H} aria-hidden="true">
                 {/* 贯穿本行的泳道线段：同列是竖线，换列是两段圆角夹一段水平线 */}
                 {row.through.map((line, index) => (
                   <path
@@ -400,7 +404,7 @@ export function GitTreeGraph({
                 )}
               </span>
             </button>
-            {expanded && renderRowChildren?.(row, { graphWidth: svgWidth })}
+            {expanded && renderRowChildren?.(row, { graphWidth: rowWidth })}
           </GitGraphItem>
         );
       })}
@@ -410,7 +414,7 @@ export function GitTreeGraph({
       {/* 底部泳道占位：把最后一行的泳道继续画下去，避免图谱在加载处突然截断 */}
       {hasMore && tailLanes.length > 0 && (
         <div className="git-graph-placeholder" style={{ height: ROW_H }} aria-hidden="true">
-          <svg width={svgWidth} height={ROW_H}>
+          <svg width={gitGraphRowWidth(layout.rows[total - 1])} height={ROW_H}>
             {tailLanes.map((lane, index) => (
               <path
                 key={`tail${index}`}

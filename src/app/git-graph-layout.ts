@@ -107,6 +107,27 @@ export function gitGraphWidth(columnCount: number): number {
   return GIT_GRAPH_LANE_WIDTH * (Math.max(columnCount, 1) + 1);
 }
 
+/** 文字与图谱列之间的固定间距（px）：紧贴节点但不压到圆点描边。 */
+export const GIT_GRAPH_TEXT_GAP = 8;
+
+/**
+ * 本行图谱列需要的宽度：只按**这一行真正用到**的泳道算，
+ * 因此文字能紧贴该行节点，而不是所有行统一按全局最大列宽缩进。
+ *
+ * 取本行用到的最大列（贯穿、节点上下短竖线、合并连线、底部离开的泳道），
+ * 这样向右经过本行的泳道也不会压到文字。同一行的展开块用同一宽度，保证文件列表与文字对齐。
+ */
+export function gitGraphRowWidth(row: GitGraphRow): number {
+  let maxLane = Math.max(0, row.lane);
+  for (const line of row.through) maxLane = Math.max(maxLane, line.fromLane, line.toLane);
+  if (row.nodeTop) maxLane = Math.max(maxLane, row.nodeTop.lane);
+  if (row.nodeBottom) maxLane = Math.max(maxLane, row.nodeBottom.lane, row.nodeBottom.toLane);
+  for (const merge of row.merges) maxLane = Math.max(maxLane, merge.lane);
+  // 底部离开的泳道会在展开块里继续画，宽度也要覆盖，才能和文件列表对齐
+  maxLane = Math.max(maxLane, row.outputLanes.length - 1);
+  return GIT_GRAPH_LANE_WIDTH * (maxLane + 1) + GIT_GRAPH_TEXT_GAP;
+}
+
 /** 贯穿一行的直线。 */
 export function gitGraphLaneLinePath(lane: number): string {
   return `M ${gitGraphLaneX(lane)} 0 V ${GIT_GRAPH_ROW_HEIGHT}`;
