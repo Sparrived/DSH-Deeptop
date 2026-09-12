@@ -27,7 +27,8 @@
   .tool-entry[data-tool-status="running"] .tool-status-dot,
   .workflow-entry[data-workflow-status="running"] .workflow-status,
   .workflow-entry[data-workflow-status="running"] .workflow-member.running i,
-  .subagent-tool-entry[data-tool-status="running"] .subagent-tool-state {
+  .subagent-tool-entry[data-tool-status="running"] .subagent-tool-state,
+  .turn-group[data-turn-state="live"] .turn-steps-state {
     animation: interaction-status-pulse var(--motion-loop) ease-in-out infinite;
   }
 
@@ -146,11 +147,13 @@ body:not(.deeptop-activity-live) .tool-entry[data-tool-status="running"] .tool-s
 body:not(.deeptop-activity-live) .workflow-entry[data-workflow-status="running"] .workflow-status,
 body:not(.deeptop-activity-live) .workflow-entry[data-workflow-status="running"] .workflow-member.running i,
 body:not(.deeptop-activity-live) .subagent-tool-entry[data-tool-status="running"] .subagent-tool-state,
+body:not(.deeptop-activity-live) .turn-group[data-turn-state="live"] .turn-steps-state,
 body.deeptop-window-blurred .tool-entry[data-tool-status="running"] .tool-state,
 body.deeptop-window-blurred .tool-entry[data-tool-status="running"] .tool-status-dot,
 body.deeptop-window-blurred .workflow-entry[data-workflow-status="running"] .workflow-status,
 body.deeptop-window-blurred .workflow-entry[data-workflow-status="running"] .workflow-member.running i,
-body.deeptop-window-blurred .subagent-tool-entry[data-tool-status="running"] .subagent-tool-state {
+body.deeptop-window-blurred .subagent-tool-entry[data-tool-status="running"] .subagent-tool-state,
+body.deeptop-window-blurred .turn-group[data-turn-state="live"] .turn-steps-state {
   animation: none;
 }
 

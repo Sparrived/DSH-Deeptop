@@ -1,0 +1,157 @@
+/*
+ * 轮次阅读与实时思考
+ *
+ * 一轮的阅读顺序是「提示 → 中间步骤 → 答复」：轮次运行中步骤全开，轮次结束后
+ * 步骤收成一条安静摘要条，默认只留下输入和最后一条答复。展开/收起只切换布局，
+ * 不做高度动画——长会话里高度动画会和流式重排抢主线程。
+ *
+ * 本文件在样式清单末尾加载，覆盖前面各层中同一组件的细节。
+ */
+
+/* --- 轮次分组 --------------------------------------------------------- */
+
+.turn-group {
+  min-width: 0;
+}
+
+/* 行多了一层分组包装，原「transcript-inner 直接子元素」的虚拟化规则跟着下沉。 */
+.transcript-inner .message-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 140px;
+}
+
+.turn-steps {
+  margin: 0;
+  padding: 2px 0 10px;
+  border: 0;
+  background: transparent;
+}
+
+.turn-steps > summary {
+  min-width: 0;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-control);
+  color: var(--ink-muted);
+  font-size: 12px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.turn-steps > summary:hover {
+  border-color: var(--accent);
+  background: var(--surface-soft);
+  color: var(--ink);
+}
+
+.turn-steps > summary::-webkit-details-marker,
+.turn-steps > summary::marker {
+  display: none;
+  content: "";
+}
+
+.turn-steps-state {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--line-strong);
+}
+
+.turn-steps-label {
+  flex: 0 0 auto;
+  color: var(--ink-muted);
+  font-weight: 600;
+}
+
+.turn-steps-count,
+.turn-steps-breakdown {
+  min-width: 0;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.turn-steps-count {
+  flex: 0 0 auto;
+}
+
+.turn-steps-breakdown {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turn-steps > summary::after {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--ink-faint);
+  content: "+";
+  font-family: var(--mono);
+  font-size: 15px;
+}
+
+.turn-steps[open] > summary::after {
+  content: "−";
+}
+
+.turn-steps-body {
+  padding-top: 2px;
+}
+
+/* 展开后步骤留一条左侧引导线，标示它们属于同一轮的中间工作。 */
+.turn-steps[open] > .turn-steps-body > .message-row {
+  margin-left: 2px;
+  padding: 14px 0 16px 12px;
+  border-left: 1px solid var(--line-strong);
+}
+
+/* 运行中的轮次：摘要条换成实线强调色，状态点用共享的脉冲动画（23 层）。 */
+.turn-group[data-turn-state="live"] > .turn-steps > summary {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--line));
+  color: var(--accent-deep);
+}
+
+.turn-group[data-turn-state="live"] > .turn-steps .turn-steps-label {
+  color: var(--accent-deep);
+}
+
+.turn-group[data-turn-state="live"] > .turn-steps .turn-steps-state {
+  background: var(--accent);
+}
+
+/* --- 实时思考 --------------------------------------------------------- */
+
+/* 思考中：卡片展开成更高的阅读框并跟随最新一行，结束后收回一行摘要。 */
+.reasoning-entry[data-state="running"] {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line-strong));
+  border-left: 3px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface-raised));
+}
+
+.reasoning-entry[data-state="running"] > summary {
+  color: var(--accent-deep);
+}
+
+.reasoning-entry[data-state="running"] .reasoning-body {
+  padding: 0 14px 12px;
+}
+
+.reasoning-entry[data-state="running"] .reasoning-body pre {
+  max-height: min(46vh, 420px);
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--line));
+  background: var(--surface-raised);
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reasoning-entry[data-state="running"] > summary::after {
+    animation: none;
+  }
+}

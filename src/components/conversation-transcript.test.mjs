@@ -204,3 +204,60 @@ test("streaming text frames reveal bursts adaptively and preserve Unicode pairs"
   const burst = "x".repeat(100);
   assert.equal(nextStreamingTextFrame("", burst).length, 52);
 });
+
+test("a pending line break makes the stream grow whole lines", async () => {
+  const renderer = createHookRenderer();
+  const { nextStreamingTextFrame, streamingTextFrameDelay } = await loadTranscriptExports(renderer.react);
+
+  // Four pending lines: paint two, keep two for the smooth reveal.
+  assert.equal(nextStreamingTextFrame("", "one\ntwo\nthree\nfour\n"), "one\ntwo\n");
+  // With three pending lines one more whole line is painted.
+  assert.equal(nextStreamingTextFrame("one\ntwo\n", "one\ntwo\nthree\nfour\nfive\n"), "one\ntwo\nthree\n");
+  // The last two pending lines keep the character-by-character reveal.
+  assert.equal(nextStreamingTextFrame("one\ntwo\nthree\n", "one\ntwo\nthree\nfour\nfive\n"), "one\ntwo\nthree\nfou");
+  assert.equal(nextStreamingTextFrame("", "aa\nbb\n"), "aa");
+  // A rewritten prefix is never half-applied.
+  assert.equal(nextStreamingTextFrame("a\nb\nc\n", "restarted"), "restarted");
+
+  // A multi-line burst paints more per frame, so it also paces faster; a
+  // two-line tail still types smoothly at the normal cadence.
+  const singleLine = streamingTextFrameDelay("", "still typing one line");
+  assert.equal(streamingTextFrameDelay("", "aa\nbb\n"), singleLine);
+  assert.ok(streamingTextFrameDelay("", "one\ntwo\nthree\nfour\n") < singleLine);
+});
+
+test("a live Think entry unfolds itself and folds back when the step ends", async () => {
+  const renderer = createHookRenderer();
+  const { ReasoningEntry } = await loadTranscriptExports(renderer.react);
+  const text = "First reasoning line\nSecond reasoning line";
+
+  // Thinking starts: the body is already open on the first paint, in its taller
+  // running state, and shows the live label.
+  let tree = renderer.render(ReasoningEntry, { text, streaming: true, locale: "en" });
+  assert.equal(tree.props["data-state"], "running");
+  assert.equal(tree.props.open, true);
+  assert.ok(findElement(tree, "pre"));
+
+  // A reader who collapses it keeps it collapsed while more thinking arrives.
+  tree.props.onToggle({ currentTarget: { open: false } });
+  tree = renderer.render(ReasoningEntry, { text: `${text}\nThird reasoning line`, streaming: true, locale: "en" });
+  renderer.flushEffects();
+  tree = renderer.render(ReasoningEntry, { text: `${text}\nThird reasoning line`, streaming: true, locale: "en" });
+  assert.equal(tree.props.open, false);
+  assert.equal(findElement(tree, "pre"), null);
+
+  // The step ends: the entry folds back to the one-line chip by itself.
+  tree = renderer.render(ReasoningEntry, { text, streaming: false, locale: "en" });
+  renderer.flushEffects();
+  tree = renderer.render(ReasoningEntry, { text, streaming: false, locale: "en" });
+  assert.equal(tree.props["data-state"], "ok");
+  assert.equal(tree.props.open, false);
+  assert.equal(findElement(tree, "pre"), null);
+
+  // A thinking step that is already finished at first paint stays folded.
+  const fresh = createHookRenderer();
+  const { ReasoningEntry: FreshEntry } = await loadTranscriptExports(fresh.react);
+  const settled = fresh.render(FreshEntry, { text, streaming: false, locale: "en" });
+  assert.equal(settled.props.open, false);
+  assert.equal(findElement(settled, "pre"), null);
+});

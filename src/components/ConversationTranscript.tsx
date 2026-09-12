@@ -22,6 +22,7 @@ import { ToolResultView } from "../app/tool-result-render";
 import { entityHost } from "../lib/message-entities";
 import { isWithinSelector, TRANSCRIPT_CONTEXT_MENU_SELECTOR, TRANSCRIPT_TEXT_SELECTOR } from "../app/context-menu";
 import { useFloatingMenuPosition } from "../app/useFloatingMenuPosition";
+import { applyStepToggle, groupTranscriptTurns, stepKindCounts, type TranscriptTurnGroup } from "../app/turn-group-model";
 import {
   formatClock,
   formatTokens,
@@ -450,10 +451,40 @@ function useIncrementalText(text: string, enabled = true) {
 }
 
 const STREAMING_TEXT_FRAME_MS = 30;
+/** A multi-line burst paints whole lines per frame, so it can run faster. */
+const STREAMING_TEXT_MULTILINE_FRAME_MS = 16;
 const STREAMING_TEXT_MAX_TRAIL = 48;
+/** Lines left to the smooth per-character reveal inside a multi-line burst. */
+const STREAMING_TEXT_TAIL_LINES = 2;
+
+function newlineCount(text: string) {
+  let count = 0;
+  for (let index = text.indexOf("\n"); index >= 0; index = text.indexOf("\n", index + 1)) count += 1;
+  return count;
+}
+
+/** Offset just past the `lines`-th line break at or after `from`, or -1 when fewer remain. */
+function lineEndOffset(text: string, from: number, lines: number) {
+  if (lines <= 0) return -1;
+  let offset = from;
+  for (let index = 0; index < lines; index += 1) {
+    const newline = text.indexOf("\n", offset);
+    if (newline < 0) return -1;
+    offset = newline + 1;
+  }
+  return offset;
+}
 
 export function nextStreamingTextFrame(visibleText: string, targetText: string) {
   if (visibleText === targetText || !targetText.startsWith(visibleText)) return targetText;
+  // A pending line break means the burst spans lines: paint whole lines and
+  // leave only a short tail to the smooth reveal, so a fast multi-line stream
+  // grows a line at a time instead of re-flowing a half-typed paragraph.
+  const pendingLines = newlineCount(targetText.slice(visibleText.length));
+  if (pendingLines > STREAMING_TEXT_TAIL_LINES) {
+    const lineEnd = lineEndOffset(targetText, visibleText.length, pendingLines - STREAMING_TEXT_TAIL_LINES);
+    if (lineEnd > visibleText.length) return targetText.slice(0, lineEnd);
+  }
   const remaining = targetText.length - visibleText.length;
   const revealLength = remaining > STREAMING_TEXT_MAX_TRAIL
     ? remaining - STREAMING_TEXT_MAX_TRAIL
@@ -466,6 +497,13 @@ export function nextStreamingTextFrame(visibleText: string, targetText: string) 
     if (previous >= 0xd800 && previous <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) end += 1;
   }
   return targetText.slice(0, end);
+}
+
+/** Pending characters that already span lines are revealed whole-line, faster. */
+export function streamingTextFrameDelay(visibleText: string, targetText: string) {
+  return newlineCount(targetText.slice(visibleText.length)) > STREAMING_TEXT_TAIL_LINES
+    ? STREAMING_TEXT_MULTILINE_FRAME_MS
+    : STREAMING_TEXT_FRAME_MS;
 }
 
 function useSmoothStreamingText(text: string) {
@@ -485,7 +523,7 @@ function useSmoothStreamingText(text: string) {
     if (!needsFrame) return;
     const timer = window.setTimeout(() => {
       setVisibleText((current) => nextStreamingTextFrame(current, targetTextRef.current));
-    }, STREAMING_TEXT_FRAME_MS);
+    }, streamingTextFrameDelay(visibleText, text));
     return () => window.clearTimeout(timer);
     // Target-only updates intentionally keep the pending frame; the ref lets it
     // consume the latest burst instead of restarting the delay for every token.
@@ -524,14 +562,36 @@ function reasoningSummary(text: string, streaming: boolean) {
 }
 
 // The reasoning body is mounted on demand and appended incrementally while its
-// details entry remains open.
+// details entry remains open. A live step unfolds itself into a taller body that
+// follows the newest line, then folds back to the one-line chip when the step
+// ends, unless the reader unfolded it themselves.
 export const ReasoningEntry = memo(function ReasoningEntry({ text, streaming, locale }: { text: string; streaming: boolean; locale: UiLocale }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(streaming);
   const bodyRef = useIncrementalText(text, open);
+  const followRef = useRef<HTMLPreElement | null>(null);
+  const streamingRef = useRef(streaming);
+  const attachBodyRef = useCallback((pre: HTMLPreElement | null) => {
+    followRef.current = pre;
+    bodyRef(pre);
+  }, [bodyRef]);
   const summary = useMemo(
     () => reasoningSummary(text, streaming) || t("conversation.reasoning.fallback", locale),
     [text, streaming, locale],
   );
+
+  // Streaming is a step boundary, not a per-token state: the unfold happens
+  // once when thinking starts and the fold once when it ends.
+  useEffect(() => {
+    if (streamingRef.current === streaming) return;
+    streamingRef.current = streaming;
+    setOpen(streaming);
+  }, [streaming]);
+
+  useEffect(() => {
+    if (!streaming) return;
+    const body = followRef.current;
+    if (body) body.scrollTop = body.scrollHeight;
+  }, [streaming, text]);
 
   return (
     <details
@@ -540,8 +600,8 @@ export const ReasoningEntry = memo(function ReasoningEntry({ text, streaming, lo
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <summary><span className="reasoning-marker">Think</span><em>{summary}</em></summary>
-      {open && <div className="reasoning-body"><pre aria-live="off" ref={bodyRef} /></div>}
+      <summary><span className="reasoning-marker">{streaming ? t("conversation.reasoning.running", locale) : "Think"}</span><em>{summary}</em></summary>
+      {open && <div className="reasoning-body"><pre aria-live="off" ref={attachBodyRef} /></div>}
     </details>
   );
 }, (prev, next) => prev.text === next.text && prev.streaming === next.streaming && prev.locale === next.locale);
@@ -766,6 +826,17 @@ function workflowStatusKey(status: string): string {
   if (status === "cancelled") return "conversation.workflow.status.cancelled";
   if (status === "interrupted") return "conversation.workflow.status.interrupted";
   return "conversation.workflow.status.failed";
+}
+
+/** One-line breakdown of a turn's intermediate steps (思考 1 · 工具 3). */
+function stepKindSummary(group: TranscriptTurnGroup, locale: UiLocale) {
+  const counts = stepKindCounts(group.steps);
+  return [
+    counts.reasoning > 0 ? t("conversation.steps.kind.reasoning", locale, { count: counts.reasoning }) : "",
+    counts.tool > 0 ? t("conversation.steps.kind.tool", locale, { count: counts.tool }) : "",
+    counts.system > 0 ? t("conversation.steps.kind.system", locale, { count: counts.system }) : "",
+    counts.workflow > 0 ? t("conversation.steps.kind.workflow", locale, { count: counts.workflow }) : "",
+  ].filter(Boolean).join(" · ");
 }
 
 function TranscriptArticleView({
@@ -1010,6 +1081,19 @@ export function ConversationTranscript({
   const [previewGallery, setPreviewGallery] = useState<PreviewGallery | null>(null);
   const enteredTranscriptKeys = useEnteredTranscriptKeys(transcript, activeSessionId);
 
+  // 轮次分组：提示 → 中间步骤 → 答复。步骤区默认跟随轮次状态（运行中展开、
+  // 结束后收起），`stepOverrides` 只记住读者手动切换过的那几轮。
+  const turnGroups = useMemo(
+    () => groupTranscriptTurns(transcript.filter((item) => item.kind !== "deliverables"), activeRunning),
+    [activeRunning, transcript],
+  );
+  const [stepOverrides, setStepOverrides] = useState<Record<string, boolean>>({});
+
+  // 分组键来自事件 seq，跨会话会重名，切会话时必须丢弃上一会话的展开状态。
+  useEffect(() => {
+    setStepOverrides({});
+  }, [activeSessionId]);
+
   // 会话文本右键复制菜单：右击选中文本时可复制选区，或复制整条消息。
   type TranscriptCopyMenu = {
     x: number;
@@ -1053,6 +1137,31 @@ export function ConversationTranscript({
     if (!activeSession?.cwd) return false;
     return isFilePath(sessionPath(activeSession.cwd, path));
   }, [activeSession?.cwd]);
+
+  const renderTranscriptItem = (item: TranscriptItem) => (
+    <TranscriptArticle
+      key={item.key}
+      item={item}
+      entered={enteredTranscriptKeys.has(item.key)}
+      uiRuntime={uiRuntime}
+      uiHost={uiHost}
+      retryingMessageSeq={retryingMessageSeq}
+      activeRunning={activeRunning}
+      loading={loading}
+      activeSessionId={activeSessionId}
+      locale={locale}
+      onPreviewImage={(image, images, index) => setPreviewGallery({ images, index })}
+      onLoadImageAttachment={onLoadImageAttachment}
+      onCopyMessage={onCopyMessage}
+      onRequestCopyMenu={requestCopyMenu}
+      onRetryMessage={onRetryMessage}
+      onForkSession={onForkSession}
+      onOpenPath={onOpenSessionPath}
+      onCheckPath={checkPath}
+      onOpenUrl={onOpenUrl}
+      onOpenWorkflowMember={onOpenWorkflowMember}
+    />
+  );
 
   function handleScroll(event: UIEvent<HTMLDivElement>) {
     const target = event.currentTarget;
@@ -1104,30 +1213,34 @@ export function ConversationTranscript({
         </div>
       ) : (
         <div className="transcript-inner">
-          {transcript.filter((item) => item.kind !== "deliverables").map((item) => (
-            <TranscriptArticle
-              key={item.key}
-              item={item}
-              entered={enteredTranscriptKeys.has(item.key)}
-               uiRuntime={uiRuntime}
-              uiHost={uiHost}
-              retryingMessageSeq={retryingMessageSeq}
-              activeRunning={activeRunning}
-              loading={loading}
-              activeSessionId={activeSessionId}
-              locale={locale}
-              onPreviewImage={(image, images, index) => setPreviewGallery({ images, index })}
-              onLoadImageAttachment={onLoadImageAttachment}
-              onCopyMessage={onCopyMessage}
-              onRequestCopyMenu={requestCopyMenu}
-              onRetryMessage={onRetryMessage}
-              onForkSession={onForkSession}
-               onOpenPath={onOpenSessionPath}
-               onCheckPath={checkPath}
-               onOpenUrl={onOpenUrl}
-              onOpenWorkflowMember={onOpenWorkflowMember}
-            />
-          ))}
+          {turnGroups.map((group) => {
+            const stepsOpen = stepOverrides[group.key] ?? group.live;
+            const stepSummary = group.steps.length > 0 ? stepKindSummary(group, locale) : "";
+            return (
+              <section className="turn-group" data-turn-state={group.live ? "live" : "settled"} key={group.key}>
+                {group.head.map(renderTranscriptItem)}
+                {group.steps.length > 0 && (
+                  <details
+                    className="turn-steps"
+                    open={stepsOpen}
+                    onToggle={(event) => {
+                      const open = event.currentTarget.open;
+                      setStepOverrides((current) => applyStepToggle(current, group.key, open, group.live));
+                    }}
+                  >
+                    <summary>
+                      <span className="turn-steps-state" aria-hidden="true" />
+                      <span className="turn-steps-label">{t("conversation.steps.label", locale)}</span>
+                      <span className="turn-steps-count">{t("conversation.steps.count", locale, { count: group.steps.length })}</span>
+                      {stepSummary && <span className="turn-steps-breakdown">{stepSummary}</span>}
+                    </summary>
+                    <div className="turn-steps-body">{group.steps.map(renderTranscriptItem)}</div>
+                  </details>
+                )}
+                {group.tail.map(renderTranscriptItem)}
+              </section>
+            );
+          })}
           {(loading || activeRunning) && <WorkingIndicator settings={workingIndicator} locale={locale} />}
            <div ref={endRef} />
         </div>
