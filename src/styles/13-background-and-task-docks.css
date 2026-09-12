@@ -8,6 +8,12 @@
   background: transparent;
 }
 
+/* 交互面板与转录同属消息区：approval / plan-review 卡片自己的底色足够，面板本身
+   再压一层不透明底色就会在卡片周围留下一条横条。 */
+.app-shell.has-custom-background .interaction-panel {
+  background: transparent;
+}
+
 .app-shell.has-custom-background .todo-panel,
 .app-shell.has-custom-background .deliverables-panel,
 .app-shell.has-custom-background .task-panel,
