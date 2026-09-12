@@ -1,19 +1,21 @@
 
-/* Current Goal shares the title row; both controls retain a usable width. */
-.conversation-heading { flex: 1 1 auto; }
-.conversation-title-row { min-width: 0; display: flex; align-items: center; gap: 10px; }
-.conversation-title-row > .conversation-title { flex: 1 1 14rem; min-width: 8rem; }
+/* Current Goal owns the second heading row; the subtitle shares the title row. */
+.conversation-heading { flex: 1 1 auto; gap: 2px; }
+.conversation-title-row { min-width: 0; display: flex; align-items: baseline; gap: 10px; }
+.conversation-title-row > .conversation-title { flex: 1 1 auto; min-width: 0; }
+.conversation-title-row > .conversation-subtitle { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Goal 条独占标题区第二行：第一行是阶段与目标，第二行是回合刻度与内联操作。 */
 .current-goal-bar {
-  flex: 0 1 min(32rem, 48%);
   min-width: 0;
-  max-width: 32rem;
-  height: 38px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  width: fit-content;
+  max-width: min(48rem, 100%);
+  justify-self: start;
+  height: 34px;
+  display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 4px 6px;
+  gap: 6px;
+  padding: 2px 6px 2px 4px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
   border-radius: var(--radius-control);
@@ -22,8 +24,9 @@
 }
 
 .current-goal-mark {
-  width: 28px;
-  height: 28px;
+  flex: none;
+  width: 22px;
+  height: 22px;
   display: grid;
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--line));
@@ -34,20 +37,29 @@
   font-weight: 700;
 }
 
-.current-goal-mark svg,
-.current-goal-collapse-toggle svg { width: 15px; height: 15px; stroke-width: 2; }
+.current-goal-mark svg { width: 13px; height: 13px; stroke-width: 2; }
+.current-goal-collapse-toggle svg,
+.current-goal-quick svg { width: 14px; height: 14px; stroke-width: 2; }
 
 .current-goal-bar.paused .current-goal-mark { border-color: color-mix(in srgb, var(--warning) 50%, var(--line)); color: var(--warning); }
 .current-goal-bar.blocked .current-goal-mark { border-color: color-mix(in srgb, var(--danger) 50%, var(--line)); color: var(--danger); }
 .current-goal-bar.complete .current-goal-mark { border-color: color-mix(in srgb, var(--good) 50%, var(--line)); color: var(--good); }
-.current-goal-bar-main { min-width: 0; display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: center; gap: 8px; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; }
+.current-goal-bar-main { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; }
 .current-goal-bar-main:hover .current-goal-objective { color: var(--accent-deep); }
-.current-goal-manage { min-width: 0; min-height: 28px; padding: 0 9px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: var(--radius-control); background: transparent; color: var(--ink-muted); font-size: 11px; white-space: nowrap; }
+.current-goal-quick,
+.current-goal-manage { flex: none; min-height: 24px; border: 1px solid var(--line-strong); border-radius: var(--radius-control); background: transparent; color: var(--ink-muted); }
+.current-goal-quick { width: 24px; display: grid; place-items: center; padding: 0; }
+.current-goal-manage { min-width: 0; padding: 0 9px; overflow: hidden; font-size: 11px; white-space: nowrap; }
+.current-goal-quick:hover:not(:disabled),
 .current-goal-manage:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-deep); }
-.current-goal-collapse-toggle { width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 1px solid var(--line-strong); border-radius: var(--radius-control); background: transparent; color: var(--ink-muted); }
+.current-goal-quick:disabled { cursor: default; opacity: .55; }
+.current-goal-collapse-toggle { flex: none; width: 24px; height: 24px; display: grid; place-items: center; padding: 0; border: 1px solid var(--line-strong); border-radius: var(--radius-control); background: transparent; color: var(--ink-muted); }
 .current-goal-collapse-toggle > span { display: grid; place-items: center; }
-.current-goal-bar.collapsed .current-goal-collapse-toggle { width: 36px; border: 0; color: var(--accent-deep); }
 .current-goal-collapse-toggle:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-deep); }
+/* 收起态只留阶段图标：颜色是这里存在 Goal 的唯一提示。 */
+.current-goal-bar.collapsed { padding: 2px 5px 2px 3px; }
+.current-goal-bar.collapsed .current-goal-collapse-toggle { width: auto; display: inline-flex; align-items: center; gap: 5px; padding: 0 5px 0 2px; }
+.current-goal-bar.collapsed .current-goal-mark { width: 20px; height: 20px; }
 
 /* SVG controls retain the centered geometry of the glyph buttons they replace. */
 .composer-attachment button,
@@ -87,71 +99,49 @@
   display: grid;
   place-items: center;
 }
-.current-goal-copy,
-.current-goal-heading,
-.current-goal-progress { min-width: 0; }
-.current-goal-copy { min-width: 0; display: flex; align-items: center; gap: 8px; overflow: hidden; }
-.current-goal-heading { flex: none; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
-.current-goal-kicker,
-.current-goal-reason,
-.current-goal-progress-track { display: none; }
-.current-goal-status { display: inline-flex; align-items: center; gap: 5px; color: var(--accent-deep); font: 600 11px/1.2 var(--mono); white-space: nowrap; }
+.current-goal-copy { min-width: 0; flex: 1 1 auto; display: grid; }
+.current-goal-lead,
+.current-goal-meta { min-width: 0; display: flex; align-items: center; }
+.current-goal-lead { gap: 7px; }
+.current-goal-meta { gap: 8px; }
+.current-goal-status { flex: none; display: inline-flex; align-items: center; gap: 5px; color: var(--accent-deep); font: 600 11px/15px var(--mono); white-space: nowrap; }
 .current-goal-status i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .current-goal-bar.paused .current-goal-status { color: var(--warning); }
 .current-goal-bar.blocked .current-goal-status { color: var(--danger); }
 .current-goal-bar.complete .current-goal-status { color: var(--good); }
-.current-goal-objective { min-width: 0; overflow: hidden; color: var(--ink-strong); font-size: 13px; font-weight: 650; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
-.current-goal-progress { flex: none; min-width: 52px; }
-.current-goal-progress-label { display: flex; align-items: center; justify-content: space-between; gap: 5px; color: var(--ink-faint); font: 10px/12px var(--mono); white-space: nowrap; }
-.current-goal-progress-label strong { color: var(--ink-muted); font-weight: 600; }
+.current-goal-objective { min-width: 0; flex: 1 1 auto; overflow: hidden; color: var(--ink-strong); font-size: 13px; font-weight: 650; line-height: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.current-goal-rounds { flex: none; display: flex; align-items: center; gap: 2px; }
+.current-goal-rounds.ticks > i { width: 4px; height: 9px; border-radius: 2px; background: var(--surface-muted); }
+.current-goal-rounds.ticks > i.done { background: var(--accent); }
+.current-goal-rounds.track { width: 64px; height: 4px; overflow: hidden; border-radius: 999px; background: var(--surface-muted); }
+.current-goal-rounds.track > i.fill { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+.current-goal-bar.paused .current-goal-rounds.ticks > i.done,
+.current-goal-bar.paused .current-goal-rounds.track > i.fill { background: var(--warning); }
+.current-goal-bar.blocked .current-goal-rounds.ticks > i.done,
+.current-goal-bar.blocked .current-goal-rounds.track > i.fill { background: var(--danger); }
+.current-goal-bar.complete .current-goal-rounds.ticks > i.done,
+.current-goal-bar.complete .current-goal-rounds.track > i.fill { background: var(--good); }
+.current-goal-rounds-label { flex: none; color: var(--ink-faint); font: 10px/13px var(--mono); white-space: nowrap; }
+.current-goal-rounds-label strong { color: var(--ink-muted); font-weight: 600; }
+.current-goal-reason { min-width: 0; flex: 1 1 auto; overflow: hidden; color: var(--danger); font-size: 11px; line-height: 13px; text-overflow: ellipsis; white-space: nowrap; }
 
 @media (prefers-reduced-motion: no-preference) {
   .current-goal-bar {
-    transition: flex-basis var(--motion-standard) var(--motion-ease-move), padding var(--motion-standard) var(--motion-ease-move), gap var(--motion-standard) var(--motion-ease-move), grid-template-columns var(--motion-standard) var(--motion-ease-move), border-color var(--motion-fast) ease, box-shadow var(--motion-standard) var(--motion-ease-move);
+    transition: max-width var(--motion-standard) var(--motion-ease-move), padding var(--motion-standard) var(--motion-ease-move), border-color var(--motion-fast) ease, box-shadow var(--motion-standard) var(--motion-ease-move);
   }
 
-  .current-goal-bar-main,
-  .current-goal-manage {
-    transition: opacity var(--motion-fast) ease, transform var(--motion-standard) var(--motion-ease-move);
-  }
-
-  .current-goal-bar:not(.collapsed) .current-goal-bar-main,
-  .current-goal-bar:not(.collapsed) .current-goal-manage {
-    transition-delay: 60ms;
-  }
-
+  .current-goal-quick,
+  .current-goal-manage,
   .current-goal-collapse-toggle {
     transition: border-color var(--motion-fast) ease, background var(--motion-fast) ease, color var(--motion-fast) ease;
   }
+
+  .current-goal-rounds.track > i.fill { transition: width var(--motion-standard) var(--motion-ease-move); }
 }
 
-.current-goal-bar.collapsed {
-  flex: 0 0 38px;
-  width: 38px;
-  grid-template-columns: 0 0 36px;
-  gap: 0;
-  padding: 4px 0;
-  border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
-  box-shadow: none;
-}
-
-.current-goal-bar.collapsed .current-goal-bar-main,
-.current-goal-bar.collapsed .current-goal-manage {
-  opacity: 0;
-  transform: translateX(-8px);
-  pointer-events: none;
-}
-
-@media (max-width: 960px) {
-  .current-goal-progress { display: none; }
-}
-
+/* 窄窗口只让出与整条点击重复的入口；阶段、目标、回合与受阻原因都保留。 */
 @media (max-width: 760px) {
   .conversation-title-row { gap: 6px; }
-  .conversation-title-row > .conversation-title { min-width: 0; }
-  .current-goal-bar { flex-basis: 48%; }
-  .current-goal-bar-main { grid-template-columns: 28px minmax(0, 1fr); }
-  .current-goal-status,
   .current-goal-manage { display: none; }
 }
 

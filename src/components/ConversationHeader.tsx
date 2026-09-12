@@ -16,10 +16,12 @@ type ConversationHeaderProps = {
   activeGoal: DshGoalProjection["goal"] | null;
   goalRoundsStarted: number;
   goalCollapsed: boolean;
+  goalBusy: boolean;
   trajectoryOpen: boolean;
   sessionDashboardOpen: boolean;
   onOpenGoal: () => void;
   onToggleGoalCollapsed: () => void;
+  onToggleGoalPhase: () => void;
   onToggleTrajectory: () => void;
   onToggleSessionDashboard: () => void;
 };
@@ -35,10 +37,12 @@ export function ConversationHeader({
   activeGoal,
   goalRoundsStarted,
   goalCollapsed,
+  goalBusy,
   trajectoryOpen,
   sessionDashboardOpen,
   onOpenGoal,
   onToggleGoalCollapsed,
+  onToggleGoalPhase,
   onToggleTrajectory,
   onToggleSessionDashboard,
 }: ConversationHeaderProps) {
@@ -62,16 +66,18 @@ export function ConversationHeader({
           <span className="conversation-title" title={activeSession ? displayTitle(activeSession, locale) : t("header.sessionAfterMessage", locale)}>
             {activeSession ? displayTitle(activeSession, locale) : t("header.newSession", locale)}
           </span>
-          <CurrentGoalBar
-            locale={locale}
-            activeGoal={activeGoal}
-            roundsStarted={goalRoundsStarted}
-            collapsed={goalCollapsed}
-            onOpen={onOpenGoal}
-            onToggleCollapsed={onToggleGoalCollapsed}
-          />
+          <span className="conversation-subtitle">{presetDisplayName(activeSession?.agentPreset, presets, locale)} · {activeSession?.cwd || runtimeDirectory || t("header.waitingForRuntime", locale)}</span>
         </div>
-        <span className="conversation-subtitle">{presetDisplayName(activeSession?.agentPreset, presets, locale)} · {activeSession?.cwd || runtimeDirectory || t("header.waitingForRuntime", locale)}</span>
+        <CurrentGoalBar
+          locale={locale}
+          activeGoal={activeGoal}
+          roundsStarted={goalRoundsStarted}
+          collapsed={goalCollapsed}
+          busy={goalBusy}
+          onOpen={onOpenGoal}
+          onToggleCollapsed={onToggleGoalCollapsed}
+          onTogglePhase={onToggleGoalPhase}
+        />
       </div>
       <div className="conversation-actions">
         {noticeIsError && notice && (

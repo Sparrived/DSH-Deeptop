@@ -49,7 +49,7 @@ import { normalizeWindowBehavior } from "./app/window-behavior";
 import { clearQueuedSessionEvents, routeBridgeEvent } from "./app/bridge-event-handler";
 import { displayHistoryStartSeq, loadCompleteDisplayHistory, mergeDisplayHistory } from "./app/display-history";
 import { loadedTurnFacts, mergeTurnRailItems, EMPTY_RAIL_ITEMS, type TurnRailItem } from "./app/turn-rail-model";
-import { nextGoalBarState } from "./app/goal-bar-state";
+import { emptyGoalBarState, nextGoalBarState } from "./app/goal-bar-state";
 import { trackAsyncCleanup } from "./lib/async-cleanup";
 import { ImageAttachmentCache } from "./app/image-attachment-cache";
 import { BoundedClaimSet } from "./app/bounded-claim-set";
@@ -601,7 +601,7 @@ function AppContent() {
   const [goalPanelOpen, setGoalPanelOpen] = useState(false);
   const [goalPanelBusy, setGoalPanelBusy] = useState(false);
   const [goalBarCollapsed, setGoalBarCollapsed] = useState(true);
-  const goalBarInitializedRef = useRef(false);
+  const goalBarStateRef = useRef(emptyGoalBarState());
   const [presetView, setPresetView] = useState<{ id: string; content: string } | null>(null);
   const [presetCopy, setPresetCopy] = useState<{ from: string; id: string; name: string } | null>(null);
   const [surfaceLoading, setSurfaceLoading] = useState(false);
@@ -1774,12 +1774,13 @@ function AppContent() {
   const visibleGoal = conversationPageActive ? activeGoal : null;
   useEffect(() => {
     const next = nextGoalBarState({
-      initialized: goalBarInitializedRef.current,
+      state: goalBarStateRef.current,
       projectionLoaded: goalProjectionLoaded,
+      goalId: activeGoal?.id ?? null,
       phase: activeGoal?.phase,
     });
-    goalBarInitializedRef.current = next.initialized;
-    setGoalBarCollapsed(next.collapsed);
+    goalBarStateRef.current = { initialized: next.initialized, goalId: next.goalId, phase: next.phase };
+    if (next.collapsed !== null) setGoalBarCollapsed(next.collapsed);
   }, [goalProjectionLoaded, activeGoal?.id, activeGoal?.phase]);
   useEffect(() => {
     if (!conversationPageActive) setGoalPanelOpen(false);
@@ -2551,7 +2552,7 @@ function AppContent() {
     setQueueEditingText("");
     setAttachments([]);
     setGoal(undefined);
-    goalBarInitializedRef.current = false;
+    goalBarStateRef.current = emptyGoalBarState();
     setGoalBarCollapsed(true);
     setGoalPanelOpen(false);
     setGoalDraft("");
@@ -3637,7 +3638,7 @@ function AppContent() {
     setQueueEditingId(null);
     setQueueEditingText("");
     setGoal(undefined);
-    goalBarInitializedRef.current = false;
+    goalBarStateRef.current = emptyGoalBarState();
     setGoalBarCollapsed(true);
     setGoalPanelOpen(false);
     setGoalDraft("");
@@ -5262,10 +5263,12 @@ function AppContent() {
             activeGoal={visibleGoal}
             goalRoundsStarted={goalRoundsStarted}
             goalCollapsed={goalBarCollapsed}
+            goalBusy={goalPanelBusy}
             trajectoryOpen={trajectoryOpen}
             sessionDashboardOpen={sessionDashboardOpen}
             onOpenGoal={openGoalPanel}
             onToggleGoalCollapsed={() => setGoalBarCollapsed((collapsed) => !collapsed)}
+            onToggleGoalPhase={() => void mutateGoal(visibleGoal?.phase === "active" ? "pause" : "resume")}
             onToggleTrajectory={() => { setSessionDashboardOpen(false); setTrajectoryOpen((open) => !open); }}
             onToggleSessionDashboard={() => { setTrajectoryOpen(false); setSessionDashboardOpen((open) => !open); }}
           />
