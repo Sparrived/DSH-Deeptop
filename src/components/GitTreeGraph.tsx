@@ -6,6 +6,7 @@ import {
   GIT_GRAPH_NODE_RADIUS,
   GIT_GRAPH_ROW_HEIGHT,
   gitGraphLaneLinePath,
+  gitGraphAnchorDelta,
   gitGraphLaneShiftPath,
   gitGraphLaneX,
   gitGraphLayout,
@@ -177,20 +178,32 @@ export function GitTreeGraph({
   // 用户正在看的那条提交停在原地；同时在顶部挂一条「有 N 个新提交」徽标
   //（对应 VS Code 在已滚动时显示 Outdated 徽标、不做重排的做法）。
   const headRef = useRef<string | null>(null);
+  const previousOffsetsRef = useRef<number[]>(offsets);
   useLayoutEffect(() => {
     const node = scrollRef.current;
+    const previousOffsets = previousOffsetsRef.current;
     const shift = gitGraphHeadShift(headRef.current, layout.rows);
     headRef.current = layout.rows[0]?.hash ?? null;
+    previousOffsetsRef.current = offsets;
     if (!node) return;
+    // 1) 头部插入新提交（增量刷新）：整行下移，用户正在看的提交停在原地
     if (shift.inserted > 0 && node.scrollTop > 0) {
       node.scrollTop += shift.inserted * ROW_H;
       measure();
       setPendingAbove((current) => current + shift.inserted);
       return;
     }
+    // 2) 行集合没变但高度变了（展开块的实测高度回填）：以"视口顶部那一行"为锚补偿。
+    //    不补偿的话，展开行被量出真实高度时会把它下面的内容整体推移，看起来就是连线跳动。
+    const anchorDelta = gitGraphAnchorDelta(previousOffsets, offsets, node.scrollTop);
+    if (anchorDelta !== 0) {
+      node.scrollTop += anchorDelta;
+      measure();
+      return;
+    }
     // 头部换了但没有可锚定的新增（历史被重写），或用户本来就在顶部：计数清零
     if (shift.headChanged || node.scrollTop === 0) setPendingAbove(0);
-  }, [layout, measure]);
+  }, [layout, offsets, measure]);
 
   // 底部哨兵进入视口时触发 onLoadMore：比监听滚动阈值更稳。
   useEffect(() => {

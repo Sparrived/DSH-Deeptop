@@ -146,8 +146,9 @@
   gap: 2px;
   padding: 6px 12px 0;
   border-bottom: 1px solid var(--line);
+  /* 标签多了可以横向滚；纵向必须裁掉，否则会被当成滚动容器而压扁标签 */
   overflow-x: auto;
-  scrollbar-width: none;
+  overflow-y: hidden;
 }
 .git-tabs::-webkit-scrollbar { display: none; }
 .git-tabs button {
@@ -596,6 +597,19 @@
 }
 .git-history-view-toggle button:hover:not(.selected) { border-color: var(--accent); color: var(--accent-deep); }
 .git-history-view-toggle button.selected { border-color: var(--accent); color: var(--accent-deep); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+/* 面板里的固定条不允许被收缩：内容较高的标签页（例如图谱）里，柔性收缩只应落在
+   可滚动区域，否则这些条会被压扁、文字被裁掉（标签行尤其明显）。 */
+.git-summary,
+.git-toolbar,
+.git-tabs,
+.git-history-view-toggle,
+.git-graph-options,
+.git-changes-toolbar,
+.git-branches-toolbar,
+.git-operation-banner,
+.git-result {
+  flex: 0 0 auto;
+}
 /* —— 历史页：逐行图谱 ——
    每行一个固定高度的行容器（左侧只画本行的 SVG + 右侧提交信息），行高固定，
    因此列表按固定行高做虚拟化，只挂载视口附近的行。 */
@@ -711,15 +725,11 @@
 }
 .git-commit-children-body .git-commit-detail-files { margin-top: 0; }
 .git-commit-children-body .git-commit-file-row { height: 24px; }
-/* 动作行不换行、横向可滚：窄栏里也不会撑高到压住下一行（高度由实测回填给虚拟化） */
+/* 动作行允许换行：高度已改为实测回填给虚拟化，换行不会再压住后续提交行 */
 .git-commit-children-body .git-commit-detail-actions {
   margin-top: 6px;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  scrollbar-width: none;
+  flex-wrap: wrap;
 }
-.git-commit-children-body .git-commit-detail-actions::-webkit-scrollbar { display: none; }
-.git-commit-children-body .git-commit-detail-actions button { flex: 0 0 auto; }
 .git-graph-synthetic {
   display: flex;
   align-items: center;

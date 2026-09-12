@@ -11,6 +11,7 @@ import {
   gitGraphLayout,
   gitGraphMergePath,
   gitGraphWidth,
+  gitGraphAnchorDelta,
   gitGraphRowHeights,
   gitGraphRowOffsets,
   gitGraphVisibleRange,
@@ -311,6 +312,25 @@ test("computes offsets and the visible range with variable row heights", () => {
   assert.deepEqual(gitGraphVisibleRange(offsets, 10_000, 40, 0), { first: 2, last: 3 });
 });
 
+test("compensates scrolling when a measured row height lands", () => {
+  // 第 1 行展开后实测高度比估算高 40px：其下方内容会整体下移，需要补偿
+  const before = gitGraphRowOffsets([24, 124, 24]);   // 视口顶部在第 1 行内
+  const after = gitGraphRowOffsets([24, 164, 24]);
+  // 视口顶部落在"变高那一行"的下方（第 2 行）：它下面的内容会整体下移，需要补偿
+  assert.equal(gitGraphAnchorDelta(before, after, 150), 40);
+  // 视口顶部就在变高的那一行内部：该行顶部偏移没变 → 不补偿
+  assert.equal(gitGraphAnchorDelta(before, after, 100), 0);
+  // 视口顶部在第 0 行：上方没有任何变化 → 不补偿
+  assert.equal(gitGraphAnchorDelta(before, after, 10), 0);
+  // 顶部不补偿；行集合变化（翻页/切换过滤）也不补偿
+  assert.equal(gitGraphAnchorDelta(before, after, 0), 0);
+  assert.equal(gitGraphAnchorDelta(before, gitGraphRowOffsets([24, 164, 24, 24]), 100), 0);
+  // 高度变小（收起）时反向补偿
+  const collapsed = gitGraphRowOffsets([24, 24, 24]);
+  assert.equal(gitGraphAnchorDelta(after, collapsed, 200), -140);
+  // 空偏移不炸
+  assert.equal(gitGraphAnchorDelta([0], [0, 24], 0), 0);
+});
 test("geometry helpers stay inside the row and line up with lane centers", () => {
   assert.equal(GIT_GRAPH_LANE_WIDTH * 2, GIT_GRAPH_ROW_HEIGHT);
   assert.ok(GIT_GRAPH_CURVE_RADIUS * 2 < GIT_GRAPH_LANE_WIDTH);

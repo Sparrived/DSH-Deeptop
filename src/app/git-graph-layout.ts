@@ -392,3 +392,23 @@ function lastRowIndexAt(offsets: readonly number[], y: number): number {
   }
   return low;
 }
+
+/**
+ * 行高变化时的滚动补偿量：以"视口顶部那一行"为锚，
+ * 返回应追加到 scrollTop 的像素数（0 表示不需要补偿）。
+ *
+ * 展开块的实测高度回填后，该行下方的内容会整体下移；不补偿的话，
+ * 用户正在看的内容会跳动（表现就是连线/节点突然移位）。
+ */
+export function gitGraphAnchorDelta(
+  previousOffsets: readonly number[],
+  nextOffsets: readonly number[],
+  scrollTop: number,
+): number {
+  if (scrollTop <= 0) return 0;
+  // 行集合变了（翻页、切换过滤）不按本行补偿：追加行不会改变上方偏移
+  if (previousOffsets.length !== nextOffsets.length) return 0;
+  if (previousOffsets.length < 2) return 0;
+  const anchor = gitGraphVisibleRange(previousOffsets, scrollTop, 0, 0).first;
+  return (nextOffsets[anchor] ?? 0) - (previousOffsets[anchor] ?? 0);
+}
