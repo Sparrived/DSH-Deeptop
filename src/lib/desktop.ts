@@ -1605,6 +1605,38 @@ export async function listWorkspaceFiles(dir: string): Promise<WorkspaceFileEntr
   return Array.isArray(entries) ? (entries as WorkspaceFileEntry[]) : [];
 }
 
+/** 按行读取工作区内文本文件的一段窗口；非文本内容由原生侧判定。 */
+export interface WorkspaceFileSlice {
+  path: string;
+  /** 返回的首行行号（1-based）。 */
+  startLine: number;
+  /** 已去掉行尾换行符的文本行。 */
+  lines: string[];
+  /** 文件真实总行数。 */
+  totalLines: number;
+  /** 只返回了窗口内的行。 */
+  truncated: boolean;
+  /** 原生侧判定为二进制或不可预览。 */
+  binary: boolean;
+  /** 文件字节数。 */
+  size: number;
+  /** 请求行号超出文件范围。 */
+  lineOutOfRange: boolean;
+}
+
+/**
+ * Read a workspace text file as a line window centred on `line`, so the preview
+ * can open scrolled to that line. The native side enforces the byte/line caps
+ * and the binary check; in the browser preview there is no file to read, so an
+ * empty slice is returned like `listWorkspaceFiles`.
+ */
+export async function readWorkspaceFile(path: string, line?: number, contextLines?: number): Promise<WorkspaceFileSlice> {
+  if (!isTauri()) {
+    return { path, startLine: 1, lines: [], totalLines: 0, truncated: false, binary: false, size: 0, lineOutOfRange: false };
+  }
+  return invoke<WorkspaceFileSlice>("read_workspace_file", { path, line, contextLines });
+}
+
 /** Read the current project's branch and per-file Git working tree status. */
 export async function getWorkspaceGitStatus(dir: string): Promise<WorkspaceGitStatus> {
   if (!isTauri()) {

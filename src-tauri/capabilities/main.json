@@ -84,6 +84,7 @@
     "allow-read-image-attachment",
     "allow-read-pet-bundle",
     "allow-read-theme-css",
+    "allow-read-workspace-file",
     "allow-refresh-dsh",
     "allow-remove-pet-bundle",
     "allow-reset-dock-position",

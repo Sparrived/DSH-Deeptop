@@ -72,6 +72,7 @@ fn main() {
         "pick_theme_css",
         "read_image_attachment",
         "read_theme_css",
+        "read_workspace_file",
         "refresh_dsh",
         "remove_pet_bundle",
         "reset_dock_position",

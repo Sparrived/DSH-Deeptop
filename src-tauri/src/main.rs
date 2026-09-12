@@ -4002,6 +4002,26 @@ struct WorkspaceFileEntry {
     modified: u64,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceFileSlice {
+    path: String,
+    /// 返回的首行行号（1-based）。
+    start_line: u32,
+    /// 已去掉行尾换行符的文本行。
+    lines: Vec<String>,
+    /// 文件真实总行数，独立于窗口统计。
+    total_lines: u32,
+    /// 只返回了窗口内的行（或文件过大被直接拒绝）。
+    truncated: bool,
+    /// 原生侧判定为二进制/不可预览文本。
+    binary: bool,
+    /// 文件字节数。
+    size: u64,
+    /// 请求行号超出文件范围。
+    line_out_of_range: bool,
+}
+
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct WorkspaceGitFile {
@@ -5040,6 +5060,155 @@ fn list_workspace_files(dir: String) -> Result<Vec<WorkspaceFileEntry>, String> 
     Ok(result)
 }
 
+/// 按行预览文本文件的大小上限：超过 2 MiB 直接拒绝，避免把大文件读进前台负载。
+const MAX_WORKSPACE_FILE_BYTES: u64 = 2 * 1024 * 1024;
+
+/// 二进制嗅探范围：只看文件头部 8 KiB（Git 同款启发式，避免全量扫描）。
+const WORKSPACE_FILE_SNIFF_BYTES: usize = 8 * 1024;
+
+/// `context_lines` 的缺省值。
+const DEFAULT_WORKSPACE_FILE_CONTEXT_LINES: u32 = 200;
+
+/// `context_lines` 的夹取上限（单侧）。
+const MAX_WORKSPACE_FILE_CONTEXT_LINES: u32 = 2000;
+
+/// 单次返回的最大行数（无论 context 多大）。
+const MAX_WORKSPACE_FILE_WINDOW_LINES: u32 = 2000;
+
+/// 文件头部出现 NUL 字节即视为二进制/不可预览文本。
+fn is_binary_content(bytes: &[u8]) -> bool {
+    bytes
+        .iter()
+        .take(WORKSPACE_FILE_SNIFF_BYTES)
+        .any(|byte| *byte == 0)
+}
+
+/// 把文件文本切成行：按 `\n` 切分并去掉每行尾部的 `\r`（Windows CRLF），
+/// 因此返回的行不含行终止符。末尾换行不额外产生一个空行，空文件得到 0 行。
+fn split_text_lines(text: &str) -> Vec<&str> {
+    if text.is_empty() {
+        return Vec::new();
+    }
+    let mut lines: Vec<&str> = text
+        .split('\n')
+        .map(|line| line.strip_suffix('\r').unwrap_or(line))
+        .collect();
+    if lines.last().is_some_and(|line| line.is_empty()) {
+        lines.pop();
+    }
+    lines
+}
+
+/// 纯函数：取出以 `line` 为中心、上下各 `context` 行的窗口。
+///
+/// 返回 `(窗口行, start_line, total_lines, truncated, line_out_of_range)`。
+/// `line` 缺省 1、`context` 夹到 1..=MAX_WORKSPACE_FILE_CONTEXT_LINES；越界的
+/// `line` 夹到文件末尾（仍返回可预览的尾部窗口）并置 `line_out_of_range`；
+/// 窗口最多 MAX_WORKSPACE_FILE_WINDOW_LINES 行，以请求行为中心收缩。
+fn slice_lines(text: &str, line: u32, context: u32) -> (Vec<String>, u32, u32, bool, bool) {
+    let lines = split_text_lines(text);
+    let total_lines = lines.len() as u32;
+    let context = context.clamp(1, MAX_WORKSPACE_FILE_CONTEXT_LINES);
+    let requested = line.max(1);
+    let line_out_of_range = requested > total_lines;
+    if total_lines == 0 {
+        return (Vec::new(), 1, 0, false, line_out_of_range);
+    }
+    let total = total_lines as u64;
+    // 请求行超出文件时夹到末尾，让 UI 仍能看到文件尾部而不是空白。
+    let anchor = (requested as u64).min(total);
+    let mut start = anchor.saturating_sub(context as u64).max(1);
+    let mut end = anchor.saturating_add(context as u64).min(total);
+    let max_window = MAX_WORKSPACE_FILE_WINDOW_LINES as u64;
+    if end - start + 1 > max_window {
+        let half = max_window / 2;
+        start = anchor.saturating_sub(half).max(1);
+        end = (start + max_window - 1).min(total);
+        start = end.saturating_sub(max_window - 1).max(1);
+    }
+    let truncated = start > 1 || end < total;
+    let window = lines[(start - 1) as usize..end as usize]
+        .iter()
+        .map(|line| (*line).to_string())
+        .collect();
+    (
+        window,
+        start as u32,
+        total_lines,
+        truncated,
+        line_out_of_range,
+    )
+}
+
+/// 读取工作区内的文本文件，返回以 `line` 为中心、上下各 `context_lines` 行的
+/// 窗口，供文件预览定位到指定行。
+///
+/// 路径不存在或不是普通文件时报错。安全性：超过 2 MiB 的文件不读取内容，
+/// 直接返回 `truncated: true` 且 `lines` 为空（UI 据此显示“文件过大”），
+/// 这是比截断读取更简单也更安全的选择；文件头 8 KiB 含 `0x00` 时返回
+/// `binary: true` 且 `lines` 为空。`context_lines` 缺省 200、夹到 1..=2000，
+/// 单次最多返回 2000 行；`line` 越界时夹到文件末尾并置 `line_out_of_range`。
+#[tauri::command]
+fn read_workspace_file(
+    path: String,
+    line: Option<u32>,
+    context_lines: Option<u32>,
+) -> Result<WorkspaceFileSlice, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("文件路径为空".to_string());
+    }
+    let file_path = PathBuf::from(trimmed);
+    let metadata = fs::metadata(&file_path)
+        .map_err(|error| format!("无法读取 {}：{error}", file_path.display()))?;
+    if !metadata.is_file() {
+        return Err(format!("{} 不是文件", file_path.display()));
+    }
+    let size = metadata.len();
+    if size > MAX_WORKSPACE_FILE_BYTES {
+        return Ok(WorkspaceFileSlice {
+            path: trimmed.to_string(),
+            start_line: 1,
+            lines: Vec::new(),
+            total_lines: 0,
+            truncated: true,
+            binary: false,
+            size,
+            line_out_of_range: false,
+        });
+    }
+    let bytes = fs::read(&file_path)
+        .map_err(|error| format!("无法读取 {}：{error}", file_path.display()))?;
+    if is_binary_content(&bytes) {
+        return Ok(WorkspaceFileSlice {
+            path: trimmed.to_string(),
+            start_line: 1,
+            lines: Vec::new(),
+            total_lines: 0,
+            truncated: false,
+            binary: true,
+            size: bytes.len() as u64,
+            line_out_of_range: false,
+        });
+    }
+    let text = String::from_utf8_lossy(&bytes);
+    let (lines, start_line, total_lines, truncated, line_out_of_range) = slice_lines(
+        &text,
+        line.unwrap_or(1),
+        context_lines.unwrap_or(DEFAULT_WORKSPACE_FILE_CONTEXT_LINES),
+    );
+    Ok(WorkspaceFileSlice {
+        path: trimmed.to_string(),
+        start_line,
+        lines,
+        total_lines,
+        truncated,
+        binary: false,
+        size: bytes.len() as u64,
+        line_out_of_range,
+    })
+}
+
 /// 用系统默认方式打开路径（Windows 上为资源管理器/默认应用，macOS 为 open，Linux 为 xdg-open）。
 fn open_with_system_default(path: &Path) -> Result<(), String> {
     let mut command = if cfg!(windows) {
@@ -5555,13 +5724,14 @@ mod tests {
     use super::{
         base64_encode, bound_log_text, bridge_stdout_log_summary, bundled_bridge_files, dsh_home,
         dsh_homes_match, extract_runtime_archive, format_log_line, format_utc_datetime,
-        is_bundled_runtime_manifest, is_dsh_package_manifest, is_file_path, is_safe_runtime_entry,
-        process_command_line_matches_dsh, prune_old_runtime_caches, runtime_arch,
-        runtime_archive_is_cache_metadata, runtime_cache_validation_message, runtime_platform,
-        runtime_tree_sha256, sniff_image_media_type, tray_menu_text, tray_session_label,
-        validate_tray_session_menu, validated_connection_url, BridgeManager, DshRuntimeLog,
-        LogStore, RuntimePhase, TraySessionMenuItem, TraySessionMenuSnapshot, TraySessionStatus,
-        MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES, RUNTIME_CACHE_MARKER,
+        is_binary_content, is_bundled_runtime_manifest, is_dsh_package_manifest, is_file_path,
+        is_safe_runtime_entry, process_command_line_matches_dsh, prune_old_runtime_caches,
+        runtime_arch, runtime_archive_is_cache_metadata, runtime_cache_validation_message,
+        runtime_platform, runtime_tree_sha256, slice_lines, sniff_image_media_type, tray_menu_text,
+        tray_session_label, validate_tray_session_menu, validated_connection_url, BridgeManager,
+        DshRuntimeLog, LogStore, RuntimePhase, TraySessionMenuItem, TraySessionMenuSnapshot,
+        TraySessionStatus, MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES, RUNTIME_CACHE_MARKER,
+        WORKSPACE_FILE_SNIFF_BYTES,
     };
     use std::fs;
 
@@ -6361,6 +6531,109 @@ mod tests {
             tauri::PhysicalPosition::new(8, 40)
         );
     }
+
+    #[test]
+    fn slices_a_centred_line_window() {
+        let text = (1..=100).map(|n| format!("line {n}\n")).collect::<String>();
+
+        let (lines, start, total, truncated, out_of_range) = slice_lines(&text, 50, 2);
+
+        assert_eq!(total, 100);
+        assert_eq!(start, 48);
+        assert_eq!(
+            lines,
+            vec!["line 48", "line 49", "line 50", "line 51", "line 52"]
+        );
+        assert!(truncated);
+        assert!(!out_of_range);
+    }
+
+    #[test]
+    fn clamps_the_line_window_at_both_file_ends() {
+        let text = "a\nb\nc\nd\ne";
+
+        let (lines, start, total, truncated, _) = slice_lines(text, 1, 2);
+        assert_eq!(start, 1);
+        assert_eq!(lines, vec!["a", "b", "c"]);
+        assert!(truncated);
+        assert_eq!(total, 5);
+
+        let (lines, start, _, truncated, _) = slice_lines(text, 5, 2);
+        assert_eq!(start, 3);
+        assert_eq!(lines, vec!["c", "d", "e"]);
+        assert!(truncated);
+
+        // 窗口覆盖整个文件时 truncated 为 false。
+        let (lines, start, total, truncated, _) = slice_lines(text, 3, 5);
+        assert_eq!((start, total, lines.len(), truncated), (1, 5, 5, false));
+    }
+
+    #[test]
+    fn clamps_context_lines_and_caps_the_window_length() {
+        let text = (1..=10).map(|n| format!("l{n}\n")).collect::<String>();
+
+        // context = 0 被夹到 1，窗口为 [line-1, line+1]。
+        let (lines, start, _, _, _) = slice_lines(&text, 5, 0);
+        assert_eq!(start, 4);
+        assert_eq!(lines, vec!["l4", "l5", "l6"]);
+
+        // 过大的 context 被夹到 2000，单次窗口不超过 2000 行。
+        let big = (1..=5000).map(|n| format!("l{n}\n")).collect::<String>();
+        let (lines, start, total, truncated, _) = slice_lines(&big, 2500, 100_000);
+        assert_eq!(total, 5000);
+        assert_eq!(lines.len(), 2000);
+        assert_eq!(start, 1500);
+        assert_eq!(lines[0], "l1500");
+        assert_eq!(lines[1999], "l3499");
+        assert!(truncated);
+    }
+
+    #[test]
+    fn flags_a_line_beyond_eof_and_returns_the_tail() {
+        let text = "a\nb\nc";
+
+        let (lines, start, total, truncated, out_of_range) = slice_lines(text, 99, 200);
+        assert!(out_of_range);
+        assert_eq!(total, 3);
+        assert_eq!(start, 1);
+        assert_eq!(lines, vec!["a", "b", "c"]);
+        assert!(!truncated);
+
+        // 越界行号夹到文件末尾，仍返回以末尾为中心的窗口。
+        let ten = (1..=10).map(|n| format!("l{n}\n")).collect::<String>();
+        let (lines, start, _, truncated, out_of_range) = slice_lines(&ten, 12, 2);
+        assert!(out_of_range);
+        assert_eq!(start, 8);
+        assert_eq!(lines, vec!["l8", "l9", "l10"]);
+        assert!(truncated);
+    }
+
+    #[test]
+    fn strips_crlf_and_handles_empty_files() {
+        let (lines, start, total, truncated, _) = slice_lines("a\r\nb\r\nc\r\n", 1, 200);
+        assert_eq!(total, 3);
+        assert_eq!(start, 1);
+        assert_eq!(lines, vec!["a", "b", "c"]);
+        assert!(!truncated);
+
+        // 空文件得到 0 行；请求第 1 行即已越界。
+        let (lines, start, total, truncated, out_of_range) = slice_lines("", 1, 200);
+        assert!(lines.is_empty());
+        assert_eq!((start, total), (1, 0));
+        assert!(!truncated);
+        assert!(out_of_range);
+    }
+
+    #[test]
+    fn detects_binary_content_only_within_the_sniff_window() {
+        assert!(is_binary_content(b"text\0more"));
+        assert!(is_binary_content(&[0u8; 4]));
+        assert!(!is_binary_content("纯文本\n第二行".as_bytes()));
+
+        let mut late_nul = vec![b'a'; WORKSPACE_FILE_SNIFF_BYTES];
+        late_nul.push(0);
+        assert!(!is_binary_content(&late_nul));
+    }
 }
 
 fn main() {
@@ -6489,6 +6762,7 @@ fn main() {
             terminal::resize_terminal,
             terminal::close_terminal,
             list_workspace_files,
+            read_workspace_file,
             get_workspace_git_status,
             git_file_diff,
             git_stage_paths,
