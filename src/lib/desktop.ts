@@ -1551,6 +1551,24 @@ export interface WorkspaceGitStash {
   timestamp: number;
 }
 
+/** Three-way content of a conflicted file; a missing stage means that side has no content. */
+export interface WorkspaceGitConflict {
+  path: string;
+  /** Current worktree content (with conflict markers); null when the file is absent. */
+  worktree: string | null;
+  base: string | null;
+  ours: string | null;
+  theirs: string | null;
+}
+
+export type GitOperationKind = "merge" | "rebase" | "cherry-pick" | "revert" | "none";
+
+/** Whether a merge/rebase/cherry-pick/revert is in progress, and how many files still conflict. */
+export interface WorkspaceGitOperationState {
+  operation: GitOperationKind;
+  conflicted: number;
+}
+
 export interface GitCommandResult {
   ok: boolean;
   stdout: string;
@@ -1764,6 +1782,38 @@ export async function deleteGitBranch(dir: string, name: string): Promise<GitCom
 export async function renameGitBranch(dir: string, from: string, to: string): Promise<GitCommandResult> {
   if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
   return invoke<GitCommandResult>("git_rename_branch", { dir, from, to });
+}
+
+/** Read the three-way content of a conflicted file. */
+export async function getGitConflict(dir: string, path: string): Promise<WorkspaceGitConflict> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  return invoke<WorkspaceGitConflict>("git_conflict", { dir, path });
+}
+
+/** Write the resolved content back and stage it as resolved. */
+export async function resolveGitConflict(
+  dir: string,
+  path: string,
+  content: string,
+): Promise<GitCommandResult> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  return invoke<GitCommandResult>("git_resolve_conflict", { dir, path, content });
+}
+
+/** Read whether a merge/rebase/cherry-pick/revert is in progress. */
+export async function getGitOperationState(dir: string): Promise<WorkspaceGitOperationState> {
+  if (!isTauri()) return { operation: "none", conflicted: 0 };
+  return invoke<WorkspaceGitOperationState>("git_operation_state", { dir });
+}
+
+/** Continue / abort / skip the operation that is currently in progress. */
+export async function runGitOperationAction(
+  dir: string,
+  operation: Exclude<GitOperationKind, "none">,
+  action: "continue" | "abort" | "skip",
+): Promise<GitCommandResult> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  return invoke<GitCommandResult>("git_operation_action", { dir, operation, action });
 }
 
 /** Apply a hand-built patch (one or more hunks) to the index. `reverse` unstages. */

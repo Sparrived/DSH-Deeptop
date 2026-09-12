@@ -16,6 +16,7 @@ import {
   dropGitStash,
   fetchGit,
   getGitFileDiff,
+  getGitOperationState,
   getWorkspaceGitStatus,
   isTauri,
   listGitBranches,
@@ -29,6 +30,7 @@ import {
   renameGitBranch,
   resetGitTo,
   revertGitCommit,
+  runGitOperationAction,
   stageAllGit,
   stageGitPaths,
   undoLastGitCommit,
@@ -40,6 +42,7 @@ import {
   type WorkspaceGitCommit,
   type WorkspaceGitFile,
   type WorkspaceGitGraphLine,
+  type WorkspaceGitOperationState,
   type WorkspaceGitStash,
   type WorkspaceGitStatus,
   type WorkspaceGitTag,
@@ -75,6 +78,7 @@ import { PopupDialog } from "./PopupDialog";
 import { GitTreeGraph } from "./GitTreeGraph";
 import { GitCommitDetailView } from "./GitCommitDetailView";
 import { GitDiffBody } from "./GitDiffBody";
+import { GitMergeConflictView } from "./GitMergeConflictView";
 import { t, type UiLocale } from "../app/i18n";
 import { trackAsyncCleanup } from "../lib/async-cleanup";
 
@@ -95,6 +99,16 @@ type GitDockProps = {
 };
 
 const GIT_RAIL_LABEL = "Git";
+
+type GitRunningOperation = Exclude<WorkspaceGitOperationState["operation"], "none">;
+
+/** 进行中的操作名（用于横幅文案）。 */
+function operationLabel(operation: GitRunningOperation, locale: UiLocale): string {
+  if (operation === "merge") return t("git.operationMerge", locale);
+  if (operation === "rebase") return t("git.operationRebase", locale);
+  if (operation === "cherry-pick") return t("git.operationCherryPick", locale);
+  return t("git.operationRevert", locale);
+}
 
 function ChangeRow({
   file,
@@ -148,6 +162,8 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   const [diffRevision, setDiffRevision] = useState(0);
   // 正在提交的 hunk 行号（按差异文本里的行号），用于禁用重复点击
   const [busyHunks, setBusyHunks] = useState<ReadonlySet<number>>(new Set());
+  // 进行中的 git 操作（合并/变基/拣选/回退）：决定是否显示继续与中止
+  const [operationState, setOperationState] = useState<WorkspaceGitOperationState | null>(null);
   const [commits, setCommits] = useState<WorkspaceGitCommit[] | null>(null);
   const [commitsLoading, setCommitsLoading] = useState(false);
   // 只保存"选中的提交哈希"：提交详情与逐文件差异由 GitCommitDetailView 自己加载
@@ -295,6 +311,19 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     }
   }, [workspace, onError, locale]);
 
+  /** 进行中的操作状态很轻（几个文件是否存在 + 冲突文件数），跟着每次刷新一起取。 */
+  const reloadOperation = useCallback(async () => {
+    if (!workspace) {
+      setOperationState(null);
+      return;
+    }
+    try {
+      setOperationState(await getGitOperationState(workspace));
+    } catch {
+      setOperationState(null);
+    }
+  }, [workspace]);
+
   // 图谱取数：`keepWindow` 为真时按「已加载窗口」取数，并把新提交接到既有行前面，
   // 因此刷新不会把用户翻出来的历史与滚动位置丢掉；重写历史时自动退化为整页替换。
   const fetchGraph = useCallback(async (options: { keepWindow: boolean }) => {
@@ -383,6 +412,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
       reloadBranches(),
       reloadTags(),
       reloadStashes(),
+      reloadOperation(),
     ]);
     const signature = gitRefSignature(nextStatus, nextBranches);
     const refsChanged = signature !== refSignatureRef.current;
@@ -399,7 +429,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
       graphStaleRef.current = true;
       setGraphStale(true);
     }
-  }, [reloadStatus, reloadCommits, reloadBranches, reloadTags, reloadStashes, requestGraph]);
+  }, [reloadStatus, reloadCommits, reloadBranches, reloadTags, reloadStashes, reloadOperation, requestGraph]);
 
   useEffect(() => {
     setTab("changes");
@@ -827,10 +857,36 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     });
   }
 
+  /** 在右栏开一个冲突三方视图标签：与变更列表并排处理多个冲突文件。 */
+  function openConflictTab(path: string) {
+    openTab({
+      kind: "git-merge",
+      title: path.split("/").pop() || path,
+      detail: t("git.resolveConflict", locale),
+      contentKey: `merge:${path}`,
+      payload: { cwd: workspace, path },
+    });
+  }
+
+  /** 继续 / 中止进行中的操作（合并、变基、拣选、回退）。 */
+  async function handleOperationAction(action: "continue" | "abort" | "skip") {
+    if (!operationState || operationState.operation === "none") return;
+    await runMutation(
+      () => runGitOperationAction(workspace, operationState.operation as GitRunningOperation, action),
+      t(action === "abort" ? "git.operationAbort" : action === "skip" ? "git.operationContinue" : "git.operationContinue", locale),
+    );
+  }
+
   function selectFileAndDiff(file: WorkspaceGitFile) {
     setSelectedPath(file.path);
     setDiffStaged(false);
   }
+
+  /** 选中的文件是否处于未解决冲突：决定差异面板还是三方冲突视图。 */
+  const selectedIsConflicted = useMemo(
+    () => selectedPath !== null && (status?.files ?? []).some((file) => file.path === selectedPath && file.status === "conflicted"),
+    [selectedPath, status],
+  );
 
   const branchGroups = useMemo(() => groupGitBranches(branches ?? []), [branches]);
 
@@ -967,6 +1023,19 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                 <button type="button" disabled={!isRepo || busy} title={t("git.undoLastCommitTitle", locale)} onClick={() => void runMutation(() => undoLastGitCommit(workspace), t("git.undoLastCommit", locale))}>{t("git.undoLastCommit", locale)}</button>
               </div>
 
+              {operationState && operationState.operation !== "none" && (
+                <div className="git-operation-banner" role="status">
+                  <span className="git-operation-label">
+                    {t("git.operationBanner", locale, { operation: operationLabel(operationState.operation, locale) })}
+                    {operationState.conflicted > 0 && ` · ${t("git.operationConflicted", locale, { count: operationState.conflicted })}`}
+                  </span>
+                  <span className="git-operation-actions">
+                    <button type="button" disabled={busy || operationState.conflicted > 0} title={t("git.operationContinueTitle", locale)} onClick={() => void handleOperationAction("continue")}>{t("git.operationContinue", locale)}</button>
+                    <button type="button" className="danger" disabled={busy} title={t("git.operationAbortTitle", locale)} onClick={() => void handleOperationAction("abort")}>{t("git.operationAbort", locale)}</button>
+                  </span>
+                </div>
+              )}
+
               {!isRepo ? (
                 <div className="git-empty">{t("git.emptyNoRepo", locale)}</div>
               ) : (
@@ -1052,7 +1121,22 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                 </div>
               )}
 
-              {selectedPath && (
+              {selectedPath && selectedIsConflicted ? (
+                <div className="git-diff-panel git-conflict-panel">
+                  <div className="git-diff-header">
+                    <span className="git-diff-path" title={selectedPath}>{selectedPath}</span>
+                    <button type="button" className="git-diff-open-in-rail" title={t("git.openInDockTitle", locale)} onClick={() => openConflictTab(selectedPath)}>{t("git.openInDock", locale)}</button>
+                    <button type="button" className="git-diff-close" aria-label={t("git.closeDiff", locale)} onClick={() => setSelectedPath(null)}><X aria-hidden="true" /></button>
+                  </div>
+                  <GitMergeConflictView
+                    cwd={workspace}
+                    path={selectedPath}
+                    locale={locale}
+                    onError={onError}
+                    onResolved={() => setSelectedPath(null)}
+                  />
+                </div>
+              ) : selectedPath && (
                 <div className="git-diff-panel">
                   <div className="git-diff-header">
                     <span className="git-diff-path" title={selectedPath}>{selectedPath}</span>

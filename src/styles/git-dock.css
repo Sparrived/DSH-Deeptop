@@ -868,6 +868,83 @@
   font-size: 11px;
 }
 
+/* —— 冲突解决（三方视图） —— */
+.git-merge {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+.git-merge .git-diff-header { flex: 0 0 auto; }
+.git-merge-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.git-merge-actions button {
+  padding: 3px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  color: var(--ink-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.git-merge-actions button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-deep); }
+.git-merge-actions button.confirm { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); color: var(--accent-deep); font-weight: 700; }
+.git-merge-actions button:disabled { opacity: .5; cursor: default; }
+.git-merge-editor {
+  flex: 1 1 auto;
+  min-height: 160px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  resize: none;
+  white-space: pre;
+  overflow: auto;
+}
+.git-merge-hint {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 6px 10px 8px;
+  color: var(--ink-faint);
+  font-size: 10px;
+}
+.git-merge-hint.warn { color: var(--warning); }
+.git-merge-hint-side { margin-left: 6px; color: var(--ink-faint); }
+.git-conflict-panel { display: flex; flex-direction: column; min-height: 0; }
+
+/* 进行中操作横幅：合并 / 变基 / 拣选 / 回退 */
+.git-operation-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--warning) 35%, var(--line));
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface));
+  color: var(--warning);
+  font-size: 11px;
+}
+.git-operation-actions { display: flex; gap: 6px; }
+.git-operation-actions button {
+  padding: 2px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  color: var(--ink-muted);
+  font-size: 10px;
+}
+.git-operation-actions button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-deep); }
+.git-operation-actions button:disabled { opacity: .5; cursor: default; }
+
 /* 标签与储藏行：名字与说明同排，窄栏下截断 */
 .git-tag-name { color: var(--warning); }
 .git-stash-ref { color: var(--accent-deep); font-weight: 700; }

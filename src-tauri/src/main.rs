@@ -5445,6 +5445,215 @@ fn git_apply_patch(
     ))
 }
 
+/// 冲突文件的三方内容与工作区现状；缺失的 stage 为 None（例如 add/add 没有 base）。
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceGitConflict {
+    path: String,
+    /// 工作区当前内容（带冲突标记）；文件不存在时为 None（例如「对方删除」）。
+    worktree: Option<String>,
+    base: Option<String>,
+    ours: Option<String>,
+    theirs: Option<String>,
+}
+
+/// 进行中的 git 操作状态，用于决定是否显示「继续 / 中止」。
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceGitOperationState {
+    /// merge / rebase / cherry-pick / revert / none
+    operation: String,
+    conflicted: u32,
+}
+
+/// 冲突文件内容的体积上限：超过就拒绝打开，避免用户在截断内容上"保存并解决"。
+const MAX_CONFLICT_CONTENT_BYTES: usize = 512 * 1024;
+/// 解决冲突时允许写回的内容上限（略大于读取上限，容纳用户补写的说明）。
+const MAX_CONFLICT_WRITE_BYTES: usize = 1024 * 1024;
+
+/// 把仓库相对路径拼到仓库根下，并拒绝逃出仓库的写法（绝对路径、`..`、盘符）。
+fn resolve_repo_relative_path(root: &Path, relative: &str) -> Result<PathBuf, String> {
+    let relative = relative.trim();
+    if relative.is_empty() {
+        return Err("文件路径不能为空".into());
+    }
+    if relative.contains('\0') {
+        return Err("文件路径包含非法字符".into());
+    }
+    let candidate = Path::new(relative);
+    if candidate.is_absolute() {
+        return Err("文件路径必须是仓库相对路径".into());
+    }
+    let mut resolved = root.to_path_buf();
+    for component in candidate.components() {
+        match component {
+            Component::Normal(part) => resolved.push(part),
+            Component::CurDir => {}
+            _ => return Err("文件路径不能包含上级目录".into()),
+        }
+    }
+    // 软链接可能把写入引到仓库之外：父目录存在时按规范化结果再确认一次
+    if let (Some(parent), Ok(canonical_root)) = (resolved.parent(), root.canonicalize()) {
+        if let Ok(canonical_parent) = parent.canonicalize() {
+            if !canonical_parent.starts_with(&canonical_root) {
+                return Err("文件路径超出仓库范围".into());
+            }
+        }
+    }
+    Ok(resolved)
+}
+
+/// 读取某个冲突 stage 的内容（`:1:` base、`:2:` ours、`:3:` theirs）。
+fn git_stage_content(root: &Path, stage: u8, path: &str) -> Option<String> {
+    let spec = format!(":{stage}:{path}");
+    let output = git_raw_output(root, &["--no-pager", "show", &spec]).ok()?;
+    if !output.ok || output.stdout.len() > MAX_CONFLICT_CONTENT_BYTES {
+        return None;
+    }
+    Some(output.stdout)
+}
+
+/// 读取冲突文件的三方内容，供三方视图使用。
+#[tauri::command]
+fn git_conflict(dir: String, path: String) -> Result<WorkspaceGitConflict, String> {
+    let root = git_repository_root(Path::new(&dir))?;
+    let target = resolve_repo_relative_path(&root, &path)?;
+    let worktree = match fs::read(&target) {
+        Ok(bytes) => {
+            if bytes.len() > MAX_CONFLICT_CONTENT_BYTES {
+                return Err("文件过大，请在外部编辑器中解决这个冲突".into());
+            }
+            String::from_utf8(bytes).ok()
+        }
+        Err(_) => None,
+    };
+    Ok(WorkspaceGitConflict {
+        path: path.trim().to_string(),
+        worktree,
+        base: git_stage_content(&root, 1, path.trim()),
+        ours: git_stage_content(&root, 2, path.trim()),
+        theirs: git_stage_content(&root, 3, path.trim()),
+    })
+}
+
+/// 写回解决后的内容并 `git add` 标记为已解决。
+#[tauri::command]
+fn git_resolve_conflict(
+    dir: String,
+    path: String,
+    content: String,
+) -> Result<GitCommandResult, String> {
+    if content.len() > MAX_CONFLICT_WRITE_BYTES {
+        return Err("内容过大（最多 1 MB）".into());
+    }
+    let root = git_repository_root(Path::new(&dir))?;
+    let target = resolve_repo_relative_path(&root, &path)?;
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("创建目录 {} 失败：{error}", parent.display()))?;
+    }
+    fs::write(&target, content.as_bytes())
+        .map_err(|error| format!("写入 {} 失败：{error}", target.display()))?;
+    let relative = path.trim();
+    let output = git_raw_output(&root, &["--no-pager", "add", "--", relative])?;
+    Ok(GitCommandResult::from_output(
+        output.stdout,
+        output.stderr,
+        output.ok,
+    ))
+}
+
+/// 进行中的操作子命令；`none` 表示没有需要收尾的操作。
+fn operation_subcommand(operation: &str) -> Result<&'static str, String> {
+    match operation {
+        "merge" => Ok("merge"),
+        "rebase" => Ok("rebase"),
+        "cherry-pick" => Ok("cherry-pick"),
+        "revert" => Ok("revert"),
+        _ => Err("没有进行中的操作".into()),
+    }
+}
+
+/// 收尾动作 → 参数。
+fn operation_action_flag(action: &str) -> Result<&'static str, String> {
+    match action {
+        "continue" => Ok("--continue"),
+        "abort" => Ok("--abort"),
+        "skip" => Ok("--skip"),
+        _ => Err("无效的收尾动作".into()),
+    }
+}
+
+/// 当前是否有 merge/rebase/cherry-pick/revert 正在进行，以及还有多少冲突文件。
+#[tauri::command]
+fn git_operation_state(dir: String) -> Result<WorkspaceGitOperationState, String> {
+    let root = git_repository_root(Path::new(&dir))?;
+    let git_dir = git_raw_output(&root, &["--no-pager", "rev-parse", "--git-dir"])?;
+    if !git_dir.ok {
+        return Err(git_dir.stderr.trim().to_string());
+    }
+    let reported = git_dir.stdout.trim().to_string();
+    let git_dir = if Path::new(&reported).is_absolute() {
+        PathBuf::from(&reported)
+    } else {
+        root.join(&reported)
+    };
+    let operation =
+        if git_dir.join("rebase-merge").exists() || git_dir.join("rebase-apply").exists() {
+            "rebase"
+        } else if git_dir.join("MERGE_HEAD").exists() {
+            "merge"
+        } else if git_dir.join("CHERRY_PICK_HEAD").exists() {
+            "cherry-pick"
+        } else if git_dir.join("REVERT_HEAD").exists() {
+            "revert"
+        } else {
+            "none"
+        };
+    let unmerged = git_raw_output(
+        &root,
+        &["--no-pager", "diff", "--name-only", "--diff-filter=U"],
+    )?;
+    let conflicted = if unmerged.ok {
+        unmerged
+            .stdout
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .count() as u32
+    } else {
+        0
+    };
+    Ok(WorkspaceGitOperationState {
+        operation: operation.to_string(),
+        conflicted,
+    })
+}
+
+/// 收尾进行中的操作：continue / abort / skip。
+#[tauri::command]
+fn git_operation_action(
+    dir: String,
+    operation: String,
+    action: String,
+) -> Result<GitCommandResult, String> {
+    let subcommand = operation_subcommand(&operation)?;
+    let flag = operation_action_flag(&action)?;
+    if flag == "--skip" && subcommand == "merge" {
+        return Err("合并不支持跳过，请先解决冲突或中止".into());
+    }
+    let root = git_repository_root(Path::new(&dir))?;
+    // continue 会打开编辑器写提交信息：固定 core.editor 避免卡在交互式编辑
+    let output = git_raw_output(
+        &root,
+        &["--no-pager", "-c", "core.editor=true", subcommand, flag],
+    )?;
+    Ok(GitCommandResult::from_output(
+        output.stdout,
+        output.stderr,
+        output.ok,
+    ))
+}
+
 /// 拉取当前分支的上游更新；结果含 git 完整输出，冲突时失败告知。
 #[tauri::command]
 fn git_pull(dir: String) -> Result<GitCommandResult, String> {
@@ -6206,7 +6415,8 @@ mod tests {
         cherry_pick_action_flag, dsh_home, dsh_homes_match, extract_runtime_archive,
         format_log_line, format_utc_datetime, is_applicable_patch, is_binary_content,
         is_bundled_runtime_manifest, is_dsh_package_manifest, is_file_path, is_safe_runtime_entry,
-        process_command_line_matches_dsh, prune_old_runtime_caches, reset_mode_flag, runtime_arch,
+        operation_action_flag, operation_subcommand, process_command_line_matches_dsh,
+        prune_old_runtime_caches, reset_mode_flag, resolve_repo_relative_path, runtime_arch,
         runtime_archive_is_cache_metadata, runtime_cache_validation_message, runtime_platform,
         runtime_tree_sha256, slice_lines, sniff_image_media_type, tray_menu_text,
         tray_session_label, validate_stash_reference, validate_tray_session_menu,
@@ -6215,6 +6425,7 @@ mod tests {
         MAX_LOG_TEXT_BYTES, RUNTIME_CACHE_MARKER, WORKSPACE_FILE_SNIFF_BYTES,
     };
     use std::fs;
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn reports_cached_node_and_npm_status() {
@@ -7140,6 +7351,45 @@ mod tests {
     }
 
     #[test]
+    fn maps_operation_inputs_and_guards_repo_relative_paths() {
+        assert_eq!(operation_subcommand("merge").unwrap(), "merge");
+        assert_eq!(operation_subcommand("rebase").unwrap(), "rebase");
+        assert_eq!(operation_subcommand("cherry-pick").unwrap(), "cherry-pick");
+        assert_eq!(operation_subcommand("revert").unwrap(), "revert");
+        for invalid in ["", "none", "stash", "merge --abort"] {
+            assert!(
+                operation_subcommand(invalid).is_err(),
+                "{invalid} 不应被接受"
+            );
+        }
+        assert_eq!(operation_action_flag("continue").unwrap(), "--continue");
+        assert_eq!(operation_action_flag("abort").unwrap(), "--abort");
+        assert_eq!(operation_action_flag("skip").unwrap(), "--skip");
+        for invalid in ["", "--abort", "abort --force"] {
+            assert!(
+                operation_action_flag(invalid).is_err(),
+                "{invalid} 不应被接受"
+            );
+        }
+
+        let root = Path::new("/repo");
+        assert_eq!(
+            resolve_repo_relative_path(root, "src/app.ts").unwrap(),
+            PathBuf::from("/repo/src/app.ts")
+        );
+        assert_eq!(
+            resolve_repo_relative_path(root, "./src/./app.ts").unwrap(),
+            PathBuf::from("/repo/src/app.ts")
+        );
+        // 绝对路径、上级目录与空路径都要拦下
+        assert!(resolve_repo_relative_path(root, "/etc/passwd").is_err());
+        assert!(resolve_repo_relative_path(root, "../outside").is_err());
+        assert!(resolve_repo_relative_path(root, "src/../../outside").is_err());
+        assert!(resolve_repo_relative_path(root, "  ").is_err());
+        assert!(resolve_repo_relative_path(root, "src/with\0nul").is_err());
+    }
+
+    #[test]
     fn accepts_only_well_formed_patch_input() {
         assert!(is_applicable_patch(
             "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n"
@@ -7323,6 +7573,10 @@ fn main() {
             git_delete_branch,
             git_apply_patch,
             git_commit_amend,
+            git_conflict,
+            git_operation_action,
+            git_operation_state,
+            git_resolve_conflict,
             git_undo_last_commit,
             git_fetch,
             git_tags,
