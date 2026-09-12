@@ -3,6 +3,7 @@ import { Check, ChevronLeft, GitBranch, Minus, Plus, RefreshCw, X } from "lucide
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   amendGitCommit,
+  applyGitPatch,
   applyGitStash,
   cherryPickGitCommit,
   checkoutGitBranch,
@@ -44,6 +45,8 @@ import {
   type WorkspaceGitTag,
 } from "../lib/desktop";
 import { errorText } from "../app/model";
+import { buildHunkPatch, parseGitDiff } from "../app/git-diff";
+import { onGitChanged, notifyGitChanged } from "../app/git-events";
 import { dockTabKey } from "../app/dock-layout";
 import { useDockSettings } from "../app/dock-settings";
 import {
@@ -141,6 +144,10 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   const [diffText, setDiffText] = useState<string | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
   const [diffError, setDiffError] = useState<string | null>(null);
+  // 差异重取令牌：hunk 级暂存后要重新拉同一份差异，但不必切换文件或来源
+  const [diffRevision, setDiffRevision] = useState(0);
+  // 正在提交的 hunk 行号（按差异文本里的行号），用于禁用重复点击
+  const [busyHunks, setBusyHunks] = useState<ReadonlySet<number>>(new Set());
   const [commits, setCommits] = useState<WorkspaceGitCommit[] | null>(null);
   const [commitsLoading, setCommitsLoading] = useState(false);
   // 只保存"选中的提交哈希"：提交详情与逐文件差异由 GitCommitDetailView 自己加载
@@ -457,7 +464,36 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     return () => {
       active = false;
     };
-  }, [selectedPath, diffStaged, workspace, isRepo]);
+  }, [selectedPath, diffStaged, workspace, isRepo, diffRevision]);
+
+  /**
+   * 暂存 / 取消暂存选中的 hunk：把这几块拼成补丁交给 `git apply --cached`，
+   * 失败时把 git 的原始输出展示出来（例如上下文已被其他改动影响）。
+   */
+  async function applyHunks(text: string, hunkLines: number[], unstage: boolean) {
+    const patch = buildHunkPatch(parseGitDiff(text), hunkLines);
+    if (!patch) return;
+    setBusyHunks(new Set(hunkLines));
+    try {
+      const result = await applyGitPatch(workspace, patch, true, unstage);
+      if (!result.ok) setResult(result);
+    } catch (error) {
+      onError(t("git.error.applyPatchFailed", locale, { error: errorText(error, locale) }));
+    } finally {
+      setBusyHunks(new Set());
+      notifyGitChanged("changes");
+      await refreshAll();
+      // 差异文本已经变了（被暂存的块从工作区差异里消失），重新拉一次
+      setDiffRevision((current) => current + 1);
+    }
+  }
+
+  // 其它面板（右栏的 git 内容标签）改动仓库后，这里跟着刷新。
+  useEffect(() => onGitChanged((source) => {
+    if (source === "changes") return;
+    void refreshAll();
+    setDiffRevision((current) => current + 1);
+  }), [refreshAll]);
 
   // 仅在进入对应标签页时懒加载历史/分支。
   useEffect(() => {
@@ -1032,7 +1068,19 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                   ) : diffError ? (
                     <div className="git-diff-empty">{diffError}</div>
                   ) : (
-                    <GitDiffBody text={diffText} locale={locale} />
+                    <GitDiffBody
+                      text={diffText}
+                      locale={locale}
+                      renderHunkAction={(hunk) => (
+                        <button
+                          type="button"
+                          disabled={busyHunks.size > 0}
+                          onClick={() => void applyHunks(diffText ?? "", [hunk.line], diffStaged)}
+                        >
+                          {diffStaged ? t("git.unstageHunk", locale) : t("git.stageHunk", locale)}
+                        </button>
+                      )}
+                    />
                   )}
                 </div>
               )}

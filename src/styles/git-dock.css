@@ -388,6 +388,33 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* hunk 级操作：行内改成"文本 + 动作"的弹性布局，动作贴在右端不参与换行 */
+.git-diff-body-actionable .git-diff-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.git-diff-line-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.git-diff-hunk-action { flex: 0 0 auto; }
+.git-diff-hunk-action button {
+  padding: 1px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  color: var(--ink-muted);
+  font-family: var(--mono);
+  font-size: 9px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.git-diff-hunk-action button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-deep); }
+.git-diff-hunk-action button:disabled { opacity: .5; cursor: default; }
 .git-diff-line-meta { color: #8ab4f8; }
 .git-diff-line-hunk { color: #e8c47a; }
 .git-diff-line-add { background: color-mix(in srgb, #79d8a8 18%, transparent); color: #a8f0c3; }

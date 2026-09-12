@@ -5370,6 +5370,81 @@ fn git_stash_drop(dir: String, reference: String) -> Result<GitCommandResult, St
     ))
 }
 
+/// 把补丁写进 git 的标准输入：`git apply` 只接受 stdin 或文件，而补丁由
+/// 前端按用户选中的 hunk 现拼，落盘再删会多出一次磁盘交互。
+fn git_apply_stdin(directory: &Path, args: &[&str], patch: &str) -> Result<GitOutput, String> {
+    let mut command = git_command(directory);
+    command
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("无法运行 git：{error}"))?;
+    if let Some(stdin) = child.stdin.as_mut() {
+        stdin
+            .write_all(patch.as_bytes())
+            .map_err(|error| format!("写入补丁失败：{error}"))?;
+    }
+    // 关闭 stdin 让 git 读到 EOF，否则 apply 会一直等下去。
+    drop(child.stdin.take());
+    let output = child
+        .wait_with_output()
+        .map_err(|error| format!("等待 git 结束失败：{error}"))?;
+    Ok(GitOutput {
+        ok: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    })
+}
+
+/// 补丁体积上限：单个文件的 hunk 补丁，超过这个体积只能是误传。
+const GIT_PATCH_MAX_BYTES: usize = 512 * 1024;
+
+/// 粗略校验补丁形状：必须有 hunk 头，并且有文件头（`diff --git` 或 `---/+++`）。
+/// 不做完整语法解析——真正的判定交给 `git apply`，这里只拦住明显不是补丁的输入。
+fn is_applicable_patch(patch: &str) -> bool {
+    patch.contains("@@ -")
+        && (patch.starts_with("diff --git")
+            || patch.contains("\n--- ")
+            || patch.starts_with("--- "))
+}
+
+/// 按 hunk 暂存/取消暂存：`patch` 只包含用户选中的 hunk。
+/// `cached` 作用于索引（暂存），`reverse` 用于取消暂存。
+#[tauri::command]
+fn git_apply_patch(
+    dir: String,
+    patch: String,
+    cached: bool,
+    reverse: bool,
+) -> Result<GitCommandResult, String> {
+    if patch.trim().is_empty() {
+        return Err("补丁内容为空".into());
+    }
+    if patch.len() > GIT_PATCH_MAX_BYTES {
+        return Err("补丁过大（最多 512 KB）".into());
+    }
+    if !is_applicable_patch(&patch) {
+        return Err("补丁格式无法识别".into());
+    }
+    let root = git_repository_root(Path::new(&dir))?;
+    let mut args: Vec<&str> = vec!["--no-pager", "apply", "--recount", "--whitespace=nowarn"];
+    if cached {
+        args.push("--cached");
+    }
+    if reverse {
+        args.push("--reverse");
+    }
+    let output = git_apply_stdin(&root, &args, &patch)?;
+    Ok(GitCommandResult::from_output(
+        output.stdout,
+        output.stderr,
+        output.ok,
+    ))
+}
+
 /// 拉取当前分支的上游更新；结果含 git 完整输出，冲突时失败告知。
 #[tauri::command]
 fn git_pull(dir: String) -> Result<GitCommandResult, String> {
@@ -6129,8 +6204,8 @@ mod tests {
     use super::{
         base64_encode, bound_log_text, bridge_stdout_log_summary, bundled_bridge_files,
         cherry_pick_action_flag, dsh_home, dsh_homes_match, extract_runtime_archive,
-        format_log_line, format_utc_datetime, is_binary_content, is_bundled_runtime_manifest,
-        is_dsh_package_manifest, is_file_path, is_safe_runtime_entry,
+        format_log_line, format_utc_datetime, is_applicable_patch, is_binary_content,
+        is_bundled_runtime_manifest, is_dsh_package_manifest, is_file_path, is_safe_runtime_entry,
         process_command_line_matches_dsh, prune_old_runtime_caches, reset_mode_flag, runtime_arch,
         runtime_archive_is_cache_metadata, runtime_cache_validation_message, runtime_platform,
         runtime_tree_sha256, slice_lines, sniff_image_media_type, tray_menu_text,
@@ -7065,6 +7140,23 @@ mod tests {
     }
 
     #[test]
+    fn accepts_only_well_formed_patch_input() {
+        assert!(is_applicable_patch(
+            "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n"
+        ));
+        assert!(is_applicable_patch(
+            "--- a/a.ts\n+++ b/a.ts\n@@ -1,2 +1,2 @@\n a\n-b\n+c\n"
+        ));
+        // 没有 hunk 头、或只有 hunk 头没有文件头，都不算补丁
+        assert!(!is_applicable_patch(""));
+        assert!(!is_applicable_patch(
+            "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n"
+        ));
+        assert!(!is_applicable_patch("@@ -1 +1 @@\n-a\n+b\n"));
+        assert!(!is_applicable_patch("hello\n@@ -1 +1 @@\n"));
+    }
+
+    #[test]
     fn maps_reset_and_cherry_pick_inputs_to_fixed_flags() {
         assert_eq!(reset_mode_flag("soft").unwrap(), "--soft");
         assert_eq!(reset_mode_flag("mixed").unwrap(), "--mixed");
@@ -7229,6 +7321,7 @@ fn main() {
             git_checkout_branch,
             git_create_branch,
             git_delete_branch,
+            git_apply_patch,
             git_commit_amend,
             git_undo_last_commit,
             git_fetch,

@@ -31,6 +31,7 @@ fn main() {
         "get_window_behavior_settings",
         "get_windows_context_menu_status",
         "get_workspace_git_status",
+        "git_apply_patch",
         "git_branches",
         "git_checkout_branch",
         "git_cherry_pick",

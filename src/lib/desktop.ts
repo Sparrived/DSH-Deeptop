@@ -1766,6 +1766,17 @@ export async function renameGitBranch(dir: string, from: string, to: string): Pr
   return invoke<GitCommandResult>("git_rename_branch", { dir, from, to });
 }
 
+/** Apply a hand-built patch (one or more hunks) to the index. `reverse` unstages. */
+export async function applyGitPatch(
+  dir: string,
+  patch: string,
+  cached = true,
+  reverse = false,
+): Promise<GitCommandResult> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  return invoke<GitCommandResult>("git_apply_patch", { dir, patch, cached, reverse });
+}
+
 /** Amend the last commit; a null message keeps the existing one. */
 export async function amendGitCommit(dir: string, message: string | null = null): Promise<GitCommandResult> {
   if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
