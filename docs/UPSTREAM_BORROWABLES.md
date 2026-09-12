@@ -8,7 +8,7 @@
 
 ## 一、界面与交互
 
-### 1. 可停靠右栏 `[ ]`
+### 1. 可停靠右栏 `[x]`
 
 上游 `packages/client/ui-dockkit` 把右栏建模成一棵通用布局树：
 
@@ -17,21 +17,26 @@
 - 整份布局是一个不可变 `LayoutState`（`nodes`/`tabs`/`rootId`/`floats`/`activePaneId`/`expanded`/`mode`）。每次改动是一个自带新 id 的操作对象，因此从同一初始状态重放操作序列能复现完全相同的布局——撤销、重做与持久化都建立在这条性质上。
 - `PaneAttachment` 记录面板原来的位置（作为既有分栏的子节点、复建一个塌缩分栏、或回到浮动层的某个 z 序），所以关闭再打开能回到原处。
 
-Deeptop 现状：停靠是封闭的固定集合。`src/app/dock-pin.ts:18-21` 硬编码三个可钉面板及其侧别与默认宽度（`terminal-dock` 左 560、`workspace-files-dock` 左 480、`git-dock` 左 600），宽度钳制在 220–800；`src/components/UtilityDockShelf.tsx:58-63` 是任务/待办/交付/子 Agent 四个固定标签，同一时刻只显示一个。
+Deeptop 已对齐：
 
-差距：无法把两个面板上下或左右并排对照，无法把一个标签拖进另一个面板，无法把面板拖出成浮动层，无法按会话保存不同布局；新增一种内容类型必须改 `PINNABLE_DOCKS` 才能出现。终端与 Git 图谱目前只能各钉一个边栏或来回切换。
+- `src/app/dock-layout.ts` 是同一套状态机的纯实现：`DockZone`/`DockPaneNode`/`DockSplitNode`/`DockLayout` 与上游同构，五个落点、`row`/`column` 轴、分数尺寸、同轴分栏合流、空面板折叠与单孩子分栏提升都在这里，且全部是不修改入参、返回新对象的纯函数（新 id 由调用方传入）。`dockZoneAt` 是落点命中测试，`normalizeDockLayout` 负责持久化输入的归一化。
+- 标签身份是「内容 id」而不是面板实例：同一类面板只保留一个标签，文件标签按路径去重，因此重复打开是复用并定位（`openDockTab`），与上游 `(kind, contentId)` 去重的语义一致。
+- `src/components/DockRail.tsx` 渲染这棵树（标签组 + 分栏 + 分栏比例拖拽 + 落点高亮），`src/app/dock-settings.tsx` 承载布局、拖拽会话与挂载点登记，并持久化到 Tauri（`set_dock_settings`，`src-tauri/src/dock_settings.rs`），不使用浏览器存储。
+- 取消钉住按钮后，固定完全靠拖拽：把浮动面板的标题栏拖进右栏即为停靠（`DockFrame` 的标题栏拖拽同时驱动卡片位移与落点解析），在右栏内拖动标签可以并入标签组或在上/下/左/右开分栏，拖出右栏即取消停靠回到浮动卡片。
+- 停靠面板的正文由 `DockFrame` 挂进右栏的标签宿主，容器是 `DockFrame` 自持的游离节点，因此「浮动 ↔ 停靠」不会卸载重建内容（终端会话与 xterm 回滚缓冲、文件树展开状态都保留）。
 
-量级：大。这是一个独立状态机，需要决定浮动面板在桌面端是窗内浮层还是真实 Tauri 窗口，并把布局持久化改为 Tauri/DSH Storage（不能用浏览器存储）。
+未做：浮动面板仍是窗内浮层（复用原有浮动卡片与按面板记忆的位置），不是真实 Tauri 窗口；布局是单一全局布局，没有按会话区分；没有撤销/重做栈（模型本身支持重放，缺的是操作历史 UI）；`FloatRect` 级的位置恢复沿用原有按面板记忆。`UtilityDockShelf` 的任务/待办/交付/子 Agent 仍是 composer 内的固定标签，没有作为右栏标签类型接入——但标签类型已是数据（`DockTab.kind`），新增一种内容类型只需在渲染层登记，不再需要改硬编码白名单。
 
-### 2. 文件在停靠标签中按行打开 `[ ]`
+### 2. 文件在停靠标签中按行打开 `[x]`
 
 上游删掉了 `ui-chat` 的 `DetailsPanel` 与 `ui-tool` 的 `ToolDetails`，改为在右栏开标签并定位到行：点工具行里的路径调用 `onOpenFile(path, { line })`；行号从 read 调用的 1-based `offset` 推出（读取尚未落盘时也成立）；打开时按 `(kind, contentId)` 去重，重复点击是复用并 reveal，而不是开出第二个标签。
 
-Deeptop 现状：`src/lib/bridge-contracts.ts` 没有读取文件内容的通道（只有 `host.openPath` 交给系统默认程序、`host.pickDirectory`、`agentPreset.read`、`settings.openDocument` 这类专用读取），`src/components/WorkspaceFilesPanel.tsx` 是目录树面板。因此 `src/components/DeliverablesPanel.tsx:77` 的每个文件按钮点击后是**交给系统程序打开**，Deeptop 内看不到文件内容。
+Deeptop 已对齐：
 
-差距：Agent 说"改了某文件第 42 行"时，上游在原位展开并定位，Deeptop 会弹外部编辑器由用户自行查找。
-
-量级：中。需要先有一条按行读取文件内容的 Bridge 通道，标签宿主来自第 1 条。
+- `src-tauri/src/main.rs` 新增 `read_workspace_file(path, line, contextLines)`，按行返回一段窗口（`startLine`/`lines`/`totalLines`/`truncated`/`binary`/`size`/`lineOutOfRange`）：字节上限 2 MiB、行数上限 2000、前 8 KiB 出现 NUL 判为二进制、CRLF 归一、越界行回退到文件末尾。读写路径与 `list_workspace_files`、`read_theme_css` 一致，都走 Tauri 原生命令而不新增 Host 路由：本地文件读取是原生系统能力，Host 侧没有可复用的文件服务，桌面的传输层与类型由 `src/lib/desktop.ts` 收口。
+- `src/components/DockedFileView.tsx` 是停靠标签里的应用内预览：带行号装订线、定位行高亮并滚动到视口中央、刷新与「用 VSCode 打开」作为需要完整编辑器时的出口，并覆盖读取失败、二进制、超限、行越界与窗口截断五种状态。
+- 工具路径的行号来自 `toolCallOpenLine`（`src/app/tool-call-display.ts`）：只对读取类工具取 1-based `offset`，因此只依赖调用参数，读取结果尚未落盘时同样成立。
+- `src/components/DeliverablesPanel.tsx` 的主体点击改为在右栏打开，不再交给系统程序；「在文件夹中显示」保留为系统文件管理器动作。
 
 ### 3. 输入区统一提交模式 `[x]`
 
@@ -59,7 +64,7 @@ Deeptop 已对齐：
 
 量级：小。行内代码里的路径已可点（`MessageEntityLink`），消息级复制与复制菜单已有（`src/components/ConversationTranscript.tsx`）。
 
-未做：本地路径图片的解析。浏览器无法直接读取任意本地文件，上游为此有一套本地路径图片词汇表，Deeptop 需要先有"按行/按路径读取文件内容"的 Bridge 通道（见第 2 条），否则只能像现在这样落到失败回退文本。
+未做：本地路径图片的解析。浏览器无法直接读取任意本地文件，上游为此有一套本地路径图片词汇表；Deeptop 现在已有「按行/按路径读取文件内容」的原生通道（见第 2 条），但仍未接本地图片词汇表，因此 Markdown 里的本地图片路径仍落到失败回退文本。
 
 ### 6. 逐消息反馈界面 `[-]`
 
@@ -81,9 +86,9 @@ Deeptop 现状：`src/components/DeliverablesPanel.tsx:17-22` 的 `fileTypeLabel
 
 上游交付卡片主体是应用内预览，旁挂一个 chevron 菜单（用默认应用打开、在文件管理器中显示），按阶段显示状态并据此禁用菜单项，执行动作后把焦点还给预览按钮；文件管理器名称显式建模为 `finder | explorer`，不从浏览器推断操作系统。
 
-Deeptop 现状：数据面已就绪（`deliverables/presented` 事件已投影为生成文件卡片），`src/components/DeliverablesPanel.tsx` 每行是一个直接交给系统打开的按钮，底部提供"在文件夹中显示"。
+Deeptop 现状：数据面已就绪（`deliverables/presented` 事件已投影为生成文件卡片），`src/components/DeliverablesPanel.tsx` 每行的主体点击已在右栏停靠标签中打开（第 2 条），但还没有旁挂的 chevron 菜单、阶段化状态与「用默认应用打开 / 在文件管理器中显示」的显式建模，底部仍是单一的「在文件夹中显示」。
 
-量级：小到中，依赖第 2 条提供应用内预览。
+量级：小，应用内预览已由第 2 条提供，剩下的是卡片菜单与状态。
 
 ## 二、正确性教训
 
