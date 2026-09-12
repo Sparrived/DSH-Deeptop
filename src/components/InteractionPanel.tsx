@@ -60,8 +60,11 @@ export function InteractionPanel({
   onCancelQuestion,
   onPlanReview,
 }: InteractionPanelProps) {
-  if (!approval && !question) return null;
   const planReview = question ? planReviewOf(question.questions) : null;
+  // 普通 ask-user 提问由 FloatingQuestionCard 浮层渲染，这里只剩 approval 与
+  // plan-review 两种内联内容。两者都没有时整块不渲染：空面板会在发送框与提问
+  // 弹层之间压出一条不透明空条(自定义背景图下尤其明显)。
+  if (!approval && !(planReview && onCancelQuestion)) return null;
 
   return (
     <section className="interaction-panel">
