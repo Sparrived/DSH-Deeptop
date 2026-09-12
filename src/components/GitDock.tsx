@@ -167,6 +167,8 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   const [operationState, setOperationState] = useState<WorkspaceGitOperationState | null>(null);
   // 与上游的共同祖先：决定是否在图谱里插入 incoming / outgoing 合成行
   const [mergeBase, setMergeBase] = useState<string | null>(null);
+  // 上一次读到的仓库状态：非仓库时不再去读标签/储藏/操作状态，避免无谓报错
+  const isRepoRef = useRef<boolean | null>(null);
   const [commits, setCommits] = useState<WorkspaceGitCommit[] | null>(null);
   const [commitsLoading, setCommitsLoading] = useState(false);
   // 只保存"选中的提交哈希"：提交详情与逐文件差异由 GitCommitDetailView 自己加载
@@ -283,7 +285,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   }, [workspace, onError, locale]);
 
   const reloadTags = useCallback(async () => {
-    if (!workspace) {
+    if (!workspace || isRepoRef.current === false) {
       setTags(null);
       return;
     }
@@ -299,7 +301,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   }, [workspace, onError, locale]);
 
   const reloadStashes = useCallback(async () => {
-    if (!workspace) {
+    if (!workspace || isRepoRef.current === false) {
       setStashes(null);
       return;
     }
@@ -316,7 +318,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
 
   /** 进行中的操作状态很轻（几个文件是否存在 + 冲突文件数），跟着每次刷新一起取。 */
   const reloadOperation = useCallback(async () => {
-    if (!workspace) {
+    if (!workspace || isRepoRef.current === false) {
       setOperationState(null);
       return;
     }
@@ -425,8 +427,10 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   // 统一刷新入口：状态/历史/分支每次都刷，图谱只在 refs 真的变了（或用户手动刷新）
   // 且视图可见时重取；不可见时只标记过期，进入图谱视图再补取。
   const refreshAll = useCallback(async (options: { force?: boolean } = {}) => {
-    const [nextStatus, , nextBranches] = await Promise.all([
-      reloadStatus(),
+    // 先读仓库状态：它是"要不要去读标签/储藏/操作状态"的前置条件
+    const nextStatus = await reloadStatus();
+    isRepoRef.current = nextStatus ? nextStatus.isRepository : false;
+    const [, nextBranches] = await Promise.all([
       reloadCommits(),
       reloadBranches(),
       reloadTags(),
