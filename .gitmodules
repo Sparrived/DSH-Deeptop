@@ -1,3 +1,6 @@
 [submodule "vendor/dsh"]
 	path = vendor/dsh
 	url = https://github.com/deepseek-ai/deepseek-harness.git
+[submodule "cordis/rtk-compact"]
+	path = cordis/rtk-compact
+	url = https://github.com/Sparrived/dsh-rtk-compact.git
