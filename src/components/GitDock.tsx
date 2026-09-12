@@ -41,6 +41,18 @@ import {
   groupGitBranches,
   groupGitFiles,
 } from "../app/git-model";
+import {
+  beginRefresh,
+  decideGitGraphRefresh,
+  GIT_GRAPH_PAGE_SIZE,
+  gitGraphHasMore,
+  gitGraphRefreshLimit,
+  gitRefSignature,
+  INITIAL_GIT_GRAPH_REFRESH_STATE,
+  mergeRefreshedRows,
+  settleRefresh,
+  type GitGraphRefreshState,
+} from "../app/git-graph-refresh";
 import { DockFrame } from "./DockFrame";
 import { PopupDialog } from "./PopupDialog";
 import { GitTreeGraph } from "./GitTreeGraph";
@@ -129,6 +141,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   const [graphSimplify, setGraphSimplify] = useState(false);
   const [graphHasMore, setGraphHasMore] = useState(true);
   const [graphLoadingMore, setGraphLoadingMore] = useState(false);
+  const [graphStale, setGraphStale] = useState(false);
   const graphRequestRef = useRef(0);
   const [commitDiffPath, setCommitDiffPath] = useState<string | null>(null);
   const [commitDiffText, setCommitDiffText] = useState<string | null>(null);
@@ -136,6 +149,20 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   const [commitDiffError, setCommitDiffError] = useState<string | null>(null);
   const graphRevRef = useRef<string | null>(null);
   const graphSimplifyRef = useRef(false);
+  // 图谱刷新的判定依据用 ref 保存：刷新回调因此不依赖 graph/graphHasMore，
+  // 定时器与窗口聚焦订阅不会因为一次翻页而反复重建。
+  const graphRef = useRef<WorkspaceGitGraphLine[] | null>(null);
+  const graphHasMoreRef = useRef(true);
+  const graphStaleRef = useRef(false);
+  const graphVisibleRef = useRef(false);
+  const refSignatureRef = useRef<string | null>(null);
+  const refreshStateRef = useRef<GitGraphRefreshState>(INITIAL_GIT_GRAPH_REFRESH_STATE);
+  useEffect(() => {
+    graphRef.current = graph;
+  }, [graph]);
+  useEffect(() => {
+    graphHasMoreRef.current = graphHasMore;
+  }, [graphHasMore]);
   const commitDiffRequestRef = useRef(0);
   const diffRequestRef = useRef(0);
   const detailRequestRef = useRef(0);
@@ -150,18 +177,21 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   const reloadStatus = useCallback(async () => {
     if (!workspace) {
       setStatus(null);
-      return;
+      return null;
     }
     setLoadingStatus(true);
     try {
-      setStatus(await getWorkspaceGitStatus(workspace));
+      const next = await getWorkspaceGitStatus(workspace);
+      setStatus(next);
+      return next;
     } catch (error) {
       setStatus(null);
       onError(t("git.error.readStatus", locale, { error: errorText(error, locale) }));
+      return null;
     } finally {
       setLoadingStatus(false);
     }
-  }, [workspace, onError]);
+  }, [workspace, onError, locale]);
 
   const reloadCommits = useCallback(async () => {
     if (!workspace) {
@@ -182,71 +212,121 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   const reloadBranches = useCallback(async () => {
     if (!workspace) {
       setBranches(null);
-      return;
+      return null;
     }
     setBranchesLoading(true);
     try {
-      setBranches(await listGitBranches(workspace));
+      const next = await listGitBranches(workspace);
+      setBranches(next);
+      return next;
     } catch (error) {
       setBranches(null);
       onError(t("git.error.readBranches", locale, { error: errorText(error, locale) }));
+      return null;
     } finally {
       setBranchesLoading(false);
     }
-  }, [workspace, onError]);
+  }, [workspace, onError, locale]);
 
-  const reloadGraph = useCallback(async () => {
+  // 图谱取数：`keepWindow` 为真时按「已加载窗口」取数，并把新提交接到既有行前面，
+  // 因此刷新不会把用户翻出来的历史与滚动位置丢掉；重写历史时自动退化为整页替换。
+  const fetchGraph = useCallback(async (options: { keepWindow: boolean }) => {
     if (!workspace) {
       setGraph(null);
       setGraphHasMore(true);
       return;
     }
     const request = ++graphRequestRef.current;
+    const previous = graphRef.current ?? [];
+    const previousHasMore = graphHasMoreRef.current;
+    const limit = options.keepWindow && previous.length > 0
+      ? gitGraphRefreshLimit(previous.length)
+      : GIT_GRAPH_PAGE_SIZE;
     setGraphLoading(true);
-    setGraphHasMore(true);
     try {
-      const lines = await listGitGraph(workspace, 100, graphRevRef.current, graphSimplifyRef.current, 0);
+      const fresh = await listGitGraph(workspace, limit, graphRevRef.current, graphSimplifyRef.current, 0);
       if (request !== graphRequestRef.current) return;
-      setGraph(lines);
-      // 返回条数小于 limit 表示已经拉到仓库历史尽头。
-      setGraphHasMore(lines.length >= 100);
+      const merged = mergeRefreshedRows({ fresh, previous, limit, previousHasMore });
+      setGraph(merged.rows);
+      setGraphHasMore(merged.hasMore);
+      graphStaleRef.current = false;
+      setGraphStale(false);
     } catch (error) {
       if (request !== graphRequestRef.current) return;
-      setGraph(null);
+      // 刷新失败时保留已经取到的行：旧的提交图比空白更有用
+      if (previous.length === 0) {
+        setGraph(null);
+        setGraphHasMore(true);
+      }
       onError(t("git.error.readGraph", locale, { error: errorText(error, locale) }));
     } finally {
       if (request === graphRequestRef.current) setGraphLoading(false);
     }
-  }, [workspace, onError]);
+  }, [workspace, onError, locale]);
 
-  // 拉取下一页更早的提交并拼接到已有数据。多次调用由前端 IntersectionObserver
-  // 触发；后端用 `git log --topo-order --skip=N -n{limit}` 跳过前 N 条提交拿到后续
-  // limit 条。后端只返回提交行，所以 graph.length 就是已加载提交数，可直接用作 skip。
-  // 返回条数不足 limit 时把 graphHasMore 置为 false，避免反复打到空页面。
+  // 图谱请求入口：同一时刻只跑一个，期间到来的刷新合并成一次尾随刷新——
+  // 15 秒轮询、窗口聚焦与每次 git 操作都会触发刷新，合并后不会并发跑多条 git log。
+  const requestGraph = useCallback((options: { keepWindow: boolean }) => {
+    const begun = beginRefresh(refreshStateRef.current);
+    refreshStateRef.current = begun.state;
+    if (!begun.run) return;
+    void (async () => {
+      // settleRefresh 说明还有合并进来的刷新时，名额仍在本循环手上，直接再跑一次；
+      // 重新走入口会被自己合并掉，所以这里用循环而不是递归。
+      for (;;) {
+        try {
+          await fetchGraph(options);
+        } finally {
+          const settled = settleRefresh(refreshStateRef.current);
+          refreshStateRef.current = settled.state;
+          if (!settled.run) break;
+        }
+      }
+    })();
+  }, [fetchGraph]);
+
+  // 拉取下一页更早的提交并拼接到已有数据。后端只返回提交行，所以已加载条数就是
+  // `git log --skip=N` 的 N；翻页期间若发生过刷新，本页结果直接丢弃。
   const loadMoreGraph = useCallback(async () => {
     if (!workspace) return;
-    if (graphLoading || graphLoadingMore) return;
-    if (!graphHasMore) return;
-    const skip = graph?.length ?? 0;
-    if (skip === 0) return;
+    if (graphLoading || graphLoadingMore || !graphHasMoreRef.current) return;
+    const loaded = graphRef.current ?? [];
+    if (loaded.length === 0) return;
     const request = graphRequestRef.current;
     setGraphLoadingMore(true);
     try {
-      const lines = await listGitGraph(workspace, 100, graphRevRef.current, graphSimplifyRef.current, skip);
+      const lines = await listGitGraph(workspace, GIT_GRAPH_PAGE_SIZE, graphRevRef.current, graphSimplifyRef.current, loaded.length);
       if (request !== graphRequestRef.current) return;
-      setGraph((prev) => (prev ? [...prev, ...lines] : lines));
-      setGraphHasMore(lines.length >= 100);
+      setGraph((prev) => [...(prev ?? []), ...lines]);
+      setGraphHasMore(gitGraphHasMore(lines.length, GIT_GRAPH_PAGE_SIZE));
     } catch (error) {
       if (request !== graphRequestRef.current) return;
       onError(t("git.error.readGraph", locale, { error: errorText(error, locale) }));
     } finally {
       if (request === graphRequestRef.current) setGraphLoadingMore(false);
     }
-  }, [workspace, graph, graphLoading, graphLoadingMore, graphHasMore, onError]);
+  }, [workspace, graphLoading, graphLoadingMore, onError, locale]);
 
-  const refreshAll = useCallback(async () => {
-    await Promise.all([reloadStatus(), reloadCommits(), reloadBranches(), reloadGraph()]);
-  }, [reloadStatus, reloadCommits, reloadBranches, reloadGraph]);
+  // 统一刷新入口：状态/历史/分支每次都刷，图谱只在 refs 真的变了（或用户手动刷新）
+  // 且视图可见时重取；不可见时只标记过期，进入图谱视图再补取。
+  const refreshAll = useCallback(async (options: { force?: boolean } = {}) => {
+    const [nextStatus, , nextBranches] = await Promise.all([reloadStatus(), reloadCommits(), reloadBranches()]);
+    const signature = gitRefSignature(nextStatus, nextBranches);
+    const refsChanged = signature !== refSignatureRef.current;
+    refSignatureRef.current = signature;
+    const decision = decideGitGraphRefresh({
+      visible: graphVisibleRef.current,
+      hasData: graphRef.current !== null,
+      stale: graphStaleRef.current,
+      refsChanged,
+      forced: options.force === true,
+    });
+    if (decision.reload) requestGraph({ keepWindow: graphRef.current !== null });
+    if (decision.markStale && !graphStaleRef.current) {
+      graphStaleRef.current = true;
+      setGraphStale(true);
+    }
+  }, [reloadStatus, reloadCommits, reloadBranches, requestGraph]);
 
   useEffect(() => {
     setTab("changes");
@@ -257,6 +337,15 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     setDiscardTarget(null);
     setBranchDialog(null);
     setResult(null);
+    // 换工作区时先清空图谱相关状态，避免把上一个仓库的行当成可拼接的旧窗口
+    graphRef.current = null;
+    graphHasMoreRef.current = true;
+    graphStaleRef.current = false;
+    refSignatureRef.current = null;
+    refreshStateRef.current = INITIAL_GIT_GRAPH_REFRESH_STATE;
+    setGraph(null);
+    setGraphHasMore(true);
+    setGraphStale(false);
     void refreshAll();
   }, [workspace, refreshAll]);
 
@@ -309,9 +398,17 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     if (tab === "branches" && branches === null) void reloadBranches();
   }, [tab, branches, reloadBranches]);
 
+  // 图谱视图可见时才取数：不可见期间发生的 refs 变化只记账，进入视图时补取。
   useEffect(() => {
-    if (tab === "history" && historyView === "graph" && graph === null) void reloadGraph();
-  }, [tab, historyView, graph, reloadGraph]);
+    const visible = tab === "history" && historyView === "graph";
+    graphVisibleRef.current = visible;
+    if (!visible) return;
+    if (graphRef.current === null || graphStaleRef.current) {
+      graphStaleRef.current = false;
+      setGraphStale(false);
+      requestGraph({ keepWindow: graphRef.current !== null });
+    }
+  }, [tab, historyView, graphStale, requestGraph]);
 
   // 图谱分支过滤需要分支列表；进入图谱视图时若尚未加载则补齐。
   useEffect(() => {
@@ -319,7 +416,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   }, [tab, historyView, branches, reloadBranches]);
 
   // 实时性：外层 git 操作可能改变仓库状态。展开时每 15 秒轮询刷新一次，
-  // 避免重复请求（用 ref 防重入）。
+  // 避免重复请求（用 ref 防重入）。图谱只在 refs 变化时才会跟着重取。
   const refreshingRef = useRef(false);
   useEffect(() => {
     if (collapsed || !workspace) return;
@@ -357,13 +454,14 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     const next = rev || null;
     graphRevRef.current = next;
     setGraphRev(next);
-    void reloadGraph();
+    // 过滤条件变化必须从第一页重取，不能沿用旧窗口
+    requestGraph({ keepWindow: false });
   }
 
   function toggleGraphSimplify(enabled: boolean) {
     graphSimplifyRef.current = enabled;
     setGraphSimplify(enabled);
-    void reloadGraph();
+    requestGraph({ keepWindow: false });
   }
 
   // 读取已选提交里指定文件的差异。
@@ -615,7 +713,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
       <div className="git-toolbar">
         <button type="button" disabled={!isRepo || busy} onClick={() => void handlePull()} title={t("git.pullTitle", locale)} aria-label={t("git.pull", locale)}>↓ {t("git.pull", locale)}</button>
         <button type="button" disabled={!isRepo || busy} onClick={() => void handlePush()} title={t("git.pushTitle", locale)} aria-label={t("git.push", locale)}>↑ {t("git.push", locale)}</button>
-        <button type="button" disabled={!workspace || busy} onClick={() => void refreshAll()} title={t("git.refresh", locale)} aria-label={t("git.refresh", locale)}><RefreshCw aria-hidden="true" /></button>
+        <button type="button" disabled={!workspace || busy} onClick={() => void refreshAll({ force: true })} title={t("git.refresh", locale)} aria-label={t("git.refresh", locale)}><RefreshCw aria-hidden="true" /></button>
         {isRepo && (
           <span className="git-toolbar-counts">
             <span className="git-count git-count-staged">{t("git.countStaged", locale, { count: status?.staged ?? 0 })}</span>
