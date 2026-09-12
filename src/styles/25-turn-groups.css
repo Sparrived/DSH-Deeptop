@@ -20,6 +20,14 @@
   contain-intrinsic-size: auto 140px;
 }
 
+/* 转录最后一条消息不再画行分隔线：它后面没有下一条消息，这条线只会悬在提问
+ * 弹层与发送框上方，并随提问弹层收起（转录跟随底部滚动）上下滑动。末组的最
+ * 后一行可能是答复行，也可能是仍在展开的步骤行，两种都要覆盖。 */
+.transcript-inner > .turn-group:last-of-type > .message-row:last-child,
+.transcript-inner > .turn-group:last-of-type > .turn-steps:last-child > .turn-steps-body > .message-row:last-child {
+  border-bottom: 0;
+}
+
 .turn-steps {
   margin: 0;
   padding: 2px 0 10px;
