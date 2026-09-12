@@ -104,37 +104,39 @@
   outline: none;
 }
 
-/* One tick: a short vertical dash at the frame's right edge. */
+/* One tick: a short vertical dash at the frame's right edge. 加宽加粗一档并把默认色
+   提到 --faint（悬停再深一档、当前轮保持强调色），让刻度轨在密集对话流的右缘清楚
+   可辨；未加载的轮次仍留最轻的一条，读作次要刻度。 */
 .turn-rail-mark::before {
   content: "";
   position: absolute;
   top: 50%;
   right: 0;
-  width: 10px;
-  height: 2px;
-  border-radius: 1px;
-  background: var(--line-strong);
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--faint);
   transform: translateY(-50%);
   transition: background 120ms ease;
 }
 
 .turn-rail-mark-unloaded::before {
-  width: 6px;
-  height: 1px;
-  background: var(--line);
+  width: 10px;
+  height: 2px;
+  background: var(--line-strong);
 }
 
 .turn-rail-mark:hover::before,
 .turn-rail-mark-preview::before {
-  background: var(--faint);
-  width: 13px;
+  background: var(--muted);
+  width: 18px;
 }
 
 .turn-rail-mark-active::before {
   background: var(--accent);
-  width: 16px;
-  height: 4px;
-  border-radius: 2px;
+  width: 24px;
+  height: 5px;
+  border-radius: 3px;
 }
 
 .turn-rail-mark-busy::before {
