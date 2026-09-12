@@ -574,27 +574,28 @@
   /* 圆点描边与 HEAD 的“孔”都用行底色打出来，随 hover/选中一起变 */
   --git-graph-row-bg: var(--surface);
 }
-/* 泳道配色：5 个槽位，颜色只挂在泳道身份上；浅色与深色主题各自取值。 */
+/* 泳道配色：5 个槽位，颜色只挂在泳道身份上；浅色与深色主题各自取值。
+   5 个色相故意拉开（金 / 品红 / 青 / 紫 / 蓝），避免相邻泳道在浅色底上撞色。 */
 :root {
   --git-graph-lane-1: #b8791a;
   --git-graph-lane-2: #c2185b;
-  --git-graph-lane-3: #8a5a2b;
-  --git-graph-lane-4: #0f7d76;
-  --git-graph-lane-5: #7738c9;
+  --git-graph-lane-3: #0f7d76;
+  --git-graph-lane-4: #7738c9;
+  --git-graph-lane-5: #2f6fb0;
 }
 :root[data-theme="dark"] {
   --git-graph-lane-1: #f0b429;
   --git-graph-lane-2: #ec5f9b;
-  --git-graph-lane-3: #cf9155;
-  --git-graph-lane-4: #46c2b6;
-  --git-graph-lane-5: #b98bff;
+  --git-graph-lane-3: #46c2b6;
+  --git-graph-lane-4: #b98bff;
+  --git-graph-lane-5: #6fa8ff;
 }
 .git-graph-spacer { flex: 0 0 auto; }
 .git-graph-row {
   position: relative;
   display: flex;
   align-items: center;
-  padding: 0 8px 0 0;
+  padding: 0 8px 0 4px;
   border: 0;
   background: transparent;
   color: var(--ink);
