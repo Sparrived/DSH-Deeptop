@@ -497,6 +497,7 @@
 .git-stat-del { color: var(--danger); }
 .git-commit-detail-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin-top: 8px;
 }

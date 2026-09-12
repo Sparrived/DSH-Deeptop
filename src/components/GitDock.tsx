@@ -2,11 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronLeft, GitBranch, Minus, Plus, RefreshCw, X } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
+  amendGitCommit,
+  cherryPickGitCommit,
   checkoutGitBranch,
   commitGit,
   createGitBranch,
+  createGitTag,
   deleteGitBranch,
   discardGitPaths,
+  fetchGit,
   getGitCommitDetail,
   getGitCommitFileDiff,
   getGitFileDiff,
@@ -17,8 +21,11 @@ import {
   listGitLog,
   pullGit,
   pushGit,
+  resetGitTo,
+  revertGitCommit,
   stageAllGit,
   stageGitPaths,
+  undoLastGitCommit,
   unstageAllGit,
   unstageGitPaths,
   writeClipboard,
@@ -60,6 +67,13 @@ import { t, type UiLocale } from "../app/i18n";
 import { trackAsyncCleanup } from "../lib/async-cleanup";
 
 type GitDockTab = "changes" | "history" | "branches";
+
+/** 破坏性操作的确认目标：确认后由 `runConfirmAction` 统一执行。 */
+type GitConfirmTarget = {
+  kind: "reset-hard";
+  hash: string;
+  shortHash: string;
+};
 
 type GitDockProps = {
   locale?: UiLocale;
@@ -128,10 +142,15 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   const [commitOpen, setCommitOpen] = useState(false);
   const [commitMessage, setCommitMessage] = useState("");
   const [commitStageAll, setCommitStageAll] = useState(false);
+  const [commitAmend, setCommitAmend] = useState(false);
   const [discardTarget, setDiscardTarget] = useState<WorkspaceGitFile | null>(null);
   const [branchDialog, setBranchDialog] = useState<
-    { mode: "create"; value: string } | { mode: "delete"; branch: WorkspaceGitBranch } | null
+    | { mode: "create"; value: string; from: string | null }
+    | { mode: "delete"; branch: WorkspaceGitBranch }
+    | null
   >(null);
+  const [tagDialog, setTagDialog] = useState<{ value: string; message: string; hash: string | null } | null>(null);
+  const [confirmTarget, setConfirmTarget] = useState<GitConfirmTarget | null>(null);
   const [result, setResult] = useState<GitCommandResult | null>(null);
   const [copyingHash, setCopyingHash] = useState<string | null>(null);
   const [historyView, setHistoryView] = useState<"list" | "graph">("list");
@@ -336,6 +355,8 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     setCommitDetail(null);
     setDiscardTarget(null);
     setBranchDialog(null);
+    setTagDialog(null);
+    setConfirmTarget(null);
     setResult(null);
     // 换工作区时先清空图谱相关状态，避免把上一个仓库的行当成可拼接的旧窗口
     graphRef.current = null;
@@ -356,6 +377,8 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
       setDiffError(null);
       setDiscardTarget(null);
       setBranchDialog(null);
+      setTagDialog(null);
+      setConfirmTarget(null);
       setCommitOpen(false);
     }
   }, [collapsed]);
@@ -499,10 +522,12 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     };
   }, [commitDiffPath, commitDetail, workspace]);
 
-  async function runMutation(action: () => Promise<void>, reason: string) {
+  async function runMutation(action: () => Promise<void | GitCommandResult>, reason: string) {
     setBusy(true);
     try {
-      await action();
+      const outcome = await action();
+      // 拣选/回退/重置会把 git 输出回传：冲突时用户要看得到原因
+      if (outcome) setResult(outcome);
     } catch (error) {
       onError(t("git.error.runFailed", locale, { reason, error: errorText(error, locale) }));
     } finally {
@@ -537,17 +562,60 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
 
   async function submitCommit() {
     const message = commitMessage.trim();
-    if (!message) return;
+    const amend = commitAmend;
+    // 修正上次提交时允许留空：空信息表示沿用原提交信息
+    if (!message && !amend) return;
     setCommitOpen(false);
     setBusy(true);
     try {
       if (commitStageAll) await stageAllGit(workspace);
-      setResult(await commitGit(workspace, message));
+      setResult(amend
+        ? await amendGitCommit(workspace, message || null)
+        : await commitGit(workspace, message));
     } catch (error) {
-      onError(t("git.error.commitFailed", locale, { error: errorText(error, locale) }));
+      onError(t(amend ? "git.error.amendFailed" : "git.error.commitFailed", locale, { error: errorText(error, locale) }));
     } finally {
       setCommitMessage("");
       setCommitStageAll(false);
+      setCommitAmend(false);
+      setBusy(false);
+      await refreshAll();
+    }
+  }
+
+  /** 破坏性操作统一入口：只有经过确认弹窗才会调用。 */
+  async function runConfirmAction() {
+    const target = confirmTarget;
+    setConfirmTarget(null);
+    if (!target) return;
+    await runMutation(() => resetGitTo(workspace, target.hash, "hard"), t("git.resetHard", locale));
+  }
+
+  async function submitTagCreate() {
+    if (!tagDialog) return;
+    const name = tagDialog.value.trim();
+    const message = tagDialog.message.trim();
+    const hash = tagDialog.hash;
+    setTagDialog(null);
+    if (!name) return;
+    setBusy(true);
+    try {
+      setResult(await createGitTag(workspace, name, hash, message || null));
+    } catch (error) {
+      onError(t("git.error.tagCreateFailed", locale, { error: errorText(error, locale) }));
+    } finally {
+      setBusy(false);
+      await refreshAll();
+    }
+  }
+
+  async function handleFetch() {
+    setBusy(true);
+    try {
+      setResult(await fetchGit(workspace, true));
+    } catch (error) {
+      onError(t("git.error.fetchFailed", locale, { error: errorText(error, locale) }));
+    } finally {
       setBusy(false);
       await refreshAll();
     }
@@ -584,7 +652,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     if (!name) return;
     setBusy(true);
     try {
-      setResult(await createGitBranch(workspace, name));
+      setResult(await createGitBranch(workspace, name, branchDialog.from));
     } catch (error) {
       onError(t("git.error.branchCreateFailed", locale, { error: errorText(error, locale) }));
     } finally {
@@ -661,13 +729,17 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
       <div className="git-dialog-field">
         <input
           value={branchDialog.value}
-          onChange={(event) => setBranchDialog({ mode: "create", value: event.target.value })}
+          onChange={(event) => setBranchDialog({ mode: "create", value: event.target.value, from: branchDialog.from })}
           onKeyDown={(event) => { if (event.key === "Enter") void submitBranchCreate(); }}
           placeholder={t("git.branchPlaceholder", locale)}
           autoFocus
           aria-label={t("git.branchNameAria", locale)}
         />
-        <p className="git-dialog-hint">{t("git.branchCreateHint", locale)}</p>
+        <p className="git-dialog-hint">
+          {branchDialog.from
+            ? t("git.branchCreateFromHint", locale, { from: branchDialog.from.slice(0, 7) })
+            : t("git.branchCreateHint", locale)}
+        </p>
       </div>
     )
     : null;
@@ -717,6 +789,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
         )}
       </div>
       <div className="git-toolbar">
+        <button type="button" disabled={!isRepo || busy} onClick={() => void handleFetch()} title={t("git.fetchTitle", locale)} aria-label={t("git.fetch", locale)}>↺ {t("git.fetch", locale)}</button>
         <button type="button" disabled={!isRepo || busy} onClick={() => void handlePull()} title={t("git.pullTitle", locale)} aria-label={t("git.pull", locale)}>↓ {t("git.pull", locale)}</button>
         <button type="button" disabled={!isRepo || busy} onClick={() => void handlePush()} title={t("git.pushTitle", locale)} aria-label={t("git.push", locale)}>↑ {t("git.push", locale)}</button>
         <button type="button" disabled={!workspace || busy} onClick={() => void refreshAll({ force: true })} title={t("git.refresh", locale)} aria-label={t("git.refresh", locale)}><RefreshCw aria-hidden="true" /></button>
@@ -761,7 +834,8 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
               <div className="git-changes-toolbar">
                 <button type="button" disabled={!isRepo || busy} onClick={() => void handleStageAll()}>{t("git.stageAll", locale)}</button>
                 <button type="button" disabled={!isRepo || busy} onClick={() => void handleUnstageAll()}>{t("git.unstageAll", locale)}</button>
-                <button type="button" className="confirm" disabled={!isRepo || busy} onClick={() => { setCommitOpen(true); setCommitMessage(""); }}>{t("git.commitEllipsis", locale)}</button>
+                <button type="button" className="confirm" disabled={!isRepo || busy} onClick={() => { setCommitOpen(true); setCommitMessage(""); setCommitAmend(false); }}>{t("git.commitEllipsis", locale)}</button>
+                <button type="button" disabled={!isRepo || busy} title={t("git.undoLastCommitTitle", locale)} onClick={() => void runMutation(() => undoLastGitCommit(workspace), t("git.undoLastCommit", locale))}>{t("git.undoLastCommit", locale)}</button>
               </div>
 
               {!isRepo ? (
@@ -992,6 +1066,12 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                     <button type="button" disabled={copyingHash === commitDetail.hash} onClick={() => void handleCopyHash(commitDetail.hash)}>
                       {copyingHash === commitDetail.hash ? t("git.copied", locale) : t("git.copyHash", locale)}
                     </button>
+                    <button type="button" disabled={busy} title={t("git.tagCreateTitle", locale)} onClick={() => setTagDialog({ value: "", message: "", hash: commitDetail.hash })}>{t("git.tagCreate", locale)}</button>
+                    <button type="button" disabled={busy} title={t("git.branchFromCommitTitle", locale)} onClick={() => setBranchDialog({ mode: "create", value: "", from: commitDetail.hash })}>{t("git.branchFromCommit", locale)}</button>
+                    <button type="button" disabled={busy} title={t("git.cherryPickTitle", locale)} onClick={() => void runMutation(() => cherryPickGitCommit(workspace, commitDetail.hash, "start"), t("git.cherryPick", locale))}>{t("git.cherryPick", locale)}</button>
+                    <button type="button" disabled={busy} title={t("git.revertTitle", locale)} onClick={() => void runMutation(() => revertGitCommit(workspace, commitDetail.hash), t("git.revert", locale))}>{t("git.revert", locale)}</button>
+                    <button type="button" disabled={busy} title={t("git.resetSoftTitle", locale)} onClick={() => void runMutation(() => resetGitTo(workspace, commitDetail.hash, "soft"), t("git.resetSoft", locale))}>{t("git.resetSoft", locale)}</button>
+                    <button type="button" className="danger" disabled={busy} title={t("git.resetHardTitle", locale)} onClick={() => setConfirmTarget({ kind: "reset-hard", hash: commitDetail.hash, shortHash: commitDetail.hash.slice(0, 7) })}>{t("git.resetHard", locale)}</button>
                   </div>
                 </div>
               )}
@@ -1001,7 +1081,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
           {tab === "branches" && (
             <div className="git-branches">
               <div className="git-branches-toolbar">
-                <button type="button" disabled={!isRepo || busy} onClick={() => setBranchDialog({ mode: "create", value: "" })}><Plus aria-hidden="true" /> {t("git.newBranch", locale)}</button>
+                <button type="button" disabled={!isRepo || busy} onClick={() => setBranchDialog({ mode: "create", value: "", from: null })}><Plus aria-hidden="true" /> {t("git.newBranch", locale)}</button>
               </div>
               {branchesLoading && branches === null ? (
                 <div className="git-empty">{t("git.loadingBranches", locale)}</div>
@@ -1081,6 +1161,63 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
             <input type="checkbox" checked={commitStageAll} onChange={(event) => setCommitStageAll(event.target.checked)} />
             <span>{t("git.commitStageAll", locale)}</span>
           </label>
+          <label className="git-commit-stage-all" title={t("git.amendTitle", locale)}>
+            <input type="checkbox" checked={commitAmend} onChange={(event) => setCommitAmend(event.target.checked)} />
+            <span>{t("git.amend", locale)}</span>
+          </label>
+        </PopupDialog>
+      )}
+
+      {tagDialog && (
+        <PopupDialog
+          title={t("git.tagCreateTitle", locale)}
+          eyebrow="GIT / 标签"
+          locale={locale}
+          description={tagDialog.hash
+            ? t("git.tagCreateAtDescription", locale, { hash: tagDialog.hash.slice(0, 7) })
+            : t("git.tagCreateDescription", locale)}
+          className="popup-git-tag-create"
+          onClose={() => setTagDialog(null)}
+          footer={<>
+            <button type="button" onClick={() => setTagDialog(null)}>{t("common.cancel", locale)}</button>
+            <button type="button" className="confirm" disabled={!tagDialog.value.trim() || busy} onClick={() => void submitTagCreate()}>{t("git.tagCreateAction", locale)}</button>
+          </>}
+        >
+          <div className="git-dialog-field">
+            <input
+              value={tagDialog.value}
+              onChange={(event) => setTagDialog({ ...tagDialog, value: event.target.value })}
+              onKeyDown={(event) => { if (event.key === "Enter") void submitTagCreate(); }}
+              placeholder={t("git.tagNamePlaceholder", locale)}
+              autoFocus
+              aria-label={t("git.tagNamePlaceholder", locale)}
+            />
+            <input
+              value={tagDialog.message}
+              onChange={(event) => setTagDialog({ ...tagDialog, message: event.target.value })}
+              placeholder={t("git.tagMessagePlaceholder", locale)}
+              aria-label={t("git.tagMessagePlaceholder", locale)}
+            />
+            <p className="git-dialog-hint">{t("git.tagCreateHint", locale)}</p>
+          </div>
+        </PopupDialog>
+      )}
+
+      {confirmTarget?.kind === "reset-hard" && (
+        <PopupDialog
+          title={t("git.resetHardTitle", locale)}
+          eyebrow="GIT / 重置"
+          locale={locale}
+          description={t("git.resetHardDescription", locale, { hash: confirmTarget.shortHash })}
+          className="popup-git-reset-hard"
+          role="alertdialog"
+          onClose={() => setConfirmTarget(null)}
+          footer={<>
+            <button type="button" onClick={() => setConfirmTarget(null)}>{t("common.cancel", locale)}</button>
+            <button type="button" className="confirm danger-button" disabled={busy} onClick={() => void runConfirmAction()}>{t("git.resetHardAction", locale)}</button>
+          </>}
+        >
+          <p className="popup-warning-copy">{t("git.resetHardWarning", locale)}</p>
         </PopupDialog>
       )}
 
