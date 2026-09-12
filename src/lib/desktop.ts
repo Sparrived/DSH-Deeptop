@@ -1537,6 +1537,20 @@ export interface WorkspaceGitBranch {
   shortOid: string;
 }
 
+export interface WorkspaceGitTag {
+  name: string;
+  shortOid: string;
+  /** Commit a tag points at; equal to `shortOid` for lightweight tags. */
+  target: string;
+}
+
+export interface WorkspaceGitStash {
+  /** `stash@{N}` reference, fed back to apply/drop. */
+  reference: string;
+  subject: string;
+  timestamp: number;
+}
+
 export interface GitCommandResult {
   ok: boolean;
   stdout: string;
@@ -1734,16 +1748,123 @@ export async function checkoutGitBranch(dir: string, name: string): Promise<GitC
   return invoke<GitCommandResult>("git_checkout_branch", { dir, name });
 }
 
-/** Create a branch from HEAD and switch to it. */
-export async function createGitBranch(dir: string, name: string): Promise<GitCommandResult> {
+/** Create a branch from an optional starting point (defaults to HEAD) and switch to it. */
+export async function createGitBranch(dir: string, name: string, from: string | null = null): Promise<GitCommandResult> {
   if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
-  return invoke<GitCommandResult>("git_create_branch", { dir, name });
+  return invoke<GitCommandResult>("git_create_branch", { dir, name, from });
 }
 
 /** Force-delete a local branch (current branch is guarded). */
 export async function deleteGitBranch(dir: string, name: string): Promise<GitCommandResult> {
   if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
   return invoke<GitCommandResult>("git_delete_branch", { dir, name });
+}
+
+/** Rename a local branch (works for the current branch too). */
+export async function renameGitBranch(dir: string, from: string, to: string): Promise<GitCommandResult> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  return invoke<GitCommandResult>("git_rename_branch", { dir, from, to });
+}
+
+/** Amend the last commit; a null message keeps the existing one. */
+export async function amendGitCommit(dir: string, message: string | null = null): Promise<GitCommandResult> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  return invoke<GitCommandResult>("git_commit_amend", { dir, message });
+}
+
+/** Undo the last commit, leaving its changes staged. */
+export async function undoLastGitCommit(dir: string): Promise<GitCommandResult> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  return invoke<GitCommandResult>("git_undo_last_commit", { dir });
+}
+
+/** Fetch remotes without merging; `prune` also drops deleted remote branches. */
+export async function fetchGit(dir: string, prune = true): Promise<GitCommandResult> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  return invoke<GitCommandResult>("git_fetch", { dir, prune });
+}
+
+/** List tags, newest first. */
+export async function listGitTags(dir: string): Promise<WorkspaceGitTag[]> {
+  if (!isTauri()) return [];
+  const result = await invoke<unknown>("git_tags", { dir });
+  return Array.isArray(result) ? (result as WorkspaceGitTag[]) : [];
+}
+
+/** Create a tag; a message makes it an annotated tag, null makes it lightweight. */
+export async function createGitTag(
+  dir: string,
+  name: string,
+  hash: string | null = null,
+  message: string | null = null,
+): Promise<GitCommandResult> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  return invoke<GitCommandResult>("git_create_tag", { dir, name, hash, message });
+}
+
+/** Delete a local tag. */
+export async function deleteGitTag(dir: string, name: string): Promise<GitCommandResult> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  return invoke<GitCommandResult>("git_delete_tag", { dir, name });
+}
+
+/** Cherry-pick a commit, or continue/abort/skip an in-progress cherry-pick. */
+export async function cherryPickGitCommit(
+  dir: string,
+  hash: string | null = null,
+  action: "start" | "continue" | "abort" | "skip" = "start",
+): Promise<GitCommandResult> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  return invoke<GitCommandResult>("git_cherry_pick", { dir, action, hash });
+}
+
+/** Revert a commit by creating the opposite commit. */
+export async function revertGitCommit(dir: string, hash: string): Promise<GitCommandResult> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  return invoke<GitCommandResult>("git_revert", { dir, hash });
+}
+
+/** Reset to a commit: soft keeps staged+worktree, mixed keeps worktree, hard discards both. */
+export async function resetGitTo(
+  dir: string,
+  hash: string,
+  mode: "soft" | "mixed" | "hard",
+): Promise<GitCommandResult> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  return invoke<GitCommandResult>("git_reset", { dir, hash, mode });
+}
+
+/** List the stash stack, newest entry first. */
+export async function listGitStashes(dir: string): Promise<WorkspaceGitStash[]> {
+  if (!isTauri()) return [];
+  const result = await invoke<unknown>("git_stash_list", { dir });
+  return Array.isArray(result) ? (result as WorkspaceGitStash[]) : [];
+}
+
+/** Push a stash entry, optionally including untracked files. */
+export async function pushGitStash(
+  dir: string,
+  message: string | null = null,
+  includeUntracked = false,
+): Promise<GitCommandResult> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  return invoke<GitCommandResult>("git_stash_push", { dir, message, includeUntracked });
+}
+
+/** Apply (or pop) a stash entry; `drop` removes it after a successful apply. */
+export async function applyGitStash(
+  dir: string,
+  reference: string,
+  drop = false,
+): Promise<GitCommandResult> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  return invoke<GitCommandResult>("git_stash_apply", { dir, reference, drop });
+}
+
+/** Drop a stash entry without applying it. */
+export async function dropGitStash(dir: string, reference: string): Promise<GitCommandResult> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  return invoke<GitCommandResult>("git_stash_drop", { dir, reference });
 }
 
 /** Pull from the current branch's upstream. */

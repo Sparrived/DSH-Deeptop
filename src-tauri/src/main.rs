@@ -4320,6 +4320,24 @@ struct WorkspaceGitBranch {
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
+struct WorkspaceGitTag {
+    name: String,
+    short_oid: String,
+    /// 附注标签解引用后的提交短哈希；轻量标签与 `short_oid` 相同。
+    target: String,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceGitStash {
+    /// `stash@{N}` 形式的引用，回填给 apply/drop 使用。
+    reference: String,
+    subject: String,
+    timestamp: i64,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 struct GitCommandResult {
     ok: bool,
     stdout: String,
@@ -4752,6 +4770,44 @@ fn validate_git_oid(value: &str) -> Result<&str, String> {
     Ok(value)
 }
 
+/// 校验 `stash@{N}` 形式的引用，避免把任意参数透传给 git。
+fn validate_stash_reference(value: &str) -> Result<&str, String> {
+    let value = value.trim();
+    let inner = value
+        .strip_prefix("stash@{")
+        .and_then(|rest| rest.strip_suffix('}'))
+        .ok_or_else(|| "无效的 stash 引用".to_string())?;
+    if inner.is_empty() || !inner.chars().all(|c| c.is_ascii_digit()) {
+        return Err("无效的 stash 引用".into());
+    }
+    Ok(value)
+}
+
+/// `git reset` 模式 → 参数。只接受三个固定值，不做参数透传。
+fn reset_mode_flag(mode: &str) -> Result<&'static str, String> {
+    match mode {
+        "soft" => Ok("--soft"),
+        "mixed" => Ok("--mixed"),
+        "hard" => Ok("--hard"),
+        _ => Err("无效的重置模式".into()),
+    }
+}
+
+/// 拣选动作 → 参数。`start` 由调用方单独处理（需要提交哈希）。
+fn cherry_pick_action_flag(action: &str) -> Result<&'static str, String> {
+    match action {
+        "continue" => Ok("--continue"),
+        "abort" => Ok("--abort"),
+        "skip" => Ok("--skip"),
+        _ => Err("无效的拣选动作".into()),
+    }
+}
+
+/// 标签名沿用分支名的字符规则，只换错误文案。
+fn validate_tag_name(name: &str) -> Result<&str, String> {
+    validate_branch_name(name).map_err(|_| "标签名称不能为空或包含非法字符".to_string())
+}
+
 /// 读取单个提交的完整信息与变更统计（numstat）。
 #[tauri::command]
 fn git_commit_detail(dir: String, hash: String) -> Result<WorkspaceGitCommitDetail, String> {
@@ -4930,12 +4986,28 @@ fn git_checkout_branch(dir: String, name: String) -> Result<GitCommandResult, St
     ))
 }
 
-/// 基于当前分支创建并切换到新分支（git switch -c）。
+/// 基于指定引用（缺省为当前 HEAD）创建并切换到新分支（git switch -c）。
 #[tauri::command]
-fn git_create_branch(dir: String, name: String) -> Result<GitCommandResult, String> {
+fn git_create_branch(
+    dir: String,
+    name: String,
+    from: Option<String>,
+) -> Result<GitCommandResult, String> {
     let name = validate_branch_name(&name)?;
     let root = git_repository_root(Path::new(&dir))?;
-    let output = git_raw_output(&root, &["--no-pager", "switch", "-c", name])?;
+    let from = match from
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(from) => Some(validate_git_ref(from)?.to_string()),
+        None => None,
+    };
+    let mut args: Vec<&str> = vec!["--no-pager", "switch", "-c", name];
+    if let Some(from) = from.as_deref() {
+        args.push(from);
+    }
+    let output = git_raw_output(&root, &args)?;
     Ok(GitCommandResult::from_output(
         output.stdout,
         output.stderr,
@@ -4958,6 +5030,339 @@ fn git_delete_branch(dir: String, name: String) -> Result<GitCommandResult, Stri
         ));
     }
     let output = git_raw_output(&root, &["branch", "-D", name])?;
+    Ok(GitCommandResult::from_output(
+        output.stdout,
+        output.stderr,
+        output.ok,
+    ))
+}
+
+/// 修正上一次提交：`message` 为空时沿用原提交信息（git commit --amend --no-edit）。
+#[tauri::command]
+fn git_commit_amend(dir: String, message: Option<String>) -> Result<GitCommandResult, String> {
+    let root = git_repository_root(Path::new(&dir))?;
+    let message = message
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let output = match message {
+        Some(message) => {
+            if message.chars().count() > 4096 {
+                return Err("提交信息过长（最多 4096 字符）".into());
+            }
+            git_raw_output(&root, &["--no-pager", "commit", "--amend", "-m", &message])?
+        }
+        None => git_raw_output(&root, &["--no-pager", "commit", "--amend", "--no-edit"])?,
+    };
+    Ok(GitCommandResult::from_output(
+        output.stdout,
+        output.stderr,
+        output.ok,
+    ))
+}
+
+/// 撤销上一次提交，改动退回暂存区（git reset --soft HEAD~1）。
+/// 根提交没有可回退的父提交，直接返回可读失败而不是让 git 报错。
+#[tauri::command]
+fn git_undo_last_commit(dir: String) -> Result<GitCommandResult, String> {
+    let root = git_repository_root(Path::new(&dir))?;
+    let parent = git_raw_output(
+        &root,
+        &["--no-pager", "rev-parse", "--verify", "--quiet", "HEAD~1"],
+    )?;
+    if !parent.ok {
+        return Ok(GitCommandResult::from_output(
+            String::new(),
+            "这是仓库的第一个提交，无法撤销".to_string(),
+            false,
+        ));
+    }
+    let output = git_raw_output(&root, &["--no-pager", "reset", "--soft", "HEAD~1"])?;
+    Ok(GitCommandResult::from_output(
+        output.stdout,
+        output.stderr,
+        output.ok,
+    ))
+}
+
+/// 抓取远端更新但不合并；`prune` 为真时同时清理已删除的远端分支。
+#[tauri::command]
+fn git_fetch(dir: String, prune: bool) -> Result<GitCommandResult, String> {
+    let root = git_repository_root(Path::new(&dir))?;
+    let remotes = git_raw_output(&root, &["--no-pager", "remote"])?;
+    if remotes.stdout.trim().is_empty() {
+        return Ok(GitCommandResult::from_output(
+            String::new(),
+            "该仓库没有配置远端".to_string(),
+            false,
+        ));
+    }
+    let mut args: Vec<&str> = vec!["--no-pager", "fetch", "--all"];
+    if prune {
+        args.push("--prune");
+    }
+    let output = git_raw_output(&root, &args)?;
+    Ok(GitCommandResult::from_output(
+        output.stdout,
+        output.stderr,
+        output.ok,
+    ))
+}
+
+/// 列出标签；附注标签额外给出解引用后的提交短哈希。
+#[tauri::command]
+fn git_tags(dir: String) -> Result<Vec<WorkspaceGitTag>, String> {
+    let root = git_repository_root(Path::new(&dir))?;
+    let format = "%(refname:short)%1f%(objectname:short)%1f%(*objectname:short)%1e";
+    let output = git_raw_output(
+        &root,
+        &[
+            "--no-pager",
+            "for-each-ref",
+            &format!("--format={format}"),
+            "--sort=-creatordate",
+            "refs/tags",
+        ],
+    )?;
+    if !output.ok {
+        return Err(output.stderr.trim().to_string());
+    }
+    let mut tags = Vec::new();
+    for record in output.stdout.split('\x1e') {
+        let fields: Vec<&str> = record.split('\x1f').collect();
+        if fields.len() < 3 {
+            continue;
+        }
+        let name = fields[0].trim();
+        if name.is_empty() {
+            continue;
+        }
+        let short_oid = fields[1].trim().to_string();
+        let peeled = fields[2].trim();
+        tags.push(WorkspaceGitTag {
+            name: name.to_string(),
+            target: if peeled.is_empty() {
+                short_oid.clone()
+            } else {
+                peeled.to_string()
+            },
+            short_oid,
+        });
+    }
+    Ok(tags)
+}
+
+/// 新建标签：给出 `message` 时建附注标签，否则建轻量标签。
+#[tauri::command]
+fn git_create_tag(
+    dir: String,
+    name: String,
+    hash: Option<String>,
+    message: Option<String>,
+) -> Result<GitCommandResult, String> {
+    let name = validate_tag_name(&name)?;
+    let root = git_repository_root(Path::new(&dir))?;
+    let hash = match hash
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(hash) => Some(validate_git_oid(hash)?.to_string()),
+        None => None,
+    };
+    let message = message
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    if let Some(message) = message.as_deref() {
+        if message.chars().count() > 4096 {
+            return Err("标签说明过长（最多 4096 字符）".into());
+        }
+    }
+    let mut args: Vec<&str> = vec!["--no-pager", "tag"];
+    if let Some(message) = message.as_deref() {
+        args.push("-a");
+        args.push("-m");
+        args.push(message);
+    }
+    args.push(name);
+    if let Some(hash) = hash.as_deref() {
+        args.push(hash);
+    }
+    let output = git_raw_output(&root, &args)?;
+    Ok(GitCommandResult::from_output(
+        output.stdout,
+        output.stderr,
+        output.ok,
+    ))
+}
+
+/// 删除本地标签。
+#[tauri::command]
+fn git_delete_tag(dir: String, name: String) -> Result<GitCommandResult, String> {
+    let name = validate_tag_name(&name)?;
+    let root = git_repository_root(Path::new(&dir))?;
+    let output = git_raw_output(&root, &["--no-pager", "tag", "-d", name])?;
+    Ok(GitCommandResult::from_output(
+        output.stdout,
+        output.stderr,
+        output.ok,
+    ))
+}
+
+/// 重命名本地分支（git branch -m），当前分支同样支持。
+#[tauri::command]
+fn git_rename_branch(dir: String, from: String, to: String) -> Result<GitCommandResult, String> {
+    let from = validate_branch_name(&from)?;
+    let to = validate_branch_name(&to)?;
+    let root = git_repository_root(Path::new(&dir))?;
+    let output = git_raw_output(&root, &["--no-pager", "branch", "-m", from, to])?;
+    Ok(GitCommandResult::from_output(
+        output.stdout,
+        output.stderr,
+        output.ok,
+    ))
+}
+
+/// 拣选提交：`action` 为 start 时必须给出 `hash`；冲突后用 continue / abort / skip 收尾。
+#[tauri::command]
+fn git_cherry_pick(
+    dir: String,
+    action: String,
+    hash: Option<String>,
+) -> Result<GitCommandResult, String> {
+    let root = git_repository_root(Path::new(&dir))?;
+    if action == "start" {
+        let hash = hash
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "缺少要拣选的提交".to_string())?;
+        let hash = validate_git_oid(hash)?;
+        let output = git_raw_output(&root, &["--no-pager", "cherry-pick", hash])?;
+        return Ok(GitCommandResult::from_output(
+            output.stdout,
+            output.stderr,
+            output.ok,
+        ));
+    }
+    let flag = cherry_pick_action_flag(&action)?;
+    let output = git_raw_output(&root, &["--no-pager", "cherry-pick", flag])?;
+    Ok(GitCommandResult::from_output(
+        output.stdout,
+        output.stderr,
+        output.ok,
+    ))
+}
+
+/// 回退某个提交（生成反向提交，git revert --no-edit）。
+#[tauri::command]
+fn git_revert(dir: String, hash: String) -> Result<GitCommandResult, String> {
+    let hash = validate_git_oid(&hash)?;
+    let root = git_repository_root(Path::new(&dir))?;
+    let output = git_raw_output(&root, &["--no-pager", "revert", "--no-edit", hash])?;
+    Ok(GitCommandResult::from_output(
+        output.stdout,
+        output.stderr,
+        output.ok,
+    ))
+}
+
+/// 重置到某个提交：soft 保留暂存区与工作区、mixed 只保留工作区、hard 全部丢弃。
+#[tauri::command]
+fn git_reset(dir: String, hash: String, mode: String) -> Result<GitCommandResult, String> {
+    let hash = validate_git_oid(&hash)?;
+    let flag = reset_mode_flag(&mode)?;
+    let root = git_repository_root(Path::new(&dir))?;
+    let output = git_raw_output(&root, &["--no-pager", "reset", flag, hash])?;
+    Ok(GitCommandResult::from_output(
+        output.stdout,
+        output.stderr,
+        output.ok,
+    ))
+}
+
+/// 列出 stash 栈，栈顶在最前。
+#[tauri::command]
+fn git_stash_list(dir: String) -> Result<Vec<WorkspaceGitStash>, String> {
+    let root = git_repository_root(Path::new(&dir))?;
+    let format = "%gd%1f%gs%1f%ct%1e";
+    let output = git_raw_output(
+        &root,
+        &["--no-pager", "stash", "list", &format!("--format={format}")],
+    )?;
+    if !output.ok {
+        return Err(output.stderr.trim().to_string());
+    }
+    let mut stashes = Vec::new();
+    for record in output.stdout.split('\x1e') {
+        let fields: Vec<&str> = record.split('\x1f').collect();
+        if fields.len() < 3 {
+            continue;
+        }
+        let reference = fields[0].trim();
+        if validate_stash_reference(reference).is_err() {
+            continue;
+        }
+        stashes.push(WorkspaceGitStash {
+            reference: reference.to_string(),
+            subject: fields[1].trim().to_string(),
+            timestamp: fields[2].trim().parse::<i64>().unwrap_or(0),
+        });
+    }
+    Ok(stashes)
+}
+
+/// 生成一条 stash；可选包含未跟踪文件与自定义说明。
+#[tauri::command]
+fn git_stash_push(
+    dir: String,
+    message: Option<String>,
+    include_untracked: bool,
+) -> Result<GitCommandResult, String> {
+    let root = git_repository_root(Path::new(&dir))?;
+    let message = message
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    if let Some(message) = message.as_deref() {
+        if message.chars().count() > 4096 {
+            return Err("stash 说明过长（最多 4096 字符）".into());
+        }
+    }
+    let mut args: Vec<&str> = vec!["--no-pager", "stash", "push"];
+    if include_untracked {
+        args.push("--include-untracked");
+    }
+    if let Some(message) = message.as_deref() {
+        args.push("-m");
+        args.push(message);
+    }
+    let output = git_raw_output(&root, &args)?;
+    Ok(GitCommandResult::from_output(
+        output.stdout,
+        output.stderr,
+        output.ok,
+    ))
+}
+
+/// 应用（apply）或弹出（pop）一条 stash。
+#[tauri::command]
+fn git_stash_apply(dir: String, reference: String, drop: bool) -> Result<GitCommandResult, String> {
+    let reference = validate_stash_reference(&reference)?;
+    let root = git_repository_root(Path::new(&dir))?;
+    let subcommand = if drop { "pop" } else { "apply" };
+    let output = git_raw_output(&root, &["--no-pager", "stash", subcommand, reference])?;
+    Ok(GitCommandResult::from_output(
+        output.stdout,
+        output.stderr,
+        output.ok,
+    ))
+}
+
+/// 删除一条 stash。
+#[tauri::command]
+fn git_stash_drop(dir: String, reference: String) -> Result<GitCommandResult, String> {
+    let reference = validate_stash_reference(&reference)?;
+    let root = git_repository_root(Path::new(&dir))?;
+    let output = git_raw_output(&root, &["--no-pager", "stash", "drop", reference])?;
     Ok(GitCommandResult::from_output(
         output.stdout,
         output.stderr,
@@ -5722,16 +6127,17 @@ mod tests {
     use super::is_launcher_environment_name;
     use super::migrate_legacy_desktop_profile;
     use super::{
-        base64_encode, bound_log_text, bridge_stdout_log_summary, bundled_bridge_files, dsh_home,
-        dsh_homes_match, extract_runtime_archive, format_log_line, format_utc_datetime,
-        is_binary_content, is_bundled_runtime_manifest, is_dsh_package_manifest, is_file_path,
-        is_safe_runtime_entry, process_command_line_matches_dsh, prune_old_runtime_caches,
-        runtime_arch, runtime_archive_is_cache_metadata, runtime_cache_validation_message,
-        runtime_platform, runtime_tree_sha256, slice_lines, sniff_image_media_type, tray_menu_text,
-        tray_session_label, validate_tray_session_menu, validated_connection_url, BridgeManager,
-        DshRuntimeLog, LogStore, RuntimePhase, TraySessionMenuItem, TraySessionMenuSnapshot,
-        TraySessionStatus, MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES, RUNTIME_CACHE_MARKER,
-        WORKSPACE_FILE_SNIFF_BYTES,
+        base64_encode, bound_log_text, bridge_stdout_log_summary, bundled_bridge_files,
+        cherry_pick_action_flag, dsh_home, dsh_homes_match, extract_runtime_archive,
+        format_log_line, format_utc_datetime, is_binary_content, is_bundled_runtime_manifest,
+        is_dsh_package_manifest, is_file_path, is_safe_runtime_entry,
+        process_command_line_matches_dsh, prune_old_runtime_caches, reset_mode_flag, runtime_arch,
+        runtime_archive_is_cache_metadata, runtime_cache_validation_message, runtime_platform,
+        runtime_tree_sha256, slice_lines, sniff_image_media_type, tray_menu_text,
+        tray_session_label, validate_stash_reference, validate_tray_session_menu,
+        validated_connection_url, BridgeManager, DshRuntimeLog, LogStore, RuntimePhase,
+        TraySessionMenuItem, TraySessionMenuSnapshot, TraySessionStatus, MAX_LOG_ENTRIES,
+        MAX_LOG_TEXT_BYTES, RUNTIME_CACHE_MARKER, WORKSPACE_FILE_SNIFF_BYTES,
     };
     use std::fs;
 
@@ -6634,6 +7040,50 @@ mod tests {
         late_nul.push(0);
         assert!(!is_binary_content(&late_nul));
     }
+
+    #[test]
+    fn accepts_only_well_formed_stash_references() {
+        assert_eq!(validate_stash_reference("stash@{0}").unwrap(), "stash@{0}");
+        assert_eq!(
+            validate_stash_reference(" stash@{12} ").unwrap(),
+            "stash@{12}"
+        );
+        for invalid in [
+            "",
+            "stash",
+            "stash@{}",
+            "stash@{a}",
+            "stash@{0",
+            "HEAD~1",
+            "stash@{0}extra",
+        ] {
+            assert!(
+                validate_stash_reference(invalid).is_err(),
+                "{invalid} 不应被接受为 stash 引用"
+            );
+        }
+    }
+
+    #[test]
+    fn maps_reset_and_cherry_pick_inputs_to_fixed_flags() {
+        assert_eq!(reset_mode_flag("soft").unwrap(), "--soft");
+        assert_eq!(reset_mode_flag("mixed").unwrap(), "--mixed");
+        assert_eq!(reset_mode_flag("hard").unwrap(), "--hard");
+        // 不做参数透传：未知模式与任何额外参数都被拒绝
+        for invalid in ["", "SOFT", "--soft", "hard --force", "keep"] {
+            assert!(reset_mode_flag(invalid).is_err(), "{invalid} 不应被接受");
+        }
+
+        assert_eq!(cherry_pick_action_flag("continue").unwrap(), "--continue");
+        assert_eq!(cherry_pick_action_flag("abort").unwrap(), "--abort");
+        assert_eq!(cherry_pick_action_flag("skip").unwrap(), "--skip");
+        for invalid in ["", "start", "--abort", "abort --force"] {
+            assert!(
+                cherry_pick_action_flag(invalid).is_err(),
+                "{invalid} 不应被接受"
+            );
+        }
+    }
 }
 
 fn main() {
@@ -6779,6 +7229,20 @@ fn main() {
             git_checkout_branch,
             git_create_branch,
             git_delete_branch,
+            git_commit_amend,
+            git_undo_last_commit,
+            git_fetch,
+            git_tags,
+            git_create_tag,
+            git_delete_tag,
+            git_rename_branch,
+            git_cherry_pick,
+            git_revert,
+            git_reset,
+            git_stash_list,
+            git_stash_push,
+            git_stash_apply,
+            git_stash_drop,
             git_pull,
             git_push,
             open_in_vscode,
