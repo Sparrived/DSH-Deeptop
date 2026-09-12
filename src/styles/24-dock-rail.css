@@ -13,7 +13,7 @@
  *   └─ .dock-rail-empty          空栏提示，同时也是第一个面板的落点
  *
  * 面板类标签的正文由 DockFrame 把自己的正文节点挂进 .dock-rail-tab-host，
- * 文件类标签的正文由 React 直接渲染在同一个宿主里。
+ * 其余内容类型由 DockTabBody 的注册表按 kind 渲染在同一个宿主里。
  */
 
 .dock-rail {
@@ -23,12 +23,18 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: var(--surface);
+  /* 与左侧会话侧栏镜像：同一套 rail 底色与文字色、竖向留 10px 边距、内边距一致，
+     圆角只做靠窗的内侧两角（侧栏是右侧圆角，这里是左侧圆角），靠窗的一边贴平。 */
+  margin: 10px 0;
+  padding: 18px 16px 14px;
+  border-radius: var(--radius-panel) 0 0 var(--radius-panel);
+  background: var(--rail);
+  color: var(--rail-text);
   /* 分隔线只在右栏真的承载内容时出现：宽度为 0 的轨道不该留下 1px 边框。 */
   border-left: 1px solid transparent;
 }
 
-.dock-rail.has-content { border-left-color: var(--line); }
+.dock-rail.has-content { border-left-color: var(--chrome-line); }
 
 @media (max-width: 760px) {
   .dock-rail { display: none; }
@@ -41,11 +47,13 @@
   pointer-events: none;
 }
 
+/* 宽度拖拽手柄。右栏是 overflow:hidden 的圆角卡片，越界的手柄会被裁掉，
+   所以手柄整条留在卡片左缘内侧，正好压在右栏与对话列的分界上。 */
 .dock-rail-resizer {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: -4px;
+  left: 0;
   z-index: 30;
   width: 8px;
   cursor: col-resize;
@@ -93,7 +101,7 @@ body.dock-tab-dragging * {
   justify-content: center;
   gap: 6px;
   padding: 10px 8px;
-  color: var(--muted);
+  color: var(--rail-muted);
   text-align: center;
 }
 
@@ -137,6 +145,11 @@ body.dock-tab-dragging * {
   min-height: 0;
   overflow: hidden;
 }
+
+/* 相邻分栏之间留出空隙：正文卡片自带边框，再画分隔线会贴成双线。
+   分栏拖拽手柄正落在这段空隙里。 */
+.dock-rail-split.axis-row > .dock-rail-split-child:not(:last-child) { padding-right: 10px; }
+.dock-rail-split.axis-column > .dock-rail-split-child:not(:last-child) { padding-bottom: 10px; }
 
 .dock-rail-split-resizer {
   position: absolute;
@@ -183,10 +196,7 @@ body.dock-tab-dragging * {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  border-bottom: 1px solid var(--line);
 }
-
-.dock-rail-pane:last-child { border-bottom: 0; }
 
 .dock-rail-tabbar {
   display: flex;
@@ -194,10 +204,9 @@ body.dock-tab-dragging * {
   align-items: stretch;
   gap: 2px;
   min-width: 0;
-  padding: 4px 4px 0;
+  padding: 4px 4px 6px;
   overflow-x: auto;
   overflow-y: hidden;
-  border-bottom: 1px solid var(--line);
   scrollbar-width: none;
 }
 
@@ -205,6 +214,7 @@ body.dock-tab-dragging * {
 
 .dock-rail-tabbar-spacer { flex: 1 1 auto; min-width: 4px; }
 
+/* 标签是 rail 头部的一枚 chip（正文卡片与它分离），四角都收圆。 */
 .dock-rail-tab {
   display: flex;
   flex: 0 0 auto;
@@ -212,16 +222,17 @@ body.dock-tab-dragging * {
   min-width: 0;
   max-width: 200px;
   border: 1px solid transparent;
-  border-bottom: 0;
-  border-radius: 6px 6px 0 0;
-  color: var(--muted);
+  border-radius: var(--radius-control);
+  color: var(--rail-muted);
 }
 
 .dock-rail-tab.selected {
-  border-color: var(--line);
-  background: var(--surface-raised);
-  color: var(--ink);
+  border-color: var(--rail-line);
+  background: var(--rail-surface);
+  color: var(--rail-text);
 }
+
+.dock-rail-tab:not(.selected):hover { background: var(--rail-inset); }
 
 .dock-rail-tab.dragging { opacity: 0.45; }
 
@@ -244,7 +255,7 @@ body.dock-tab-dragging * {
 .dock-rail-tab-detail {
   max-width: 80px;
   overflow: hidden;
-  color: var(--muted);
+  color: var(--rail-muted);
   font-family: var(--mono);
   font-size: 9px;
   text-overflow: ellipsis;
@@ -261,7 +272,7 @@ body.dock-tab-dragging * {
   border: 0;
   border-radius: 4px;
   background: transparent;
-  color: var(--muted);
+  color: var(--rail-muted);
   cursor: pointer;
 }
 
@@ -269,7 +280,7 @@ body.dock-tab-dragging * {
 .dock-rail-pane-close { align-self: center; margin-bottom: 3px; font-size: 13px; }
 
 .dock-rail-tab-close:hover,
-.dock-rail-pane-close:hover { background: var(--surface-sunken, var(--paper-deep)); color: var(--danger); }
+.dock-rail-pane-close:hover { background: var(--rail-inset); color: var(--danger); }
 
 .dock-rail-pane-body {
   display: flex;
@@ -280,7 +291,9 @@ body.dock-tab-dragging * {
   overflow: hidden;
 }
 
-/* 标签正文宿主：停用时 display:none，但仍挂载，标签切换不丢状态。 */
+/* 标签正文宿主：停用时 display:none，但仍挂载，标签切换不丢状态。
+   正文卡片自己带 --surface-raised 背景，这里补一圈 rail 边框与圆角，
+   让它像侧栏里的一张卡，而不是直接切在圆角容器上。 */
 .dock-rail-tab-host {
   display: flex;
   flex: 1 1 auto;
@@ -288,6 +301,15 @@ body.dock-tab-dragging * {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius-panel) - 3px);
+}
+
+.dock-rail-tab-host:not(.is-inactive) {
+  border-color: var(--rail-line);
+  background: var(--surface-raised);
+  /* 卡片里是内容，不是 rail 装饰：文字用内容色，不继承右栏的 rail 文字色。 */
+  color: var(--ink);
 }
 
 .dock-rail-tab-host.is-inactive { display: none; }
@@ -309,7 +331,7 @@ body.dock-tab-dragging * {
 .dock-rail-dropzone span {
   padding: 3px 6px;
   border-radius: 4px;
-  background: var(--surface-raised);
+  background: var(--rail);
 }
 
 .dock-rail-dropzone.zone-center { inset: 18%; }
@@ -327,7 +349,7 @@ body.dock-tab-dragging * {
   padding: 3px 8px;
   border: 1px solid var(--accent);
   border-radius: 999px;
-  background: var(--surface-raised);
+  background: var(--rail);
   color: var(--accent-deep);
   font-size: 10px;
   white-space: nowrap;

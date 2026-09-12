@@ -949,7 +949,8 @@
   background-size: cover;
 }
 
-.app-shell.has-custom-background .session-sidebar {
+.app-shell.has-custom-background .session-sidebar,
+.app-shell.has-custom-background .dock-rail {
   background: color-mix(in srgb, var(--rail) var(--bg-sidebar-panel-opacity, 92%), transparent);
   backdrop-filter: blur(14px);
 }

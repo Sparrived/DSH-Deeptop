@@ -31,9 +31,11 @@
 /* ===== 分区背景图图层 =====
    标题栏 / 侧栏 / 对话栏 / 对话框 / 工具面板各自通过 ::before 渲染独立背景图，
    位于面板半透明背景之上、内容之下。面板建立定位与层叠上下文，
-   背景层按 z-index:-1 定位到面板内部，互不越界。 */
+   背景层按 z-index:-1 定位到面板内部，互不越界。
+   可停靠右栏与左侧会话侧栏是同一块 rail 面，共用侧栏的分区背景与不透明度。 */
 .app-shell.has-custom-background .window-bar,
 .app-shell.has-custom-background .session-sidebar,
+.app-shell.has-custom-background .dock-rail,
 .app-shell.has-custom-background .conversation-panel,
 .app-shell.has-custom-background .composer-area,
 .app-shell.has-custom-background .todo-panel,
@@ -51,6 +53,7 @@
 
 .app-shell.has-custom-background .window-bar::before,
 .app-shell.has-custom-background .session-sidebar::before,
+.app-shell.has-custom-background .dock-rail::before,
 .app-shell.has-custom-background .conversation-panel::before,
 .app-shell.has-custom-background .composer-area::before,
 .app-shell.has-custom-background .todo-panel::before,
@@ -74,7 +77,8 @@
   opacity: var(--bg-windowbar-opacity, 0);
 }
 
-.app-shell.has-custom-background .session-sidebar::before {
+.app-shell.has-custom-background .session-sidebar::before,
+.app-shell.has-custom-background .dock-rail::before {
   background-image: var(--bg-sidebar-image, none);
   background-size: var(--bg-sidebar-size, cover);
   background-position: var(--bg-sidebar-position, center);
