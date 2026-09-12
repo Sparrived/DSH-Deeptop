@@ -103,20 +103,14 @@ export function groupGitBranches(branches: WorkspaceGitBranch[]): GitBranchGroup
   return { local, remote };
 }
 
-/** 提交图谱车道配色：按列索引循环取色，让连续车道在同一列上保持同色。 */
-export const GIT_GRAPH_LANE_COLORS = [
-  "#f5d99b", // 金色
-  "#8ab4f8", // 蓝色
-  "#ff7b72", // 红色
-  "#79d8a8", // 绿色
-  "#d2a8ff", // 紫色
-  "#79d8d8", // 青色
-] as const;
+/** 提交图谱泳道配色槽位数：颜色只挂在泳道身份上，按槽位取主题变量。 */
+export const GIT_GRAPH_LANE_COLOR_COUNT = 5;
 
-export function gitGraphLaneColor(column: number): string {
-  const palette = GIT_GRAPH_LANE_COLORS;
-  const index = ((column % palette.length) + palette.length) % palette.length;
-  return palette[index];
+/** 泳道配色：返回主题 CSS 变量引用，浅色/深色主题各自定义具体色值。 */
+export function gitGraphLaneColor(slot: number): string {
+  const count = GIT_GRAPH_LANE_COLOR_COUNT;
+  const index = ((slot % count) + count) % count;
+  return `var(--git-graph-lane-${index + 1})`;
 }
 
 export type GitRefKind = "head" | "tag" | "branch";

@@ -4612,23 +4612,22 @@ fn git_log(dir: String, limit: u32) -> Result<Vec<WorkspaceGitCommit>, String> {
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct WorkspaceGitGraphLine {
-    graph: String,
-    hash: Option<String>,
-    short_hash: Option<String>,
+    hash: String,
+    short_hash: String,
     author: Option<String>,
     email: Option<String>,
     timestamp: Option<i64>,
     refs: Vec<String>,
     parents: Vec<String>,
-    subject: Option<String>,
+    subject: String,
 }
 
-/// 读取带图谱前缀的提交树（git log --graph），供历史页渲染真正的树状图谱。
+/// 读取提交树（git log --topo-order），供历史页渲染树状图谱。
 /// `rev` 为 None 时覆盖全部分支（--all），否则只看该引用/分支；
 /// `simplify` 为 true 时只保留带头部（引用指向）的提交；
-/// `skip` 用于分页加载：跳过前 N 条提交，返回再往后 limit 条。
-/// 输出按物理行解析：提交行带有 \x1f 分隔字段（含完整哈希与双亲），
-/// 纯连接行（如 “|\\” “| |\\”）只有图谱前缀，用于绘制分支分叉/合并的连线。
+/// `skip` 用于分页加载：按提交条数跳过前 N 条，返回再往后 limit 条。
+/// 不请求 `--graph`：分叉/合并连线由前端从双亲关系推导，因此每条记录都是提交行，
+/// 返回条数严格等于提交条数，skip 与 limit 都以提交计数对齐。
 #[tauri::command]
 fn git_graph(
     dir: String,
@@ -4643,14 +4642,16 @@ fn git_graph(
         Some(rev) => Some(validate_git_ref(&rev)?.to_string()),
         None => None,
     };
-    let format = "%H%x1f%h%x1f%an%x1f%ae%x1f%at%x1f%D%x1f%P%x1f%s%x1e";
+    let format = "%H%x1f%h%x1f%an%x1f%ae%x1f%at%x1f%D%x1f%P%x1f%s";
     let n_arg = format!("-n{limit}");
     let format_arg = format!("--format={format}");
     // 跳过前 N 条历史：与 -n{limit} 配合实现「分页加载更早提交」，
-    // 前端拿到首屏后再次用 skip=loaded.length 拉下一页。
+    // 前端拿到首屏后再次用 skip=已加载的提交条数拉下一页。
     // skip_arg 必须在 args 之后才能 drop（args 借用其 &str），故提前绑定。
     let skip_arg = format!("--skip={skip}");
-    let mut args: Vec<&str> = vec!["--no-pager", "log", "--graph", "--no-color"];
+    // --topo-order 必须显式声明：布局按“子先于父”的拓扑序推导泳道，
+    // 不能依赖提交时间排序（时钟偏移会破坏父子先后关系）。
+    let mut args: Vec<&str> = vec!["--no-pager", "log", "--topo-order", "--no-color"];
     if simplify {
         args.push("--simplify-by-decoration");
     }
@@ -4679,36 +4680,13 @@ fn git_graph(
         if line.is_empty() {
             continue;
         }
-        // 图谱前缀只含 | \ / _ . * o 等非十六进制字符，完整哈希从首个十六进制位开始。
-        let hash_start = line
-            .char_indices()
-            .find(|(_, ch)| ch.is_ascii_hexdigit())
-            .map(|(index, _)| index)
-            .unwrap_or(line.len());
-        let graph = line[..hash_start].trim_end().to_string();
-        if !line.contains('\x1f') {
-            // 纯连接行：只携带图谱前缀，用于绘制分叉/合并连线。
-            lines.push(WorkspaceGitGraphLine {
-                graph,
-                hash: None,
-                short_hash: None,
-                author: None,
-                email: None,
-                timestamp: None,
-                refs: Vec::new(),
-                parents: Vec::new(),
-                subject: None,
-            });
-            continue;
-        }
-        let fields: Vec<&str> = line[hash_start..].split('\x1f').collect();
+        let fields: Vec<&str> = line.split('\x1f').collect();
         if fields.len() < 8 || fields[0].len() != 40 {
             continue;
         }
         lines.push(WorkspaceGitGraphLine {
-            graph,
-            hash: Some(fields[0].to_string()),
-            short_hash: Some(fields[1].to_string()),
+            hash: fields[0].to_string(),
+            short_hash: fields[1].to_string(),
             author: Some(fields[2].to_string()),
             email: Some(fields[3].to_string()),
             timestamp: fields[4].parse::<i64>().ok(),
@@ -4722,7 +4700,7 @@ fn git_graph(
                 .map(|item| item.trim().to_string())
                 .filter(|item| !item.is_empty())
                 .collect(),
-            subject: Some(fields[7].to_string()),
+            subject: fields[7].to_string(),
         });
     }
     Ok(lines)

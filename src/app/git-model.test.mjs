@@ -5,7 +5,7 @@ import {
   canUnstageFile,
   diffLineKind,
   formatRelativeTime,
-  GIT_GRAPH_LANE_COLORS,
+  GIT_GRAPH_LANE_COLOR_COUNT,
   gitFileLabel,
   gitFileMark,
   gitFileState,
@@ -115,11 +115,12 @@ test("splits branches into local and remote groups", () => {
   assert.deepEqual(grouped.remote, [remote]);
 });
 
-test("cycles graph lane colors by column and stays stable", () => {
-  assert.equal(gitGraphLaneColor(0), GIT_GRAPH_LANE_COLORS[0]);
-  assert.equal(gitGraphLaneColor(1), GIT_GRAPH_LANE_COLORS[1]);
-  assert.equal(gitGraphLaneColor(GIT_GRAPH_LANE_COLORS.length), GIT_GRAPH_LANE_COLORS[0]);
-  assert.equal(gitGraphLaneColor(-1), GIT_GRAPH_LANE_COLORS[GIT_GRAPH_LANE_COLORS.length - 1]);
+test("cycles graph lane colors by slot and stays stable", () => {
+  assert.equal(gitGraphLaneColor(0), "var(--git-graph-lane-1)");
+  assert.equal(gitGraphLaneColor(1), "var(--git-graph-lane-2)");
+  assert.equal(gitGraphLaneColor(GIT_GRAPH_LANE_COLOR_COUNT), "var(--git-graph-lane-1)");
+  assert.equal(gitGraphLaneColor(GIT_GRAPH_LANE_COLOR_COUNT + 1), "var(--git-graph-lane-2)");
+  assert.equal(gitGraphLaneColor(-1), `var(--git-graph-lane-${GIT_GRAPH_LANE_COLOR_COUNT})`);
 });
 
 test("classifies git ref decorations", () => {

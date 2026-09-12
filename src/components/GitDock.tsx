@@ -220,7 +220,8 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   }, [workspace, onError]);
 
   // 拉取下一页更早的提交并拼接到已有数据。多次调用由前端 IntersectionObserver
-  // 触发；后端用 `git log --skip=N -n{limit}` 跳过头部 N 条拿到后续 limit 条。
+  // 触发；后端用 `git log --topo-order --skip=N -n{limit}` 跳过前 N 条提交拿到后续
+  // limit 条。后端只返回提交行，所以 graph.length 就是已加载提交数，可直接用作 skip。
   // 返回条数不足 limit 时把 graphHasMore 置为 false，避免反复打到空页面。
   const loadMoreGraph = useCallback(async () => {
     if (!workspace) return;

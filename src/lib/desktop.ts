@@ -1500,18 +1500,17 @@ export interface WorkspaceGitCommit {
   subject: string;
 }
 
-/** One row of the commit tree: either a commit row (carrying a hash) or a pure
- * connector row (only graph prefix) that draws branch fork/merge lines. */
+/** One commit row of the history graph. Fork/merge connectors are derived from
+ * `parents` by the renderer, so the backend returns commit rows only. */
 export interface WorkspaceGitGraphLine {
-  graph: string;
-  hash: string | null;
-  shortHash: string | null;
+  hash: string;
+  shortHash: string;
   author: string | null;
   email: string | null;
   timestamp: number | null;
   refs: string[];
   parents: string[];
-  subject: string | null;
+  subject: string;
 }
 
 export interface WorkspaceGitFileStat {
@@ -1663,9 +1662,9 @@ export async function listGitLog(dir: string, limit = 50): Promise<WorkspaceGitC
   return Array.isArray(result) ? (result as WorkspaceGitCommit[]) : [];
 }
 
-/** List commit tree lines (graph prefix + hash + refs). `rev` filters to one
- * branch/ref (null = all branches); `simplify` keeps only decorated commits;
- * `skip` skips the first N commits to support paginated loading of older history. */
+/** List commit rows for the commit graph. `rev` filters to one branch/ref
+ * (null = all branches); `simplify` keeps only decorated commits; `skip` skips
+ * the first N commits (counted in commits, not output lines) for pagination. */
 export async function listGitGraph(
   dir: string,
   limit = 100,

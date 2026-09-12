@@ -1,16 +1,36 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { deriveLaneLabel, gitGraphLayout, splitInlineRefs, MAX_INLINE_REFS } from "./git-graph-layout.ts";
+import {
+  GIT_GRAPH_CURVE_RADIUS,
+  GIT_GRAPH_LANE_WIDTH,
+  GIT_GRAPH_NODE_RADIUS,
+  GIT_GRAPH_ROW_HEIGHT,
+  gitGraphLaneLinePath,
+  gitGraphLaneShiftPath,
+  gitGraphLaneX,
+  gitGraphLayout,
+  gitGraphMergePath,
+  gitGraphWidth,
+  MAX_INLINE_REFS,
+  splitInlineRefs,
+} from "./git-graph-layout.ts";
+import { GIT_GRAPH_LANE_COLOR_COUNT } from "./git-model.ts";
 
-function commit(hash, parents, shortHash = hash.slice(0, 7), refs = []) {
+/** 用索引构造 40 位合法哈希，用例里按序号引用提交。 */
+function sha(index) {
+  return index.toString(16).padStart(40, "0");
+}
+
+function commit(index, parents = [], refs = [], subject = `subject ${index}`) {
   return {
-    graph: "*",
-    hash,
-    shortHash,
-    timestamp: 0,
+    hash: sha(index),
+    shortHash: sha(index).slice(0, 7),
+    author: "tester",
+    email: "tester@example.com",
+    timestamp: 1_700_000_000 + index,
     refs,
-    parents,
-    subject: `subject ${hash}`,
+    parents: parents.map(sha),
+    subject,
   };
 }
 
@@ -18,128 +38,223 @@ function layoutOf(...commits) {
   return gitGraphLayout(commits);
 }
 
-/** 某泳道所有占用段的合并覆盖范围 [minFrom, maxTo]。 */
-function coverage(layout, lane) {
-  const segs = layout.laneSegments.filter((seg) => seg.lane === lane);
-  if (segs.length === 0) return null;
-  return [Math.min(...segs.map((s) => s.fromRow)), Math.max(...segs.map((s) => s.toRow))];
+function rowOf(layout, index) {
+  return layout.rows.find((row) => row.hash === sha(index));
 }
 
-const A = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-const B = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-const C = "cccccccccccccccccccccccccccccccccccccccc";
-const D = "dddddddddddddddddddddddddddddddddddddddd";
-const E = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+/** 跨行连续性：上一行的输出泳道必须原样成为下一行输入泳道的前缀；
+ * 下一行最多再多出一列，且那一列就是该行的尖端提交（泳道从节点本身开始）。 */
+function assertLaneContinuity(layout) {
+  for (let index = 1; index < layout.rows.length; index += 1) {
+    const previous = layout.rows[index - 1].outputLanes.map((lane) => lane.id);
+    const current = layout.rows[index].inputLanes.map((lane) => lane.id);
+    assert.deepEqual(
+      current.slice(0, previous.length),
+      previous,
+      `第 ${index - 1} 行的 output 必须原样成为第 ${index} 行 input 的前缀`,
+    );
+    assert.ok(current.length - previous.length <= 1, "每行最多新增一列");
+    if (current.length > previous.length) {
+      assert.equal(layout.rows[index].nodeTop, null, "新增的那一列就是本行的尖端提交");
+      assert.equal(current[current.length - 1], layout.rows[index].hash);
+    }
+  }
+}
 
-test("linear history stays on a single continuous lane", () => {
-  const layout = layoutOf(commit(A, [B]), commit(B, [C]), commit(C, []));
+test("linear history stays in one lane with a straight line per row", () => {
+  const layout = layoutOf(commit(0, [1]), commit(1, [2]), commit(2, []));
   assert.equal(layout.columnCount, 1);
-  assert.equal(layout.commits.length, 3);
-  assert.deepEqual(layout.commits.map((item) => item.lane), [0, 0, 0]);
-  assert.deepEqual(layout.commits.map((item) => item.row), [0, 1, 2]);
-  assert.deepEqual(layout.edges, []);
-  // 占用段可能因逐提交收口而拆分，但覆盖必须连续贯穿 0..2
-  assert.deepEqual(coverage(layout, 0), [0, 2]);
+  assert.equal(layout.rows.length, 3);
+  assert.deepEqual(layout.rows.map((row) => row.lane), [0, 0, 0]);
+  // 每行都没有“贯穿”连线：本行唯一的泳道被节点消费
+  assert.deepEqual(layout.rows.map((row) => row.through), [[], [], []]);
+  assert.equal(layout.rows[0].nodeTop, null); // 尖端提交：上方没有泳道
+  assert.deepEqual(layout.rows[1].nodeTop, { lane: 0, color: 0 });
+  assert.deepEqual(layout.rows[0].nodeBottom, { lane: 0, toLane: 0, color: 0 });
+  // 根提交：没有双亲，也就没有向下的连线
+  assert.equal(layout.rows[2].nodeBottom, null);
+  assertLaneContinuity(layout);
 });
 
-test("simple merge reserves a sibling lane and draws a cross-lane edge", () => {
+test("merge opens one extra lane for the second parent and keeps the first parent in place", () => {
   const layout = layoutOf(
-    commit(A, [B, C], "aaaaaaa", ["HEAD -> main"]),
-    commit(B, [D]),
-    commit(C, [E]),
-    commit(D, []),
-    commit(E, []),
+    commit(0, [1, 2], ["HEAD -> main"]),
+    commit(1, [4]),
+    commit(2, [5]),
+    commit(4, []),
+    commit(5, []),
   );
+  const merge = layout.rows[0];
   assert.equal(layout.columnCount, 2);
-  const byHash = Object.fromEntries(layout.commits.map((item) => [item.hash.slice(0, 1), item]));
-  assert.equal(byHash.a.lane + byHash.b.lane, 0); // merge 与主线同一泳道
-  assert.equal(byHash.c.lane, 1); // 合并的分支在右侧泳道
-  const edge = layout.edges.find((item) => item.toLane !== item.fromLane);
-  assert.ok(edge, "should have a cross-lane merge edge");
-  assert.equal(edge.fromLane, 0);
-  assert.equal(edge.toLane, 1);
-  assert.equal(edge.colorLane, 1); // 合并线用分支色
-  assert.equal(layout.commits[0].isHead, true);
+  assert.equal(merge.lane, 0);
+  assert.equal(merge.isHead, true);
+  assert.equal(merge.isMerge, true);
+  assert.deepEqual(merge.outputLanes.map((lane) => lane.id), [sha(1), sha(2)]);
+  // 第一双亲留在第 0 列；合并线指向新开的第 1 列，颜色取分支泳道
+  assert.deepEqual(merge.nodeBottom, { lane: 0, toLane: 0, color: 0 });
+  assert.deepEqual(merge.merges, [{ lane: 1, color: 1 }]);
+  // 两条链各自独占一列，都不换道
+  assert.deepEqual(layout.rows.slice(1, 3).map((row) => row.lane), [0, 1]);
+  assert.deepEqual(layout.rows[1].through, [{ fromLane: 1, toLane: 1, color: 1 }]);
+  assertLaneContinuity(layout);
 });
 
-test("two branches joining a shared ancestor reuse that lane", () => {
-  const m = commit(D, [B, C]);
-  const b = commit(B, [A]);
-  const c = commit(C, [A]);
-  const a = commit(A, []);
-  const layout = layoutOf(m, b, c, a);
-  const byHash = Object.fromEntries(layout.commits.map((item) => [item.hash.slice(0, 1), item]));
-  assert.equal(layout.columnCount, 2);
-  assert.equal(byHash.a.lane, 0); // 公共祖先最终在主线泳道
-  assert.notEqual(byHash.b.lane, byHash.c.lane);
-  const toAncestor = layout.edges.filter((edge) => edge.toRow === byHash.a.row);
-  assert.ok(toAncestor.length >= 1, "at least one branch edge should join the shared ancestor lane");
-});
-
-test("mainline spine preempts a lane claimed earlier by a merged branch", () => {
-  const t0 = "1111111111111111111111111111111111111111";
-  const y0 = "2222222222222222222222222222222222222222";
-  const b0 = "3333333333333333333333333333333333333333";
-  const d0 = "4444444444444444444444444444444444444444";
-  const s0 = "5555555555555555555555555555555555555555";
-  const z0 = "6666666666666666666666666666666666666666";
-  const t = commit(t0, [y0]);
-  const b = commit(b0, [s0, d0]);
-  const y = commit(y0, [s0]);
-  const s = commit(s0, [z0]);
-  const d = commit(d0, [z0]);
-  const z = commit(z0, []);
-  const layout = layoutOf(t, b, y, s, d, z);
-  const by = (h) => layout.commits.find((item) => item.hash === h);
-  // 主线脊柱 T-Y-S-Z 全程 lane0，绝不折道
-  assert.deepEqual([by(t0).lane, by(y0).lane, by(s0).lane, by(z0).lane], [0, 0, 0, 0]);
-  // 分支侧让出泳道：B 的链条转为跨泳道边汇入 S
-  const joining = layout.edges.find((edge) => edge.toLane === 0 && edge.toRow === by(s0).row);
-  assert.ok(joining, "merged branch should join the spine via a cross-lane edge");
-  assert.equal(joining.fromLane, 1);
-  assert.equal(joining.fromRow, by(b0).row);
+test("octopus merge appends one lane per extra parent", () => {
+  const layout = layoutOf(commit(0, [1, 2, 3]), commit(1, []), commit(2, []), commit(3, []));
+  const merge = layout.rows[0];
+  assert.equal(merge.isMerge, true);
+  assert.deepEqual(merge.outputLanes.map((lane) => lane.id), [sha(1), sha(2), sha(3)]);
+  assert.deepEqual(merge.merges.map((item) => item.lane), [1, 2]);
   assert.equal(layout.columnCount, 3);
+  assertLaneContinuity(layout);
 });
 
-test("fork reuses a freed adjacent lane instead of widening the tree", () => {
-  const z0 = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz";
-  const w0 = "wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww";
-  const v0 = "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv";
-  const m = commit(A, [B, C]);   // 分叉：B 主线、C 分支
-  const y = commit(C, [z0]);     // 分支链继续占用 lane1
-  const z = commit(z0, []);      // 分支结束 → lane1 释放
-  const x = commit(B, [w0, v0]); // 主线再次分叉：V 应复用刚释放的 lane1
-  const w = commit(w0, []);
-  const v = commit(v0, []);
-  const layout = layoutOf(m, y, z, x, w, v);
-  const byHash = Object.fromEntries(layout.commits.map((item) => [item.hash.slice(0, 1), item]));
-  // 复用后总宽保持 2（不复用会是 3）
+test("two branches joining the same ancestor converge inside one row", () => {
+  const layout = layoutOf(commit(0, [1, 2]), commit(1, [3]), commit(2, [3]), commit(3, []));
+  const second = rowOf(layout, 2);
+  // 两条分支在第 2 行汇合：自己的列消失、右侧泳道左移，全部是本行内的连线
+  assert.deepEqual(second.inputLanes.map((lane) => lane.id), [sha(3), sha(2)]);
+  assert.deepEqual(second.outputLanes.map((lane) => lane.id), [sha(3)]);
+  assert.equal(second.lane, 1);
+  assert.deepEqual(second.nodeBottom, { lane: 1, toLane: 0, color: 0 });
+  assert.deepEqual(second.through, [{ fromLane: 0, toLane: 0, color: 0 }]);
   assert.equal(layout.columnCount, 2);
-  assert.equal(byHash.v.lane, 1);
-  // 分支顶端的竖线从它自己的行起算（上方只有合并线）；
-  // 复用的泳道在空档后开启新段：[1..2] 与 [5..5]
-  const lane1Segs = layout.laneSegments.filter((seg) => seg.lane === 1).map((s) => [s.fromRow, s.toRow]);
-  assert.deepEqual(lane1Segs, [[1, 2], [5, 5]]);
+  assertLaneContinuity(layout);
 });
 
-test("lane segments derive branch labels from refs", () => {
-  const a0 = "abababababababababababababababababababab";
-  const b0 = "babababababababababababababababababababa";
-  const c0 = "cbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcb";
+test("a freed lane is compacted away and lanes to its right shift left in the same row", () => {
+  // 八爪合并开出三条泳道，中间那条（提交 20）是根提交：它消失后右侧泳道在本行内左移
+  const layout = layoutOf(commit(0, [10, 20, 30]), commit(20, []), commit(10, []), commit(30, []));
+  const root = rowOf(layout, 20);
+  assert.equal(layout.columnCount, 3);
+  assert.deepEqual(root.inputLanes.map((lane) => lane.id), [sha(10), sha(20), sha(30)]);
+  assert.deepEqual(root.outputLanes.map((lane) => lane.id), [sha(10), sha(30)]);
+  assert.equal(root.nodeBottom, null);
+  assert.deepEqual(root.through, [
+    { fromLane: 0, toLane: 0, color: 0 },
+    { fromLane: 2, toLane: 1, color: 2 },
+  ]);
+  assertLaneContinuity(layout);
+});
+
+test("lane colors travel with the lane identity, not the column", () => {
+  const layout = layoutOf(commit(0, [1, 2]), commit(1, [3]), commit(2, [3]), commit(3, []));
+  const branchColor = layout.rows[0].outputLanes[1].color;
+  assert.equal(branchColor, 1);
+  // 分支泳道（身份 = 提交 2）在第 2 行仍在第 1 列，颜色不变
+  assert.equal(rowOf(layout, 2).inputLanes[1].color, branchColor);
+  // 汇合后只剩一条泳道，颜色沿用先出现的那条
+  assert.equal(rowOf(layout, 3).inputLanes[0].color, 0);
+  for (const row of layout.rows) {
+    for (const lane of [...row.inputLanes, ...row.outputLanes]) {
+      assert.ok(lane.color >= 0 && lane.color < GIT_GRAPH_LANE_COLOR_COUNT);
+    }
+  }
+});
+
+test("independent branch tips append their own column instead of sharing one", () => {
+  // 两个互不相干的尖端（--all 下会出现）：各自成列
+  const layout = layoutOf(commit(0, [2]), commit(1, [3]), commit(2, []), commit(3, []));
+  assert.equal(layout.rows[0].lane, 0);
+  assert.equal(layout.rows[1].lane, 1);
+  assert.deepEqual(layout.rows[1].outputLanes.map((lane) => lane.id), [sha(2), sha(3)]);
+  assertLaneContinuity(layout);
+});
+
+test("sparse history keeps every connection inside its own row", () => {
+  // --simplify-by-decoration 会跳过中间提交，父提交仍留在结果集里
   const layout = layoutOf(
-    commit(a0, [b0], "aaaaaaa", ["HEAD -> main"]),
-    commit(b0, [c0], "bbbbbbb", ["feature/x"]),
-    commit(c0, [], "ccccccc", ["tag: v1.0"]),
+    commit(0, [5], ["HEAD -> main"]),
+    commit(1, [5], ["feature"]),
+    commit(5, [9], ["tag: v1"]),
+    commit(9, []),
   );
-  assert.equal(layout.columnCount, 1);
-  // 聚合段内所有提交的引用：HEAD -> main 优先级最高，feature/x 与 tag 不覆盖它
-  assert.deepEqual(
-    layout.segmentLabels.map((l) => [l.lane, l.label, l.kind]),
-    [[0, "main", "current"]],
-  );
-  const joined = deriveLaneLabel(["tag: v1.0", "origin/main"]);
-  assert.deepEqual(joined, { label: "origin/main", kind: "remote" });
-  assert.equal(deriveLaneLabel([]), null);
+  for (const row of layout.rows) {
+    for (const item of row.through) {
+      assert.ok(item.fromLane >= 0 && item.toLane >= 0);
+    }
+    for (const merge of row.merges) assert.ok(merge.lane >= row.lane);
+  }
+  assertLaneContinuity(layout);
+});
+
+test("random DAG keeps every invariant", () => {
+  // 线性同余发生器，保证用例可复现
+  let seed = 20240611;
+  const random = () => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed / 2147483648;
+  };
+  for (let round = 0; round < 40; round += 1) {
+    const total = 40;
+    const commits = [];
+    for (let index = 0; index < total; index += 1) {
+      const parents = [];
+      const roll = random();
+      const parentCount = index === total - 1 || roll > 0.98 ? 0 : roll > 0.72 ? 2 : 1;
+      for (let slot = 0; slot < parentCount; slot += 1) {
+        const span = Math.max(1, Math.min(6, total - index - 1));
+        const candidate = index + 1 + Math.floor(random() * span);
+        if (candidate < total && !parents.includes(candidate)) parents.push(candidate);
+      }
+      commits.push(commit(index, parents));
+    }
+    const layout = layoutOf(...commits);
+    assert.equal(layout.rows.length, total);
+    for (const [index, row] of layout.rows.entries()) {
+      // 同一行内泳道身份唯一
+      assert.equal(new Set(row.inputLanes.map((lane) => lane.id)).size, row.inputLanes.length);
+      assert.equal(new Set(row.outputLanes.map((lane) => lane.id)).size, row.outputLanes.length);
+      assert.equal(row.columnCount, Math.max(row.inputLanes.length, row.outputLanes.length));
+      assert.ok(row.lane >= 0 && row.lane < Math.max(row.columnCount, 1));
+      // 圆点一定在输入泳道里（尖端提交会被补一列，因此同样成立）
+      assert.equal(row.inputLanes[row.lane].id, row.hash);
+      // 输入泳道里除节点外的每一条都必须在本行内继续存在，且各有一条贯穿连线
+      for (const [lane, item] of row.inputLanes.entries()) {
+        if (item.id === row.hash) continue;
+        assert.ok(
+          row.outputLanes.some((candidate) => candidate.id === item.id),
+          `第 ${index} 行的泳道 ${item.id} 断线`,
+        );
+        assert.ok(row.through.some((line) => line.fromLane === lane));
+      }
+      // 第一双亲在输出泳道里；额外双亲各有一条合并连线
+      if (row.nodeBottom) {
+        assert.equal(row.outputLanes[row.nodeBottom.toLane].id, commits[index].parents[0]);
+      } else {
+        assert.equal(commits[index].parents.length, 0);
+      }
+      assert.equal(row.merges.length, Math.max(0, commits[index].parents.length - 1));
+    }
+    assertLaneContinuity(layout);
+  }
+});
+
+test("geometry helpers stay inside the row and line up with lane centers", () => {
+  assert.equal(GIT_GRAPH_LANE_WIDTH * 2, GIT_GRAPH_ROW_HEIGHT);
+  assert.ok(GIT_GRAPH_CURVE_RADIUS * 2 < GIT_GRAPH_LANE_WIDTH);
+  assert.ok(GIT_GRAPH_NODE_RADIUS + 1 < GIT_GRAPH_LANE_WIDTH);
+  assert.equal(gitGraphLaneX(0), GIT_GRAPH_LANE_WIDTH);
+  assert.equal(gitGraphLaneX(3), GIT_GRAPH_LANE_WIDTH * 4);
+  assert.equal(gitGraphWidth(0), GIT_GRAPH_LANE_WIDTH * 2);
+  assert.equal(gitGraphWidth(3), GIT_GRAPH_LANE_WIDTH * 4);
+
+  // 直线只占本行高度
+  assert.equal(gitGraphLaneLinePath(1), `M ${GIT_GRAPH_LANE_WIDTH * 2} 0 V ${GIT_GRAPH_ROW_HEIGHT}`);
+
+  // 换道：向右时两段圆角为 0 / 1，向左时为 1 / 0
+  const right = gitGraphLaneShiftPath(0, 1, true);
+  assert.match(right, /^M 12 0 V 7 /);
+  assert.match(right, /A 5 5 0 0 0 17 12 /);
+  assert.match(right, /A 5 5 0 0 1 24 17 V 24$/);
+  const left = gitGraphLaneShiftPath(2, 0, true);
+  assert.match(left, /A 5 5 0 0 1 31 12 /);
+  assert.match(left, /A 5 5 0 0 0 12 17 V 24$/);
+  // 从圆点出发的换道：先平拉，再用一段圆角落回底部
+  assert.match(gitGraphLaneShiftPath(1, 0, false), /^M 24 12 H 17 A 5 5 0 0 0 12 17 V 24$/);
+
+  // 合并线：从目标列左缘起弧，并从圆点平拉过去
+  assert.match(gitGraphMergePath(0, 2), /^M 30 12 A 12 12 0 0 1 36 24 M 30 12 H 12$/);
 });
 
 test("splitInlineRefs keeps short lists fully visible", () => {

@@ -564,36 +564,37 @@
 }
 .git-history-view-toggle button:hover:not(.selected) { border-color: var(--accent); color: var(--accent-deep); }
 .git-history-view-toggle button.selected { border-color: var(--accent); color: var(--accent-deep); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+/* —— 历史页：逐行图谱 ——
+   每行一个固定高度的行容器（左侧只画本行的 SVG + 右侧提交信息），行高固定，
+   因此列表按固定行高做虚拟化，只挂载视口附近的行。 */
 .git-graph-list {
   position: relative;
   min-height: 0;
   overflow: auto;
+  /* 圆点描边与 HEAD 的“孔”都用行底色打出来，随 hover/选中一起变 */
+  --git-graph-row-bg: var(--surface);
 }
-/* 画布只占泳道宽度；提交行挂在同一 frame 内的绝对定位元素，
-   这样行可以从 frame 顶部 0 开始计算，y 与泳道节点天然对齐。 */
-.git-graph-frame {
-  position: relative;
-  overflow: visible;
+/* 泳道配色：5 个槽位，颜色只挂在泳道身份上；浅色与深色主题各自取值。 */
+:root {
+  --git-graph-lane-1: #b8791a;
+  --git-graph-lane-2: #c2185b;
+  --git-graph-lane-3: #8a5a2b;
+  --git-graph-lane-4: #0f7d76;
+  --git-graph-lane-5: #7738c9;
 }
-.git-graph-canvas {
-  position: relative;
+:root[data-theme="dark"] {
+  --git-graph-lane-1: #f0b429;
+  --git-graph-lane-2: #ec5f9b;
+  --git-graph-lane-3: #cf9155;
+  --git-graph-lane-4: #46c2b6;
+  --git-graph-lane-5: #b98bff;
 }
-.git-graph-svg {
-  position: absolute;
-  left: 0;
-  top: 0;
-  display: block;
-  overflow: visible;
-}
-.git-graph-node { cursor: pointer; }
-.git-graph-node-hit { pointer-events: all; }
+.git-graph-spacer { flex: 0 0 auto; }
 .git-graph-row {
-  position: absolute;
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 8px;
+  padding: 0 8px 0 0;
   border: 0;
   background: transparent;
   color: var(--ink);
@@ -605,8 +606,25 @@
   cursor: pointer;
   border-radius: var(--radius-control);
 }
-.git-graph-row:hover { background: var(--surface-soft); }
-.git-graph-row.selected { background: color-mix(in srgb, var(--accent) 12%, var(--surface-soft)); }
+.git-graph-row:hover {
+  background: var(--surface-soft);
+  --git-graph-row-bg: var(--surface-soft);
+}
+.git-graph-row.selected {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-soft));
+  --git-graph-row-bg: color-mix(in srgb, var(--accent) 12%, var(--surface-soft));
+}
+.git-graph-cell { flex: 0 0 auto; display: block; overflow: visible; }
+/* 圆环描边用行底色：泳道线不会与圆点贴在一起；HEAD 的“孔”同样用行底色 */
+.git-graph-node-ring { stroke: var(--git-graph-row-bg); stroke-width: 1.5; }
+.git-graph-node-hole { fill: var(--git-graph-row-bg); }
+.git-graph-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
 .git-graph-hash {
   flex: 0 0 auto;
   color: var(--accent-deep);
@@ -636,6 +654,13 @@
 .git-ref-head { color: var(--accent-deep); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .git-ref-tag { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 45%, var(--line)); }
 .git-ref-branch { color: var(--ink-muted); }
+.git-graph-ref-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  display: inline-block;
+}
 .git-graph-subject {
   min-width: 0;
   flex: 1 1 auto;
@@ -644,51 +669,11 @@
   white-space: nowrap;
 }
 
-/* 泳道分支标签条（图谱顶部，与泳道列对齐） */
-.git-graph-lane-labels {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 6px 10px 4px;
-  min-width: max-content;
-}
-.git-lane-label {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 140px;
-  overflow: hidden;
-  padding: 2px 7px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--ink-muted);
-  font-family: var(--mono);
-  font-size: 9px;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.git-lane-label i,
-.git-graph-tooltip-lane-dot {
-  width: 7px;
-  height: 7px;
-  flex: 0 0 auto;
-  border-radius: 50%;
-  display: inline-block;
-}
-.git-lane-label-current {
-  color: var(--accent-deep);
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
-  font-weight: 700;
-}
-.git-lane-label-remote { color: var(--ink-muted); }
-.git-lane-label-tag { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 45%, var(--line)); }
-.git-lane-label-branch { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, var(--line)); }
-
-/* 悬浮提交详情提示：锚定在泳道节点右侧，垂直居中对齐节点 */
+/* 悬浮提交详情提示：锚定在被悬浮的提交行右侧（left / max-width 由组件按图谱宽度内联） */
 .git-graph-tooltip {
   position: absolute;
   z-index: 50;
+  top: 50%;
   width: 360px;
   max-height: calc(100vh - 32px);
   padding: 10px 12px;
@@ -733,26 +718,22 @@
 }
 .git-graph-tooltip-hash { color: var(--accent-deep); font-weight: 700; }
 
-/* 图谱底部哨兵节点：挂在最后一个 commit 下方，进入视口即触发加载下一页 */
-.git-graph-tail-spacer { height: 40px; }
-.git-graph-loadmore {
-  position: absolute;
-  z-index: 5;
-  padding: 10px 12px;
-  border: 1px dashed var(--line);
-  border-radius: var(--radius-control);
-  background: var(--surface-soft);
+/* 底部泳道占位：把最后一行的泳道继续画一小段并渐隐，避免图谱在加载处突然截断 */
+.git-graph-placeholder {
+  display: block;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(black, transparent);
+  mask-image: linear-gradient(black, transparent);
+}
+.git-graph-placeholder svg { display: block; }
+/* 底部哨兵节点：进入视口即触发加载下一页 */
+.git-graph-sentinel {
+  padding: 6px 12px 12px;
   color: var(--ink-faint);
   font-family: var(--mono);
   font-size: 10px;
   text-align: center;
   pointer-events: none;
-  opacity: .85;
-}
-.git-graph-loadmore-end {
-  border-style: solid;
-  color: var(--ink-faint);
-  opacity: .6;
 }
 
 /* —— 分支标签页 —— */
