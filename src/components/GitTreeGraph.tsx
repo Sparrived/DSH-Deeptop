@@ -11,7 +11,9 @@ import {
   gitGraphLayout,
   gitGraphMergePath,
   gitGraphWidth,
+  insertGraphMarkers,
   splitInlineRefs,
+  type GitGraphRangeMarker,
 } from "../app/git-graph-layout";
 import { t, type UiLocale } from "../app/i18n";
 
@@ -32,6 +34,10 @@ type GitTreeGraphProps = {
   hasMore?: boolean;
   /** 正在加载下一页时显示底部 loading 文案，避免误触。 */
   loadingMore?: boolean;
+  /** incoming / outgoing 合成行：远端有而我没有 / 我有而远端没有的区间。 */
+  markers?: { outgoing?: GitGraphRangeMarker; incoming?: GitGraphRangeMarker };
+  /** 点击合成行时打开该区间的提交列表。 */
+  onOpenRange?: (base: string, head: string) => void;
   locale?: UiLocale;
 };
 
@@ -55,9 +61,14 @@ export function GitTreeGraph({
   onLoadMore,
   hasMore = false,
   loadingMore = false,
+  markers,
+  onOpenRange,
   locale = "zh",
 }: GitTreeGraphProps) {
-  const layout = useMemo(() => gitGraphLayout(lines), [lines]);
+  const layout = useMemo(
+    () => insertGraphMarkers(gitGraphLayout(lines), markers ?? {}),
+    [lines, markers],
+  );
   const [hoveredHash, setHoveredHash] = useState<string | null>(null);
   // 已滚动时头部插入了多少条新提交（顶部徽标用）
   const [pendingAbove, setPendingAbove] = useState(0);
@@ -156,21 +167,32 @@ export function GitTreeGraph({
       </div>
       {firstRow > 0 && <div className="git-graph-spacer" style={{ height: firstRow * ROW_H }} aria-hidden="true" />}
       {visibleRows.map((row) => {
-        const selected = row.hash === selectedHash;
-        const hovered = row.hash === hoveredHash;
+        const selected = !row.synthetic && row.hash === selectedHash;
+        const hovered = !row.synthetic && row.hash === hoveredHash;
         const nodeX = gitGraphLaneX(row.lane);
-        const nodeColor = gitGraphLaneColor(row.color);
+        const syntheticColor = row.synthetic === "incoming" ? "var(--git-graph-remote)" : "var(--git-graph-local)";
+        const nodeColor = row.synthetic ? syntheticColor : gitGraphLaneColor(row.color);
         const { visible: visibleRefs, overflow: overflowRefs } = splitInlineRefs(row.refs);
+        const syntheticLabel = row.synthetic === "incoming"
+          ? t("gitGraph.incoming", locale, { count: row.count ?? 0 })
+          : t("gitGraph.outgoing", locale, { count: row.count ?? 0 });
         return (
           <button
             key={row.hash}
             type="button"
-            className={`git-graph-row ${selected ? "selected" : ""}`}
+            className={`git-graph-row ${selected ? "selected" : ""}${row.synthetic ? ` git-graph-row-synthetic git-graph-row-${row.synthetic}` : ""}`}
             style={{ height: ROW_H }}
-            onClick={() => onSelect(row.hash)}
-            onMouseEnter={() => setHoveredHash(row.hash)}
+            onClick={() => {
+              if (row.synthetic && row.range && onOpenRange) {
+                onOpenRange(row.range.base, row.range.head);
+                return;
+              }
+              if (!row.synthetic) onSelect(row.hash);
+            }}
+            onMouseEnter={() => { if (!row.synthetic) setHoveredHash(row.hash); }}
             onMouseLeave={() => setHoveredHash((current) => (current === row.hash ? null : current))}
-            aria-label={row.subject}
+            title={row.synthetic ? syntheticLabel : undefined}
+            aria-label={row.synthetic ? syntheticLabel : row.subject}
             aria-current={selected ? "true" : undefined}
           >
             <svg className="git-graph-cell" width={svgWidth} height={ROW_H} aria-hidden="true">
@@ -231,6 +253,16 @@ export function GitTreeGraph({
                   <circle className="git-graph-node-ring" cx={nodeX} cy={midY} r={NODE_R + 2.5} fill={nodeColor} />
                   <circle className="git-graph-node-ring" cx={nodeX} cy={midY} r={NODE_R - 1.5} fill={nodeColor} />
                 </>
+              ) : row.synthetic ? (
+                <circle
+                  cx={nodeX}
+                  cy={midY}
+                  r={NODE_R + 2}
+                  fill="none"
+                  stroke={syntheticColor}
+                  strokeWidth={1.5}
+                  strokeDasharray="4 2"
+                />
               ) : (
                 <circle className="git-graph-node-ring" cx={nodeX} cy={midY} r={NODE_R + 1} fill={nodeColor} />
               )}
@@ -239,19 +271,28 @@ export function GitTreeGraph({
               )}
             </svg>
             <span className="git-graph-main">
-              <span className="git-graph-hash">{row.shortHash}</span>
-              {visibleRefs.map((ref) => (
-                <span key={ref} className={`git-graph-ref git-ref-${gitRefKind(ref)}`} title={ref}>
-                  <i className="git-graph-ref-dot" style={{ background: nodeColor }} aria-hidden="true" />
-                  {ref}
+              {row.synthetic ? (
+                <span className={`git-graph-synthetic git-graph-synthetic-${row.synthetic}`}>
+                  <i className="git-graph-ref-dot" style={{ background: syntheticColor }} aria-hidden="true" />
+                  {syntheticLabel}
                 </span>
-              ))}
-              {overflowRefs.length > 0 && (
-                <span className="git-graph-ref git-graph-ref-overflow" title={overflowRefs.join("\n")}>
-                  +{overflowRefs.length}
-                </span>
+              ) : (
+                <>
+                  <span className="git-graph-hash">{row.shortHash}</span>
+                  {visibleRefs.map((ref) => (
+                    <span key={ref} className={`git-graph-ref git-ref-${gitRefKind(ref)}`} title={ref}>
+                      <i className="git-graph-ref-dot" style={{ background: nodeColor }} aria-hidden="true" />
+                      {ref}
+                    </span>
+                  ))}
+                  {overflowRefs.length > 0 && (
+                    <span className="git-graph-ref git-graph-ref-overflow" title={overflowRefs.join("\n")}>
+                      +{overflowRefs.length}
+                    </span>
+                  )}
+                  <span className="git-graph-subject">{row.subject}</span>
+                </>
               )}
-              <span className="git-graph-subject">{row.subject}</span>
             </span>
             {hovered && (
               <span

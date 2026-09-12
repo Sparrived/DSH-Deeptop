@@ -1784,6 +1784,25 @@ export async function renameGitBranch(dir: string, from: string, to: string): Pr
   return invoke<GitCommandResult>("git_rename_branch", { dir, from, to });
 }
 
+/** Common ancestor of two refs; null when there is none (or a ref is gone). */
+export async function getGitMergeBase(dir: string, local: string, remote: string): Promise<string | null> {
+  if (!isTauri()) return null;
+  const result = await invoke<unknown>("git_merge_base", { dir, local, remote });
+  return typeof result === "string" && result.length > 0 ? result : null;
+}
+
+/** Commits in `base..head`, used for the incoming/outgoing range lists. */
+export async function listGitRange(
+  dir: string,
+  base: string,
+  head: string,
+  limit = 100,
+): Promise<WorkspaceGitCommit[]> {
+  if (!isTauri()) return [];
+  const result = await invoke<unknown>("git_range_log", { dir, base, head, limit });
+  return Array.isArray(result) ? (result as WorkspaceGitCommit[]) : [];
+}
+
 /** Read the three-way content of a conflicted file. */
 export async function getGitConflict(dir: string, path: string): Promise<WorkspaceGitConflict> {
   if (!isTauri()) throw new Error("Git 管理只在桌面端可用");

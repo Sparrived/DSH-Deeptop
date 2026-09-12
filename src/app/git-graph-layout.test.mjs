@@ -11,6 +11,7 @@ import {
   gitGraphLayout,
   gitGraphMergePath,
   gitGraphWidth,
+  insertGraphMarkers,
   MAX_INLINE_REFS,
   splitInlineRefs,
 } from "./git-graph-layout.ts";
@@ -228,6 +229,62 @@ test("random DAG keeps every invariant", () => {
     }
     assertLaneContinuity(layout);
   }
+});
+
+test("inserts incoming and outgoing markers without disturbing the lanes", () => {
+  const layout = layoutOf(
+    commit(0, [1], ["HEAD -> main"]), // HEAD = 提交 0
+    commit(1, [2]),
+    commit(2, [3]),                  // 共同祖先 = 提交 2
+    commit(3, []),
+  );
+  const withMarkers = insertGraphMarkers(layout, {
+    outgoing: { base: sha(2), head: sha(0), count: 2 },
+    incoming: { base: sha(2), head: sha(9), count: 1 },
+  });
+
+  // outgoing 插在 HEAD 上方，incoming 插在共同祖先上方，共多出两行
+  assert.deepEqual(
+    withMarkers.rows.map((row) => (row.synthetic ? row.synthetic : `#${row.hash.slice(-1)}`)),
+    ["outgoing", "#0", "#1", "incoming", "#2", "#3"],
+  );
+
+  const outgoing = withMarkers.rows[0];
+  assert.equal(outgoing.synthetic, "outgoing");
+  assert.deepEqual(outgoing.range, { base: sha(2), head: sha(0) });
+  assert.equal(outgoing.count, 2);
+  // 合成行是直通泳道：输入输出一致，且没有节点上下连线
+  assert.deepEqual(outgoing.outputLanes, outgoing.inputLanes);
+  assert.equal(outgoing.nodeTop, null);
+  assert.equal(outgoing.nodeBottom, null);
+  assert.equal(outgoing.through.length, outgoing.inputLanes.length);
+  // 插入不改动任何原有行的列与连线
+  const original = new Map(layout.rows.map((row) => [row.hash, row]));
+  for (const row of withMarkers.rows) {
+    if (row.synthetic) continue;
+    const before = original.get(row.hash);
+    assert.equal(row.lane, before.lane);
+    assert.deepEqual(row.through, before.through);
+    assert.deepEqual(row.outputLanes.map((lane) => lane.id), before.outputLanes.map((lane) => lane.id));
+  }
+  assert.equal(withMarkers.columnCount, layout.columnCount);
+});
+
+test("skips markers whose anchor is outside the loaded window", () => {
+  const layout = layoutOf(commit(0, [1]), commit(1, []));
+  // 共同祖先没加载 → 只插入 outgoing
+  const onlyOutgoing = insertGraphMarkers(layout, {
+    outgoing: { base: "ffff", head: sha(0), count: 1 },
+    incoming: { base: "ffff", head: "eeee", count: 3 },
+  });
+  assert.deepEqual(onlyOutgoing.rows.map((row) => row.synthetic ?? "commit"), ["outgoing", "commit", "commit"]);
+  // 两个锚点都缺失时原样返回
+  const untouched = insertGraphMarkers(layout, {
+    outgoing: { base: "ffff", head: "eeee", count: 1 },
+  });
+  assert.equal(untouched, layout);
+  // 没有标记时不复制行
+  assert.equal(insertGraphMarkers(layout, {}), layout);
 });
 
 test("geometry helpers stay inside the row and line up with lane centers", () => {

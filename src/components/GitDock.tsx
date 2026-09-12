@@ -16,6 +16,7 @@ import {
   dropGitStash,
   fetchGit,
   getGitFileDiff,
+  getGitMergeBase,
   getGitOperationState,
   getWorkspaceGitStatus,
   isTauri,
@@ -164,6 +165,8 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   const [busyHunks, setBusyHunks] = useState<ReadonlySet<number>>(new Set());
   // 进行中的 git 操作（合并/变基/拣选/回退）：决定是否显示继续与中止
   const [operationState, setOperationState] = useState<WorkspaceGitOperationState | null>(null);
+  // 与上游的共同祖先：决定是否在图谱里插入 incoming / outgoing 合成行
+  const [mergeBase, setMergeBase] = useState<string | null>(null);
   const [commits, setCommits] = useState<WorkspaceGitCommit[] | null>(null);
   const [commitsLoading, setCommitsLoading] = useState(false);
   // 只保存"选中的提交哈希"：提交详情与逐文件差异由 GitCommitDetailView 自己加载
@@ -324,6 +327,22 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     }
   }, [workspace]);
 
+  /**
+   * 本地分支与上游的共同祖先：incoming / outgoing 合成行的锚点。
+   * 只在有上游时取（detached HEAD 或没有上游的分支跳过）。
+   */
+  const reloadMergeBase = useCallback(async (branch: string | null, upstream: string | null) => {
+    if (!workspace || !branch || !upstream) {
+      setMergeBase(null);
+      return;
+    }
+    try {
+      setMergeBase(await getGitMergeBase(workspace, branch, upstream));
+    } catch {
+      setMergeBase(null);
+    }
+  }, [workspace]);
+
   // 图谱取数：`keepWindow` 为真时按「已加载窗口」取数，并把新提交接到既有行前面，
   // 因此刷新不会把用户翻出来的历史与滚动位置丢掉；重写历史时自动退化为整页替换。
   const fetchGraph = useCallback(async (options: { keepWindow: boolean }) => {
@@ -415,6 +434,8 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
       reloadOperation(),
     ]);
     const signature = gitRefSignature(nextStatus, nextBranches);
+    // 共同祖先是 incoming / outgoing 合成行的锚点：跟着 refs 一起刷新
+    await reloadMergeBase(nextStatus?.branch ?? null, nextStatus?.upstream ?? null);
     const refsChanged = signature !== refSignatureRef.current;
     refSignatureRef.current = signature;
     const decision = decideGitGraphRefresh({
@@ -429,7 +450,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
       graphStaleRef.current = true;
       setGraphStale(true);
     }
-  }, [reloadStatus, reloadCommits, reloadBranches, reloadTags, reloadStashes, reloadOperation, requestGraph]);
+  }, [reloadStatus, reloadCommits, reloadBranches, reloadTags, reloadStashes, reloadOperation, reloadMergeBase, requestGraph]);
 
   useEffect(() => {
     setTab("changes");
@@ -868,6 +889,17 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     });
   }
 
+  /** 在右栏开一个区间提交列表标签（incoming / outgoing）。 */
+  function openRangeTab(base: string, hash: string) {
+    openTab({
+      kind: "git-range",
+      title: `${base.slice(0, 7)}..${hash.slice(0, 7)}`,
+      detail: t("git.rangeTitle", locale),
+      contentKey: `range:${base}..${hash}`,
+      payload: { cwd: workspace, base, head: hash },
+    });
+  }
+
   /** 继续 / 中止进行中的操作（合并、变基、拣选、回退）。 */
   async function handleOperationAction(action: "continue" | "abort" | "skip") {
     if (!operationState || operationState.operation === "none") return;
@@ -887,6 +919,20 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     () => selectedPath !== null && (status?.files ?? []).some((file) => file.path === selectedPath && file.status === "conflicted"),
     [selectedPath, status],
   );
+
+  /**
+   * 图谱里的 incoming / outgoing 合成行：共同祖先存在且两侧确实有差异时才给。
+   * 数量直接取 git status 的 ahead / behind，与工具栏数字同源。
+   */
+  const graphMarkers = useMemo(() => {
+    const branch = status?.branch ?? null;
+    const upstream = status?.upstream ?? null;
+    if (!mergeBase || !branch || !upstream || branch === upstream) return undefined;
+    const outgoing = (status?.ahead ?? 0) > 0 ? { base: mergeBase, head: branch, count: status?.ahead ?? 0 } : undefined;
+    const incoming = (status?.behind ?? 0) > 0 ? { base: mergeBase, head: upstream, count: status?.behind ?? 0 } : undefined;
+    if (!outgoing && !incoming) return undefined;
+    return { outgoing, incoming };
+  }, [mergeBase, status]);
 
   const branchGroups = useMemo(() => groupGitBranches(branches ?? []), [branches]);
 
@@ -1203,6 +1249,8 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                     onLoadMore={loadMoreGraph}
                     hasMore={graphHasMore}
                     loadingMore={graphLoadingMore}
+                    markers={graphMarkers}
+                    onOpenRange={openRangeTab}
                     locale={locale}
                   />
                   )}

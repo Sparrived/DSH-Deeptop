@@ -4660,6 +4660,75 @@ struct WorkspaceGitGraphLine {
     subject: String,
 }
 
+/// 两个引用的共同祖先；没有共同祖先或引用不存在时返回 None 而不是报错，
+/// 因为「远端分支刚被删掉」并不该让图谱刷新失败。
+#[tauri::command]
+fn git_merge_base(dir: String, local: String, remote: String) -> Result<Option<String>, String> {
+    let local = validate_git_ref(&local)?.to_string();
+    let remote = validate_git_ref(&remote)?.to_string();
+    let root = git_repository_root(Path::new(&dir))?;
+    let output = git_raw_output(&root, &["--no-pager", "merge-base", &local, &remote])?;
+    if !output.ok {
+        return Ok(None);
+    }
+    let hash = output.stdout.trim();
+    Ok(if hash.is_empty() {
+        None
+    } else {
+        Some(hash.to_string())
+    })
+}
+
+/// 区间内的提交（`base..head`），用于 incoming / outgoing 列表。
+/// 两个端点分别校验引用名，区间字符串在内部拼装，不接受调用方传入的 `..`。
+#[tauri::command]
+fn git_range_log(
+    dir: String,
+    base: String,
+    head: String,
+    limit: u32,
+) -> Result<Vec<WorkspaceGitCommit>, String> {
+    let limit = limit.clamp(1, 200);
+    let base = validate_git_ref(&base)?.to_string();
+    let head = validate_git_ref(&head)?.to_string();
+    let root = git_repository_root(Path::new(&dir))?;
+    let range = format!("{base}..{head}");
+    let format = "%H%x1f%h%x1f%an%x1f%ae%x1f%at%x1f%s%x1e";
+    let output = git_raw_output(
+        &root,
+        &[
+            "--no-pager",
+            "log",
+            &format!("-n{limit}"),
+            &format!("--format={format}"),
+            &range,
+        ],
+    )?;
+    if !output.ok {
+        let text = format!("{}\n{}", output.stdout, output.stderr);
+        if text.contains("does not have any commits") || text.contains("unknown revision") {
+            return Ok(Vec::new());
+        }
+        return Err(text.trim().to_string());
+    }
+    let mut commits = Vec::new();
+    for record in output.stdout.split('\x1e') {
+        let fields: Vec<&str> = record.split('\x1f').collect();
+        if fields.len() < 6 || fields[0].len() != 40 {
+            continue;
+        }
+        commits.push(WorkspaceGitCommit {
+            hash: fields[0].to_string(),
+            short_hash: fields[1].to_string(),
+            author: fields[2].to_string(),
+            email: fields[3].to_string(),
+            timestamp: fields[4].parse::<i64>().unwrap_or(0),
+            subject: fields[5].to_string(),
+        });
+    }
+    Ok(commits)
+}
+
 /// 读取提交树（git log --topo-order），供历史页渲染树状图谱。
 /// `rev` 为 None 时覆盖全部分支（--all），否则只看该引用/分支；
 /// `simplify` 为 true 时只保留带头部（引用指向）的提交；
@@ -7565,6 +7634,8 @@ fn main() {
             git_commit,
             git_log,
             git_graph,
+            git_merge_base,
+            git_range_log,
             git_commit_detail,
             git_commit_file_diff,
             git_branches,

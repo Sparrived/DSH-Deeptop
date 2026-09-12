@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { DockedFileView } from "./DockedFileView";
 import { DockedGitDiff } from "./DockedGitDiff";
+import { DockedGitRange } from "./DockedGitRange";
 import { GitCommitDetailView } from "./GitCommitDetailView";
 import { GitMergeConflictView } from "./GitMergeConflictView";
 import { t, type UiLocale } from "../app/i18n";
@@ -58,6 +59,13 @@ const DOCK_TAB_RENDERERS: Record<string, DockTabRenderer> = {
     const cwd = tab.payload?.cwd;
     if (!path || !cwd) return null;
     return <GitMergeConflictView cwd={cwd} path={path} locale={locale} onError={onError} />;
+  },
+  "git-range": ({ tab, locale, onError }) => {
+    const cwd = tab.payload?.cwd;
+    const base = tab.payload?.base;
+    const head = tab.payload?.head;
+    if (!cwd || !base || !head) return null;
+    return <DockedGitRange cwd={cwd} base={base} head={head} locale={locale} onError={onError} />;
   },
 };
 

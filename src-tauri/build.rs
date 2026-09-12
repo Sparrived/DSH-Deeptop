@@ -51,6 +51,8 @@ fn main() {
         "git_fetch",
         "git_file_diff",
         "git_graph",
+        "git_merge_base",
+        "git_range_log",
         "git_log",
         "git_pull",
         "git_push",

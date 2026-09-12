@@ -607,13 +607,16 @@
   --git-graph-row-bg: var(--surface);
 }
 /* 泳道配色：5 个槽位，颜色只挂在泳道身份上；浅色与深色主题各自取值。
-   5 个色相故意拉开（金 / 品红 / 青 / 紫 / 蓝），避免相邻泳道在浅色底上撞色。 */
+   5 个色相故意拉开（金 / 品红 / 青 / 紫 / 蓝），避免相邻泳道在浅色底上撞色。
+   另外两个语义色专供 incoming / outgoing 合成行（与提交不同色系）。 */
 :root {
   --git-graph-lane-1: #b8791a;
   --git-graph-lane-2: #c2185b;
   --git-graph-lane-3: #0f7d76;
   --git-graph-lane-4: #7738c9;
   --git-graph-lane-5: #2f6fb0;
+  --git-graph-local: #2f6fb0;
+  --git-graph-remote: #7738c9;
 }
 :root[data-theme="dark"] {
   --git-graph-lane-1: #f0b429;
@@ -621,6 +624,8 @@
   --git-graph-lane-3: #46c2b6;
   --git-graph-lane-4: #b98bff;
   --git-graph-lane-5: #6fa8ff;
+  --git-graph-local: #6fa8ff;
+  --git-graph-remote: #b98bff;
 }
 .git-graph-spacer { flex: 0 0 auto; }
 /* 「有 N 个新提交」徽标：粘性零高度锚点挂在视口顶部，不参与行高与虚拟化计算 */
@@ -686,6 +691,27 @@
   min-width: 0;
   flex: 1 1 auto;
 }
+
+/* incoming / outgoing 合成行：整行是一个可点击的"区间入口" */
+.git-graph-row-synthetic { cursor: pointer; }
+.git-graph-synthetic {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 1px 8px;
+  border: 1px dashed currentColor;
+  border-radius: 999px;
+  font-size: 10px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.git-graph-synthetic-local,
+.git-graph-row-outgoing .git-graph-synthetic { color: var(--git-graph-local); }
+.git-graph-synthetic-remote,
+.git-graph-row-incoming .git-graph-synthetic { color: var(--git-graph-remote); }
+.git-graph-row-synthetic:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
 .git-graph-hash {
   flex: 0 0 auto;
   color: var(--accent-deep);
@@ -867,6 +893,18 @@
   font-family: var(--mono);
   font-size: 11px;
 }
+
+/* 右栏的 git-range 标签：头部固定，提交列表自己滚动 */
+.dock-git-range {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.dock-git-range .git-diff-header { flex: 0 0 auto; }
+.dock-git-range-list { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.git-range-count { margin-left: auto; color: var(--ink-faint); font-size: 10px; }
+.git-range-open-icon { flex: 0 0 auto; width: 12px; height: 12px; color: var(--ink-faint); }
 
 /* —— 冲突解决（三方视图） —— */
 .git-merge {

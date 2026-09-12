@@ -70,6 +70,25 @@ export type GitGraphRow = {
   nodeBottom: { lane: number; toLane: number; color: number } | null;
   /** 其余双亲（合并）的连线：从圆点引到目标泳道。 */
   merges: Array<{ lane: number; color: number }>;
+  /**
+   * 合成行：不代表真实提交，而是"区间标记"（远端有而我还没有 / 我有而远端没有）。
+   * 它是一行直通的泳道，圆点画成虚线环，行内显示区间说明。
+   */
+  synthetic?: GitGraphMarkerKind;
+  /** 合成行指向的区间端点，用于打开区间列表。 */
+  range?: { base: string; head: string };
+  /** 区间内的提交数。 */
+  count?: number;
+};
+
+/** 合成行的两种语义：incoming = 远端有而我还没有；outgoing = 我有而远端没有。 */
+export type GitGraphMarkerKind = "incoming" | "outgoing";
+
+/** 要在图谱里标出的区间；两个端点都是提交哈希。 */
+export type GitGraphRangeMarker = {
+  base: string;
+  head: string;
+  count: number;
 };
 
 export type GitGraphLayout = {
@@ -143,8 +162,7 @@ export function gitGraphMergePath(fromLane: number, toLane: number): string {
   ].join(" ");
 }
 
-/** 一组 ref 拆分为内联可见部分与折叠溢出部分。空数组或短列表不会产生溢出。 */
-export function splitInlineRefs(refs: string[]): { visible: string[]; overflow: string[] } {
+/** 一组 ref 拆分为内联可见部分与折叠溢出部分。空数组或短列表不会产生溢出。 */export function splitInlineRefs(refs: string[]): { visible: string[]; overflow: string[] } {
   if (refs.length <= MAX_INLINE_REFS) return { visible: refs, overflow: [] };
   return { visible: refs.slice(0, MAX_INLINE_REFS), overflow: refs.slice(MAX_INLINE_REFS) };
 }
@@ -239,4 +257,73 @@ export function gitGraphLayout(input: WorkspaceGitGraphLine[]): GitGraphLayout {
   }
 
   return { rows, columnCount };
+}
+
+/**
+ * 在图谱里插入 incoming / outgoing 合成行（与 VS Code SCM Graph 的做法一致）：
+ * - outgoing 插在 HEAD 行上方，表示"从这里往下是我有、远端还没有的提交"；
+ * - incoming 插在共同祖先那一行上方，表示"从这里往下是远端有、我还没有的提交"。
+ *
+ * 合成行本身是一行"直通泳道"：输入输出泳道与该锚点行的输入泳道一致，
+ * 因此插入它不会改变原有任何一行的列与连线。锚点不在已加载窗口里时跳过该标记。
+ */
+export function insertGraphMarkers(
+  layout: GitGraphLayout,
+  markers: { outgoing?: GitGraphRangeMarker; incoming?: GitGraphRangeMarker },
+): GitGraphLayout {
+  const entries: Array<{ kind: GitGraphMarkerKind; marker: GitGraphRangeMarker }> = [];
+  if (markers.outgoing) entries.push({ kind: "outgoing", marker: markers.outgoing });
+  if (markers.incoming) entries.push({ kind: "incoming", marker: markers.incoming });
+  if (entries.length === 0) return layout;
+
+  // 锚点：outgoing 锚在区间头部提交（HEAD），incoming 锚在区间起始提交（共同祖先）
+  const anchors: Array<{ kind: GitGraphMarkerKind; marker: GitGraphRangeMarker; index: number }> = [];
+  for (const entry of entries) {
+    const anchorHash = entry.kind === "outgoing" ? entry.marker.head : entry.marker.base;
+    const index = layout.rows.findIndex((row) => row.hash === anchorHash && row.synthetic === undefined);
+    if (index === -1) continue;
+    anchors.push({ ...entry, index });
+  }
+  if (anchors.length === 0) return layout;
+  // 同一行上只保留一个标记（先到先得：outgoing 优先，它是用户自己那条线）
+  const seen = new Set<number>();
+  const accepted = anchors.filter((anchor) => {
+    if (seen.has(anchor.index)) return false;
+    seen.add(anchor.index);
+    return true;
+  });
+
+  const rows: GitGraphRow[] = [];
+  layout.rows.forEach((row, index) => {
+    for (const anchor of accepted) {
+      if (anchor.index !== index) continue;
+      const lanes = row.inputLanes.map((lane) => ({ ...lane }));
+      rows.push({
+        hash: `__${anchor.kind}__`,
+        shortHash: "",
+        subject: "",
+        author: null,
+        email: null,
+        timestamp: null,
+        refs: [],
+        isHead: false,
+        isMerge: false,
+        lane: row.lane,
+        color: row.color,
+        inputLanes: lanes,
+        outputLanes: lanes.map((lane) => ({ ...lane })),
+        columnCount: row.columnCount,
+        through: lanes.map((lane, laneIndex) => ({ fromLane: laneIndex, toLane: laneIndex, color: lane.color })),
+        nodeTop: null,
+        nodeBottom: null,
+        merges: [],
+        synthetic: anchor.kind,
+        range: { base: anchor.marker.base, head: anchor.marker.head },
+        count: anchor.marker.count,
+      });
+    }
+    rows.push(row);
+  });
+
+  return { rows, columnCount: layout.columnCount };
 }
