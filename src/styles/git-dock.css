@@ -146,8 +146,12 @@
   gap: 2px;
   padding: 6px 12px 0;
   border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+.git-tabs::-webkit-scrollbar { display: none; }
 .git-tabs button {
+  flex: 0 0 auto;
   padding: 6px 12px 8px;
   border: 0;
   border-bottom: 2px solid transparent;
@@ -816,6 +820,35 @@
   font-family: var(--mono);
   font-size: 13px;
   resize: vertical;
+}
+
+.git-dialog-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+.git-dialog-select select {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 6px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+/* 标签与储藏行：名字与说明同排，窄栏下截断 */
+.git-tag-name { color: var(--warning); }
+.git-stash-ref { color: var(--accent-deep); font-weight: 700; }
+.git-stash-subject {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .git-dialog-field input:focus,
 .git-commit-message:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }

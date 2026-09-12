@@ -3,13 +3,16 @@ import { Check, ChevronLeft, GitBranch, Minus, Plus, RefreshCw, X } from "lucide
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   amendGitCommit,
+  applyGitStash,
   cherryPickGitCommit,
   checkoutGitBranch,
   commitGit,
   createGitBranch,
   createGitTag,
   deleteGitBranch,
+  deleteGitTag,
   discardGitPaths,
+  dropGitStash,
   fetchGit,
   getGitCommitDetail,
   getGitCommitFileDiff,
@@ -19,8 +22,12 @@ import {
   listGitBranches,
   listGitGraph,
   listGitLog,
+  listGitStashes,
+  listGitTags,
   pullGit,
   pushGit,
+  pushGitStash,
+  renameGitBranch,
   resetGitTo,
   revertGitCommit,
   stageAllGit,
@@ -35,7 +42,9 @@ import {
   type WorkspaceGitCommitDetail,
   type WorkspaceGitFile,
   type WorkspaceGitGraphLine,
+  type WorkspaceGitStash,
   type WorkspaceGitStatus,
+  type WorkspaceGitTag,
 } from "../lib/desktop";
 import { errorText } from "../app/model";
 import {
@@ -66,14 +75,13 @@ import { GitTreeGraph } from "./GitTreeGraph";
 import { t, type UiLocale } from "../app/i18n";
 import { trackAsyncCleanup } from "../lib/async-cleanup";
 
-type GitDockTab = "changes" | "history" | "branches";
+type GitDockTab = "changes" | "history" | "branches" | "stash";
 
 /** 破坏性操作的确认目标：确认后由 `runConfirmAction` 统一执行。 */
-type GitConfirmTarget = {
-  kind: "reset-hard";
-  hash: string;
-  shortHash: string;
-};
+type GitConfirmTarget =
+  | { kind: "reset-hard"; hash: string; shortHash: string }
+  | { kind: "tag-delete"; name: string }
+  | { kind: "stash-drop"; reference: string };
 
 type GitDockProps = {
   locale?: UiLocale;
@@ -146,11 +154,17 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   const [discardTarget, setDiscardTarget] = useState<WorkspaceGitFile | null>(null);
   const [branchDialog, setBranchDialog] = useState<
     | { mode: "create"; value: string; from: string | null }
+    | { mode: "rename"; branch: WorkspaceGitBranch; value: string }
     | { mode: "delete"; branch: WorkspaceGitBranch }
     | null
   >(null);
   const [tagDialog, setTagDialog] = useState<{ value: string; message: string; hash: string | null } | null>(null);
+  const [stashDialog, setStashDialog] = useState<{ message: string; includeUntracked: boolean } | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<GitConfirmTarget | null>(null);
+  const [tags, setTags] = useState<WorkspaceGitTag[] | null>(null);
+  const [tagsLoading, setTagsLoading] = useState(false);
+  const [stashes, setStashes] = useState<WorkspaceGitStash[] | null>(null);
+  const [stashesLoading, setStashesLoading] = useState(false);
   const [result, setResult] = useState<GitCommandResult | null>(null);
   const [copyingHash, setCopyingHash] = useState<string | null>(null);
   const [historyView, setHistoryView] = useState<"list" | "graph">("list");
@@ -247,6 +261,38 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     }
   }, [workspace, onError, locale]);
 
+  const reloadTags = useCallback(async () => {
+    if (!workspace) {
+      setTags(null);
+      return;
+    }
+    setTagsLoading(true);
+    try {
+      setTags(await listGitTags(workspace));
+    } catch (error) {
+      setTags(null);
+      onError(t("git.error.readTags", locale, { error: errorText(error, locale) }));
+    } finally {
+      setTagsLoading(false);
+    }
+  }, [workspace, onError, locale]);
+
+  const reloadStashes = useCallback(async () => {
+    if (!workspace) {
+      setStashes(null);
+      return;
+    }
+    setStashesLoading(true);
+    try {
+      setStashes(await listGitStashes(workspace));
+    } catch (error) {
+      setStashes(null);
+      onError(t("git.error.stashListFailed", locale, { error: errorText(error, locale) }));
+    } finally {
+      setStashesLoading(false);
+    }
+  }, [workspace, onError, locale]);
+
   // 图谱取数：`keepWindow` 为真时按「已加载窗口」取数，并把新提交接到既有行前面，
   // 因此刷新不会把用户翻出来的历史与滚动位置丢掉；重写历史时自动退化为整页替换。
   const fetchGraph = useCallback(async (options: { keepWindow: boolean }) => {
@@ -329,7 +375,13 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   // 统一刷新入口：状态/历史/分支每次都刷，图谱只在 refs 真的变了（或用户手动刷新）
   // 且视图可见时重取；不可见时只标记过期，进入图谱视图再补取。
   const refreshAll = useCallback(async (options: { force?: boolean } = {}) => {
-    const [nextStatus, , nextBranches] = await Promise.all([reloadStatus(), reloadCommits(), reloadBranches()]);
+    const [nextStatus, , nextBranches] = await Promise.all([
+      reloadStatus(),
+      reloadCommits(),
+      reloadBranches(),
+      reloadTags(),
+      reloadStashes(),
+    ]);
     const signature = gitRefSignature(nextStatus, nextBranches);
     const refsChanged = signature !== refSignatureRef.current;
     refSignatureRef.current = signature;
@@ -345,7 +397,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
       graphStaleRef.current = true;
       setGraphStale(true);
     }
-  }, [reloadStatus, reloadCommits, reloadBranches, requestGraph]);
+  }, [reloadStatus, reloadCommits, reloadBranches, reloadTags, reloadStashes, requestGraph]);
 
   useEffect(() => {
     setTab("changes");
@@ -588,7 +640,51 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     const target = confirmTarget;
     setConfirmTarget(null);
     if (!target) return;
-    await runMutation(() => resetGitTo(workspace, target.hash, "hard"), t("git.resetHard", locale));
+    if (target.kind === "reset-hard") {
+      await runMutation(() => resetGitTo(workspace, target.hash, "hard"), t("git.resetHard", locale));
+      return;
+    }
+    if (target.kind === "tag-delete") {
+      await runMutation(() => deleteGitTag(workspace, target.name), t("git.tagDelete", locale));
+      return;
+    }
+    await runMutation(() => dropGitStash(workspace, target.reference), t("git.stashDrop", locale));
+  }
+
+  async function submitStashCreate() {
+    if (!stashDialog) return;
+    const message = stashDialog.message.trim();
+    const includeUntracked = stashDialog.includeUntracked;
+    setStashDialog(null);
+    await runMutation(
+      () => pushGitStash(workspace, message || null, includeUntracked),
+      t("git.stashCreate", locale),
+    );
+    setTab("stash");
+  }
+
+  async function handleStashApply(stash: WorkspaceGitStash, drop: boolean) {
+    await runMutation(
+      () => applyGitStash(workspace, stash.reference, drop),
+      t(drop ? "git.stashPop" : "git.stashApply", locale),
+    );
+  }
+
+  async function submitBranchRename() {
+    if (!branchDialog || branchDialog.mode !== "rename") return;
+    const from = branchDialog.branch.name;
+    const to = branchDialog.value.trim();
+    setBranchDialog(null);
+    if (!to || to === from) return;
+    setBusy(true);
+    try {
+      setResult(await renameGitBranch(workspace, from, to));
+    } catch (error) {
+      onError(t("git.error.renameFailed", locale, { error: errorText(error, locale) }));
+    } finally {
+      setBusy(false);
+      await refreshAll();
+    }
   }
 
   async function submitTagCreate() {
@@ -735,9 +831,25 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
           autoFocus
           aria-label={t("git.branchNameAria", locale)}
         />
+        <label className="git-dialog-select">
+          <span>{t("git.branchFromLabel", locale)}</span>
+          <select
+            value={branchDialog.from ?? ""}
+            onChange={(event) => setBranchDialog({ mode: "create", value: branchDialog.value, from: event.target.value || null })}
+            aria-label={t("git.branchFromLabel", locale)}
+          >
+            <option value="">{t("git.branchFromCurrent", locale)}</option>
+            {(branches ?? []).map((branch) => (
+              <option key={branch.name} value={branch.name}>{branch.name}</option>
+            ))}
+            {(tags ?? []).map((tag) => (
+              <option key={`tag:${tag.name}`} value={tag.name}>tag: {tag.name}</option>
+            ))}
+          </select>
+        </label>
         <p className="git-dialog-hint">
           {branchDialog.from
-            ? t("git.branchCreateFromHint", locale, { from: branchDialog.from.slice(0, 7) })
+            ? t("git.branchCreateFromHint", locale, { from: branchDialog.from })
             : t("git.branchCreateHint", locale)}
         </p>
       </div>
@@ -808,7 +920,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
       ) : (
         <>
           <div className="git-tabs" role="tablist" aria-label={t("git.tabsAria", locale)}>
-            {(["changes", "history", "branches"] as const).map((item) => (
+            {(["changes", "history", "branches", "stash"] as const).map((item) => (
               <button
                 key={item}
                 type="button"
@@ -817,7 +929,10 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                 className={tab === item ? "selected" : ""}
                 onClick={() => setTab(item)}
               >
-                {item === "changes" ? t("git.tabChanges", locale) : item === "history" ? t("git.tabHistory", locale) : t("git.tabBranches", locale)}
+                {item === "changes" ? t("git.tabChanges", locale)
+                  : item === "history" ? t("git.tabHistory", locale)
+                  : item === "branches" ? t("git.tabBranches", locale)
+                  : t("git.tabStash", locale)}
               </button>
             ))}
           </div>
@@ -1082,6 +1197,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
             <div className="git-branches">
               <div className="git-branches-toolbar">
                 <button type="button" disabled={!isRepo || busy} onClick={() => setBranchDialog({ mode: "create", value: "", from: null })}><Plus aria-hidden="true" /> {t("git.newBranch", locale)}</button>
+                <button type="button" disabled={!isRepo || busy} onClick={() => setTagDialog({ value: "", message: "", hash: null })}>{t("git.tagCreate", locale)}</button>
               </div>
               {branchesLoading && branches === null ? (
                 <div className="git-empty">{t("git.loadingBranches", locale)}</div>
@@ -1102,6 +1218,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                           {!branch.isCurrent && (
                             <button type="button" disabled={busy} title={t("git.checkoutTitle", locale)} aria-label={t("git.checkoutBranch", locale, { name: branch.name })} onClick={() => void handleCheckout(branch)}>{t("git.checkout", locale)}</button>
                           )}
+                          <button type="button" disabled={busy} title={t("git.renameBranchTitle", locale)} aria-label={t("git.renameBranchAria", locale, { name: branch.name })} onClick={() => setBranchDialog({ mode: "rename", branch, value: branch.name })}>{t("git.renameBranch", locale)}</button>
                           {!branch.isCurrent && (
                             <button type="button" className="danger" disabled={busy} title={t("git.deleteBranchTitle", locale)} aria-label={t("git.deleteBranch", locale, { name: branch.name })} onClick={() => setBranchDialog({ mode: "delete", branch })}>{t("common.delete", locale)}</button>
                           )}
@@ -1122,6 +1239,55 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                       ))}
                     </section>
                   )}
+                  {tagsLoading && tags === null ? (
+                    <div className="git-empty">{t("git.loadingTags", locale)}</div>
+                  ) : tags && tags.length > 0 && (
+                    <section className="git-group git-group-tags">
+                      <h4>{t("git.tags", locale)}</h4>
+                      {tags.map((tag) => (
+                        <div key={tag.name} className="git-branch-row">
+                          <span className="git-branch-name" title={`${tag.name} → ${tag.target}`}>
+                            <span className="git-tag-name">{tag.name}</span>
+                            <span className="git-branch-oid" title={tag.target}>{tag.target.slice(0, 7)}</span>
+                          </span>
+                          <div className="git-branch-actions">
+                            <button type="button" className="danger" disabled={busy} title={t("git.tagDeleteTitle", locale)} aria-label={t("git.tagDeleteAria", locale, { name: tag.name })} onClick={() => setConfirmTarget({ kind: "tag-delete", name: tag.name })}>{t("common.delete", locale)}</button>
+                          </div>
+                        </div>
+                      ))}
+                    </section>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === "stash" && (
+            <div className="git-branches">
+              <div className="git-branches-toolbar">
+                <button type="button" disabled={!isRepo || busy} onClick={() => setStashDialog({ message: "", includeUntracked: false })}><Plus aria-hidden="true" /> {t("git.stashCreate", locale)}</button>
+                <button type="button" disabled={!isRepo || busy} onClick={() => void reloadStashes()}>{t("common.refresh", locale)}</button>
+              </div>
+              {stashesLoading && stashes === null ? (
+                <div className="git-empty">{t("git.loadingStashes", locale)}</div>
+              ) : !stashes || stashes.length === 0 ? (
+                <div className="git-empty">{t("git.stashEmpty", locale)}</div>
+              ) : (
+                <div className="git-branches-scroll">
+                  {stashes.map((stash) => (
+                    <div key={stash.reference} className="git-branch-row">
+                      <span className="git-branch-name" title={stash.subject}>
+                        <span className="git-stash-ref">{stash.reference}</span>
+                        <span className="git-stash-subject">{stash.subject}</span>
+                        {stash.timestamp > 0 && <span className="git-branch-oid">{formatRelativeTime(stash.timestamp, undefined, locale)}</span>}
+                      </span>
+                      <div className="git-branch-actions">
+                        <button type="button" disabled={busy} title={t("git.stashApplyTitle", locale)} onClick={() => void handleStashApply(stash, false)}>{t("git.stashApply", locale)}</button>
+                        <button type="button" disabled={busy} title={t("git.stashPopTitle", locale)} onClick={() => void handleStashApply(stash, true)}>{t("git.stashPop", locale)}</button>
+                        <button type="button" className="danger" disabled={busy} title={t("git.stashDropTitle", locale)} aria-label={t("git.stashDropAria", locale, { reference: stash.reference })} onClick={() => setConfirmTarget({ kind: "stash-drop", reference: stash.reference })}>{t("common.delete", locale)}</button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -1218,6 +1384,102 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
           </>}
         >
           <p className="popup-warning-copy">{t("git.resetHardWarning", locale)}</p>
+        </PopupDialog>
+      )}
+
+      {branchDialog?.mode === "rename" && (
+        <PopupDialog
+          title={t("git.renameBranchTitle", locale)}
+          eyebrow="GIT / 分支"
+          locale={locale}
+          description={t("git.renameBranchDescription", locale, { name: branchDialog.branch.name })}
+          className="popup-git-branch-rename"
+          onClose={() => setBranchDialog(null)}
+          footer={<>
+            <button type="button" onClick={() => setBranchDialog(null)}>{t("common.cancel", locale)}</button>
+            <button type="button" className="confirm" disabled={!branchDialog.value.trim() || busy} onClick={() => void submitBranchRename()}>{t("git.renameBranchAction", locale)}</button>
+          </>}
+        >
+          <div className="git-dialog-field">
+            <input
+              value={branchDialog.value}
+              onChange={(event) => setBranchDialog({ mode: "rename", branch: branchDialog.branch, value: event.target.value })}
+              onKeyDown={(event) => { if (event.key === "Enter") void submitBranchRename(); }}
+              placeholder={t("git.renameBranchPlaceholder", locale)}
+              autoFocus
+              aria-label={t("git.renameBranchAria", locale, { name: branchDialog.branch.name })}
+            />
+          </div>
+        </PopupDialog>
+      )}
+
+      {stashDialog && (
+        <PopupDialog
+          title={t("git.stashCreateTitle", locale)}
+          eyebrow="GIT / 储藏"
+          locale={locale}
+          description={t("git.stashCreateDescription", locale)}
+          className="popup-git-stash-create"
+          onClose={() => setStashDialog(null)}
+          footer={<>
+            <button type="button" onClick={() => setStashDialog(null)}>{t("common.cancel", locale)}</button>
+            <button type="button" className="confirm" disabled={busy} onClick={() => void submitStashCreate()}>{t("git.stashCreateAction", locale)}</button>
+          </>}
+        >
+          <div className="git-dialog-field">
+            <input
+              value={stashDialog.message}
+              onChange={(event) => setStashDialog({ ...stashDialog, message: event.target.value })}
+              onKeyDown={(event) => { if (event.key === "Enter") void submitStashCreate(); }}
+              placeholder={t("git.stashMessagePlaceholder", locale)}
+              autoFocus
+              aria-label={t("git.stashMessagePlaceholder", locale)}
+            />
+            <label className="git-commit-stage-all">
+              <input
+                type="checkbox"
+                checked={stashDialog.includeUntracked}
+                onChange={(event) => setStashDialog({ ...stashDialog, includeUntracked: event.target.checked })}
+              />
+              <span>{t("git.stashIncludeUntracked", locale)}</span>
+            </label>
+          </div>
+        </PopupDialog>
+      )}
+
+      {confirmTarget?.kind === "tag-delete" && (
+        <PopupDialog
+          title={t("git.tagDeleteTitle", locale)}
+          eyebrow="GIT / 标签"
+          locale={locale}
+          description={t("git.tagDeleteDescription", locale, { name: confirmTarget.name })}
+          className="popup-git-tag-delete"
+          role="alertdialog"
+          onClose={() => setConfirmTarget(null)}
+          footer={<>
+            <button type="button" onClick={() => setConfirmTarget(null)}>{t("common.cancel", locale)}</button>
+            <button type="button" className="confirm danger-button" disabled={busy} onClick={() => void runConfirmAction()}>{t("common.delete", locale)}</button>
+          </>}
+        >
+          <p className="popup-warning-copy">{t("git.tagDeleteWarning", locale)}</p>
+        </PopupDialog>
+      )}
+
+      {confirmTarget?.kind === "stash-drop" && (
+        <PopupDialog
+          title={t("git.stashDropTitle", locale)}
+          eyebrow="GIT / 储藏"
+          locale={locale}
+          description={t("git.stashDropDescription", locale, { reference: confirmTarget.reference })}
+          className="popup-git-stash-drop"
+          role="alertdialog"
+          onClose={() => setConfirmTarget(null)}
+          footer={<>
+            <button type="button" onClick={() => setConfirmTarget(null)}>{t("common.cancel", locale)}</button>
+            <button type="button" className="confirm danger-button" disabled={busy} onClick={() => void runConfirmAction()}>{t("common.delete", locale)}</button>
+          </>}
+        >
+          <p className="popup-warning-copy">{t("git.stashDropWarning", locale)}</p>
         </PopupDialog>
       )}
 
