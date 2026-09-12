@@ -14,8 +14,6 @@ import {
   discardGitPaths,
   dropGitStash,
   fetchGit,
-  getGitCommitDetail,
-  getGitCommitFileDiff,
   getGitFileDiff,
   getWorkspaceGitStatus,
   isTauri,
@@ -39,7 +37,6 @@ import {
   type GitCommandResult,
   type WorkspaceGitBranch,
   type WorkspaceGitCommit,
-  type WorkspaceGitCommitDetail,
   type WorkspaceGitFile,
   type WorkspaceGitGraphLine,
   type WorkspaceGitStash,
@@ -47,10 +44,11 @@ import {
   type WorkspaceGitTag,
 } from "../lib/desktop";
 import { errorText } from "../app/model";
+import { dockTabKey } from "../app/dock-layout";
+import { useDockSettings } from "../app/dock-settings";
 import {
   canStageFile,
   canUnstageFile,
-  diffLineKind,
   formatRelativeTime,
   gitFileLabel,
   gitFileMark,
@@ -72,6 +70,8 @@ import {
 import { DockFrame } from "./DockFrame";
 import { PopupDialog } from "./PopupDialog";
 import { GitTreeGraph } from "./GitTreeGraph";
+import { GitCommitDetailView } from "./GitCommitDetailView";
+import { GitDiffBody } from "./GitDiffBody";
 import { t, type UiLocale } from "../app/i18n";
 import { trackAsyncCleanup } from "../lib/async-cleanup";
 
@@ -132,6 +132,7 @@ function ChangeRow({
 }
 
 export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh" }: GitDockProps) {
+  const { openTab } = useDockSettings();
   const [tab, setTab] = useState<GitDockTab>("changes");
   const [status, setStatus] = useState<WorkspaceGitStatus | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
@@ -142,8 +143,8 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   const [diffError, setDiffError] = useState<string | null>(null);
   const [commits, setCommits] = useState<WorkspaceGitCommit[] | null>(null);
   const [commitsLoading, setCommitsLoading] = useState(false);
-  const [commitDetail, setCommitDetail] = useState<WorkspaceGitCommitDetail | null>(null);
-  const [commitDetailLoading, setCommitDetailLoading] = useState(false);
+  // 只保存"选中的提交哈希"：提交详情与逐文件差异由 GitCommitDetailView 自己加载
+  const [selectedCommitHash, setSelectedCommitHash] = useState<string | null>(null);
   const [branches, setBranches] = useState<WorkspaceGitBranch[] | null>(null);
   const [branchesLoading, setBranchesLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -176,10 +177,6 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   const [graphLoadingMore, setGraphLoadingMore] = useState(false);
   const [graphStale, setGraphStale] = useState(false);
   const graphRequestRef = useRef(0);
-  const [commitDiffPath, setCommitDiffPath] = useState<string | null>(null);
-  const [commitDiffText, setCommitDiffText] = useState<string | null>(null);
-  const [commitDiffLoading, setCommitDiffLoading] = useState(false);
-  const [commitDiffError, setCommitDiffError] = useState<string | null>(null);
   const graphRevRef = useRef<string | null>(null);
   const graphSimplifyRef = useRef(false);
   // 图谱刷新的判定依据用 ref 保存：刷新回调因此不依赖 graph/graphHasMore，
@@ -196,9 +193,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   useEffect(() => {
     graphHasMoreRef.current = graphHasMore;
   }, [graphHasMore]);
-  const commitDiffRequestRef = useRef(0);
   const diffRequestRef = useRef(0);
-  const detailRequestRef = useRef(0);
 
   const isRepo = Boolean(workspace && status?.isRepository);
   const groups = useMemo(() => groupGitFiles(status?.files ?? []), [status]);
@@ -404,7 +399,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     setSelectedPath(null);
     setDiffText(null);
     setDiffError(null);
-    setCommitDetail(null);
+    setSelectedCommitHash(null);
     setDiscardTarget(null);
     setBranchDialog(null);
     setTagDialog(null);
@@ -544,35 +539,6 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     setGraphSimplify(enabled);
     requestGraph({ keepWindow: false });
   }
-
-  // 读取已选提交里指定文件的差异。
-  useEffect(() => {
-    if (!commitDiffPath || !commitDetail) {
-      setCommitDiffText(null);
-      setCommitDiffError(null);
-      return;
-    }
-    const request = ++commitDiffRequestRef.current;
-    setCommitDiffLoading(true);
-    setCommitDiffError(null);
-    let active = true;
-    void getGitCommitFileDiff(workspace, commitDetail.hash, commitDiffPath)
-      .then((text) => {
-        if (!active || request !== commitDiffRequestRef.current) return;
-        setCommitDiffText(text);
-      })
-      .catch((error) => {
-        if (!active || request !== commitDiffRequestRef.current) return;
-        setCommitDiffText(null);
-        setCommitDiffError(errorText(error));
-      })
-      .finally(() => {
-        if (active && request === commitDiffRequestRef.current) setCommitDiffLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [commitDiffPath, commitDetail, workspace]);
 
   async function runMutation(action: () => Promise<void | GitCommandResult>, reason: string) {
     setBusy(true);
@@ -795,22 +761,34 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     }
   }
 
+  // 选中即展开：提交详情由 GitCommitDetailView 自己加载，这里只记录选中项。
   function selectCommitByHash(hash: string) {
-    if (commitDetail?.hash === hash) return;
-    setCommitDetail(null);
-    setCommitDetailLoading(true);
-    setCommitDiffPath(null);
-    setCommitDiffText(null);
-    setCommitDiffError(null);
-    const request = ++detailRequestRef.current;
-    void getGitCommitDetail(workspace, hash)
-      .then((detail) => {
-        if (request === detailRequestRef.current) setCommitDetail(detail);
-      })
-      .catch((error) => onError(t("git.error.readDetailFailed", locale, { error: errorText(error, locale) })))
-      .finally(() => {
-        if (request === detailRequestRef.current) setCommitDetailLoading(false);
-      });
+    setSelectedCommitHash((current) => (current === hash ? null : hash));
+  }
+
+  /**
+   * 在右栏开一个提交详情标签：与「图谱/历史」面板并排对照。
+   * 按 `commit:<hash>` 去重，重复打开同一个提交是复用并激活。
+   */
+  function openCommitTab(detail: { hash: string; subject: string; author: string }) {
+    openTab({
+      kind: "git-commit",
+      title: detail.subject || detail.hash.slice(0, 7),
+      detail: detail.hash.slice(0, 7),
+      contentKey: `commit:${detail.hash}`,
+      payload: { cwd: workspace, hash: detail.hash },
+    });
+  }
+
+  /** 在右栏开一个文件差异标签：与变更列表/图谱并排对照。 */
+  function openDiffTab(path: string, staged: boolean) {
+    openTab({
+      kind: "git-diff",
+      title: path.split("/").pop() || path,
+      detail: staged ? t("git.diffStaged", locale) : t("git.diffWorktree", locale),
+      contentKey: `diff:${path}:${staged ? "staged" : "worktree"}`,
+      payload: { cwd: workspace, path, staged: staged ? "1" : "0" },
+    });
   }
 
   function selectFileAndDiff(file: WorkspaceGitFile) {
@@ -1046,20 +1024,15 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                       <button type="button" className={!diffStaged ? "selected" : ""} onClick={() => setDiffStaged(false)}>{t("git.diffWorktree", locale)}</button>
                       <button type="button" className={diffStaged ? "selected" : ""} onClick={() => setDiffStaged(true)}>{t("git.diffStaged", locale)}</button>
                     </div>
+                    <button type="button" className="git-diff-open-in-rail" title={t("git.openInDockTitle", locale)} onClick={() => openDiffTab(selectedPath, diffStaged)}>{t("git.openInDock", locale)}</button>
                     <button type="button" className="git-diff-close" aria-label={t("git.closeDiff", locale)} onClick={() => setSelectedPath(null)}><X aria-hidden="true" /></button>
                   </div>
                   {diffLoading ? (
                     <div className="git-diff-empty">{t("git.loadingDiff", locale)}</div>
                   ) : diffError ? (
                     <div className="git-diff-empty">{diffError}</div>
-                  ) : diffText && diffText.trim() ? (
-                    <div className="git-diff-body">
-                      {diffText.split("\n").map((line, index) => (
-                        <div key={index} className={`git-diff-line git-diff-line-${diffLineKind(line)}`}>{line || "\u00a0"}</div>
-                      ))}
-                    </div>
                   ) : (
-                    <div className="git-diff-empty">{t("git.emptyDiff", locale)}</div>
+                    <GitDiffBody text={diffText} locale={locale} />
                   )}
                 </div>
               )}
@@ -1093,7 +1066,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                 ) : (
                   <GitTreeGraph
                     lines={graph}
-                    selectedHash={commitDetail?.hash ?? null}
+                    selectedHash={selectedCommitHash}
                     onSelect={selectCommitByHash}
                     onLoadMore={loadMoreGraph}
                     hasMore={graphHasMore}
@@ -1112,7 +1085,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                     <button
                       key={commit.hash}
                       type="button"
-                      className={`git-commit-row ${commitDetail?.hash === commit.hash ? "selected" : ""}`}
+                      className={`git-commit-row ${selectedCommitHash === commit.hash ? "selected" : ""}`}
                       onClick={() => selectCommitByHash(commit.hash)}
                       title={commit.subject}
                     >
@@ -1125,70 +1098,34 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                   ))}
                 </div>
               )}
-              {commitDetailLoading && <div className="git-empty">{t("git.loadingDetail", locale)}</div>}
-              {commitDetail && !commitDetailLoading && (
-                <div className="git-commit-detail">
-                  <div className="git-commit-detail-header">
-                    <span className="git-commit-short">{commitDetail.hash.slice(0, 7)}</span>
-                    <span className="git-commit-subject">{commitDetail.subject}</span>
-                    <button type="button" className="git-diff-close" aria-label={t("git.closeDetail", locale)} onClick={() => { setCommitDetail(null); setCommitDiffPath(null); }}><X aria-hidden="true" /></button>
-                  </div>
-                  <div className="git-commit-detail-meta">
-                    <span>{commitDetail.author}</span>
-                    <span>{formatRelativeTime(commitDetail.timestamp, undefined, locale)}</span>
-                    <span>{t("git.fileCount", locale, { count: commitDetail.files.length })}</span>
-                  </div>
-                  {commitDetail.body && <pre className="git-commit-detail-body">{commitDetail.body}</pre>}
-                  <div className="git-commit-detail-files">
-                    {commitDetail.files.map((file) => (
-                      <button
-                        key={file.path}
-                        type="button"
-                        className={`git-commit-file-row ${commitDiffPath === file.path ? "active" : ""}`}
-                        onClick={() => setCommitDiffPath((current) => (current === file.path ? null : file.path))}
-                        title={t("git.viewFileDiff", locale, { path: file.path })}
-                      >
-                        <span className="git-commit-file-path" title={file.path}>{file.path}</span>
-                        <span className="git-commit-file-stats">
-                          {file.additions > 0 && <span className="git-stat-add">+{file.additions}</span>}
-                          {file.deletions > 0 && <span className="git-stat-del">−{file.deletions}</span>}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                  {commitDiffPath && (
-                    <div className="git-commit-diff">
-                      <div className="git-diff-header">
-                        <span className="git-diff-path" title={commitDiffPath}>{commitDiffPath}</span>
-                        <button type="button" className="git-diff-close" aria-label={t("git.closeFileDiff", locale)} onClick={() => setCommitDiffPath(null)}><X aria-hidden="true" /></button>
-                      </div>
-                      {commitDiffLoading ? (
-                        <div className="git-diff-empty">{t("git.loadingDiff", locale)}</div>
-                      ) : commitDiffError ? (
-                        <div className="git-diff-empty">{commitDiffError}</div>
-                      ) : commitDiffText && commitDiffText.trim() ? (
-                        <div className="git-diff-body">
-                          {commitDiffText.split("\n").map((line, index) => (
-                            <div key={index} className={`git-diff-line git-diff-line-${diffLineKind(line)}`}>{line || "\u00a0"}</div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="git-diff-empty">{t("git.emptyDiff", locale)}</div>
-                      )}
+              {selectedCommitHash && (
+                <GitCommitDetailView
+                  workspace={workspace}
+                  hash={selectedCommitHash}
+                  locale={locale}
+                  onError={onError}
+                  renderHeader={(detail) => (
+                    <div className="git-commit-detail-header">
+                      <span className="git-commit-short">{detail.hash.slice(0, 7)}</span>
+                      <span className="git-commit-subject">{detail.subject}</span>
+                      <button type="button" className="git-diff-close" aria-label={t("git.closeDetail", locale)} onClick={() => setSelectedCommitHash(null)}><X aria-hidden="true" /></button>
                     </div>
                   )}
-                  <div className="git-commit-detail-actions">
-                    <button type="button" disabled={copyingHash === commitDetail.hash} onClick={() => void handleCopyHash(commitDetail.hash)}>
-                      {copyingHash === commitDetail.hash ? t("git.copied", locale) : t("git.copyHash", locale)}
-                    </button>
-                    <button type="button" disabled={busy} title={t("git.tagCreateTitle", locale)} onClick={() => setTagDialog({ value: "", message: "", hash: commitDetail.hash })}>{t("git.tagCreate", locale)}</button>
-                    <button type="button" disabled={busy} title={t("git.branchFromCommitTitle", locale)} onClick={() => setBranchDialog({ mode: "create", value: "", from: commitDetail.hash })}>{t("git.branchFromCommit", locale)}</button>
-                    <button type="button" disabled={busy} title={t("git.cherryPickTitle", locale)} onClick={() => void runMutation(() => cherryPickGitCommit(workspace, commitDetail.hash, "start"), t("git.cherryPick", locale))}>{t("git.cherryPick", locale)}</button>
-                    <button type="button" disabled={busy} title={t("git.revertTitle", locale)} onClick={() => void runMutation(() => revertGitCommit(workspace, commitDetail.hash), t("git.revert", locale))}>{t("git.revert", locale)}</button>
-                    <button type="button" disabled={busy} title={t("git.resetSoftTitle", locale)} onClick={() => void runMutation(() => resetGitTo(workspace, commitDetail.hash, "soft"), t("git.resetSoft", locale))}>{t("git.resetSoft", locale)}</button>
-                    <button type="button" className="danger" disabled={busy} title={t("git.resetHardTitle", locale)} onClick={() => setConfirmTarget({ kind: "reset-hard", hash: commitDetail.hash, shortHash: commitDetail.hash.slice(0, 7) })}>{t("git.resetHard", locale)}</button>
-                  </div>
-                </div>
+                  renderActions={(detail) => (
+                    <>
+                      <button type="button" disabled={copyingHash === detail.hash} onClick={() => void handleCopyHash(detail.hash)}>
+                        {copyingHash === detail.hash ? t("git.copied", locale) : t("git.copyHash", locale)}
+                      </button>
+                      <button type="button" disabled={busy} title={t("git.tagCreateTitle", locale)} onClick={() => setTagDialog({ value: "", message: "", hash: detail.hash })}>{t("git.tagCreate", locale)}</button>
+                      <button type="button" disabled={busy} title={t("git.branchFromCommitTitle", locale)} onClick={() => setBranchDialog({ mode: "create", value: "", from: detail.hash })}>{t("git.branchFromCommit", locale)}</button>
+                      <button type="button" disabled={busy} title={t("git.openInDockTitle", locale)} onClick={() => openCommitTab(detail)}>{t("git.openInDock", locale)}</button>
+                      <button type="button" disabled={busy} title={t("git.cherryPickTitle", locale)} onClick={() => void runMutation(() => cherryPickGitCommit(workspace, detail.hash, "start"), t("git.cherryPick", locale))}>{t("git.cherryPick", locale)}</button>
+                      <button type="button" disabled={busy} title={t("git.revertTitle", locale)} onClick={() => void runMutation(() => revertGitCommit(workspace, detail.hash), t("git.revert", locale))}>{t("git.revert", locale)}</button>
+                      <button type="button" disabled={busy} title={t("git.resetSoftTitle", locale)} onClick={() => void runMutation(() => resetGitTo(workspace, detail.hash, "soft"), t("git.resetSoft", locale))}>{t("git.resetSoft", locale)}</button>
+                      <button type="button" className="danger" disabled={busy} title={t("git.resetHardTitle", locale)} onClick={() => setConfirmTarget({ kind: "reset-hard", hash: detail.hash, shortHash: detail.hash.slice(0, 7) })}>{t("git.resetHard", locale)}</button>
+                    </>
+                  )}
+                />
               )}
             </div>
           )}

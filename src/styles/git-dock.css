@@ -850,6 +850,28 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* 右栏的 git-diff 标签：头部固定，差异区自己滚动 */
+.dock-git-diff {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.dock-git-diff .git-diff-header { flex: 0 0 auto; }
+.dock-git-diff .git-diff-body,
+.dock-git-diff .git-diff-empty { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.git-diff-open-in-rail {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  color: var(--ink-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.git-diff-open-in-rail:hover { border-color: var(--accent); color: var(--accent-deep); }
 .git-dialog-field input:focus,
 .git-commit-message:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
 .git-dialog-hint { margin: 6px 0 0; color: var(--ink-faint); font-size: 11px; }

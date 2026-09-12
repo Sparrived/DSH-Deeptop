@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import { DockedFileView } from "./DockedFileView";
+import { DockedGitDiff } from "./DockedGitDiff";
+import { GitCommitDetailView } from "./GitCommitDetailView";
 import { t, type UiLocale } from "../app/i18n";
 import { dockTabBodyState, dockTabWorkspace, type DockTab } from "../app/dock-layout";
 
@@ -31,6 +33,25 @@ const DOCK_TAB_RENDERERS: Record<string, DockTabRenderer> = {
       onError={onError}
     />
   ) : null),
+  "git-commit": ({ tab, locale, onError }) => {
+    const hash = tab.payload?.hash;
+    if (!hash) return null;
+    return <GitCommitDetailView workspace={tab.payload?.cwd ?? ""} hash={hash} locale={locale} onError={onError} />;
+  },
+  "git-diff": ({ tab, locale, onError }) => {
+    const path = tab.payload?.path;
+    const cwd = tab.payload?.cwd;
+    if (!path || !cwd) return null;
+    return (
+      <DockedGitDiff
+        cwd={cwd}
+        path={path}
+        staged={tab.payload?.staged === "1"}
+        locale={locale}
+        onError={onError}
+      />
+    );
+  },
 };
 
 /** 该内容类型是否已登记渲染器（供判定与测试使用）。 */

@@ -341,3 +341,27 @@ test("decides whether a tab body is ready, foreign or unknown", () => {
   assert.equal(dockWorkspacesMatch("D:/repo", "D:/repo/"), true);
   assert.equal(dockWorkspacesMatch("D:/repo", "D:/other"), false);
 });
+
+test("dedupes instance tabs by content key and keeps singleton kinds single", () => {
+  // 文件类仍然按路径去重
+  assert.equal(dockTabKey("file", "D:/repo/a.ts"), "file:d:/repo/a.ts");
+  assert.equal(dockTabKey("file", "D:/repo/A.ts\\"), "file:d:/repo/a.ts");
+  // 非文件类：有 contentKey 时按内容键区分实例
+  assert.equal(dockTabKey("git-commit", undefined, "abc123"), "git-commit:abc123");
+  assert.equal(dockTabKey("git-commit", undefined, "def456"), "git-commit:def456");
+  // 没有 contentKey 的类型保持单例
+  assert.equal(dockTabKey("terminal-dock"), "terminal-dock");
+
+  let layout = open(emptyDockLayout(), { id: "tab-c1", kind: "git-commit", title: "one", contentKey: "abc123" });
+  layout = open(layout, { id: "tab-c2", kind: "git-commit", title: "two", contentKey: "def456" });
+  assert.equal(collectDockPanes(layout.root)[0].tabIds.length, 2);
+
+  // 重复打开同一个提交是复用（并更新标题），不会开出第二个标签
+  const reopened = open(layout, { id: "tab-dup", kind: "git-commit", title: "one renamed", contentKey: "abc123" });
+  assert.equal(collectDockPanes(reopened.root)[0].tabIds.length, 2);
+  assert.equal(findDockTabByKey(reopened, "git-commit:abc123").title, "one renamed");
+
+  // 重启后 contentKey 仍在，去重语义不会丢
+  const restored = normalizeDockLayout({ tabs: reopened.tabs, root: reopened.root });
+  assert.equal(findDockTabByKey(restored, "git-commit:def456").contentKey, "def456");
+});

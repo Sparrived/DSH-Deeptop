@@ -185,7 +185,7 @@ export function DockSettingsProvider({ children }: { children: ReactNode }) {
 
   const openTab = useCallback((tab: Omit<DockTab, "id"> & { id?: string }, options?: DockOpenOptions) => {
     const current = layoutRef.current;
-    const key = dockTabKey(tab.kind, tab.path);
+    const key = dockTabKey(tab.kind, tab.path, tab.contentKey);
     const existing = findDockTabByKey(current, key);
     commitLayout(openDockTab(current, { ...tab, id: existing?.id ?? tab.id ?? nextDockId("tab") }, {
       zone: options?.zone ?? "center",

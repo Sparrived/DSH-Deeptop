@@ -51,6 +51,11 @@ export type DockTab = {
   /** 文件类标签的 1-based 定位行。 */
   line?: number;
   /**
+   * 同一 `kind` 下区分实例的内容键（例如 `commit:<hash>`）。
+   * 缺省时同一种 `kind` 只保留一个标签（终端、图谱这类单例面板）。
+   */
+  contentKey?: string;
+  /**
    * 内容类型自己的附加数据（例如 git 标签的提交哈希与归属仓库）。
    * 键值都是字符串且有长度上限，归一化时逐项丢弃非法值而不是整条标签。
    */
@@ -92,12 +97,19 @@ export function isValidDockLayoutId(id: unknown): id is string {
 }
 
 /**
- * 标签的身份键：同一类面板只保留一个实例，文件类标签按路径去重。
- * 重复打开同一文件是「复用并定位」，而不是再开一个标签。
+ * 标签的身份键：文件类按归一化路径去重；其余类型按 `contentKey` 去重，
+ * 没有 `contentKey` 时同一种 `kind` 只保留一个实例（终端、图谱这类单例面板）。
+ * 重复打开同一个键是「复用并定位」，而不是再开一个标签。
  */
-export function dockTabKey(kind: string, path?: string): string {
-  if (kind !== "file") return kind;
-  return `file:${normalizeDockPath(path ?? "")}`;
+export function dockTabKey(kind: string, path?: string, contentKey?: string): string {
+  if (kind === "file") return `file:${normalizeDockPath(path ?? "")}`;
+  if (contentKey) return `${kind}:${contentKey}`;
+  return kind;
+}
+
+/** 一条已存在标签的身份键。 */
+export function dockTabIdentityKey(tab: DockTab): string {
+  return dockTabKey(tab.kind, tab.path, tab.contentKey);
 }
 
 /** 统一路径分隔符并去掉首尾空白，让同一文件的两种写法落到同一个键。 */
@@ -107,7 +119,7 @@ function normalizeDockPath(path: string): string {
 
 export function findDockTabByKey(layout: DockLayout, key: string): DockTab | null {
   for (const tab of Object.values(layout.tabs)) {
-    if (dockTabKey(tab.kind, tab.path) === key) return tab;
+    if (dockTabIdentityKey(tab) === key) return tab;
   }
   return null;
 }
@@ -266,7 +278,7 @@ export function openDockTab(
 ): DockLayout {
   const zone = options.zone ?? "center";
   const targetPaneId = options.targetPaneId ?? null;
-  const existing = findDockTabByKey(layout, dockTabKey(tab.kind, tab.path));
+  const existing = findDockTabByKey(layout, dockTabKey(tab.kind, tab.path, tab.contentKey));
   if (existing) {
     const updated: DockTab = { ...existing, ...tab, id: existing.id, line: tab.line ?? existing.line };
     const withTab: DockLayout = { ...layout, tabs: { ...layout.tabs, [existing.id]: updated } };
@@ -448,6 +460,9 @@ function normalizeTab(raw: unknown): DockTab | null {
   if (typeof source.title !== "string" || source.title.length === 0) return null;
   const tab: DockTab = { id: source.id, kind: source.kind, title: source.title.slice(0, 200) };
   if (typeof source.detail === "string") tab.detail = source.detail.slice(0, 200);
+  if (typeof source.contentKey === "string" && source.contentKey.trim().length > 0) {
+    tab.contentKey = source.contentKey.trim().slice(0, 200);
+  }
   if (typeof source.path === "string" && source.path.length > 0) tab.path = source.path.slice(0, 4096);
   if (typeof source.line === "number" && Number.isInteger(source.line) && source.line > 0) tab.line = source.line;
   const payload = normalizeTabPayload(source.payload);
