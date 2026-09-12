@@ -170,11 +170,13 @@ export function DockFrame({
     endDockDrag,
     cancelDockDrag,
   } = useDockSettings();
-  // 停靠状态由布局树权威决定：同一类面板在右栏只存在一个标签。
-  const dockedTab = embedded ? null : findTabByKey(id);
-  const docked = dockedTab !== null;
-  const dockedTabHost = dockedTab ? tabElements[dockedTab.id] ?? null : null;
   const desktopLayout = useDesktopLayout();
+  // 停靠状态由布局树权威决定：同一类面板在右栏只存在一个标签。
+  // 窄屏没有右栏（网格里没有那一列），此时停靠标签回退为浮动/流内卡片，
+  // 否则面板会被困在 display:none 的右栏里既看不到也关不掉。
+  const dockedTab = embedded ? null : findTabByKey(id);
+  const docked = dockedTab !== null && desktopLayout;
+  const dockedTabHost = dockedTab ? tabElements[dockedTab.id] ?? null : null;
   // 窄屏卡片退化为流内静态布局，默认位置保持零偏移；用 ref 避免跨断点重载已保存位置。
   const desktopLayoutRef = useRef(desktopLayout);
   useEffect(() => {
