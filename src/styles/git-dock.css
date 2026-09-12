@@ -591,6 +591,34 @@
   --git-graph-lane-5: #6fa8ff;
 }
 .git-graph-spacer { flex: 0 0 auto; }
+/* 「有 N 个新提交」徽标：粘性零高度锚点挂在视口顶部，不参与行高与虚拟化计算 */
+.git-graph-newabove-anchor {
+  position: sticky;
+  top: 0;
+  height: 0;
+  z-index: 20;
+}
+.git-graph-newabove {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--accent-deep);
+  box-shadow: var(--shadow-panel);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.git-graph-newabove:hover { background: color-mix(in srgb, var(--accent) 10%, var(--surface-raised)); }
 .git-graph-row {
   position: relative;
   display: flex;

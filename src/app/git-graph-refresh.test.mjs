@@ -6,6 +6,7 @@ import {
   GIT_GRAPH_MAX_PAGE,
   GIT_GRAPH_PAGE_SIZE,
   gitGraphHasMore,
+  gitGraphHeadShift,
   gitGraphRefreshLimit,
   gitRefSignature,
   INITIAL_GIT_GRAPH_REFRESH_STATE,
@@ -211,6 +212,21 @@ test("the trailing refresh contract never runs two requests at once and never lo
   assert.equal(request("manual"), "manual");
   assert.equal(settle("manual"), null);
   assert.deepEqual(state, INITIAL_GIT_GRAPH_REFRESH_STATE);
+});
+
+test("scroll anchoring counts only rows prepended above the old head", () => {
+  const rows = (...hashes) => hashes.map((hash) => ({ hash }));
+  // 头部插入 2 行：已滚动的视图要按 2 行高度下移
+  assert.deepEqual(gitGraphHeadShift("a", rows("n", "m", "a", "b")), { inserted: 2, headChanged: true });
+  assert.deepEqual(gitGraphHeadShift("a", rows("n", "a", "b")), { inserted: 1, headChanged: true });
+  // 头部没变（只是向下翻页追加）不需要补偿
+  assert.deepEqual(gitGraphHeadShift("a", rows("a", "b", "c")), { inserted: 0, headChanged: false });
+  // 历史被重写：旧头部不在新行里，不补偿（否则会跳到无关位置），但需要通知调用方
+  assert.deepEqual(gitGraphHeadShift("a", rows("x", "y", "z")), { inserted: 0, headChanged: true });
+  // 首次加载 / 空数据
+  assert.deepEqual(gitGraphHeadShift(null, rows("a")), { inserted: 0, headChanged: true });
+  assert.deepEqual(gitGraphHeadShift(null, []), { inserted: 0, headChanged: false });
+  assert.deepEqual(gitGraphHeadShift("a", []), { inserted: 0, headChanged: true });
 });
 
 test("refresh decisions keep git log off the hot path while the graph is hidden", () => {

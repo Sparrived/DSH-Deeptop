@@ -641,6 +641,7 @@
   "gitGraph.commitTime": "{relative} ({absolute})",
   "gitGraph.endOfHistory": "Reached the start of repository history",
   "gitGraph.loadingMore": "Loading older commits…",
+  "gitGraph.newAbove": "{count} new commits",
   "gitGraph.scrollForMore": "Scroll to load older commits",
   "gitGraph.unknownAuthor": "Unknown author",
   "gitGraph.unknownTime": "Unknown time",

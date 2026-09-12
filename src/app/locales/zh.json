@@ -641,6 +641,7 @@
   "gitGraph.commitTime": "{relative}（{absolute}）",
   "gitGraph.endOfHistory": "已展示到仓库最早的历史",
   "gitGraph.loadingMore": "正在加载更早的提交…",
+  "gitGraph.newAbove": "有 {count} 个新提交",
   "gitGraph.scrollForMore": "继续滚动加载更早的提交",
   "gitGraph.unknownAuthor": "未知作者",
   "gitGraph.unknownTime": "未知时间",

@@ -134,3 +134,19 @@ export function decideGitGraphRefresh(input: {
   if (!dirty) return { reload: false, markStale: false };
   return input.visible ? { reload: true, markStale: false } : { reload: false, markStale: true };
 }
+
+/**
+ * 头部变化量：`inserted` 是插到旧头部之前的新行数（用于把已滚动的视图按插入高度下移，
+ * 让用户正在看的那条提交停在原地）；`headChanged` 表示头部换了（含历史被重写）。
+ * 头部没变（只是向下翻页追加）时两者都不变。
+ */
+export function gitGraphHeadShift(
+  previousHead: string | null,
+  rows: readonly { hash: string }[],
+): { inserted: number; headChanged: boolean } {
+  if (previousHead === null) return { inserted: 0, headChanged: rows.length > 0 };
+  if (rows.length === 0) return { inserted: 0, headChanged: true };
+  if (rows[0].hash === previousHead) return { inserted: 0, headChanged: false };
+  const index = rows.findIndex((row) => row.hash === previousHead);
+  return index === -1 ? { inserted: 0, headChanged: true } : { inserted: index, headChanged: true };
+}

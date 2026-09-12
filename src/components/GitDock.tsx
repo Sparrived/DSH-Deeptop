@@ -430,22 +430,28 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     return () => window.clearInterval(timer);
   }, [collapsed, workspace, refreshAll]);
 
-  // 窗口重新聚焦时立即刷新（切回应用后马上看到最新状态）。
+  // 窗口重新聚焦时刷新（切回应用后马上看到最新状态）。连续聚焦只跑最后一次，
+  // 对应 VS Code 把 status 推迟到窗口聚焦、并用 debounce 合并后台变化的做法。
   useEffect(() => {
     if (collapsed || !workspace || !isTauri()) return;
     const cleanups: Array<() => void> = [];
     let disposed = false;
+    let timer = 0;
     trackAsyncCleanup(cleanups, getCurrentWindow()
       .onFocusChanged(({ payload: focused }) => {
         if (disposed || !focused) return;
-        if (refreshingRef.current) return;
-        refreshingRef.current = true;
-        void refreshAll().finally(() => {
-          refreshingRef.current = false;
-        });
+        window.clearTimeout(timer);
+        timer = window.setTimeout(() => {
+          if (refreshingRef.current) return;
+          refreshingRef.current = true;
+          void refreshAll().finally(() => {
+            refreshingRef.current = false;
+          });
+        }, 250);
       }), () => disposed);
     return () => {
       disposed = true;
+      window.clearTimeout(timer);
       cleanups.splice(0).forEach((cleanup) => cleanup());
     };
   }, [collapsed, workspace, refreshAll]);

@@ -48,6 +48,10 @@ function createHookRenderer() {
       if (!previous || !dependenciesMatch(previous.dependencies, dependencies)) pendingEffects.push(effect);
       hooks[index] = { dependencies };
     },
+    // 假渲染器不做 pre-paint 语义，layout effect 与普通 effect 一样收集后由 flushEffects 执行
+    useLayoutEffect(effect, dependencies) {
+      react.useEffect(effect, dependencies);
+    },
   };
 
   return {

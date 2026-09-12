@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { WorkspaceGitGraphLine } from "../lib/desktop";
 import { gitGraphLaneColor, gitRefKind, formatRelativeTime } from "../app/git-model";
+import { gitGraphHeadShift } from "../app/git-graph-refresh";
 import {
   GIT_GRAPH_NODE_RADIUS,
   GIT_GRAPH_ROW_HEIGHT,
@@ -58,6 +59,8 @@ export function GitTreeGraph({
 }: GitTreeGraphProps) {
   const layout = useMemo(() => gitGraphLayout(lines), [lines]);
   const [hoveredHash, setHoveredHash] = useState<string | null>(null);
+  // 已滚动时头部插入了多少条新提交（顶部徽标用）
+  const [pendingAbove, setPendingAbove] = useState(0);
   // 只保存可见行窗口（而不是滚动像素），窗口没跨行时滚动不触发重渲染。
   const [rowWindow, setRowWindow] = useState({ first: 0, last: OVERSCAN_ROWS * 2 });
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -67,6 +70,7 @@ export function GitTreeGraph({
     const node = scrollRef.current;
     if (!node) return;
     const top = node.scrollTop;
+    if (top === 0) setPendingAbove((current) => (current === 0 ? current : 0));
     const first = Math.max(0, Math.floor(top / ROW_H) - OVERSCAN_ROWS);
     const last = Math.ceil((top + node.clientHeight) / ROW_H) + OVERSCAN_ROWS;
     setRowWindow((current) => (current.first === first && current.last === last ? current : { first, last }));
@@ -81,6 +85,25 @@ export function GitTreeGraph({
     observer.observe(node);
     return () => observer.disconnect();
   }, [measure, layout.rows.length]);
+
+  // 增量刷新会在头部插入新提交：把已滚动的视图按插入高度下移，
+  // 用户正在看的那条提交停在原地；同时在顶部挂一条「有 N 个新提交」徽标
+  //（对应 VS Code 在已滚动时显示 Outdated 徽标、不做重排的做法）。
+  const headRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    const node = scrollRef.current;
+    const shift = gitGraphHeadShift(headRef.current, layout.rows);
+    headRef.current = layout.rows[0]?.hash ?? null;
+    if (!node) return;
+    if (shift.inserted > 0 && node.scrollTop > 0) {
+      node.scrollTop += shift.inserted * ROW_H;
+      measure();
+      setPendingAbove((current) => current + shift.inserted);
+      return;
+    }
+    // 头部换了但没有可锚定的新增（历史被重写），或用户本来就在顶部：计数清零
+    if (shift.headChanged || node.scrollTop === 0) setPendingAbove(0);
+  }, [layout, measure]);
 
   // 底部哨兵进入视口时触发 onLoadMore：比监听滚动阈值更稳。
   useEffect(() => {
@@ -114,6 +137,23 @@ export function GitTreeGraph({
 
   return (
     <div className="git-graph-list" ref={scrollRef} onScroll={measure}>
+      {/* 粘性零高度锚点：徽标浮在视口顶部，不参与行高计算 */}
+      <div className="git-graph-newabove-anchor">
+        {pendingAbove > 0 && (
+          <button
+            type="button"
+            className="git-graph-newabove"
+            onClick={() => {
+              const node = scrollRef.current;
+              if (!node) return;
+              node.scrollTop = 0;
+              measure();
+            }}
+          >
+            {t("gitGraph.newAbove", locale, { count: pendingAbove })}
+          </button>
+        )}
+      </div>
       {firstRow > 0 && <div className="git-graph-spacer" style={{ height: firstRow * ROW_H }} aria-hidden="true" />}
       {visibleRows.map((row) => {
         const selected = row.hash === selectedHash;
