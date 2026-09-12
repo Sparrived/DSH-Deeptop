@@ -9,7 +9,7 @@ import type {
 import type { ToolDomainCard } from "./tool-domain";
 
 export type PromptMode = "queue" | "steer";
-export type ModelMenuPane = "root" | "model" | "effort";
+export type ModelMenuPane = "root" | "model";
 export type ModelSelection = { provider: string; model: string; reasoningEffort?: string };
 export type WindowMenu = "project" | "edit";
 export type SessionAction = "rename" | "fork" | "archive" | "export" | "exportZip" | "pin";

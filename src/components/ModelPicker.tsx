@@ -4,13 +4,7 @@ import type { DshModel, DshSessionModels } from "../lib/desktop";
 import { modelPickerGroups } from "../app/ui-model";
 import type { ModelMenuPane } from "../app/model";
 import { t, type UiLocale } from "../app/i18n";
-
-type ReasoningChoice = {
-  key: string;
-  id?: string;
-  name: string;
-  description?: string;
-};
+import { ReasoningSlider, type ReasoningSliderChoice as ReasoningChoice } from "./ReasoningSlider";
 
 type ModelPickerProps = {
   /** 界面语言：模型菜单文案按语言渲染。 */
@@ -71,11 +65,21 @@ export function ModelPicker({
             <span className="model-menu-cell-value">{selectedModelName ?? t("modelPicker.chooseModel", locale)}</span>
             <span className="model-menu-arrow" aria-hidden="true"><ChevronRight /></span>
           </button>
-          {selectedReasoning !== undefined && <button className="model-menu-cell" type="button" role="menuitem" onClick={() => onSetPane("effort")}>
-            <span>{t("modelPicker.reasoningEffort", locale)}</span>
-            <span className="model-menu-cell-value">{selectedReasoningLabel ?? t("modelPicker.default", locale)}</span>
-            <span className="model-menu-arrow" aria-hidden="true"><ChevronRight /></span>
-          </button>}
+          {/* 思考程度直接在一级菜单里滑选，不再进入二级菜单。 */}
+          {selectedReasoning !== undefined && <section className="model-menu-effort" role="group" aria-label={t("modelPicker.reasoningEffort", locale)}>
+            <div className="model-menu-effort-title">
+              <span>{t("modelPicker.reasoningEffort", locale)}</span>
+              <span className="model-menu-effort-value">{selectedReasoningLabel ?? t("modelPicker.default", locale)}</span>
+            </div>
+            {reasoningChoices.length === 0
+              ? <div className="model-menu-empty">{t("modelPicker.noEfforts", locale)}</div>
+              : <ReasoningSlider
+                locale={locale}
+                choices={reasoningChoices}
+                value={selectedReasoningEffort}
+                onChange={onChangeReasoningEffort}
+              />}
+          </section>}
         </>}
         {menuPane === "model" && <>
           <div className="model-menu-heading">
@@ -98,24 +102,6 @@ export function ModelPicker({
               })}
             </section>)}
             {groups.length === 0 && <div className="model-menu-empty">{t("modelPicker.noModels", locale)}</div>}
-          </div>
-        </>}
-        {menuPane === "effort" && selectedReasoning !== undefined && <>
-          <div className="model-menu-heading">
-            <button type="button" onClick={() => onSetPane("root")} aria-label={t("modelPicker.backAria", locale)}><ChevronLeft aria-hidden="true" /></button>
-            <strong>{t("modelPicker.reasoningEffort", locale)}</strong>
-          </div>
-          <div className="model-menu-list">
-            {reasoningChoices.length === 0 ? <div className="model-menu-empty">{t("modelPicker.noEfforts", locale)}</div> : reasoningChoices.map((choice) => {
-              const selected = selectedReasoningEffort === choice.id;
-              return <button className={`model-menu-option${selected ? " selected" : ""}`} type="button" role="menuitemradio" aria-checked={selected} key={choice.key} onClick={() => void onChangeReasoningEffort(choice.id)}>
-                <span className="model-menu-option-copy">
-                  <strong>{choice.name}</strong>
-                  {choice.description && <small>{choice.description}</small>}
-                </span>
-                <span className="model-menu-check" aria-hidden="true">{selected && <Check />}</span>
-              </button>;
-            })}
           </div>
         </>}
       </div>}

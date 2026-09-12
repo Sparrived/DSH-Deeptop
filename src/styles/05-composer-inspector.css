@@ -705,6 +705,249 @@
   font-size: 10px;
 }
 
+/* 思考程度：一级菜单内的横向可拖动滑动条。
+   档位与标签坐标由 JS 按选项数量换算成百分比，1–6 档及以上都均匀铺满轨道，
+   因此换模型（档位数量变化）不需要任何样式分支。 */
+.model-menu-effort {
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px 4px;
+  border-top: 1px solid var(--line);
+}
+
+.model-menu-effort-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.model-menu-effort-value {
+  color: var(--accent-deep);
+  font-weight: 600;
+}
+
+.effort-slider {
+  display: grid;
+  gap: 4px;
+  padding: 2px 0 0;
+}
+
+.effort-slider-rail {
+  position: relative;
+  height: 28px;
+  margin: 0 10px;
+  cursor: pointer;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.effort-slider-track,
+.effort-slider-fill {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  height: 5px;
+  border-radius: 999px;
+  transform: translateY(-50%);
+}
+
+.effort-slider-track {
+  right: 0;
+  background: var(--surface-muted, rgba(128, 138, 152, 0.28));
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.18);
+}
+
+.effort-slider-fill {
+  width: calc(var(--effort-fill, 0) * 100%);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 46%, transparent), var(--accent));
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 36%, transparent);
+}
+
+.effort-slider-glow {
+  position: absolute;
+  top: 50%;
+  /* 光晕跟随滑块本体（拖动时是连续指针位置），而不是吸附档位。 */
+  left: calc(var(--effort-thumb-ratio, var(--effort-ratio, 0)) * 100%);
+  width: 36px;
+  height: 26px;
+  border-radius: 999px;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 36%, transparent), transparent);
+  opacity: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.effort-slider-tick {
+  position: absolute;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line-strong) 92%, transparent);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.effort-slider-tick[data-passed="true"] {
+  background: color-mix(in srgb, var(--accent) 60%, var(--surface-raised, #fff));
+}
+
+/* 当前档位由滑块本体表示，刻度点让位以免叠影。 */
+.effort-slider-tick[data-current="true"] {
+  opacity: 0;
+}
+
+.effort-slider-thumb {
+  position: absolute;
+  top: 50%;
+  /* 拖动时用连续指针位置，松手后回落到吸附档位，形成磁性归位动画。 */
+  left: calc(var(--effort-thumb-ratio, var(--effort-ratio, 0)) * 100%);
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  background: var(--surface-raised, #fff);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.26);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.effort-slider-thumb::after {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.effort-slider-labels {
+  position: relative;
+  height: 16px;
+  margin: 0 10px;
+}
+
+.effort-slider-label {
+  position: absolute;
+  top: 0;
+  color: var(--ink-faint);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.effort-slider-label[data-passed="true"] {
+  color: var(--ink-muted);
+}
+
+.effort-slider-label[data-current="true"] {
+  color: var(--accent-deep);
+}
+
+/* 档位越多标签越挤：5–6 档缩排淡化，7 档以上只保留当前档位文案。 */
+.effort-slider[data-density="compact"] .effort-slider-label {
+  font-size: 10px;
+}
+
+.effort-slider[data-density="compact"] .effort-slider-label:not([data-current="true"]) {
+  opacity: 0.62;
+}
+
+.effort-slider[data-density="dense"] .effort-slider-label {
+  font-size: 10px;
+}
+
+.effort-slider[data-density="dense"] .effort-slider-label:not([data-current="true"]) {
+  opacity: 0;
+}
+
+.effort-slider-hint {
+  min-height: 15px;
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 11px;
+  line-height: 15px;
+}
+
+/* 模型没有提供档位说明时不占位。 */
+.effort-slider:not([data-hint="true"]) .effort-slider-hint {
+  display: none;
+}
+
+/* 静态状态反馈：悬停/聚焦光晕、拖动光标与轨道光晕不依赖动画。 */
+.effort-slider-rail:focus-visible {
+  outline: none;
+}
+
+.effort-slider-rail:hover .effort-slider-thumb,
+.effort-slider-rail:focus-visible .effort-slider-thumb {
+  transform: translate(-50%, -50%) scale(1.1);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.26), 0 0 0 5px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.effort-slider[data-dragging="true"] .effort-slider-rail {
+  cursor: grabbing;
+}
+
+.effort-slider[data-dragging="true"] .effort-slider-thumb {
+  transform: translate(-50%, -50%) scale(1.16);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.3), 0 0 0 7px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.effort-slider[data-dragging="true"] .effort-slider-glow {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .effort-slider-fill {
+    transition: width var(--motion-standard) var(--motion-ease-enter);
+  }
+
+  .effort-slider-thumb {
+    transition: left var(--motion-standard) var(--motion-ease-enter), transform var(--motion-fast) var(--motion-ease-enter), box-shadow var(--motion-fast) ease;
+  }
+
+  .effort-slider-glow {
+    transition: opacity var(--motion-fast) ease, left var(--motion-standard) var(--motion-ease-enter);
+  }
+
+  .effort-slider-tick {
+    transition: background-color var(--motion-fast) ease, opacity var(--motion-fast) ease;
+  }
+
+  .effort-slider-label {
+    transition: color var(--motion-fast) ease, opacity var(--motion-fast) ease, transform var(--motion-standard) var(--motion-ease-enter);
+  }
+
+  .effort-slider-hint-text {
+    display: block;
+    animation: effort-slider-hint-in var(--motion-standard) var(--motion-ease-enter) both;
+  }
+
+  @keyframes effort-slider-hint-in {
+    from { opacity: 0; transform: translateY(3px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* 拖动时滑块 1:1 跟随指针，填充与光晕用更短的过渡带来轻微弹性。 */
+  .effort-slider[data-dragging="true"] .effort-slider-thumb {
+    transition: transform var(--motion-fast) var(--motion-ease-enter), box-shadow var(--motion-fast) ease;
+  }
+
+  .effort-slider[data-dragging="true"] .effort-slider-fill,
+  .effort-slider[data-dragging="true"] .effort-slider-glow {
+    transition-duration: var(--motion-instant);
+  }
+}
+
 .composer-stats {
   width: min(920px, 100%);
   box-sizing: border-box;

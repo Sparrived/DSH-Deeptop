@@ -4131,20 +4131,15 @@ function AppContent() {
     }
   }
 
+  // 思考程度由滑条提交：提交后保留模型菜单，便于在滑动条上连续微调档位。
   async function changeReasoningEffort(reasoningEffort?: string) {
     if (!activeSessionId || !models) {
       if (!activeSessionId && pendingModelSelection) {
         setDraftModelSelection({ ...pendingModelSelection, reasoningEffort });
-        setModelMenuOpen(false);
-        setModelMenuPane("root");
       }
       return;
     }
-    if (selectedReasoningEffort === reasoningEffort) {
-      setModelMenuOpen(false);
-      setModelMenuPane("root");
-      return;
-    }
+    if (selectedReasoningEffort === reasoningEffort) return;
     try {
       await desktopRequest("session.selectModel", {
         sessionId: activeSessionId,
@@ -4153,8 +4148,6 @@ function AppContent() {
         ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
       });
       setModels((current) => current ? { ...current, current: { ...current.current, reasoningEffort } } : current);
-      setModelMenuOpen(false);
-      setModelMenuPane("root");
       setNotice(t("notice.reasoningUpdated", locale));
     } catch (error) { setErrorNotice(errorText(error, locale)); }
   }
