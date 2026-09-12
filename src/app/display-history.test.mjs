@@ -11,6 +11,8 @@ import {
   compactDisplayHistory,
   displayEventCount,
   displayHistoryStartSeq,
+  isRoundInput,
+  latestRoundInputIndex,
   loadCompleteDisplayHistory,
   mergeDisplayHistory,
 } from "./display-history.ts";
@@ -47,6 +49,31 @@ test("shares one display-history implementation between Bridge and React", () =>
   assert.equal(mergeDisplayHistory, mergeHistoryEntries);
   assert.equal(displayEventCount, displayHistoryEventCount);
   assert.equal(displayHistoryStartSeq, displayHistoryStartSequence);
+});
+
+test("recognizes the row that carries a round input", () => {
+  assert.equal(isRoundInput(entry(1, "turn/start", { turn: 1 })), true);
+  assert.equal(isRoundInput(entry(2, "user/message", { content: [{ type: "text", text: "hi" }] })), true);
+  assert.equal(isRoundInput(entry(3, "user/message", { content: [{ type: "text", text: "hi" }], source: { kind: "user" } })), true);
+
+  // Injected context is not a round input, even though it is a user/message.
+  assert.equal(isRoundInput(entry(4, "user/message", { content: [{ type: "text", text: "ctx" }], source: { kind: "plugin" } })), false);
+  assert.equal(isRoundInput(entry(5, "assistant/message", { message: { content: [{ type: "text", text: "ok" }] } })), false);
+  assert.equal(isRoundInput(entry(6, "tool/call", { turn: 1, step: 1, name: "read" })), false);
+  assert.equal(isRoundInput(undefined), false);
+});
+
+test("finds the newest round input in a paged window", () => {
+  // A window that starts mid-round: the previous round's input is in the middle.
+  const window = [
+    entry(10, "assistant/message", { message: { content: [{ type: "text", text: "older answer" }] } }),
+    entry(20, "user/message", { content: [{ type: "text", text: "previous prompt" }] }),
+    entry(21, "user/message", { content: [{ type: "text", text: "injected" }], source: { kind: "agent-instructions" } }),
+    entry(30, "tool/call", { turn: 2, step: 1, name: "read" }),
+  ];
+  assert.equal(latestRoundInputIndex(window), 1);
+  assert.equal(latestRoundInputIndex([entry(40, "tool/result", { turn: 2, step: 1 })]), -1);
+  assert.equal(latestRoundInputIndex([]), -1);
 });
 
 test("loads complete display history from paged tail responses", async () => {

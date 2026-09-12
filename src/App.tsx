@@ -47,7 +47,7 @@ import { useToolSettings } from "./app/useToolSettings";
 import { useWindowControls } from "./app/useWindowControls";
 import { normalizeWindowBehavior } from "./app/window-behavior";
 import { clearQueuedSessionEvents, routeBridgeEvent } from "./app/bridge-event-handler";
-import { displayHistoryStartSeq, loadCompleteDisplayHistory, mergeDisplayHistory } from "./app/display-history";
+import { displayHistoryStartSeq, latestRoundInputIndex, loadCompleteDisplayHistory, mergeDisplayHistory } from "./app/display-history";
 import { loadedTurnFacts, mergeTurnRailItems, EMPTY_RAIL_ITEMS, type TurnRailItem } from "./app/turn-rail-model";
 import { emptyGoalBarState, nextGoalBarState } from "./app/goal-bar-state";
 import { trackAsyncCleanup } from "./lib/async-cleanup";
@@ -160,6 +160,11 @@ import {
 
 /** 历史向前分页的页大小：更细粒度缓存，避免一次拉取过多造成长页渲染卡顿。 */
 const HISTORY_PAGE_SIZE = HISTORY_PAGE_SIZE_DEFAULT;
+/**
+ * 一次「读取更早消息」最多向前翻的页数：目标是把上一轮的输入补进来，正常一轮
+ * 只需 1-5 页；上限只兜住超长轮次，翻不到就交给下一次点击继续（页缓存复用）。
+ */
+const HISTORY_OLDER_PAGE_LIMIT = 24;
 import { capabilityNotice, capabilityStatus } from "./app/capability-model";
 import { useDesktopUiRuntime } from "./app/use-ui-runtime";
 import { toSessionUiContext } from "./app/ui-plugin-model";
@@ -2806,6 +2811,11 @@ function AppContent() {
     }
   }
 
+  /**
+   * 「读取更早消息」按轮补齐：一直向前翻到承载「上一轮输入」的那一行，再从这里
+   * 截断窗口。固定页数会把某一轮从中间切开，读到的开头永远不是输入；按轮补齐后
+   * 每次点击都从上一轮的输入开始，翻过头的内容留在页缓存里供后续复用。
+   */
   async function loadOlderHistory() {
     const sessionId = activeSessionId;
     const loadRequest = sessionLoadRequestRef.current;
@@ -2829,27 +2839,52 @@ function AppContent() {
         nextScroll.scrollTop = nextScroll.scrollHeight - previousHeight + previousTop;
       });
     };
-    // 细粒度分页缓存：同一段历史已拉取过（回看后前进）则直接合并，不重复请求。
-    const cached = historyPageCache.get(sessionId, beforeSeq);
-    if (cached) {
-      prepend(cached.entries, cached.hasMore);
-      return;
-    }
-    if (!historyPageCache.markLoading(sessionId, beforeSeq)) return;
     historyLoadingOlderRef.current = true;
     setHistoryLoadingOlder(true);
     try {
-      const result = await desktopRequest("session.history", {
-        sessionId,
-        beforeSeq,
-        maxMessages: HISTORY_PAGE_SIZE,
-      });
-      historyPageCache.put(sessionId, beforeSeq, result.events, result.hasMore);
-      prepend(result.events, result.hasMore);
+      let loaded: DshHistoryEntry[] = [];
+      let hasMore = true;
+      let cursor = beforeSeq;
+      for (let page = 0; page < HISTORY_OLDER_PAGE_LIMIT && hasMore; page += 1) {
+        // 细粒度分页缓存：同一段历史已拉取过（回看后前进）则直接复用，不重复请求。
+        const cached = historyPageCache.get(sessionId, cursor);
+        let pageEntries: DshHistoryEntry[];
+        if (cached) {
+          pageEntries = cached.entries;
+          hasMore = cached.hasMore;
+        } else {
+          // 同一页正在被并发请求（例如轮次跳转翻页）时先放弃，下一次点击继续。
+          if (!historyPageCache.markLoading(sessionId, cursor)) break;
+          try {
+            const result = await desktopRequest("session.history", {
+              sessionId,
+              beforeSeq: cursor,
+              maxMessages: HISTORY_PAGE_SIZE,
+            });
+            pageEntries = result.events;
+            hasMore = result.hasMore === true;
+            historyPageCache.put(sessionId, cursor, pageEntries, hasMore);
+          } finally {
+            historyPageCache.unmarkLoading(sessionId, cursor);
+          }
+        }
+        if (!stillOwnsView()) return;
+        loaded = mergeDisplayHistory(loaded, pageEntries);
+        // 最近的一轮输入就是「上一轮的输入」：从这里截断，多翻的部分只留在缓存里。
+        const boundary = latestRoundInputIndex(loaded);
+        if (boundary >= 0) {
+          loaded = loaded.slice(boundary);
+          break;
+        }
+        if (!hasMore) break;
+        const nextCursor = displayHistoryStartSeq(loaded);
+        if (nextCursor === undefined || nextCursor === cursor) break;
+        cursor = nextCursor;
+      }
+      if (loaded.length > 0) prepend(loaded, hasMore);
     } catch (error) {
       if (stillOwnsView()) setErrorNotice(errorText(error, locale));
     } finally {
-      historyPageCache.unmarkLoading(sessionId, beforeSeq);
       if (stillOwnsView()) {
         historyLoadingOlderRef.current = false;
         setHistoryLoadingOlder(false);

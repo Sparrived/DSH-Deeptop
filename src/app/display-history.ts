@@ -6,6 +6,7 @@ import {
   isTransientStreamSeq,
   mergeHistoryEntries as mergeDisplayHistory,
 } from "../../cordis/desktop-bridge/display-history.mjs";
+import { isInjectedMessage } from "./message-model.ts";
 
 export {
   compactDisplayHistory,
@@ -14,6 +15,27 @@ export {
   isTransientStreamSeq,
   mergeDisplayHistory,
 };
+
+/**
+ * 一轮的输入处：`turn/start`，或一条真实用户提示（注入的上下文不算）。
+ *
+ * 「读取更早消息」按轮补齐：窗口开头落在输入处说明已经读到上一轮的输入，
+ * 可以停下；否则窗口是从某一轮中间截断的，要继续往前翻。
+ */
+export function isRoundInput(entry: DshHistoryEntry | undefined): boolean {
+  const event = entry?.event;
+  if (event === undefined) return false;
+  if (event.type === "turn/start") return true;
+  return event.type === "user/message" && !isInjectedMessage(event);
+}
+
+/** 窗口内最新的一轮输入下标（窗口按 seq 升序）；没有则返回 -1。 */
+export function latestRoundInputIndex(entries: readonly DshHistoryEntry[]): number {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    if (isRoundInput(entries[index])) return index;
+  }
+  return -1;
+}
 
 export type DisplayHistoryPage = {
   events: DshHistoryEntry[];
