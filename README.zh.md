@@ -38,7 +38,7 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 | 模型与 Provider | 有边界地支持 | Provider/模型目录、每会话模型选择、思考程度、上下文窗口和输入模态元数据、Provider 发现及自定义连接设置；`llm-pi-ai` Provider 上未声明思考档位的模型可直接在发送框滑选低/中/高，首次提交把档位声明写进该路由的本地设置，设置里也能为已配置模型声明或关闭 `Max`。RC8 的 `current`/`routable` 是发送准入依据，`groups` 仅用于候选展示；Schema 驱动的 Provider 表单尚未完整实现。 |
 | File/Session Reference | 已支持 | 使用 DSH RC8 官方 Host 服务提供 `@` 文件/目录候选和 canonical session mention；查询通过 Bridge 传递取消信号，React 不读取历史或构造会话快照。 |
 | 图片附件限制 | 已支持 | 从 `session.history` projection 和实时 projection 事件读取 RC8 `imageLimits`，在本地提前检查媒体类型、字节数、像素/边长、单条消息图片数和总大小；Host 仍是最终校验者。 |
-| 工具与交互 | 已支持 | 工具调用/结果、Workflow、Job、Todo、轨迹视图、单选/多选/自定义问题响应，以及审批响应。 |
+| 工具与交互 | 已支持 | 工具调用/结果、Workflow、Job、Todo、轨迹视图、单选/多选/自定义问题响应，以及审批响应。任务面板点击任务即可展开输出：Bridge 走 DSH 非消费式投影（`ctx.jobs.peek`），运行中的任务跟随刷新，不占用模型 `job_output` 的读取游标。 |
 | 反馈与导出 | 部分支持 | 消息赞/踩和带版本的备注可用；会话 JSON/ZIP 导出可用，但 ZIP 当前通过 JSONL Bridge 以 Base64 传输，尚未采用原生流式下载。 |
 | 诊断与日志 | 支持 | DSH 运行时、Bridge 与前端错误堆栈按时间戳记录，持续写入 `$DSH_HOME/logs`，并可在 设置 → 日志 中查看、筛选和导出。 |
 | DSH 运行台 | 依赖 Profile 的能力 | Profile/插件清单、运行时检查器、Host 设置、Skill 目录、Agent Preset、Subagent 历史/追问/中断和 Goal 生命周期。可选域缺失时保持不可用，不伪造成功。运行时同时携带 RC8 的 `desktop-persistent-pwsh` 和 `desktop-agent-teams` 预设；前者为稳定可选能力，后者为私有实验能力，二者都不默认启用。 |

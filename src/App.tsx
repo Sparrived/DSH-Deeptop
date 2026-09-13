@@ -117,6 +117,7 @@ import {
   type DshGoalProjection,
   type DshHistoryEntry,
   type DshJob,
+  type DshJobOutput,
   type DshCommandDescriptor,
   type DshPluginConfigDescription,
   type DshPluginConfigEntry,
@@ -1074,6 +1075,15 @@ function AppContent() {
       if (skillsAbortRef.current === controller) skillsAbortRef.current = null;
     }
   }, [capabilityFeatures.skills, desktop, locale, setErrorNotice]);
+
+  // 任务输出：桥接侧走 DSH 的非消费式投影（`ctx.jobs.peek`），既不取走模型
+  // `job_output` 仍在读的输出，也允许展开行跟随运行态心跳刷新；读取失败由面板
+  // 就地展示，不升级为全局提示。
+  const loadTaskOutput = useCallback(async (jobId: string): Promise<DshJobOutput> => {
+    const sessionId = activeSessionRef.current;
+    if (!desktop || !sessionId) throw new Error(t("common.desktopOnly", locale));
+    return desktopRequest("job.output", { sessionId, jobId });
+  }, [desktop, locale]);
 
   const toolSettings = useToolSettings({
     desktop,
@@ -5329,7 +5339,7 @@ function AppContent() {
     todoCount={todoVisible ? `${todoCounts.completed}/${todos?.length ?? 0}` : undefined}
     deliverableCount={deliverablesVisible ? deliverables?.files.length : undefined}
     subagentCount={childSubagents.length || undefined}
-    tasks={activeJobs.length > 0 ? <TaskPanel locale={locale} jobs={activeJobs} collapsed={false} now={jobNow} embedded onToggle={() => setActiveUtilityPanel(null)} /> : <UtilityPanelEmptyState icon={<ListTodo />} title={t("utility.tasksEmptyTitle", locale)} description={t("utility.tasksEmpty", locale)} />}
+    tasks={activeJobs.length > 0 ? <TaskPanel locale={locale} jobs={activeJobs} collapsed={false} now={jobNow} outputEnabled={capabilityFeatures.tasks} onLoadOutput={loadTaskOutput} embedded onToggle={() => setActiveUtilityPanel(null)} /> : <UtilityPanelEmptyState icon={<ListTodo />} title={t("utility.tasksEmptyTitle", locale)} description={t("utility.tasksEmpty", locale)} />}
     todo={todoVisible ? <TodoPanel
       locale={locale}
       todos={todos ?? []}

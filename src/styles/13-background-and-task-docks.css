@@ -1265,16 +1265,29 @@
 .task-copy-status { color: var(--good); }
 .task-copy-status.failed { color: var(--danger); }
 .task-list { min-height: 0; flex: 1 1 auto; margin: 0; padding: 4px 0 18px; overflow-y: auto; list-style: none; }
-.task-item { min-width: 0; display: grid; grid-template-columns: 8px minmax(0, 1fr); align-items: start; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.task-item { min-width: 0; padding: 12px 16px; border-bottom: 1px solid var(--line); }
 .task-item:hover { background: color-mix(in srgb, var(--accent) 5%, var(--paper)); }
+.task-item-main { width: 100%; min-width: 0; display: grid; grid-template-columns: 8px minmax(0, 1fr); align-items: start; gap: 10px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; }
+button.task-item-main { cursor: pointer; }
+button.task-item-main:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
 .task-item-status { width: 7px; height: 7px; margin-top: 4px; border-radius: 50%; background: var(--muted); }
 .task-item.running .task-item-status { background: var(--good); box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 16%, transparent); }
 .task-item.stopping .task-item-status { background: var(--warning); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 16%, transparent); }
 .task-item.failed .task-item-status { background: var(--accent-deep); }
 .task-item-copy { min-width: 0; display: grid; gap: 3px; }
 .task-item-copy strong { overflow: hidden; color: var(--ink); font-size: 10px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
-.task-item-copy small, .task-item-copy p { margin: 0; color: var(--muted); font-family: var(--mono); font-size: 8px; line-height: 1.45; }
-.task-item-copy p { overflow-wrap: anywhere; }
+.task-item-copy small, .task-item-detail { margin: 0; color: var(--muted); font-family: var(--mono); font-size: 8px; line-height: 1.45; }
+.task-item-detail { display: block; overflow-wrap: anywhere; }
+.task-item-chevron { width: 14px; height: 14px; margin-top: 3px; color: var(--muted); transition: transform 0.15s ease; }
+.task-item-chevron.open { transform: rotate(180deg); }
+.task-output { display: grid; gap: 6px; margin-top: 10px; }
+.task-output-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.task-output-label { color: var(--muted); font-family: var(--mono); font-size: 8px; letter-spacing: 0.08em; text-transform: uppercase; }
+.task-output-copy { padding: 2px 6px; border: 1px solid var(--line-strong); border-radius: 4px; background: transparent; color: var(--muted); font-family: var(--mono); font-size: 8px; }
+.task-output-copy:hover { border-color: var(--accent); color: var(--accent-deep); }
+.task-output-note { margin: 0; color: var(--muted); font-family: var(--mono); font-size: 8px; line-height: 1.45; }
+.task-output-note.failed { color: var(--danger); }
+.task-output-text { max-height: 220px; margin: 0; padding: 8px 10px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--paper-deep); color: var(--ink); font-family: var(--mono); font-size: 9px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .task-context-menu {
   position: fixed;
   z-index: 1000;
