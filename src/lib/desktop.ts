@@ -1574,6 +1574,24 @@ export interface GitCommandResult {
   stdout: string;
   stderr: string;
   text: string;
+  /** 本次执行（或预演）的 git 命令；确认弹窗与结果条展示并支持复制。 */
+  command?: string;
+  /** 预演结果：只回显命令，没有改动仓库。 */
+  dryRun?: boolean;
+}
+
+/**
+ * 预演一次 git 写操作：只让后端回显它将要执行的命令，不改动仓库。
+ * 与真正的执行是同一个后端命令（同一个 argv 构造路径），
+ * 因此弹窗里显示的命令就是实际会跑的命令。
+ */
+export async function previewGitCommand(
+  command: string,
+  payload: Record<string, unknown>,
+): Promise<string> {
+  if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
+  const result = await invoke<GitCommandResult>(command, { ...payload, dryRun: true });
+  return result?.command ?? "";
 }
 
 export interface TerminalOption {

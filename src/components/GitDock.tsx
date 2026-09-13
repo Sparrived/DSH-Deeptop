@@ -50,6 +50,7 @@ import {
   listGitTags,
   pullGit,
   pushGit,
+  previewGitCommand,
   pushGitStash,
   renameGitBranch,
   resetGitTo,
@@ -214,6 +215,14 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   // 只保存"选中的提交哈希"：提交详情与逐文件差异由 GitCommitDetailView 自己加载
   const [selectedCommitHash, setSelectedCommitHash] = useState<string | null>(null);
   // 图谱里展开的提交（文件块显示在该行下方而不是面板底部）
+  // 待二次确认的写操作：展示将要执行的 git 命令，确认后才真正执行
+  const [copiedCommand, setCopiedCommand] = useState(false);
+  const [gitConfirm, setGitConfirm] = useState<{
+    reason: string;
+    command: string;
+    warning?: string;
+    resolve: (confirmed: boolean) => void;
+  } | null>(null);
   const [expandedCommits, setExpandedCommits] = useState<ReadonlySet<string>>(new Set());
   // 展开行的详情缓存：键是提交哈希，避免每次收放都重新读一遍
   const [commitFiles, setCommitFiles] = useState<Record<string, GitCommitFilesEntry>>({});
@@ -679,7 +688,26 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     requestGraph({ keepWindow: false });
   }
 
-  async function runMutation(action: () => Promise<void | GitCommandResult>, reason: string) {
+  /**
+   * 写操作的统一入口：先让后端预演（回显这次真正会执行的 git 命令），
+   * 用户在确认弹窗里看过命令并确认后才执行。预演与执行是同一个后端命令。
+   */
+  async function runMutation(
+    action: () => Promise<void | GitCommandResult>,
+    reason: string,
+    preview?: { command: string; payload: Record<string, unknown>; warning?: string },
+  ) {
+    if (preview) {
+      let command = "";
+      try {
+        command = await previewGitCommand(preview.command, preview.payload);
+      } catch (error) {
+        onError(t("git.error.previewFailed", locale, { reason, error: errorText(error, locale) }));
+        return;
+      }
+      const confirmed = await askGitConfirm({ reason, command, warning: preview.warning });
+      if (!confirmed) return;
+    }
     setBusy(true);
     try {
       const outcome = await action();
@@ -693,27 +721,53 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     }
   }
 
+  /** 弹出二次确认框（展示将要执行的 git 命令，可复制），返回用户是否确认。 */
+  function askGitConfirm(request: { reason: string; command: string; warning?: string }): Promise<boolean> {
+    return new Promise((resolve) => {
+      setGitConfirm({ ...request, resolve });
+    });
+  }
+
+  /** 复制确认框里的命令（与「复制哈希」走同一个原生剪贴板桥）。 */
+  async function copyConfirmCommand() {
+    if (!gitConfirm?.command) return;
+    try {
+      await writeClipboard(gitConfirm.command);
+      setCopiedCommand(true);
+      window.setTimeout(() => setCopiedCommand(false), 1500);
+    } catch (error) {
+      onError(t("git.error.copyFailed", locale, { error: errorText(error, locale) }));
+    }
+  }
+
+  /** 关闭确认框并把结果交给等待方。 */
+  function settleGitConfirm(confirmed: boolean) {
+    const pending = gitConfirm;
+    setGitConfirm(null);
+    pending?.resolve(confirmed);
+  }
+
   async function handleStage(file: WorkspaceGitFile) {
-    await runMutation(() => stageGitPaths(workspace, [file.path]), t("git.stage", locale));
+    await runMutation(() => stageGitPaths(workspace, [file.path]), t("git.stage", locale), { command: "git_stage_paths", payload: { dir: workspace, paths: [file.path] } });
   }
 
   async function handleUnstage(file: WorkspaceGitFile) {
-    await runMutation(() => unstageGitPaths(workspace, [file.path]), t("git.unstage", locale));
+    await runMutation(() => unstageGitPaths(workspace, [file.path]), t("git.unstage", locale), { command: "git_unstage_paths", payload: { dir: workspace, paths: [file.path] } });
   }
 
   async function handleStageAll() {
-    await runMutation(() => stageAllGit(workspace), t("git.stageAll", locale));
+    await runMutation(() => stageAllGit(workspace), t("git.stageAll", locale), { command: "git_stage_all", payload: { dir: workspace } });
   }
 
   async function handleUnstageAll() {
-    await runMutation(() => unstageAllGit(workspace), t("git.unstageAll", locale));
+    await runMutation(() => unstageAllGit(workspace), t("git.unstageAll", locale), { command: "git_unstage_all", payload: { dir: workspace } });
   }
 
   async function confirmDiscard() {
     const target = discardTarget;
     setDiscardTarget(null);
     if (!target) return;
-    await runMutation(() => discardGitPaths(workspace, [target.path]), t("git.discard", locale));
+    await runMutation(() => discardGitPaths(workspace, [target.path]), t("git.discard", locale), { command: "git_discard_paths", payload: { dir: workspace, paths: [target.path] }, warning: t("git.warnDiscard", locale) });
     setSelectedPath((current) => (current === target.path ? null : current));
   }
 
@@ -746,14 +800,14 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     setConfirmTarget(null);
     if (!target) return;
     if (target.kind === "reset-hard") {
-      await runMutation(() => resetGitTo(workspace, target.hash, "hard"), t("git.resetHard", locale));
+      await runMutation(() => resetGitTo(workspace, target.hash, "hard"), t("git.resetHard", locale), { command: "git_reset", payload: { dir: workspace, hash: target.hash, mode: "hard" }, warning: t("git.warnHardReset", locale) });
       return;
     }
     if (target.kind === "tag-delete") {
-      await runMutation(() => deleteGitTag(workspace, target.name), t("git.tagDelete", locale));
+      await runMutation(() => deleteGitTag(workspace, target.name), t("git.tagDelete", locale), { command: "git_delete_tag", payload: { dir: workspace, name: target.name } });
       return;
     }
-    await runMutation(() => dropGitStash(workspace, target.reference), t("git.stashDrop", locale));
+    await runMutation(() => dropGitStash(workspace, target.reference), t("git.stashDrop", locale), { command: "git_stash_drop", payload: { dir: workspace, reference: target.reference }, warning: t("git.warnStashDrop", locale) });
   }
 
   async function submitStashCreate() {
@@ -764,6 +818,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     await runMutation(
       () => pushGitStash(workspace, message || null, includeUntracked),
       t("git.stashCreate", locale),
+      { command: "git_stash_push", payload: { dir: workspace, message: message || null, includeUntracked } },
     );
     setTab("stash");
   }
@@ -772,6 +827,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     await runMutation(
       () => applyGitStash(workspace, stash.reference, drop),
       t(drop ? "git.stashPop" : "git.stashApply", locale),
+      { command: "git_stash_apply", payload: { dir: workspace, reference: stash.reference, drop } },
     );
   }
 
@@ -978,9 +1034,9 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
         <button type="button" className="git-icon-button" title={t("git.tagCreateTitle", locale)} aria-label={t("git.tagCreate", locale)} disabled={busy} onClick={() => setTagDialog({ value: "", message: "", hash: detail.hash })}><Tag aria-hidden="true" /></button>
         <button type="button" className="git-icon-button" title={t("git.branchFromCommitTitle", locale)} aria-label={t("git.branchFromCommit", locale)} disabled={busy} onClick={() => setBranchDialog({ mode: "create", value: "", from: detail.hash })}><GitBranch aria-hidden="true" /></button>
         <button type="button" className="git-icon-button" title={t("git.openInDockTitle", locale)} aria-label={t("git.openInDock", locale)} disabled={busy} onClick={() => openCommitTab(detail)}><PanelRightOpen aria-hidden="true" /></button>
-        <button type="button" className="git-icon-button" title={t("git.cherryPickTitle", locale)} aria-label={t("git.cherryPick", locale)} disabled={busy} onClick={() => void runMutation(() => cherryPickGitCommit(workspace, detail.hash, "start"), t("git.cherryPick", locale))}><Cherry aria-hidden="true" /></button>
-        <button type="button" className="git-icon-button" title={t("git.revertTitle", locale)} aria-label={t("git.revert", locale)} disabled={busy} onClick={() => void runMutation(() => revertGitCommit(workspace, detail.hash), t("git.revert", locale))}><Undo2 aria-hidden="true" /></button>
-        <button type="button" className="git-icon-button" title={t("git.resetSoftTitle", locale)} aria-label={t("git.resetSoft", locale)} disabled={busy} onClick={() => void runMutation(() => resetGitTo(workspace, detail.hash, "soft"), t("git.resetSoft", locale))}><RotateCcw aria-hidden="true" /></button>
+        <button type="button" className="git-icon-button" title={t("git.cherryPickTitle", locale)} aria-label={t("git.cherryPick", locale)} disabled={busy} onClick={() => void runMutation(() => cherryPickGitCommit(workspace, detail.hash, "start"), t("git.cherryPick", locale), { command: "git_cherry_pick", payload: { dir: workspace, action: "start", hash: detail.hash } })}><Cherry aria-hidden="true" /></button>
+        <button type="button" className="git-icon-button" title={t("git.revertTitle", locale)} aria-label={t("git.revert", locale)} disabled={busy} onClick={() => void runMutation(() => revertGitCommit(workspace, detail.hash), t("git.revert", locale), { command: "git_revert", payload: { dir: workspace, hash: detail.hash } })}><Undo2 aria-hidden="true" /></button>
+        <button type="button" className="git-icon-button" title={t("git.resetSoftTitle", locale)} aria-label={t("git.resetSoft", locale)} disabled={busy} onClick={() => void runMutation(() => resetGitTo(workspace, detail.hash, "soft"), t("git.resetSoft", locale), { command: "git_reset", payload: { dir: workspace, hash: detail.hash, mode: "soft" } })}><RotateCcw aria-hidden="true" /></button>
         <button type="button" className="git-icon-button danger" title={t("git.resetHardTitle", locale)} aria-label={t("git.resetHard", locale)} disabled={busy} onClick={() => setConfirmTarget({ kind: "reset-hard", hash: detail.hash, shortHash: short })}><Trash2 aria-hidden="true" /></button>
       </>
     );
@@ -1090,6 +1146,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     await runMutation(
       () => runGitOperationAction(workspace, operationState.operation as GitRunningOperation, action),
       t(action === "abort" ? "git.operationAbort" : action === "skip" ? "git.operationContinue" : "git.operationContinue", locale),
+      { command: "git_operation_action", payload: { dir: workspace, operation: operationState.operation, action } },
     );
   }
 
@@ -1250,7 +1307,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                 <button type="button" className="git-icon-button" title={t("git.stageAll", locale)} aria-label={t("git.stageAll", locale)} disabled={!isRepo || busy} onClick={() => void handleStageAll()}><Plus aria-hidden="true" /></button>
                 <button type="button" className="git-icon-button" title={t("git.unstageAll", locale)} aria-label={t("git.unstageAll", locale)} disabled={!isRepo || busy} onClick={() => void handleUnstageAll()}><Minus aria-hidden="true" /></button>
                 <button type="button" className="confirm" title={t("git.commitTitle", locale)} disabled={!isRepo || busy} onClick={() => { setCommitOpen(true); setCommitMessage(""); setCommitAmend(false); }}><Check aria-hidden="true" /> {t("git.commitEllipsis", locale)}</button>
-                <button type="button" className="git-icon-button" title={t("git.undoLastCommitTitle", locale)} aria-label={t("git.undoLastCommit", locale)} disabled={!isRepo || busy} onClick={() => void runMutation(() => undoLastGitCommit(workspace), t("git.undoLastCommit", locale))}><Undo2 aria-hidden="true" /></button>
+                <button type="button" className="git-icon-button" title={t("git.undoLastCommitTitle", locale)} aria-label={t("git.undoLastCommit", locale)} disabled={!isRepo || busy} onClick={() => void runMutation(() => undoLastGitCommit(workspace), t("git.undoLastCommit", locale), { command: "git_undo_last_commit", payload: { dir: workspace } })}><Undo2 aria-hidden="true" /></button>
               </div>
 
               {operationState && operationState.operation !== "none" && (
@@ -1808,6 +1865,30 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
           </>}
         >
           {dialogChildren}
+        </PopupDialog>
+      )}
+
+      {gitConfirm && (
+        <PopupDialog
+          title={t("git.confirmTitle", locale, { reason: gitConfirm.reason })}
+          eyebrow="GIT"
+          locale={locale}
+          description={t("git.confirmDescription", locale)}
+          className="popup-git-confirm"
+          role="alertdialog"
+          onClose={() => settleGitConfirm(false)}
+          footer={<>
+            <button type="button" onClick={() => settleGitConfirm(false)}>{t("common.cancel", locale)}</button>
+            <button type="button" className="confirm" disabled={busy} onClick={() => settleGitConfirm(true)}>{t("git.confirmRun", locale)}</button>
+          </>}
+        >
+          {gitConfirm.warning && <p className="popup-warning-copy">{gitConfirm.warning}</p>}
+          <div className="git-confirm-command">
+            <code>{gitConfirm.command || t("git.confirmNoCommand", locale)}</code>
+            <button type="button" title={t("git.confirmCopy", locale)} aria-label={t("git.confirmCopy", locale)} onClick={() => void copyConfirmCommand()}>
+              {copiedCommand ? t("git.copied", locale) : t("git.confirmCopy", locale)}
+            </button>
+          </div>
         </PopupDialog>
       )}
 
