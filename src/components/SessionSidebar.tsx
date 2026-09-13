@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { ChevronLeft, FolderPlus, Plus, Search, Settings, X } from "lucide-react";
+import { ChevronLeft, FolderPlus, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings, X } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useFloatingMenuPosition } from "../app/useFloatingMenuPosition";
 import { retainSessionSelection, selectAllSessions, selectedSessions, toggleSessionSelection } from "../app/session-bulk-selection";
@@ -62,6 +62,9 @@ function sameOrder(left: string[], right: string[]) {
 type SessionSidebarProps = {
   /** 界面语言：会话列表与菜单文案按语言渲染。 */
   locale?: UiLocale;
+  /** 收起后仅保留通用动作按钮（新建会话 / 设置 / 添加目录 / 展开），其余区块隐藏。 */
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
   search: string;
   onSearchChange: (value: string) => void;
   onSearch: () => void;
@@ -112,6 +115,8 @@ type SessionSidebarProps = {
 
 export function SessionSidebar({
   locale = "zh",
+  collapsed,
+  onToggleCollapsed,
   search,
   onSearchChange,
   onSearch,
@@ -324,7 +329,7 @@ export function SessionSidebar({
     </div>
   );
   return (
-    <aside className="session-sidebar">
+    <aside id="session-sidebar" className={`session-sidebar${collapsed ? " collapsed" : ""}`}>
       <div className="sidebar-actions">
         <button className="new-session-button" type="button" onClick={onNewSession} title={t("sidebar.newSession", locale)} aria-label={t("sidebar.newSession", locale)}>
           <span className="new-session-button-glyph" aria-hidden="true"><Plus /></span>
@@ -350,6 +355,15 @@ export function SessionSidebar({
           <div className="sidebar-heading-title"><button className="sidebar-back-button" type="button" onClick={() => handleViewChange("sessions")} title={t("sidebar.backToSessions", locale)} aria-label={t("sidebar.backToSessions", locale)}><ChevronLeft aria-hidden="true" /></button><span>{t("sidebar.archive", locale)}</span></div>
         ) : <span>{t(activeOpen ? "sidebar.active" : "sidebar.sessions", locale)}</span>}
         <div className="sidebar-heading-actions">
+          <button
+            className="sidebar-collapse-button"
+            type="button"
+            onClick={onToggleCollapsed}
+            aria-expanded={!collapsed}
+            aria-controls="session-sidebar"
+            title={t(collapsed ? "sidebar.expand" : "sidebar.collapse", locale)}
+            aria-label={t(collapsed ? "sidebar.expand" : "sidebar.collapse", locale)}
+          >{collapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}</button>
           <span>{archiveOpen ? archivedSessions.length : activeOpen ? liveActiveCount : (search.trim() ? visibleSessions.length : (selectedWorkspaceGroup.sessions.length > 0 ? selectedWorkspaceGroup.sessions.length : ""))}</span>
           {!activeOpen && selectionCandidates.length > 0 && <button className={`sidebar-selection-mode${selectionMode ? " selected" : ""}`} type="button" onClick={() => selectionMode ? finishSelection() : (onDismissSessionContextMenu(), setSelectionMode(true))} aria-pressed={selectionMode}>{t(selectionMode ? "sidebar.selectionDone" : "sidebar.select", locale)}</button>}
           {!archiveOpen && <>

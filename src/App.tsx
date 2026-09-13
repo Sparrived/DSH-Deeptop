@@ -568,6 +568,14 @@ function AppContent() {
       return 320;
     }
   });
+  // 侧栏收起状态与宽度分开保存：收起只改变呈现，展开仍回到用户拖动过的宽度。
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("deeptop.sidebar-collapsed") === "1";
+    } catch {
+      return false;
+    }
+  });
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     try {
       const saved = localStorage.getItem("deeptop.theme");
@@ -2030,6 +2038,14 @@ function AppContent() {
       // The native webview may disable storage in a restricted preview.
     }
   }, [sidebarWidth]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("deeptop.sidebar-collapsed", sidebarCollapsed ? "1" : "0");
+    } catch {
+      // The native webview may disable storage in a restricted preview.
+    }
+  }, [sidebarCollapsed]);
 
   useEffect(() => {
     try {
@@ -5413,7 +5429,7 @@ function AppContent() {
       />
 
       <div
-        className="workspace-layout"
+        className={`workspace-layout${sidebarCollapsed ? " sidebar-collapsed" : ""}`}
         style={{
           "--sidebar-width": `${sidebarWidth}px`,
           // 空栏平时不占位，只有在拖拽面板时才展开成可命中的落点条。
@@ -5422,6 +5438,12 @@ function AppContent() {
       >
         <SessionSidebar
           locale={locale}
+          collapsed={sidebarCollapsed}
+          onToggleCollapsed={() => {
+            setWorkspaceMenuOpen(false);
+            setSessionContextMenu(null);
+            setSidebarCollapsed((collapsed) => !collapsed);
+          }}
           search={search}
           onSearchChange={setSearch}
           onSearch={() => void searchSessions()}
@@ -5477,6 +5499,8 @@ function AppContent() {
           aria-valuemin={300}
           aria-valuemax={440}
           aria-valuenow={sidebarWidth}
+          // 收起时侧栏没有可拖动宽度，分隔线也不再是一个可用的辅助功能节点。
+          aria-hidden={sidebarCollapsed || undefined}
           onPointerDown={(event) => {
             event.preventDefault();
             sidebarResizeRef.current = { startX: event.clientX, startWidth: sidebarWidth };
