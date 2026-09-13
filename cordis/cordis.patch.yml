@@ -115,6 +115,19 @@
     - id: skill-installer
       name: 'deeptop-bridge/skill-installer'
 
+# dsh-base 的 session-title-llm 以 64 为标题辅助请求的输出上限。标题正文只需十几
+# token，但该上限与提供方的思考前导共用：部分网关默认开启思考且忽略客户端的
+# thinking: disabled，上限被思考吃光后模型不再输出正文，自动标题以 max-tokens
+# 失败，会话只能停在首条消息的确定性回退上。Deeptop 的模型多为这类网关，故在
+# 桌面 Profile 层抬高上限（patch 整段替换 config，字段需写全）。
+- id: session-title-llm
+  config:
+    targetWords: 5
+    targetCjkCharacters: 10
+    maxInputBytes: 4096
+    maxOutputTokens: 2048
+    timeoutMs: 60000
+
 # The desktop surface uses the same per-session agent-preset arrangement as
 # the web surface. Host services remain shared; each session gets its own
 # model-facing tools and prompt composition. Skill installation is a separate
