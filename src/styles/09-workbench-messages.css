@@ -467,6 +467,10 @@
 .reasoning-entry .reasoning-summary,
 .workflow-entry-summary {
   min-width: 0;
+  /* 摘要本身是 <button>，不显式撑满就会收缩到内容宽度：状态与开合符
+     会紧贴在标题后面，而不是落在横条右端（返回结果后才由 .tool-paired
+     补上 100%，运行中的横条就露馅）。 */
+  width: 100%;
   min-height: 44px;
   display: flex;
   align-items: center;
