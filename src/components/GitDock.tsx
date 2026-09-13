@@ -1,5 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronLeft, GitBranch, Minus, Plus, RefreshCw, X } from "lucide-react";
+import {
+  Archive,
+  ArrowDownToLine,
+  ArrowRightLeft,
+  ArrowUpFromLine,
+  Check,
+  Cherry,
+  ChevronLeft,
+  CloudDownload,
+  Copy,
+  GitBranch,
+  Minus,
+  PanelRightOpen,
+  Pencil,
+  Play,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  Tag,
+  Trash2,
+  Undo2,
+  X,
+} from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   amendGitCommit,
@@ -935,20 +957,31 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     setExpandedCommits(new Set());
   }
 
-  /** 提交动作行：面板详情与图谱展开块共用同一份按钮。 */
+  /**
+   * 提交动作行：面板详情与图谱展开块共用同一份按钮。
+   * 一律用图标表达（动作名走 title / aria-label 悬浮提示），避免一行八个文字按钮。
+   */
   function renderCommitActions(detail: { hash: string }) {
+    const short = detail.hash.slice(0, 7);
     return (
       <>
-        <button type="button" disabled={copyingHash === detail.hash} onClick={() => void handleCopyHash(detail.hash)}>
-          {copyingHash === detail.hash ? t("git.copied", locale) : t("git.copyHash", locale)}
+        <button
+          type="button"
+          className="git-icon-button"
+          title={copyingHash === detail.hash ? t("git.copied", locale) : t("git.copyHash", locale)}
+          aria-label={t("git.copyHash", locale)}
+          disabled={copyingHash === detail.hash}
+          onClick={() => void handleCopyHash(detail.hash)}
+        >
+          <Copy aria-hidden="true" />
         </button>
-        <button type="button" disabled={busy} title={t("git.tagCreateTitle", locale)} onClick={() => setTagDialog({ value: "", message: "", hash: detail.hash })}>{t("git.tagCreate", locale)}</button>
-        <button type="button" disabled={busy} title={t("git.branchFromCommitTitle", locale)} onClick={() => setBranchDialog({ mode: "create", value: "", from: detail.hash })}>{t("git.branchFromCommit", locale)}</button>
-        <button type="button" disabled={busy} title={t("git.openInDockTitle", locale)} onClick={() => openCommitTab(detail)}>{t("git.openInDock", locale)}</button>
-        <button type="button" disabled={busy} title={t("git.cherryPickTitle", locale)} onClick={() => void runMutation(() => cherryPickGitCommit(workspace, detail.hash, "start"), t("git.cherryPick", locale))}>{t("git.cherryPick", locale)}</button>
-        <button type="button" disabled={busy} title={t("git.revertTitle", locale)} onClick={() => void runMutation(() => revertGitCommit(workspace, detail.hash), t("git.revert", locale))}>{t("git.revert", locale)}</button>
-        <button type="button" disabled={busy} title={t("git.resetSoftTitle", locale)} onClick={() => void runMutation(() => resetGitTo(workspace, detail.hash, "soft"), t("git.resetSoft", locale))}>{t("git.resetSoft", locale)}</button>
-        <button type="button" className="danger" disabled={busy} title={t("git.resetHardTitle", locale)} onClick={() => setConfirmTarget({ kind: "reset-hard", hash: detail.hash, shortHash: detail.hash.slice(0, 7) })}>{t("git.resetHard", locale)}</button>
+        <button type="button" className="git-icon-button" title={t("git.tagCreateTitle", locale)} aria-label={t("git.tagCreate", locale)} disabled={busy} onClick={() => setTagDialog({ value: "", message: "", hash: detail.hash })}><Tag aria-hidden="true" /></button>
+        <button type="button" className="git-icon-button" title={t("git.branchFromCommitTitle", locale)} aria-label={t("git.branchFromCommit", locale)} disabled={busy} onClick={() => setBranchDialog({ mode: "create", value: "", from: detail.hash })}><GitBranch aria-hidden="true" /></button>
+        <button type="button" className="git-icon-button" title={t("git.openInDockTitle", locale)} aria-label={t("git.openInDock", locale)} disabled={busy} onClick={() => openCommitTab(detail)}><PanelRightOpen aria-hidden="true" /></button>
+        <button type="button" className="git-icon-button" title={t("git.cherryPickTitle", locale)} aria-label={t("git.cherryPick", locale)} disabled={busy} onClick={() => void runMutation(() => cherryPickGitCommit(workspace, detail.hash, "start"), t("git.cherryPick", locale))}><Cherry aria-hidden="true" /></button>
+        <button type="button" className="git-icon-button" title={t("git.revertTitle", locale)} aria-label={t("git.revert", locale)} disabled={busy} onClick={() => void runMutation(() => revertGitCommit(workspace, detail.hash), t("git.revert", locale))}><Undo2 aria-hidden="true" /></button>
+        <button type="button" className="git-icon-button" title={t("git.resetSoftTitle", locale)} aria-label={t("git.resetSoft", locale)} disabled={busy} onClick={() => void runMutation(() => resetGitTo(workspace, detail.hash, "soft"), t("git.resetSoft", locale))}><RotateCcw aria-hidden="true" /></button>
+        <button type="button" className="git-icon-button danger" title={t("git.resetHardTitle", locale)} aria-label={t("git.resetHard", locale)} disabled={busy} onClick={() => setConfirmTarget({ kind: "reset-hard", hash: detail.hash, shortHash: short })}><Trash2 aria-hidden="true" /></button>
       </>
     );
   }
@@ -1168,10 +1201,10 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
         )}
       </div>
       <div className="git-toolbar">
-        <button type="button" disabled={!isRepo || busy} onClick={() => void handleFetch()} title={t("git.fetchTitle", locale)} aria-label={t("git.fetch", locale)}>↺ {t("git.fetch", locale)}</button>
-        <button type="button" disabled={!isRepo || busy} onClick={() => void handlePull()} title={t("git.pullTitle", locale)} aria-label={t("git.pull", locale)}>↓ {t("git.pull", locale)}</button>
-        <button type="button" disabled={!isRepo || busy} onClick={() => void handlePush()} title={t("git.pushTitle", locale)} aria-label={t("git.push", locale)}>↑ {t("git.push", locale)}</button>
-        <button type="button" disabled={!workspace || busy} onClick={() => void refreshAll({ force: true })} title={t("git.refresh", locale)} aria-label={t("git.refresh", locale)}><RefreshCw aria-hidden="true" /></button>
+        <button type="button" className="git-icon-button" disabled={!isRepo || busy} onClick={() => void handleFetch()} title={t("git.fetchTitle", locale)} aria-label={t("git.fetch", locale)}><CloudDownload aria-hidden="true" /></button>
+        <button type="button" className="git-icon-button" disabled={!isRepo || busy} onClick={() => void handlePull()} title={t("git.pullTitle", locale)} aria-label={t("git.pull", locale)}><ArrowDownToLine aria-hidden="true" /></button>
+        <button type="button" className="git-icon-button" disabled={!isRepo || busy} onClick={() => void handlePush()} title={t("git.pushTitle", locale)} aria-label={t("git.push", locale)}><ArrowUpFromLine aria-hidden="true" /></button>
+        <button type="button" className="git-icon-button" disabled={!workspace || busy} onClick={() => void refreshAll({ force: true })} title={t("git.refresh", locale)} aria-label={t("git.refresh", locale)}><RefreshCw aria-hidden="true" /></button>
         {isRepo && (
           <span className="git-toolbar-counts">
             <span className="git-count git-count-staged">{t("git.countStaged", locale, { count: status?.staged ?? 0 })}</span>
@@ -1214,10 +1247,10 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
           {tab === "changes" && (
             <div className="git-changes">
               <div className="git-changes-toolbar">
-                <button type="button" disabled={!isRepo || busy} onClick={() => void handleStageAll()}>{t("git.stageAll", locale)}</button>
-                <button type="button" disabled={!isRepo || busy} onClick={() => void handleUnstageAll()}>{t("git.unstageAll", locale)}</button>
-                <button type="button" className="confirm" disabled={!isRepo || busy} onClick={() => { setCommitOpen(true); setCommitMessage(""); setCommitAmend(false); }}>{t("git.commitEllipsis", locale)}</button>
-                <button type="button" disabled={!isRepo || busy} title={t("git.undoLastCommitTitle", locale)} onClick={() => void runMutation(() => undoLastGitCommit(workspace), t("git.undoLastCommit", locale))}>{t("git.undoLastCommit", locale)}</button>
+                <button type="button" className="git-icon-button" title={t("git.stageAll", locale)} aria-label={t("git.stageAll", locale)} disabled={!isRepo || busy} onClick={() => void handleStageAll()}><Plus aria-hidden="true" /></button>
+                <button type="button" className="git-icon-button" title={t("git.unstageAll", locale)} aria-label={t("git.unstageAll", locale)} disabled={!isRepo || busy} onClick={() => void handleUnstageAll()}><Minus aria-hidden="true" /></button>
+                <button type="button" className="confirm" title={t("git.commitTitle", locale)} disabled={!isRepo || busy} onClick={() => { setCommitOpen(true); setCommitMessage(""); setCommitAmend(false); }}><Check aria-hidden="true" /> {t("git.commitEllipsis", locale)}</button>
+                <button type="button" className="git-icon-button" title={t("git.undoLastCommitTitle", locale)} aria-label={t("git.undoLastCommit", locale)} disabled={!isRepo || busy} onClick={() => void runMutation(() => undoLastGitCommit(workspace), t("git.undoLastCommit", locale))}><Undo2 aria-hidden="true" /></button>
               </div>
 
               {operationState && operationState.operation !== "none" && (
@@ -1322,7 +1355,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                 <div className="git-diff-panel git-conflict-panel">
                   <div className="git-diff-header">
                     <span className="git-diff-path" title={selectedPath}>{selectedPath}</span>
-                    <button type="button" className="git-diff-open-in-rail" title={t("git.openInDockTitle", locale)} onClick={() => openConflictTab(selectedPath)}>{t("git.openInDock", locale)}</button>
+                    <button type="button" className="git-icon-button" title={t("git.openInDockTitle", locale)} aria-label={t("git.openInDock", locale)} onClick={() => openConflictTab(selectedPath)}><PanelRightOpen aria-hidden="true" /></button>
                     <button type="button" className="git-diff-close" aria-label={t("git.closeDiff", locale)} onClick={() => setSelectedPath(null)}><X aria-hidden="true" /></button>
                   </div>
                   <GitMergeConflictView
@@ -1341,7 +1374,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                       <button type="button" className={!diffStaged ? "selected" : ""} onClick={() => setDiffStaged(false)}>{t("git.diffWorktree", locale)}</button>
                       <button type="button" className={diffStaged ? "selected" : ""} onClick={() => setDiffStaged(true)}>{t("git.diffStaged", locale)}</button>
                     </div>
-                    <button type="button" className="git-diff-open-in-rail" title={t("git.openInDockTitle", locale)} onClick={() => openDiffTab(selectedPath, diffStaged)}>{t("git.openInDock", locale)}</button>
+                    <button type="button" className="git-icon-button" title={t("git.openInDockTitle", locale)} aria-label={t("git.openInDock", locale)} onClick={() => openDiffTab(selectedPath, diffStaged)}><PanelRightOpen aria-hidden="true" /></button>
                     <button type="button" className="git-diff-close" aria-label={t("git.closeDiff", locale)} onClick={() => setSelectedPath(null)}><X aria-hidden="true" /></button>
                   </div>
                   {diffLoading ? (
@@ -1454,8 +1487,8 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
           {tab === "branches" && (
             <div className="git-branches">
               <div className="git-branches-toolbar">
-                <button type="button" disabled={!isRepo || busy} onClick={() => setBranchDialog({ mode: "create", value: "", from: null })}><Plus aria-hidden="true" /> {t("git.newBranch", locale)}</button>
-                <button type="button" disabled={!isRepo || busy} onClick={() => setTagDialog({ value: "", message: "", hash: null })}>{t("git.tagCreate", locale)}</button>
+                <button type="button" className="git-icon-button" title={t("git.newBranch", locale)} aria-label={t("git.newBranch", locale)} disabled={!isRepo || busy} onClick={() => setBranchDialog({ mode: "create", value: "", from: null })}><GitBranch aria-hidden="true" /></button>
+                <button type="button" className="git-icon-button" title={t("git.tagCreate", locale)} aria-label={t("git.tagCreate", locale)} disabled={!isRepo || busy} onClick={() => setTagDialog({ value: "", message: "", hash: null })}><Tag aria-hidden="true" /></button>
               </div>
               {branchesLoading && branches === null ? (
                 <div className="git-empty">{t("git.loadingBranches", locale)}</div>
@@ -1474,11 +1507,11 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                         </span>
                         <div className="git-branch-actions">
                           {!branch.isCurrent && (
-                            <button type="button" disabled={busy} title={t("git.checkoutTitle", locale)} aria-label={t("git.checkoutBranch", locale, { name: branch.name })} onClick={() => void handleCheckout(branch)}>{t("git.checkout", locale)}</button>
+                            <button type="button" className="git-icon-button" disabled={busy} title={t("git.checkoutTitle", locale)} aria-label={t("git.checkoutBranch", locale, { name: branch.name })} onClick={() => void handleCheckout(branch)}><ArrowRightLeft aria-hidden="true" /></button>
                           )}
-                          <button type="button" disabled={busy} title={t("git.renameBranchTitle", locale)} aria-label={t("git.renameBranchAria", locale, { name: branch.name })} onClick={() => setBranchDialog({ mode: "rename", branch, value: branch.name })}>{t("git.renameBranch", locale)}</button>
+                          <button type="button" className="git-icon-button" disabled={busy} title={t("git.renameBranchTitle", locale)} aria-label={t("git.renameBranchAria", locale, { name: branch.name })} onClick={() => setBranchDialog({ mode: "rename", branch, value: branch.name })}><Pencil aria-hidden="true" /></button>
                           {!branch.isCurrent && (
-                            <button type="button" className="danger" disabled={busy} title={t("git.deleteBranchTitle", locale)} aria-label={t("git.deleteBranch", locale, { name: branch.name })} onClick={() => setBranchDialog({ mode: "delete", branch })}>{t("common.delete", locale)}</button>
+                            <button type="button" className="git-icon-button danger" disabled={busy} title={t("git.deleteBranchTitle", locale)} aria-label={t("git.deleteBranch", locale, { name: branch.name })} onClick={() => setBranchDialog({ mode: "delete", branch })}><Trash2 aria-hidden="true" /></button>
                           )}
                         </div>
                       </div>
@@ -1523,7 +1556,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
           {tab === "stash" && (
             <div className="git-branches">
               <div className="git-branches-toolbar">
-                <button type="button" disabled={!isRepo || busy} onClick={() => setStashDialog({ message: "", includeUntracked: false })}><Plus aria-hidden="true" /> {t("git.stashCreate", locale)}</button>
+                <button type="button" className="git-icon-button" title={t("git.stashCreate", locale)} aria-label={t("git.stashCreate", locale)} disabled={!isRepo || busy} onClick={() => setStashDialog({ message: "", includeUntracked: false })}><Archive aria-hidden="true" /></button>
                 <button type="button" disabled={!isRepo || busy} onClick={() => void reloadStashes()}>{t("common.refresh", locale)}</button>
               </div>
               {stashesLoading && stashes === null ? (
@@ -1540,9 +1573,9 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                         {stash.timestamp > 0 && <span className="git-branch-oid">{formatRelativeTime(stash.timestamp, undefined, locale)}</span>}
                       </span>
                       <div className="git-branch-actions">
-                        <button type="button" disabled={busy} title={t("git.stashApplyTitle", locale)} onClick={() => void handleStashApply(stash, false)}>{t("git.stashApply", locale)}</button>
-                        <button type="button" disabled={busy} title={t("git.stashPopTitle", locale)} onClick={() => void handleStashApply(stash, true)}>{t("git.stashPop", locale)}</button>
-                        <button type="button" className="danger" disabled={busy} title={t("git.stashDropTitle", locale)} aria-label={t("git.stashDropAria", locale, { reference: stash.reference })} onClick={() => setConfirmTarget({ kind: "stash-drop", reference: stash.reference })}>{t("common.delete", locale)}</button>
+                        <button type="button" className="git-icon-button" disabled={busy} title={t("git.stashApplyTitle", locale)} aria-label={t("git.stashApply", locale)} onClick={() => void handleStashApply(stash, false)}><Play aria-hidden="true" /></button>
+                        <button type="button" className="git-icon-button" disabled={busy} title={t("git.stashPopTitle", locale)} aria-label={t("git.stashPop", locale)} onClick={() => void handleStashApply(stash, true)}><ArrowUpFromLine aria-hidden="true" /></button>
+                        <button type="button" className="git-icon-button danger" disabled={busy} title={t("git.stashDropTitle", locale)} aria-label={t("git.stashDropAria", locale, { reference: stash.reference })} onClick={() => setConfirmTarget({ kind: "stash-drop", reference: stash.reference })}><Trash2 aria-hidden="true" /></button>
                       </div>
                     </div>
                   ))}

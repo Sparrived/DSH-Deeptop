@@ -610,6 +610,41 @@
 .git-result {
   flex: 0 0 auto;
 }
+/* —— 图标按钮 ——
+   工具条、提交动作行、分支/储藏行的动作统一用图标表达（名称走 title / aria-label 提示），
+   避免一行堆七八个文字按钮。尺寸与其他控件的 28px 高度对齐。 */
+.git-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink-muted);
+}
+.git-toolbar > button.git-icon-button,
+.git-changes-toolbar button.git-icon-button,
+.git-branches-toolbar button.git-icon-button,
+.git-commit-detail-actions button.git-icon-button,
+.git-branch-actions button.git-icon-button,
+.git-diff-header button.git-icon-button {
+  width: 28px;
+  min-width: 28px;
+  padding: 0;
+  justify-content: center;
+}
+.git-icon-button svg { width: 14px; height: 14px; }
+.git-icon-button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-deep); }
+.git-icon-button:disabled { cursor: default; opacity: .5; }
+.git-icon-button.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, var(--line-strong)); }
+.git-icon-button.danger:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--surface)); }
+/* 主操作（提交）保留图标 + 文字 */
+.git-changes-toolbar button.confirm { display: inline-flex; align-items: center; gap: 5px; }
+.git-changes-toolbar button.confirm svg { width: 14px; height: 14px; }
 /* —— 历史页：逐行图谱 ——
    每行一个固定高度的行容器（左侧只画本行的 SVG + 右侧提交信息），行高固定，
    因此列表按固定行高做虚拟化，只挂载视口附近的行。 */
