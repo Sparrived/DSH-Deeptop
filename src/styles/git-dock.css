@@ -1073,8 +1073,15 @@
   height: 100%;
 }
 .dock-git-diff .git-diff-header { flex: 0 0 auto; }
+/* 侧栏里差异体要占满宿主高度：内嵌在变更/提交详情里的 260px 上限在这里必须解除，
+   否则内容只会显示在面板上方一小块。 */
 .dock-git-diff .git-diff-body,
-.dock-git-diff .git-diff-empty { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.dock-git-diff .git-diff-empty {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+}
 .git-diff-open-in-rail {
   flex: 0 0 auto;
   padding: 2px 8px;
