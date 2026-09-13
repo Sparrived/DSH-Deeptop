@@ -4066,7 +4066,7 @@ fn git_output(directory: &Path, args: &[&str]) -> Result<Output, String> {
 
 /// 读取工作区 Git 摘要。使用 porcelain v1 保障路径状态可稳定解析，失败时
 /// 返回“不是仓库”而不是把 git 的诊断噪声暴露给文件看板。
-#[tauri::command]
+#[tauri::command(async)]
 fn get_workspace_git_status(dir: String) -> Result<WorkspaceGitStatus, String> {
     let directory = PathBuf::from(&dir);
     if dir.trim().is_empty() {
@@ -4384,6 +4384,23 @@ fn git_raw_output(directory: &Path, args: &[&str]) -> Result<GitOutput, String> 
     })
 }
 
+/// 把同步的 git 调用放到阻塞线程池执行。
+///
+/// 背景：`#[tauri::command]` 的**同步**命令会在 IPC 处理路径里直接执行，而 IPC 处理
+/// 跑在主线程上——`git fetch/pull/push` 这类秒级（甚至分钟级）的子进程调用会把整个
+/// 界面事件循环卡住。所有 git 命令因此都声明成异步；本地读取用 `(async)` 交给异步任务
+/// （几十毫秒，不会饿死 runtime），网络操作再用这里下沉到阻塞线程池，
+/// 避免长时间占住异步 worker。
+async fn run_blocking_git<T, F>(job: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(job)
+        .await
+        .map_err(|error| format!("后台任务执行失败：{error}"))?
+}
+
 /// 解析仓库根目录，之后所有变更命令都在根目录执行，
 /// 保证 porcelain/路径参数始终相对仓库根目录一致。
 fn git_repository_root(directory: &Path) -> Result<PathBuf, String> {
@@ -4454,7 +4471,7 @@ fn parse_porcelain_paths(bytes: &[u8]) -> Vec<(bool, String)> {
 }
 
 /// 读取某个文件的工作区/暂存区统一差异；超大 diff 会被截断以保护前台负载。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_file_diff(dir: String, path: String, staged: bool) -> Result<String, String> {
     validate_git_paths(std::slice::from_ref(&path))?;
     let root = git_repository_root(Path::new(&dir))?;
@@ -4475,7 +4492,7 @@ fn git_file_diff(dir: String, path: String, staged: bool) -> Result<String, Stri
 }
 
 /// 暂存指定文件（git add）。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_stage_paths(dir: String, paths: Vec<String>) -> Result<(), String> {
     validate_git_paths(&paths)?;
     let root = git_repository_root(Path::new(&dir))?;
@@ -4490,7 +4507,7 @@ fn git_stage_paths(dir: String, paths: Vec<String>) -> Result<(), String> {
 }
 
 /// 取消暂存指定文件（git restore --staged，失败时回退 git reset --）。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_unstage_paths(dir: String, paths: Vec<String>) -> Result<(), String> {
     validate_git_paths(&paths)?;
     let root = git_repository_root(Path::new(&dir))?;
@@ -4513,7 +4530,7 @@ fn git_unstage_paths(dir: String, paths: Vec<String>) -> Result<(), String> {
 
 /// 放弃指定文件的全部改动：已暂存的恢复为未暂存，工作区改动还原到
 /// 仓库内容，未跟踪文件删除。仓库无提交时退化为清空暂存并删除。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_discard_paths(dir: String, paths: Vec<String>) -> Result<(), String> {
     validate_git_paths(&paths)?;
     let root = git_repository_root(Path::new(&dir))?;
@@ -4565,7 +4582,7 @@ fn git_discard_paths(dir: String, paths: Vec<String>) -> Result<(), String> {
 }
 
 /// 暂存所有更改（git add -A）。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_stage_all(dir: String) -> Result<(), String> {
     let root = git_repository_root(Path::new(&dir))?;
     let output = git_raw_output(&root, &["add", "-A"])?;
@@ -4577,7 +4594,7 @@ fn git_stage_all(dir: String) -> Result<(), String> {
 }
 
 /// 取消所有暂存（git reset）。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_unstage_all(dir: String) -> Result<(), String> {
     let root = git_repository_root(Path::new(&dir))?;
     let output = git_raw_output(&root, &["reset", "-q"])?;
@@ -4589,7 +4606,7 @@ fn git_unstage_all(dir: String) -> Result<(), String> {
 }
 
 /// 提交暂存区内容；提交信息为空或超长时拒绝。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_commit(dir: String, message: String) -> Result<GitCommandResult, String> {
     let message = message.trim();
     if message.is_empty() {
@@ -4608,7 +4625,7 @@ fn git_commit(dir: String, message: String) -> Result<GitCommandResult, String> 
 }
 
 /// 读取最近提交历史（含作者、时间、主题）。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_log(dir: String, limit: u32) -> Result<Vec<WorkspaceGitCommit>, String> {
     let limit = limit.clamp(1, 200);
     let root = git_repository_root(Path::new(&dir))?;
@@ -4662,7 +4679,7 @@ struct WorkspaceGitGraphLine {
 
 /// 两个引用的共同祖先；没有共同祖先或引用不存在时返回 None 而不是报错，
 /// 因为「远端分支刚被删掉」并不该让图谱刷新失败。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_merge_base(dir: String, local: String, remote: String) -> Result<Option<String>, String> {
     let local = validate_git_ref(&local)?.to_string();
     let remote = validate_git_ref(&remote)?.to_string();
@@ -4681,7 +4698,7 @@ fn git_merge_base(dir: String, local: String, remote: String) -> Result<Option<S
 
 /// 区间内的提交（`base..head`），用于 incoming / outgoing 列表。
 /// 两个端点分别校验引用名，区间字符串在内部拼装，不接受调用方传入的 `..`。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_range_log(
     dir: String,
     base: String,
@@ -4735,7 +4752,7 @@ fn git_range_log(
 /// `skip` 用于分页加载：按提交条数跳过前 N 条，返回再往后 limit 条。
 /// 不请求 `--graph`：分叉/合并连线由前端从双亲关系推导，因此每条记录都是提交行，
 /// 返回条数严格等于提交条数，skip 与 limit 都以提交计数对齐。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_graph(
     dir: String,
     limit: u32,
@@ -4878,7 +4895,7 @@ fn validate_tag_name(name: &str) -> Result<&str, String> {
 }
 
 /// 读取单个提交的完整信息与变更统计（numstat）。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_commit_detail(dir: String, hash: String) -> Result<WorkspaceGitCommitDetail, String> {
     let hash = validate_git_oid(&hash)?;
     let root = git_repository_root(Path::new(&dir))?;
@@ -4941,7 +4958,7 @@ fn git_commit_detail(dir: String, hash: String) -> Result<WorkspaceGitCommitDeta
 }
 
 /// 读取某个提交中单个文件的差异（git show <commit> -- <path>），超大差异截断。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_commit_file_diff(dir: String, hash: String, path: String) -> Result<String, String> {
     let hash = validate_git_oid(&hash)?;
     validate_git_paths(std::slice::from_ref(&path))?;
@@ -4968,7 +4985,7 @@ fn git_commit_file_diff(dir: String, hash: String, path: String) -> Result<Strin
 }
 
 /// 列出本地与远程分支，当前分支优先。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_branches(dir: String) -> Result<Vec<WorkspaceGitBranch>, String> {
     let root = git_repository_root(Path::new(&dir))?;
     let format = "%(HEAD)%1f%(refname)%1f%(upstream:short)%1f%(objectname:short)%1e";
@@ -5043,7 +5060,7 @@ fn validate_branch_name(name: &str) -> Result<&str, String> {
 }
 
 /// 切换到已有分支（git switch）。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_checkout_branch(dir: String, name: String) -> Result<GitCommandResult, String> {
     let name = validate_branch_name(&name)?;
     let root = git_repository_root(Path::new(&dir))?;
@@ -5056,7 +5073,7 @@ fn git_checkout_branch(dir: String, name: String) -> Result<GitCommandResult, St
 }
 
 /// 基于指定引用（缺省为当前 HEAD）创建并切换到新分支（git switch -c）。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_create_branch(
     dir: String,
     name: String,
@@ -5085,7 +5102,7 @@ fn git_create_branch(
 }
 
 /// 强制删除本地分支；当前分支与远程分支不允许删除。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_delete_branch(dir: String, name: String) -> Result<GitCommandResult, String> {
     let name = validate_branch_name(&name)?;
     let root = git_repository_root(Path::new(&dir))?;
@@ -5107,7 +5124,7 @@ fn git_delete_branch(dir: String, name: String) -> Result<GitCommandResult, Stri
 }
 
 /// 修正上一次提交：`message` 为空时沿用原提交信息（git commit --amend --no-edit）。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_commit_amend(dir: String, message: Option<String>) -> Result<GitCommandResult, String> {
     let root = git_repository_root(Path::new(&dir))?;
     let message = message
@@ -5131,7 +5148,7 @@ fn git_commit_amend(dir: String, message: Option<String>) -> Result<GitCommandRe
 
 /// 撤销上一次提交，改动退回暂存区（git reset --soft HEAD~1）。
 /// 根提交没有可回退的父提交，直接返回可读失败而不是让 git 报错。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_undo_last_commit(dir: String) -> Result<GitCommandResult, String> {
     let root = git_repository_root(Path::new(&dir))?;
     let parent = git_raw_output(
@@ -5154,8 +5171,15 @@ fn git_undo_last_commit(dir: String) -> Result<GitCommandResult, String> {
 }
 
 /// 抓取远端更新但不合并；`prune` 为真时同时清理已删除的远端分支。
+/// 抓取远端更新但不合并；`prune` 为真时同时清理已删除的远端分支。
+/// 网络操作可能持续数秒到数分钟，落到阻塞线程池而不是异步 worker。
 #[tauri::command]
-fn git_fetch(dir: String, prune: bool) -> Result<GitCommandResult, String> {
+async fn git_fetch(dir: String, prune: bool) -> Result<GitCommandResult, String> {
+    run_blocking_git(move || git_fetch_blocking(dir, prune)).await
+}
+
+#[tauri::command(async)]
+fn git_fetch_blocking(dir: String, prune: bool) -> Result<GitCommandResult, String> {
     let root = git_repository_root(Path::new(&dir))?;
     let remotes = git_raw_output(&root, &["--no-pager", "remote"])?;
     if remotes.stdout.trim().is_empty() {
@@ -5178,7 +5202,7 @@ fn git_fetch(dir: String, prune: bool) -> Result<GitCommandResult, String> {
 }
 
 /// 列出标签；附注标签额外给出解引用后的提交短哈希。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_tags(dir: String) -> Result<Vec<WorkspaceGitTag>, String> {
     let root = git_repository_root(Path::new(&dir))?;
     let format = "%(refname:short)%1f%(objectname:short)%1f%(*objectname:short)%1e";
@@ -5221,7 +5245,7 @@ fn git_tags(dir: String) -> Result<Vec<WorkspaceGitTag>, String> {
 }
 
 /// 新建标签：给出 `message` 时建附注标签，否则建轻量标签。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_create_tag(
     dir: String,
     name: String,
@@ -5265,7 +5289,7 @@ fn git_create_tag(
 }
 
 /// 删除本地标签。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_delete_tag(dir: String, name: String) -> Result<GitCommandResult, String> {
     let name = validate_tag_name(&name)?;
     let root = git_repository_root(Path::new(&dir))?;
@@ -5278,7 +5302,7 @@ fn git_delete_tag(dir: String, name: String) -> Result<GitCommandResult, String>
 }
 
 /// 重命名本地分支（git branch -m），当前分支同样支持。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_rename_branch(dir: String, from: String, to: String) -> Result<GitCommandResult, String> {
     let from = validate_branch_name(&from)?;
     let to = validate_branch_name(&to)?;
@@ -5292,7 +5316,7 @@ fn git_rename_branch(dir: String, from: String, to: String) -> Result<GitCommand
 }
 
 /// 拣选提交：`action` 为 start 时必须给出 `hash`；冲突后用 continue / abort / skip 收尾。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_cherry_pick(
     dir: String,
     action: String,
@@ -5323,7 +5347,7 @@ fn git_cherry_pick(
 }
 
 /// 回退某个提交（生成反向提交，git revert --no-edit）。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_revert(dir: String, hash: String) -> Result<GitCommandResult, String> {
     let hash = validate_git_oid(&hash)?;
     let root = git_repository_root(Path::new(&dir))?;
@@ -5336,7 +5360,7 @@ fn git_revert(dir: String, hash: String) -> Result<GitCommandResult, String> {
 }
 
 /// 重置到某个提交：soft 保留暂存区与工作区、mixed 只保留工作区、hard 全部丢弃。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_reset(dir: String, hash: String, mode: String) -> Result<GitCommandResult, String> {
     let hash = validate_git_oid(&hash)?;
     let flag = reset_mode_flag(&mode)?;
@@ -5350,7 +5374,7 @@ fn git_reset(dir: String, hash: String, mode: String) -> Result<GitCommandResult
 }
 
 /// 列出 stash 栈，栈顶在最前。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_stash_list(dir: String) -> Result<Vec<WorkspaceGitStash>, String> {
     let root = git_repository_root(Path::new(&dir))?;
     let format = "%gd%1f%gs%1f%ct%1e";
@@ -5381,7 +5405,7 @@ fn git_stash_list(dir: String) -> Result<Vec<WorkspaceGitStash>, String> {
 }
 
 /// 生成一条 stash；可选包含未跟踪文件与自定义说明。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_stash_push(
     dir: String,
     message: Option<String>,
@@ -5413,7 +5437,7 @@ fn git_stash_push(
 }
 
 /// 应用（apply）或弹出（pop）一条 stash。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_stash_apply(dir: String, reference: String, drop: bool) -> Result<GitCommandResult, String> {
     let reference = validate_stash_reference(&reference)?;
     let root = git_repository_root(Path::new(&dir))?;
@@ -5427,7 +5451,7 @@ fn git_stash_apply(dir: String, reference: String, drop: bool) -> Result<GitComm
 }
 
 /// 删除一条 stash。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_stash_drop(dir: String, reference: String) -> Result<GitCommandResult, String> {
     let reference = validate_stash_reference(&reference)?;
     let root = git_repository_root(Path::new(&dir))?;
@@ -5482,7 +5506,7 @@ fn is_applicable_patch(patch: &str) -> bool {
 
 /// 按 hunk 暂存/取消暂存：`patch` 只包含用户选中的 hunk。
 /// `cached` 作用于索引（暂存），`reverse` 用于取消暂存。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_apply_patch(
     dir: String,
     patch: String,
@@ -5583,7 +5607,7 @@ fn git_stage_content(root: &Path, stage: u8, path: &str) -> Option<String> {
 }
 
 /// 读取冲突文件的三方内容，供三方视图使用。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_conflict(dir: String, path: String) -> Result<WorkspaceGitConflict, String> {
     let root = git_repository_root(Path::new(&dir))?;
     let target = resolve_repo_relative_path(&root, &path)?;
@@ -5606,7 +5630,7 @@ fn git_conflict(dir: String, path: String) -> Result<WorkspaceGitConflict, Strin
 }
 
 /// 写回解决后的内容并 `git add` 标记为已解决。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_resolve_conflict(
     dir: String,
     path: String,
@@ -5654,7 +5678,7 @@ fn operation_action_flag(action: &str) -> Result<&'static str, String> {
 }
 
 /// 当前是否有 merge/rebase/cherry-pick/revert 正在进行，以及还有多少冲突文件。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_operation_state(dir: String) -> Result<WorkspaceGitOperationState, String> {
     let root = git_repository_root(Path::new(&dir))?;
     let git_dir = git_raw_output(&root, &["--no-pager", "rev-parse", "--git-dir"])?;
@@ -5699,7 +5723,7 @@ fn git_operation_state(dir: String) -> Result<WorkspaceGitOperationState, String
 }
 
 /// 收尾进行中的操作：continue / abort / skip。
-#[tauri::command]
+#[tauri::command(async)]
 fn git_operation_action(
     dir: String,
     operation: String,
@@ -5724,8 +5748,15 @@ fn git_operation_action(
 }
 
 /// 拉取当前分支的上游更新；结果含 git 完整输出，冲突时失败告知。
+/// 拉取当前分支的上游更新；结果含 git 完整输出，冲突时失败告知。
+/// 网络操作可能持续数秒到数分钟，落到阻塞线程池而不是异步 worker。
 #[tauri::command]
-fn git_pull(dir: String) -> Result<GitCommandResult, String> {
+async fn git_pull(dir: String) -> Result<GitCommandResult, String> {
+    run_blocking_git(move || git_pull_blocking(dir)).await
+}
+
+#[tauri::command(async)]
+fn git_pull_blocking(dir: String) -> Result<GitCommandResult, String> {
     let root = git_repository_root(Path::new(&dir))?;
     let output = git_raw_output(&root, &["--no-pager", "pull"])?;
     Ok(GitCommandResult::from_output(
@@ -5736,8 +5767,15 @@ fn git_pull(dir: String) -> Result<GitCommandResult, String> {
 }
 
 /// 推送当前分支；未设置上游时自动带 -u 推送到 origin 并建立跟踪。
+/// 推送当前分支；未设置上游时自动带 -u 推送到 origin 并建立跟踪。
+/// 网络操作可能持续数秒到数分钟，落到阻塞线程池而不是异步 worker。
 #[tauri::command]
-fn git_push(dir: String) -> Result<GitCommandResult, String> {
+async fn git_push(dir: String) -> Result<GitCommandResult, String> {
+    run_blocking_git(move || git_push_blocking(dir)).await
+}
+
+#[tauri::command(async)]
+fn git_push_blocking(dir: String) -> Result<GitCommandResult, String> {
     let root = git_repository_root(Path::new(&dir))?;
     let first = git_raw_output(&root, &["--no-pager", "push"])?;
     if first.ok {
@@ -7556,6 +7594,45 @@ mod tests {
                 "{invalid} 不应被接受"
             );
         }
+    }
+
+    /// 主线程守卫：git 命令不能在 IPC 处理路径里同步执行。
+    ///
+    /// `#[tauri::command]` 的同步命令会内联跑在 IPC 处理线程（主线程）上，
+    /// `git fetch/pull/push` 这种秒级子进程调用会把整个界面卡住。
+    /// 每条 git 命令都必须异步：`#[tauri::command(async)]`（本地读取）
+    /// 或 `async fn` + `run_blocking_git`（网络操作）。
+    #[test]
+    fn git_commands_never_run_synchronously_on_the_main_thread() {
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let main_rs =
+            std::fs::read_to_string(format!("{manifest_dir}/src/main.rs")).expect("read main.rs");
+        let lines: Vec<&str> = main_rs.lines().collect();
+        let mut offenders = Vec::new();
+        for (index, line) in lines.iter().enumerate() {
+            let trimmed = line.trim();
+            let is_git_function = trimmed.starts_with("fn git_")
+                || trimmed.starts_with("async fn git_")
+                || trimmed.starts_with("fn get_workspace_git_status(")
+                || trimmed.starts_with("async fn get_workspace_git_status(");
+            if !is_git_function || trimmed.starts_with("async fn ") {
+                continue;
+            }
+            // 向上收集 attribute 行；没有 #[tauri::command] 的是内部 helper，不受此约束
+            let mut attribute = index;
+            while attribute > 0 && lines[attribute - 1].trim().starts_with("#[") {
+                attribute -= 1;
+            }
+            let attributes = lines[attribute..index].join(" ");
+            if !attributes.contains("#[tauri::command") || attributes.contains("(async)") {
+                continue;
+            }
+            offenders.push(trimmed.to_string());
+        }
+        assert!(
+            offenders.is_empty(),
+            "以下 git 命令是同步命令，会占住主线程导致界面卡顿：{offenders:#?}"
+        );
     }
 }
 
