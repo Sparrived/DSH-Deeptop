@@ -2267,7 +2267,8 @@ impl BridgeManager {
             let _ = terminate_process_tree(pid);
         }
         // 作业对象兜底：taskkill 之后仍在作业里的（例如刚派生出来的祖父孙进程）由内核回收。
-        drop(guard);
+        // guard 保持到函数结束再释放；非 Windows 构建下它是没有析构逻辑的占位类型。
+        let _job_guard = guard;
     }
 
     fn restart(&self, app: AppHandle) {
