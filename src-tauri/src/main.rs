@@ -46,186 +46,7 @@ mod window_behavior;
 mod windows_context_menu;
 
 #[cfg(windows)]
-mod windows_process_environment {
-    use std::{
-        ffi::c_void,
-        mem::{size_of, MaybeUninit},
-        path::PathBuf,
-    };
-
-    use windows_sys::Win32::{
-        Foundation::{CloseHandle, GetLastError, HANDLE},
-        System::{
-            Diagnostics::Debug::ReadProcessMemory,
-            Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ},
-        },
-    };
-
-    const PROCESS_BASIC_INFORMATION_CLASS: u32 = 0;
-    const MAX_ENVIRONMENT_BYTES: usize = 1024 * 1024;
-
-    #[repr(C)]
-    struct ProcessBasicInformation {
-        reserved1: *mut c_void,
-        peb_base_address: *mut c_void,
-        reserved2: [*mut c_void; 2],
-        unique_process_id: usize,
-        reserved3: *mut c_void,
-    }
-
-    struct ProcessHandle(HANDLE);
-
-    impl Drop for ProcessHandle {
-        fn drop(&mut self) {
-            if !self.0.is_null() {
-                unsafe {
-                    CloseHandle(self.0);
-                }
-            }
-        }
-    }
-
-    #[link(name = "ntdll")]
-    unsafe extern "system" {
-        fn NtQueryInformationProcess(
-            process_handle: HANDLE,
-            process_information_class: u32,
-            process_information: *mut c_void,
-            process_information_length: u32,
-            return_length: *mut u32,
-        ) -> i32;
-    }
-
-    fn address(base: usize, offset: usize) -> Result<*const c_void, String> {
-        base.checked_add(offset)
-            .map(|value| value as *const c_void)
-            .ok_or_else(|| "读取 DSH 进程环境失败：远程地址溢出".to_string())
-    }
-
-    fn read_exact(handle: HANDLE, source: *const c_void, target: &mut [u8]) -> Result<(), String> {
-        let mut bytes_read = 0usize;
-        let success = unsafe {
-            ReadProcessMemory(
-                handle,
-                source,
-                target.as_mut_ptr().cast(),
-                target.len(),
-                &mut bytes_read,
-            )
-        };
-        if success == 0 {
-            return Err(format!(
-                "读取 DSH 进程环境失败：ReadProcessMemory 错误 {}",
-                unsafe { GetLastError() }
-            ));
-        }
-        if bytes_read != target.len() {
-            return Err("读取 DSH 进程环境失败：远程内存短读".to_string());
-        }
-        Ok(())
-    }
-
-    fn read_pointer(handle: HANDLE, source: *const c_void) -> Result<usize, String> {
-        let mut bytes = vec![0u8; size_of::<usize>()];
-        read_exact(handle, source, &mut bytes)?;
-        Ok(bytes
-            .iter()
-            .enumerate()
-            .fold(0usize, |value, (index, byte)| {
-                value | (*byte as usize) << (index * 8)
-            }))
-    }
-
-    fn parse_environment(bytes: &[u8]) -> Result<Option<PathBuf>, String> {
-        if !bytes.len().is_multiple_of(2) {
-            return Err("读取 DSH 进程环境失败：环境块不是 UTF-16 对齐数据".to_string());
-        }
-        let units: Vec<u16> = bytes
-            .chunks_exact(2)
-            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
-            .collect();
-        let mut dsh_home = None;
-        let mut user_profile = None;
-        for entry in units.split(|unit| *unit == 0) {
-            if entry.is_empty() {
-                break;
-            }
-            let entry = String::from_utf16(entry)
-                .map_err(|_| "读取 DSH 进程环境失败：环境块包含无效 UTF-16".to_string())?;
-            let Some((name, value)) = entry.split_once('=') else {
-                continue;
-            };
-            let value = value.trim();
-            if value.is_empty() {
-                continue;
-            }
-            match name.to_ascii_uppercase().as_str() {
-                "DSH_HOME" => dsh_home = Some(PathBuf::from(value)),
-                "USERPROFILE" => user_profile = Some(PathBuf::from(value)),
-                _ => {}
-            }
-        }
-        Ok(dsh_home.or_else(|| user_profile.map(|path| path.join(".dsh"))))
-    }
-
-    pub fn dsh_home(pid: u32) -> Result<Option<PathBuf>, String> {
-        let handle =
-            unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, 0, pid) };
-        if handle.is_null() {
-            return Err(format!(
-                "无法读取 DSH 进程 {pid} 的环境：OpenProcess 错误 {}",
-                unsafe { GetLastError() }
-            ));
-        }
-        let handle = ProcessHandle(handle);
-        let mut information = MaybeUninit::<ProcessBasicInformation>::zeroed();
-        let mut return_length = 0u32;
-        let status = unsafe {
-            NtQueryInformationProcess(
-                handle.0,
-                PROCESS_BASIC_INFORMATION_CLASS,
-                information.as_mut_ptr().cast(),
-                size_of::<ProcessBasicInformation>() as u32,
-                &mut return_length,
-            )
-        };
-        if status < 0 {
-            return Err(format!(
-                "无法读取 DSH 进程 {pid} 的环境：NtQueryInformationProcess 状态 0x{status:08x}"
-            ));
-        }
-        let information = unsafe { information.assume_init() };
-        if information.peb_base_address.is_null() {
-            return Err(format!("无法读取 DSH 进程 {pid} 的环境：PEB 不可用"));
-        }
-        let pointer_size = size_of::<usize>();
-        let parameters_offset = if pointer_size == 8 { 0x20 } else { 0x10 };
-        let environment_offset = if pointer_size == 8 { 0x80 } else { 0x48 };
-        let parameters = read_pointer(
-            handle.0,
-            address(information.peb_base_address as usize, parameters_offset)?,
-        )?;
-        if parameters == 0 {
-            return Err(format!("无法读取 DSH 进程 {pid} 的环境：进程参数不可用"));
-        }
-        let environment = read_pointer(handle.0, address(parameters, environment_offset)?)?;
-        if environment == 0 {
-            return Ok(None);
-        }
-
-        let mut bytes = Vec::new();
-        while bytes.len() < MAX_ENVIRONMENT_BYTES {
-            let chunk_size = 4096.min(MAX_ENVIRONMENT_BYTES - bytes.len());
-            let start = bytes.len();
-            bytes.resize(start + chunk_size, 0);
-            read_exact(handle.0, address(environment, start)?, &mut bytes[start..])?;
-            if bytes.windows(4).any(|window| window == [0, 0, 0, 0]) {
-                return parse_environment(&bytes);
-            }
-        }
-        Err(format!("无法读取 DSH 进程 {pid} 的环境：环境块超过限制"))
-    }
-}
+mod windows_process;
 
 /// The DSH profile this application owns. DSH reserves the name `desktop` for
 /// the upstream Electron application, so Deeptop boots its own profile.
@@ -644,6 +465,13 @@ enum RuntimePhase {
     Failed,
 }
 
+/// Windows 上用作业对象把 DSH 进程树的回收交给内核：Deeptop 被强杀时内核也会
+/// 关闭作业句柄并结束整棵树。其他平台只靠进程组与退出时的显式终止。
+#[cfg(windows)]
+type ChildProcessGuard = windows_process::KillOnCloseJob;
+#[cfg(not(windows))]
+struct ChildProcessGuard;
+
 struct BridgeState {
     phase: RuntimePhase,
     message: String,
@@ -654,6 +482,8 @@ struct BridgeState {
     generation: u64,
     pid: Option<u32>,
     stdin: Option<Arc<Mutex<std::process::ChildStdin>>>,
+    /// 当前 DSH 子进程的看护句柄；Drop 即回收整棵进程树。
+    child_guard: Option<ChildProcessGuard>,
     pending: HashMap<String, mpsc::Sender<Result<Value, String>>>,
     /// Consecutive unexpected DSH exits not yet recovered by a successful boot.
     crash_count: u32,
@@ -675,6 +505,7 @@ impl Default for BridgeState {
             generation: 0,
             pid: None,
             stdin: None,
+            child_guard: None,
             pending: HashMap::new(),
             crash_count: 0,
             auto_restart_pending: false,
@@ -2018,7 +1849,7 @@ fn process_command_line_matches_dsh(name: &str, command_line: &str) -> bool {
 
 #[cfg(windows)]
 fn process_dsh_home(pid: u32) -> Result<Option<PathBuf>, String> {
-    windows_process_environment::dsh_home(pid)
+    windows_process::dsh_home(pid)
 }
 
 #[cfg(target_os = "linux")]
@@ -2104,64 +1935,37 @@ fn dsh_homes_match(candidate: &Path) -> bool {
     }
 }
 
+/// 候选进程是否使用同一个 DSH_HOME。
+///
+/// 读不到环境（权限不足、进程正在退出、PEB 不可读）时按"无法排除"处理：命令行已经
+/// 确认它是同一个 profile 的 DSH，是否终止交给用户在冲突对话框里决定。把探测失败
+/// 升级成错误会让残留进程既发现不了、也清不掉，只能靠重启系统脱困。
+fn process_shares_dsh_home(pid: u32) -> bool {
+    match process_dsh_home(pid) {
+        Ok(Some(home)) => dsh_homes_match(&home),
+        Ok(None) | Err(_) => true,
+    }
+}
+
 fn list_external_dsh_processes() -> Result<Vec<DshProcessInfo>, String> {
     #[cfg(windows)]
     {
-        let mut command = Command::new("powershell.exe");
-        configure_hidden_process(&mut command);
-        let output = command
-            .args([
-                "-NoLogo",
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                r#"$ErrorActionPreference='Stop'; Get-CimInstance Win32_Process | Where-Object { $_.Name -match '(?i)^node(?:\.exe)?$' -and $_.CommandLine -and $_.CommandLine -match '(?i)(dsh|@deepseek-ai)' -and $_.CommandLine -match '(?i)--profile\s+(?:deeptop|desktop)' } | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"#,
-            ])
-            .output()
-            .map_err(|error| format!("无法检查 DSH 进程：{error}"))?;
-        if !output.status.success() {
-            return Err(format!(
-                "检查 DSH 进程失败：{}",
-                decode_process_line(&output.stderr)
-            ));
-        }
-        let text = decode_process_line(&output.stdout);
-        if text.trim().is_empty() {
-            return Ok(Vec::new());
-        }
-        let value: Value = serde_json::from_str(text.trim())
-            .map_err(|error| format!("解析 DSH 进程列表失败：{error}"))?;
-        let values = match value {
-            Value::Array(values) => values,
-            other => vec![other],
-        };
         let mut processes = Vec::new();
-        for item in values {
-            let Some(object) = item.as_object() else {
+        for candidate in windows_process::list_node_processes()? {
+            // 命令行读不到就无法确认身份，跳过而不是让整个枚举失败。
+            let Some(command_line) = candidate.command_line else {
                 continue;
             };
-            let Some(pid) = object
-                .get("ProcessId")
-                .and_then(Value::as_u64)
-                .and_then(|value| value.try_into().ok())
-            else {
-                continue;
-            };
-            let Some(name) = object.get("Name").and_then(Value::as_str) else {
-                continue;
-            };
-            let Some(command_line) = object.get("CommandLine").and_then(Value::as_str) else {
-                continue;
-            };
-            if process_command_line_matches_dsh(name, command_line)
-                && process_dsh_home(pid)?.is_some_and(|home| dsh_homes_match(&home))
+            if !process_command_line_matches_dsh(&candidate.name, &command_line)
+                || !process_shares_dsh_home(candidate.pid)
             {
-                processes.push(DshProcessInfo {
-                    pid,
-                    name: name.to_string(),
-                    command_line: command_line.to_string(),
-                });
+                continue;
             }
+            processes.push(DshProcessInfo {
+                pid: candidate.pid,
+                name: candidate.name,
+                command_line,
+            });
         }
         Ok(processes)
     }
@@ -2189,8 +1993,7 @@ fn list_external_dsh_processes() -> Result<Vec<DshProcessInfo>, String> {
                 continue;
             };
             let command_line = fields.collect::<Vec<_>>().join(" ");
-            if process_command_line_matches_dsh(name, &command_line)
-                && process_dsh_home(pid)?.is_some_and(|home| dsh_homes_match(&home))
+            if process_command_line_matches_dsh(name, &command_line) && process_shares_dsh_home(pid)
             {
                 processes.push(DshProcessInfo {
                     pid,
@@ -2442,7 +2245,7 @@ impl BridgeManager {
     }
 
     fn stop(&self, message: &str) {
-        let pid = {
+        let (pid, guard) = {
             let Ok(mut state) = self.state.lock() else {
                 return;
             };
@@ -2454,11 +2257,13 @@ impl BridgeManager {
             state.auto_restart_pending = false;
             let pid = state.pid.take();
             pending_error(&mut state, "DSH 桌面宿主已停止".to_string());
-            pid
+            (pid, state.child_guard.take())
         };
         if let Some(pid) = pid {
             let _ = terminate_process_tree(pid);
         }
+        // 作业对象兜底：taskkill 之后仍在作业里的（例如刚派生出来的祖父孙进程）由内核回收。
+        drop(guard);
     }
 
     fn restart(&self, app: AppHandle) {
@@ -2469,9 +2274,8 @@ impl BridgeManager {
 
     fn prepare_and_launch(&self, app: AppHandle, generation: u64) {
         // 进程冲突检查只在真正 spawn 前执行一次（见 launch）：合并检查除了
-        // 省掉一次 powershell 全进程枚举（冷启动数秒级 CPU/IO），还让检查结果
-        // 更贴近 spawn 时刻，避免 prepare（尤其是升级后解压运行时）期间
-        // 的长时间窗口里产生新的占用进程时漏检或误判。
+        // 省掉一次全进程快照与远程读取，还让检查结果更贴近 spawn 时刻，避免
+        // prepare（尤其是升级后解压运行时）期间的长窗口里产生新的占用进程时漏检或误判。
         let result = (|| -> Result<DshLaunch, String> {
             let node = self.ensure_node_runtime(&app, generation)?;
             // Profile data remains user-owned in DSH_HOME. The DSH executable and
@@ -2559,10 +2363,33 @@ impl BridgeManager {
                 .stderr
                 .take()
                 .ok_or_else(|| "无法获取 DSH 错误输出".to_string())?;
-            Ok((child, pid, stdin, stdout, stderr))
+            // 把子进程交给内核看护：Deeptop 被强杀或崩溃时，作业句柄随进程关闭，
+            // 内核会结束整棵 DSH 进程树，下一次启动不会再有"DSH 还存在"的残留。
+            #[cfg(windows)]
+            let guard: Option<ChildProcessGuard> = {
+                use std::os::windows::io::AsRawHandle;
+                match windows_process::kill_on_close_job(child.as_raw_handle()) {
+                    Ok(job) => Some(job),
+                    Err(error) => {
+                        self.emit_runtime_log(
+                            &app,
+                            generation,
+                            "start",
+                            "diagnostic",
+                            format!(
+                                "无法为 DSH 建立作业对象，强制结束 Deeptop 时将不再由内核回收 DSH：{error}"
+                            ),
+                        );
+                        None
+                    }
+                }
+            };
+            #[cfg(not(windows))]
+            let guard: Option<ChildProcessGuard> = None;
+            Ok((child, pid, stdin, stdout, stderr, guard))
         })();
 
-        let (mut child, pid, stdin, stdout, stderr) = match result {
+        let (mut child, pid, stdin, stdout, stderr, guard) = match result {
             Ok(parts) => parts,
             Err(message) => {
                 self.fail_start(&app, generation, message);
@@ -2579,6 +2406,7 @@ impl BridgeManager {
                 }
                 state.pid = Some(pid);
                 state.stdin = Some(Arc::new(Mutex::new(stdin)));
+                state.child_guard = guard;
                 true
             })
             .unwrap_or(false);
@@ -7910,5 +7738,16 @@ fn main() {
             window.create = false;
         }
     }
-    builder.run(context).expect("启动 Deeptop 失败");
+    let app = builder.build(context).expect("启动 Deeptop 失败");
+    app.run(|app_handle, event| {
+        // 退出前显式回收 DSH：窗口关闭选"退出"、托盘退出和更新安装都只调 app.exit()，
+        // 而 DSH 不会因为 stdin EOF 自行退出，残留进程会让下次启动误报 DSH 仍在运行。
+        if matches!(
+            event,
+            tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+        ) {
+            let runtime = app_handle.state::<BridgeManager>().inner().clone();
+            runtime.stop("Deeptop 已退出");
+        }
+    });
 }
