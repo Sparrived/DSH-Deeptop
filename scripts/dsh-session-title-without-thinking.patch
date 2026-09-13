@@ -1,0 +1,92 @@
+diff --git a/packages/bundle/base/cordis.patch.yml b/packages/bundle/base/cordis.patch.yml
+index f906ea8601..dfc0473150 100644
+--- a/packages/bundle/base/cordis.patch.yml
++++ b/packages/bundle/base/cordis.patch.yml
+@@ -58,7 +58,10 @@
+         targetWords: 5
+         targetCjkCharacters: 10
+         maxInputBytes: 4096
+-        maxOutputTokens: 64
++        # A provider that thinks by default spends this ceiling on its thinking
++        # before emitting any title text, and thinking preambles reach several
++        # hundred tokens, so the ceiling must leave room for both.
++        maxOutputTokens: 2048
+         timeoutMs: 60000
+ 
+     - id: user-questions
+diff --git a/packages/llm/llm-pi-ai/src/adapter.ts b/packages/llm/llm-pi-ai/src/adapter.ts
+index 8dba978c31..39fc9ac247 100644
+--- a/packages/llm/llm-pi-ai/src/adapter.ts
++++ b/packages/llm/llm-pi-ai/src/adapter.ts
+@@ -341,10 +341,14 @@ export class PiAiAdapter extends LlmAdapter {
+     // the one it started with and the next call picks up the new one.
+     const profile = this.profileOf(snapshot, options.provider)
+     const model = this.modelOf(snapshot, options.provider, options.model)
+-    const reasoning = resolveReasoningLevel(
+-      model,
+-      options.reasoningEffort ?? profile.reasoning,
+-    )
++    // An auxiliary session-title request never inherits the deployment's
++    // reasoning level: that call exists for one line of text, so a level would
++    // spend its ceiling on thinking before any title text is emitted. The
++    // native DeepSeek adapter suppresses thinking for the same purpose, and a
++    // missing level becomes pi-ai's own off state for this model.
++    const reasoning = options.purpose === 'session-title'
++      ? undefined
++      : resolveReasoningLevel(model, options.reasoningEffort ?? profile.reasoning)
+     const apiKey = await this.config.resolveApiKey(options.provider, profile)
+ 
+     const consumer = new AbortController()
+diff --git a/packages/llm/llm-pi-ai/tests/adapter.spec.ts b/packages/llm/llm-pi-ai/tests/adapter.spec.ts
+index a54ec17697..6b6c91a147 100644
+--- a/packages/llm/llm-pi-ai/tests/adapter.spec.ts
++++ b/packages/llm/llm-pi-ai/tests/adapter.spec.ts
+@@ -152,6 +152,16 @@ describe('PiAiAdapter provider routing', () => {
+     expect(server.requests[0]).not.toHaveProperty('dsh_plugin_packages')
+   })
+ 
++  it('keeps the deployment reasoning level out of an auxiliary session-title request', async () => {
++    const server = await mockServer([{ events: textEvents }])
++    const ctx = await harness(server.url, { reasoning: 'max' })
++
++    await assemble(ctx, { model: 'deepseek-v4-pro', messages: [], purpose: 'session-title' })
++
++    expect(server.requests[0]).toMatchObject({ thinking: { type: 'disabled' } })
++    expect(server.requests[0]).not.toHaveProperty('reasoning_effort')
++  })
++
+   it('uses a dynamic request effort and reports unsupported efforts before network I/O', async () => {
+     const server = await mockServer([{ events: textEvents }, { events: textEvents }])
+     const ctx = await harness(server.url, { reasoning: 'max' })
+diff --git a/packages/session/session-title-llm/tests/llm.spec.ts b/packages/session/session-title-llm/tests/llm.spec.ts
+index 240ddefa2b..76137d0f7f 100644
+--- a/packages/session/session-title-llm/tests/llm.spec.ts
++++ b/packages/session/session-title-llm/tests/llm.spec.ts
+@@ -311,6 +311,27 @@ describe('generateSessionTitleWithLlm', () => {
+     )).rejects.toThrow(/produced no text/)
+   })
+ 
++  it('takes the title text that a thinking preamble precedes', async () => {
++    const { ctx } = await withScript([
++      { type: 'block-start', index: 0, blockType: 'reasoning' },
++      { type: 'reasoning-delta', index: 0, text: 'weighing candidate titles' },
++      { type: 'block-start', index: 1, blockType: 'text' },
++      { type: 'text-delta', index: 1, text: '思考后的标题' },
++      { type: 'finish', reason: { kind: 'stop' } },
++    ])
++    const providerRequest = request(ctx)
++
++    const result = await generateSessionTitleWithLlm(
++      ctx,
++      resolveSessionTitleLlmConfig(CONFIG),
++      providerRequest,
++      providerRequest.messages,
++      TITLE_PROVIDER,
++    )
++
++    expect(result.title).toBe('思考后的标题')
++  })
++
+   it('aborts a cooperative model stream at the configured deadline', async () => {
+     vi.useFakeTimers()
+     try {

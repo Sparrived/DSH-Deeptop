@@ -7,10 +7,10 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourceRoot = path.join(root, "vendor", "dsh");
 const publicBase = "183f08e9c6dde7e36cd2318eaee70b0da08fb35e";
 const publicTag = "dsh-v0.1.5-rc.1";
-const patchedCommit = "c8eeb3616c2a35d3547f8c48eb70de0350726a4a";
+const patchedCommit = "686b1bcab520f083adbd9380b1ba7617648b2f10";
 const upstream = "https://github.com/deepseek-ai/deepseek-harness.git";
 
-// The vendored runtime ships six local commits on top of 0.1.5-rc.1.
+// The vendored runtime ships seven local commits on top of 0.1.5-rc.1.
 // Each entry reproduces one of them deterministically from its patch file:
 // identical tree, parents, message, and author/committer identity reproduce
 // the exact commit id pinned by src-tauri/src/main.rs.
@@ -119,6 +119,32 @@ const patches = [
       "原因：Deeptop 在运行期间切换显式或系统代理时，官方 DSH egress 与子进程必须使用同一份策略。",
       "",
       "验证：packages/util/http-proxy 93 项 Vitest 通过；tsc -b packages/util/http-proxy/tsconfig.json 通过。",
+      "",
+    ].join("\n"),
+  },
+  {
+    file: "dsh-session-title-without-thinking.patch",
+    commit: "686b1bcab520f083adbd9380b1ba7617648b2f10",
+    authorName: "Sparrived",
+    authorEmail: "sparrived@outlook.com",
+    authorDate: "2026-09-13T14:10:08+08:00",
+    committerDate: "2026-09-13T14:10:08+08:00",
+    message: [
+      "fix(session-title): 标题请求不再继承部署思考档位",
+      "",
+      "改动：pi-ai 适配器在 purpose 为 session-title 时不再套用请求或供应商配置的",
+      "reasoning 档位，交由 pi-ai 落到该模型自身的 off 状态；base bundle 的",
+      "session-title-llm.maxOutputTokens 由 64 提高到 2048。",
+      "",
+      "原因：标题辅助请求只为一句话标题而发，却会继承供应商的思考档位，而部分网关",
+      "默认开启思考并忽略客户端的 thinking: disabled。上限被思考前导吃光后模型不再",
+      "输出正文，自动标题以 max-tokens 失败，会话只能停在首条消息的确定性回退上；",
+      "实测同一路由上思考前导可达 700 余 token，64 的上限必然失败。",
+      "",
+      "验证：llm-pi-ai adapter.spec.ts 327 项通过（新增标题请求保持 off 的用例，移除",
+      "修复后该用例失败；标题请求默认档位下由 thinking: enabled 变为 thinking:",
+      "disabled）；session-title-llm llm.spec.ts 13 项通过（新增思考前导后取正文的",
+      "用例）；tsc -b packages/llm/llm-pi-ai 通过；base bundle 2 项通过。",
       "",
     ].join("\n"),
   },
