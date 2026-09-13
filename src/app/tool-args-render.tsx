@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { ArrowUpRight, Check, LoaderCircle } from "lucide-react";
 import type { UiLocale } from "./i18n";
 import { t } from "./i18n";
-import { isPrimaryToolArgument, orderedToolArguments, parseToolArgs, toolArgsLayout, toolCallOpenLine, toolTodoItems, type ToolArgsLayout, type ToolArgsObject, type ToolTodoItem } from "./tool-call-display";
+import { isPrimaryToolArgument, orderedToolArguments, parseToolArgs, toolArgsLayout, toolCallOpenLine, toolQuestionItems, toolTodoItems, type ToolArgsLayout, type ToolArgsObject, type ToolQuestion, type ToolTodoItem } from "./tool-call-display";
 
 /**
  * Render durable tool arguments as task-oriented rows. Every call keeps a
@@ -192,6 +192,38 @@ function TodoListField({ todos, locale }: { todos: ToolTodoItem[]; locale: UiLoc
   </ol>;
 }
 
+/**
+ * ask_user_question 的问题清单。
+ *
+ * 提问是这一次调用唯一的事实：header 与 question 是模型写下的原文，options 是
+ * 它给出的选项，multi_select 说明用户能选几个。泛型列表把这些全部压成 `{…n}`，
+ * 读的人看不到被问的是什么，所以这里按「问题 + 选项」的读序展开。
+ *
+ * 直接导出给组件测试渲染：测试渲染器只展开顶层组件，把它交给测试才看得见
+ * 问题原文与选项的实际输出。
+ */
+export function QuestionListField({ questions, locale }: { questions: ToolQuestion[]; locale: UiLocale }) {
+  return <ol className="tool-question-list" aria-label={t("conversation.tool.questionsAria", locale)}>
+    {questions.map((question, index) => <li className="tool-question" key={`${index}-${question.id}`}>
+      <div className="tool-question-head">
+        <span className="tool-question-index" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
+        <span className="tool-question-title">{question.header || question.id}</span>
+        {question.multiSelect && <span className="tool-question-mode">{t("conversation.tool.multiSelect", locale)}</span>}
+      </div>
+      <p className="tool-question-prompt">{question.question}</p>
+      {question.options && <ul className="tool-question-options">
+        {question.options.map((option, optionIndex) => <li className="tool-question-option" key={`${optionIndex}-${option.label}`}>
+          <span className="tool-question-mark" aria-hidden="true" />
+          <span className="tool-question-option-copy">
+            <strong>{option.label}</strong>
+            {option.description && <small>{option.description}</small>}
+          </span>
+        </li>)}
+      </ul>}
+    </li>)}
+  </ol>;
+}
+
 function FieldRow({ toolName, keyName, kind, value, locale, onOpenPath, onOpenUrl, layout, primary, openLine }: {
   toolName?: string;
   keyName: string;
@@ -205,23 +237,25 @@ function FieldRow({ toolName, keyName, kind, value, locale, onOpenPath, onOpenUr
   /** 读取类工具的 1-based 定位行；只对路径字段生效。 */
   openLine?: number;
 }) {
-  const todos = (toolName?.toLowerCase() === "todo_write" || toolName?.toLowerCase() === "write_todo") && keyName === "todos" ? toolTodoItems(value) : undefined;
   const normalizedToolName = toolName?.trim().toLowerCase();
+  const todos = (normalizedToolName === "todo_write" || normalizedToolName === "write_todo") && keyName === "todos" ? toolTodoItems(value) : undefined;
+  const questions = normalizedToolName === "ask_user_question" && keyName === "questions" ? toolQuestionItems(value) : undefined;
   const isPowerShellCommand = (normalizedToolName === "pwsh" || normalizedToolName === "powershell") && kind === "command" && typeof value === "string";
   if (isPowerShellCommand) return <CommandField value={value} locale={locale} keyName={keyName} />;
 
   const prominent = primary || (layout === "terminal" && kind === "command") || (layout === "web" && kind === "url") || (layout === "delegation" && kind === "longtext");
-  return <div className={`tool-field tool-field-${todos ? "todos" : kind}${prominent ? " is-prominent" : ""}`}>
+  return <div className={`tool-field tool-field-${questions ? "questions" : todos ? "todos" : kind}${prominent ? " is-prominent" : ""}`}>
     <span className="tool-field-key">{keyName}</span>
     <div className="tool-field-value">
-      {todos ? <TodoListField todos={todos} locale={locale} />
-        : kind === "path" && typeof value === "string" ? <PathField value={value} locale={locale} line={openLine} onOpenPath={onOpenPath} />
-        : kind === "command" && typeof value === "string" ? <CommandField value={value} locale={locale} />
-          : kind === "longtext" && typeof value === "string" ? <LongTextField value={value} locale={locale} />
-            : kind === "url" && typeof value === "string" ? <UrlField value={value} onOpenUrl={onOpenUrl} />
-              : kind === "pattern" && typeof value === "string" ? <code className="tool-field-pattern"><PatternHighlight pattern={value} /></code>
-                : kind === "list" && Array.isArray(value) ? <ListField value={value} locale={locale} />
-                  : <FieldValue value={value} locale={locale} />}
+      {questions ? <QuestionListField questions={questions} locale={locale} />
+        : todos ? <TodoListField todos={todos} locale={locale} />
+          : kind === "path" && typeof value === "string" ? <PathField value={value} locale={locale} line={openLine} onOpenPath={onOpenPath} />
+            : kind === "command" && typeof value === "string" ? <CommandField value={value} locale={locale} />
+              : kind === "longtext" && typeof value === "string" ? <LongTextField value={value} locale={locale} />
+                : kind === "url" && typeof value === "string" ? <UrlField value={value} onOpenUrl={onOpenUrl} />
+                  : kind === "pattern" && typeof value === "string" ? <code className="tool-field-pattern"><PatternHighlight pattern={value} /></code>
+                    : kind === "list" && Array.isArray(value) ? <ListField value={value} locale={locale} />
+                      : <FieldValue value={value} locale={locale} />}
     </div>
   </div>;
 }

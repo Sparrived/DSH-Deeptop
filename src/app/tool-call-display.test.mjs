@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { displayToolName, hasVisibleToolArguments, isPrimaryToolArgument, orderedToolArguments, parseToolArgs, toolArgsLayout, toolCallDescription, toolCallEditDiff, toolCallOpenLine, toolCallSummary, toolTodoItems, visibleToolArguments } from "./tool-call-display.ts";
+import { displayToolName, hasVisibleToolArguments, isPrimaryToolArgument, orderedToolArguments, parseToolArgs, toolArgsLayout, toolCallDescription, toolCallEditDiff, toolCallOpenLine, toolCallSummary, toolQuestionItems, toolTodoItems, visibleToolArguments } from "./tool-call-display.ts";
 
 test("formats MCP tool names without the internal prefix", () => {
   assert.equal(displayToolName("mcp__vendor__read"), "vendor · read");
@@ -76,6 +76,40 @@ test("prefers descriptions over tool-specific call-bar fields", () => {
     description: "修正摘要逻辑",
     file_path: "src/app/tool-call-display.ts",
   }), "修正摘要逻辑");
+});
+
+test("narrows ask_user_question arguments into the asked questions", () => {
+  assert.deepEqual(toolQuestionItems([
+    {
+      id: "release",
+      header: "发布渠道",
+      question: "选择发布渠道",
+      options: [{ label: "GitHub", description: "公开可见" }, { label: "内测" }],
+      multi_select: true,
+    },
+    { id: "confirm", question: "确认继续？" },
+  ]), [
+    {
+      id: "release",
+      header: "发布渠道",
+      question: "选择发布渠道",
+      options: [{ label: "GitHub", description: "公开可见" }, { label: "内测" }],
+      multiSelect: true,
+    },
+    { id: "confirm", question: "确认继续？" },
+  ]);
+  // 空选项列表等同于没有选项；不补一个空清单。
+  assert.deepEqual(toolQuestionItems([{ id: "a", question: "问一句", options: [] }]), [{ id: "a", question: "问一句" }]);
+});
+
+test("declines malformed ask_user_question arguments instead of dropping one question", () => {
+  assert.equal(toolQuestionItems(undefined), undefined);
+  assert.equal(toolQuestionItems([]), undefined);
+  // 缺少问题原文：整批放弃，避免只显示一部分被问到的问题。
+  assert.equal(toolQuestionItems([{ id: "a", question: "有效" }, { id: "b", question: "  " }]), undefined);
+  assert.equal(toolQuestionItems([{ question: "缺少 id" }]), undefined);
+  // 选项形状不对时同样整批放弃，而不是把选项悄悄丢掉。
+  assert.equal(toolQuestionItems([{ id: "a", question: "问一句", options: [{ description: "没有 label" }] }]), undefined);
 });
 
 test("uses the edited file as the call-bar summary without a description", () => {

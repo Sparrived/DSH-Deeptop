@@ -15,6 +15,21 @@ export type ToolTodoItem = {
   status: "pending" | "in_progress" | "completed";
 };
 
+/** One option of an `ask_user_question` question, as the model asked it. */
+export type ToolQuestionOption = {
+  label: string;
+  description?: string;
+};
+
+/** One `ask_user_question` question, narrowed from the durable arguments. */
+export type ToolQuestion = {
+  id: string;
+  question: string;
+  header?: string;
+  options?: ToolQuestionOption[];
+  multiSelect?: boolean;
+};
+
 type ToolArgsProfile = {
   layout: ToolArgsLayout;
   /** Fields users identify first for this stable tool family. */
@@ -77,6 +92,57 @@ export function toolTodoItems(value: unknown): ToolTodoItem[] | undefined {
       : undefined;
   });
   return todos.every((item): item is ToolTodoItem => item !== undefined) ? todos : undefined;
+}
+
+/**
+ * Narrow every option of one `ask_user_question` question.
+ *
+ * `undefined` marks the option list as unusable; the caller reads it against the
+ * declared argument, so a malformed option never silently becomes "no options".
+ */
+function toolQuestionOptions(value: unknown[]): ToolQuestionOption[] | undefined {
+  const options = value.map((item) => {
+    if (!isPlainObject(item) || typeof item.label !== "string" || !item.label.trim()) return undefined;
+    const description = typeof item.description === "string" && item.description.trim() ? item.description.trim() : undefined;
+    return { label: item.label.trim(), ...(description === undefined ? {} : { description }) };
+  });
+  return options.every((option): option is ToolQuestionOption => option !== undefined) ? options : undefined;
+}
+
+/**
+ * Narrow `ask_user_question` arguments into the questions the card renders.
+ *
+ * The model-facing arguments are the only place the asked text exists, so a card
+ * that reads them as a generic list hides the one thing the row is about. A
+ * member that does not match the declared schema abandons the whole list: a
+ * partially understood batch would silently drop a question the user was asked.
+ */
+export function toolQuestionItems(value: unknown): ToolQuestion[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  const questions = value.map((item): ToolQuestion | undefined => {
+    if (!isPlainObject(item)) return undefined;
+    const { id, question } = item;
+    if (typeof id !== "string" || !id.trim() || typeof question !== "string" || !question.trim()) return undefined;
+    const header = typeof item.header === "string" && item.header.trim() ? item.header.trim() : undefined;
+    const declared = item.options;
+    // 空选项列表等于「没有选项」；形状不对的选项放弃整批，而不是把选项悄悄丢掉。
+    let options: ToolQuestionOption[] | undefined;
+    if (Array.isArray(declared) && declared.length > 0) {
+      options = toolQuestionOptions(declared);
+      if (options === undefined) return undefined;
+    } else if (declared !== undefined && !Array.isArray(declared)) {
+      return undefined;
+    }
+    const multiSelect = item.multi_select === true;
+    return {
+      id: id.trim(),
+      question: question.trim(),
+      ...(header === undefined ? {} : { header }),
+      ...(options === undefined ? {} : { options }),
+      ...(multiSelect ? { multiSelect } : {}),
+    };
+  });
+  return questions.every((item): item is ToolQuestion => item !== undefined) ? questions : undefined;
 }
 
 /** Parse the durable JSON argument string, including one JSON-string wrapper. */
