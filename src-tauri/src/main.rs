@@ -786,6 +786,10 @@ fn bridge_stdout_log_summary(frame: &Value) -> Option<String> {
 /// Best-effort append of one formatted line to the persistent log file.
 /// Logging must never break the runtime, so every failure is ignored.
 fn append_log_file(path: &Path, line: &str) {
+    if let Some(parent) = path.parent() {
+        // 日志目录不会随安装存在；不建目录会让所有持久日志静默丢失，出事时没有现场。
+        let _ = fs::create_dir_all(parent);
+    }
     if fs::metadata(path).map(|meta| meta.len()).unwrap_or(0) > MAX_LOG_FILE_BYTES {
         let rotated = path.with_extension("log.1");
         let _ = fs::rename(path, rotated);
@@ -6434,18 +6438,18 @@ mod tests {
     use super::is_launcher_environment_name;
     use super::migrate_legacy_desktop_profile;
     use super::{
-        base64_encode, bound_log_text, bridge_stdout_log_summary, bundled_bridge_files,
-        cherry_pick_action_flag, dsh_home, dsh_homes_match, extract_runtime_archive,
-        format_log_line, format_utc_datetime, is_applicable_patch, is_binary_content,
-        is_bundled_runtime_manifest, is_dsh_package_manifest, is_file_path, is_safe_runtime_entry,
-        operation_action_flag, operation_subcommand, process_command_line_matches_dsh,
-        prune_old_runtime_caches, reset_mode_flag, resolve_repo_relative_path, runtime_arch,
-        runtime_archive_is_cache_metadata, runtime_cache_validation_message, runtime_platform,
-        runtime_tree_sha256, slice_lines, sniff_image_media_type, tray_menu_text,
-        tray_session_label, validate_stash_reference, validate_tray_session_menu,
-        validated_connection_url, BridgeManager, DshRuntimeLog, LogStore, RuntimePhase,
-        TraySessionMenuItem, TraySessionMenuSnapshot, TraySessionStatus, MAX_LOG_ENTRIES,
-        MAX_LOG_TEXT_BYTES, RUNTIME_CACHE_MARKER, WORKSPACE_FILE_SNIFF_BYTES,
+        append_log_file, base64_encode, bound_log_text, bridge_stdout_log_summary,
+        bundled_bridge_files, cherry_pick_action_flag, dsh_home, dsh_homes_match,
+        extract_runtime_archive, format_log_line, format_utc_datetime, is_applicable_patch,
+        is_binary_content, is_bundled_runtime_manifest, is_dsh_package_manifest, is_file_path,
+        is_safe_runtime_entry, operation_action_flag, operation_subcommand,
+        process_command_line_matches_dsh, prune_old_runtime_caches, reset_mode_flag,
+        resolve_repo_relative_path, runtime_arch, runtime_archive_is_cache_metadata,
+        runtime_cache_validation_message, runtime_platform, runtime_tree_sha256, slice_lines,
+        sniff_image_media_type, tray_menu_text, tray_session_label, validate_stash_reference,
+        validate_tray_session_menu, validated_connection_url, BridgeManager, DshRuntimeLog,
+        LogStore, RuntimePhase, TraySessionMenuItem, TraySessionMenuSnapshot, TraySessionStatus,
+        MAX_LOG_ENTRIES, MAX_LOG_TEXT_BYTES, RUNTIME_CACHE_MARKER, WORKSPACE_FILE_SNIFF_BYTES,
     };
     use std::collections::HashSet;
     use std::fs;
@@ -6793,6 +6797,28 @@ mod tests {
             .expect("current process environment should be readable")
             .expect("current process should have a home directory");
         assert!(dsh_homes_match(&home));
+    }
+
+    #[test]
+    fn creates_the_log_directory_before_appending() {
+        let root = std::env::temp_dir().join(format!(
+            "deeptop-log-directory-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ));
+        let path = root.join("logs").join("deeptop.log");
+
+        append_log_file(&path, "first");
+        append_log_file(&path, "second");
+
+        let content = fs::read_to_string(&path).expect("log directory should be created");
+        assert!(content.contains("first"));
+        assert!(content.contains("second"));
+
+        fs::remove_dir_all(root).expect("remove log test directory");
     }
 
     #[test]
