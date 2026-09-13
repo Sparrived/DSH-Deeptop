@@ -37,6 +37,15 @@ export function latestRoundInputIndex(entries: readonly DshHistoryEntry[]): numb
   return -1;
 }
 
+/**
+ * 打开会话后是否还要继续向前翻页：窗口里还没有任何一轮输入行，说明最新一页是从某
+ * 一轮中间截断的，默认视图看不到用户输入。窗口是「连续的尾部窗口」，只要含有一轮
+ * 输入，最近一轮的输入就在其中，所以这也是「默认至少一个完整轮次」的充分判据。
+ */
+export function needsNewestRoundFill(entries: readonly DshHistoryEntry[], hasMore: boolean): boolean {
+  return hasMore && latestRoundInputIndex(entries) < 0;
+}
+
 export type DisplayHistoryPage = {
   events: DshHistoryEntry[];
   hasMore: boolean;

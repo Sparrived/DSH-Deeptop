@@ -47,7 +47,7 @@ import { useToolSettings } from "./app/useToolSettings";
 import { useWindowControls } from "./app/useWindowControls";
 import { normalizeWindowBehavior } from "./app/window-behavior";
 import { clearQueuedSessionEvents, routeBridgeEvent } from "./app/bridge-event-handler";
-import { displayHistoryStartSeq, latestRoundInputIndex, loadCompleteDisplayHistory, mergeDisplayHistory } from "./app/display-history";
+import { displayHistoryStartSeq, latestRoundInputIndex, loadCompleteDisplayHistory, mergeDisplayHistory, needsNewestRoundFill } from "./app/display-history";
 import { loadedTurnFacts, mergeTurnRailItems, EMPTY_RAIL_ITEMS, type TurnRailItem } from "./app/turn-rail-model";
 import { roundActivityLive } from "./app/turn-group-model";
 import { emptyGoalBarState, nextGoalBarState } from "./app/goal-bar-state";
@@ -166,6 +166,11 @@ const HISTORY_PAGE_SIZE = HISTORY_PAGE_SIZE_DEFAULT;
  * 只需 1-5 页；上限只兜住超长轮次，翻不到就交给下一次点击继续（页缓存复用）。
  */
 const HISTORY_OLDER_PAGE_LIMIT = 24;
+/**
+ * 打开会话后「补齐最近一轮」最多向前翻的页数：最新一页常落在这一轮中间，
+ * 需要补到这一轮的输入行；上限兜住超长轮次，翻不到就保持现状，用户仍可手动继续。
+ */
+const HISTORY_ROUND_FILL_PAGE_LIMIT = 16;
 import { capabilityNotice, capabilityStatus } from "./app/capability-model";
 import { useDesktopUiRuntime } from "./app/use-ui-runtime";
 import { toSessionUiContext } from "./app/ui-plugin-model";
@@ -2667,6 +2672,10 @@ function AppContent() {
       setModels({ ...modelsResult, ...(projectedImageLimits ? { imageLimits: projectedImageLimits } : {}) });
       if (modelsResult.routable) setNotice(t("notice.sessionOpened", locale));
       else setErrorNotice(t("notice.modelRouteUnavailable", locale));
+      // 默认视图至少给一个完整轮次：最新一页落在轮次中间时，后台把这一轮的输入补进来。
+      void fillNewestRound(session.sessionId, historyResult.hasMore).catch(() => {
+        // 补齐失败不影响会话可用性；用户仍可手动「读取更早消息」。
+      });
       return true;
     } catch (error) {
       if (historyVersion !== undefined) historyPageCache.endLatestLoad(session.sessionId, historyVersion);
@@ -2821,6 +2830,53 @@ function AppContent() {
       }));
     } catch {
       // Live projection events remain the primary refresh path; a late history read is best effort.
+    }
+  }
+
+  /**
+   * 打开会话后补齐「最近一轮」：最新一页常常落在这一轮中间，窗口里没有任何一轮的
+   * 输入行，默认视图就只能看到输出和过程，看不到用户输入。这里继续向前翻页，直到
+   * 窗口里出现一轮输入（`turn/start` 或真实用户提示）为止。
+   *
+   * 与「读取更早消息」的区别：这里只要求窗口**包含**一轮输入（补齐当前这一轮），
+   * 不会为了对齐上一轮输入而截断；两者互斥，手动翻页优先。
+   */
+  async function fillNewestRound(sessionId: string, hasMoreFromLatestPage: boolean): Promise<void> {
+    const loadRequest = sessionLoadRequestRef.current;
+    const stillOwnsView = () => sessionLoadRequestRef.current === loadRequest && activeSessionRef.current === sessionId;
+    let hasMore = hasMoreFromLatestPage;
+    for (let page = 0; page < HISTORY_ROUND_FILL_PAGE_LIMIT && hasMore; page += 1) {
+      // 手动翻页（读取更早消息 / 轮次跳转）一旦开始就让它接管，避免两边同时改写窗口。
+      if (!stillOwnsView() || historyLoadingOlderRef.current) return;
+      if (!needsNewestRoundFill(historyRef.current, hasMore)) return;
+      const beforeSeq = displayHistoryStartSeq(historyRef.current);
+      if (beforeSeq === undefined) return;
+      const cached = historyPageCache.get(sessionId, beforeSeq);
+      let pageEntries: DshHistoryEntry[];
+      if (cached) {
+        pageEntries = cached.entries;
+        hasMore = cached.hasMore;
+      } else {
+        if (!historyPageCache.markLoading(sessionId, beforeSeq)) return;
+        try {
+          const result = await desktopRequest("session.history", {
+            sessionId,
+            beforeSeq,
+            maxMessages: HISTORY_PAGE_SIZE,
+          }, undefined, { waitForReconnect: true });
+          pageEntries = result.events;
+          hasMore = result.hasMore === true;
+          historyPageCache.put(sessionId, beforeSeq, pageEntries, hasMore);
+        } finally {
+          historyPageCache.unmarkLoading(sessionId, beforeSeq);
+        }
+      }
+      if (!stillOwnsView() || historyLoadingOlderRef.current) return;
+      const merged = mergeDisplayHistory(historyRef.current, pageEntries);
+      historyRef.current = merged;
+      setHistory(merged);
+      setHistoryHasMore(hasMore);
+      // 不占用 historyLoadingOlderRef：跟随滚动的 effect 据此保持钉在最新输出上。
     }
   }
 

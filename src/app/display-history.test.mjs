@@ -15,6 +15,7 @@ import {
   latestRoundInputIndex,
   loadCompleteDisplayHistory,
   mergeDisplayHistory,
+  needsNewestRoundFill,
 } from "./display-history.ts";
 import { transcriptFromHistory } from "./conversation-model.ts";
 import { assistantMessageStats } from "./message-model.ts";
@@ -96,6 +97,22 @@ test("rejects a stalled complete-history cursor", async () => {
     loadCompleteDisplayHistory(async () => ({ events: [], hasMore: true })),
     /pagination stalled/,
   );
+});
+
+test("opening a session keeps paging while the newest round has no input row", () => {
+  // The latest page starts mid-round: nothing shows who asked for what.
+  const midRound = [
+    entry(300, "assistant/message", { message: { content: [{ type: "tool-call" }] } }),
+    entry(301, "tool/result", { turn: 3, step: 9 }),
+  ];
+  assert.equal(needsNewestRoundFill(midRound, true), true);
+  // Injected context is not a round input either.
+  assert.equal(needsNewestRoundFill([entry(302, "user/message", { content: [{ type: "text", text: "ctx" }], source: { kind: "plugin" } })], true), true);
+  // Once the prompt (or the turn start) is inside the window the round is whole.
+  assert.equal(needsNewestRoundFill([entry(10, "user/message", { content: [{ type: "text", text: "hi" }] }), ...midRound], true), false);
+  assert.equal(needsNewestRoundFill([entry(9, "turn/start", { turn: 3 }), ...midRound], true), false);
+  // Nothing older left to fetch: the window is short, not truncated.
+  assert.equal(needsNewestRoundFill(midRound, false), false);
 });
 
 test("folds a large active stream into one lossless display delta", () => {
