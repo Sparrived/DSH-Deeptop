@@ -8,6 +8,7 @@ import {
   contextSummary,
   diffSummaryFromHistoryEntry,
   eventToolCallId,
+  eventToolImages,
   eventToolName,
   eventToolResultError,
   eventToolText,
@@ -208,6 +209,9 @@ export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLoca
     if (event.type === "tool/call" || event.type === "tool/result") {
       const diff = diffSummaryFromHistoryEntry(entry);
       const domainCard = toolDomainCard(entry);
+      // 结果里的图片块只存在于内容里（信封文本装不下它），所以在这里取出来交给
+      // 结果区按附件渲染；临时源文件被删掉后仍能从会话附件存储里显示。
+      const images = eventToolImages(event);
       items.push({
         key: `event-${event.seq}`,
         kind: "tool",
@@ -220,6 +224,7 @@ export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLoca
         toolCallId: eventToolCallId(event),
         toolState: event.type === "tool/call" ? "call" : "result",
         toolResultError: eventToolResultError(event),
+        ...(images.length > 0 ? { images } : {}),
         ...(domainCard ? { domainCard } : {}),
         ...(event.type === "tool/call" ? { toolDiff: diff } : { toolResultDiff: diff }),
       });
@@ -276,7 +281,7 @@ export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLoca
         : pendingResultsWithoutId.shift();
       if (result) {
         if (item.toolCallId) pendingResults.delete(item.toolCallId);
-        paired.push({ ...item, toolResultText: result.text, toolResultTime: result.time, toolResultError: result.toolResultError, toolResultDiff: result.toolResultDiff, ...(result.domainCard ? { domainCard: result.domainCard } : {}) });
+        paired.push({ ...item, toolResultText: result.text, toolResultTime: result.time, toolResultError: result.toolResultError, toolResultDiff: result.toolResultDiff, ...(result.images?.length ? { images: result.images } : {}), ...(result.domainCard ? { domainCard: result.domainCard } : {}) });
       } else {
         if (item.toolCallId) pendingCalls.set(item.toolCallId, paired.length);
         else pendingCallsWithoutId.push(paired.length);
@@ -290,7 +295,7 @@ export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLoca
     if (callIndex !== undefined) {
       if (item.toolCallId) pendingCalls.delete(item.toolCallId);
       const call = paired[callIndex];
-      paired[callIndex] = { ...call, toolResultText: item.text, toolResultTime: item.time, toolResultError: item.toolResultError, toolResultDiff: item.toolResultDiff, ...(item.domainCard ? { domainCard: item.domainCard } : {}) };
+      paired[callIndex] = { ...call, toolResultText: item.text, toolResultTime: item.time, toolResultError: item.toolResultError, toolResultDiff: item.toolResultDiff, ...(item.images?.length ? { images: item.images } : {}), ...(item.domainCard ? { domainCard: item.domainCard } : {}) };
     } else if (item.toolCallId) {
       pendingResults.set(item.toolCallId, item);
     } else {

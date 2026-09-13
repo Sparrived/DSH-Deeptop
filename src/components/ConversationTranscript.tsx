@@ -22,6 +22,7 @@ import { isResultDomainCard, toolDomainCard, type ToolDomainCard } from "../app/
 import { ToolArgsView } from "../app/tool-args-render";
 import { displayToolName, hasVisibleToolArguments, parseToolArgs, toolArgsLayout, toolCallEditDiff, toolCallSummary } from "../app/tool-call-display";
 import { ToolResultView } from "../app/tool-result-render";
+import { imageResultEnvelope } from "../app/image-result-model";
 import { entityHost } from "../lib/message-entities";
 import { DisclosureEntry } from "./DisclosureEntry";
 import { isWithinSelector, TRANSCRIPT_CONTEXT_MENU_SELECTOR, TRANSCRIPT_TEXT_SELECTOR } from "../app/context-menu";
@@ -173,8 +174,11 @@ export function programTickerText(program: PtcProgram, locale: UiLocale): string
  *   - 保持原 tool-entry / tool-parts / DiffResult 视觉骨架,只在内部替换
  *     原本的 `<pre>` 内容;DiffResult 始终保留(属于「已有可视化」,按要求
  *     保留并继续渲染)。
+ *
+ * 直接导出给组件测试渲染：测试渲染器只展开顶层组件,把工具行交给它才看得见
+ * 参数卡片与结果卡片的实际输出。
  */
-function ToolEntryView({
+export function ToolEntryView({
   item,
   diff,
   hasToolResult,
@@ -182,6 +186,8 @@ function ToolEntryView({
   locale,
   onOpenUrl,
   onOpenPath,
+  onPreviewImage,
+  onLoadImageAttachment,
 }: {
   item: TranscriptItem;
   diff: DiffSummary | undefined;
@@ -190,6 +196,8 @@ function ToolEntryView({
   locale: UiLocale;
   onOpenUrl: (url: string) => void | Promise<void>;
   onOpenPath: (path: string, location?: { line?: number }) => void | Promise<void>;
+  onPreviewImage: (image: PreviewImage, images: TranscriptImage[], index: number) => void;
+  onLoadImageAttachment?: (attachmentId: string) => Promise<string>;
 }) {
   const [showRawArgs, setShowRawArgs] = useState(false);
   const [showRawResult, setShowRawResult] = useState(false);
@@ -205,6 +213,7 @@ function ToolEntryView({
   const hasVisibleArgs = Boolean(program) || hasVisibleToolArguments(item.toolName, args) || (args === undefined && Boolean(item.text.trim()));
   const editDiff = args ? toolCallEditDiff(item.toolName, args) : undefined;
   const displayName = displayToolName(item.toolName);
+  const resultImageNote = item.images?.length ? imageResultEnvelope(item.toolResultText ?? "") : undefined;
 
   useEffect(() => {
     const failed = Boolean(item.toolResultError);
@@ -270,9 +279,20 @@ function ToolEntryView({
             </div>
             {isResultDomainCard(item.domainCard) && <ToolDomainCardView card={item.domainCard} locale={locale} onOpenUrl={onOpenUrl} />}
             {item.toolResultDiff && <DiffResult key={`${item.key}-diff-${item.toolResultTime ?? "result"}`} diff={item.toolResultDiff} locale={locale} />}
+            {/* 结果自带的图片（read_image）在结果区按附件渲染：源文件可能已经被删掉，
+                这些字节来自会话附件，加载后留在 ImageAttachmentCache 里。模型信封对
+                读者只剩路径与尺寸，解析得出就换成一行说明，「查看原文」仍给出完整信封。 */}
+            {item.images && item.images.length > 0 && <div className="tool-result-images">
+              <MessageImages images={item.images} locale={locale} onLoadAttachment={onLoadImageAttachment} onOpen={onPreviewImage} />
+            </div>}
             {item.toolResultText !== undefined && (
               showRawResult
                 ? <pre>{item.toolResultText}</pre>
+                : resultImageNote
+                  ? <div className="tool-result-image-note">
+                    <code className="tool-result-image-path">{resultImageNote.path}</code>
+                    <p>{resultImageNote.detail}</p>
+                  </div>
                   : <ToolResultView text={item.toolResultText} locale={locale} />
             )}
           </section>
@@ -1028,7 +1048,7 @@ function TranscriptArticleView({
         onActionError={(message) => uiHost.notify(message, "error")}
       />}</div>}
       <div className="message-content">
-        {item.images && item.images.length > 0 && <MessageImages images={item.images} locale={locale} onLoadAttachment={onLoadImageAttachment} onOpen={onPreviewImage} />}
+        {item.images && item.images.length > 0 && item.kind !== "tool" && <MessageImages images={item.images} locale={locale} onLoadAttachment={onLoadImageAttachment} onOpen={onPreviewImage} />}
         {item.kind === "tool" ? (
           <ToolEntryView
             item={item}
@@ -1038,6 +1058,8 @@ function TranscriptArticleView({
             locale={locale}
             onOpenUrl={onOpenUrl}
             onOpenPath={onOpenPath}
+            onPreviewImage={onPreviewImage}
+            onLoadImageAttachment={onLoadImageAttachment}
           />
         ) : item.kind === "reasoning" ? (
           <ReasoningEntry text={item.text} streaming={Boolean(item.streaming)} locale={locale} />

@@ -496,6 +496,22 @@ export function eventToolText(event: DshSessionEvent, locale: UiLocale = "zh") {
   return fallback;
 }
 
+/**
+ * Durable image blocks one tool result returned, in content order.
+ *
+ * `read_image` answers with `[text envelope, image block]`, so the picture is
+ * reachable only from the result content: the flattened result text carries the
+ * envelope and would stringify the image block as raw JSON. Callers hand these
+ * attachments to the session-authorized loader, so a source file that has since
+ * disappeared still displays.
+ * @param event - one session event.
+ * @returns the result's image blocks; empty for calls and non-image results.
+ */
+export function eventToolImages(event: DshSessionEvent): TranscriptImage[] {
+  if (event.type !== "tool/result") return [];
+  return contentSegments(assistantContent(event)).images;
+}
+
 export function eventToolResultError(event: DshSessionEvent) {
   if (event.type !== "tool/result") return false;
   const data = event.data ?? {};

@@ -456,3 +456,134 @@ test("the folded PTC row shows the in-flight call and its progress while the pro
   assert.equal(programTickerText(running, "zh"), "bash · ls notes · 0/1");
   assert.equal(running.active.line, 1);
 });
+
+function collectByType(node, type, out = []) {
+  if (Array.isArray(node)) {
+    for (const child of node) collectByType(child, type, out);
+    return out;
+  }
+  if (!node || typeof node !== "object") return out;
+  if (node.type === type) out.push(node);
+  collectByType(node.props?.children, type, out);
+  return out;
+}
+
+test("ask_user_question shows the asked questions and their options", async () => {
+  const renderer = createHookRenderer();
+  const { QuestionListField } = await loadModuleExports(renderer.react, "../app/tool-args-render.tsx");
+
+  const tree = renderer.render(QuestionListField, {
+    locale: "zh",
+    questions: [
+      {
+        id: "release",
+        header: "发布渠道",
+        question: "选择发布渠道",
+        multiSelect: true,
+        options: [{ label: "GitHub", description: "公开可见" }, { label: "内测" }],
+      },
+      { id: "confirm", question: "确认继续？" },
+    ],
+  });
+
+  // 问题原文是这次调用唯一的事实，必须逐条出现在卡片里。
+  assert.deepEqual(collectByClass(tree, "tool-question-prompt").map((node) => node.props.children), ["选择发布渠道", "确认继续？"]);
+  // 标题取 header，缺失时退回稳定的 id。
+  assert.deepEqual(collectByClass(tree, "tool-question-title").map((node) => node.props.children), ["发布渠道", "confirm"]);
+  assert.deepEqual(
+    collectByClass(tree, "tool-question-option").flatMap((option) => collectByType(option, "strong").map((node) => node.props.children)),
+    ["GitHub", "内测"],
+  );
+  // 选项说明与多选标记各自可见。
+  assert.deepEqual(
+    collectByClass(tree, "tool-question-option-copy").flatMap((copy) => collectByType(copy, "small").map((node) => node.props.children)),
+    ["公开可见"],
+  );
+  assert.deepEqual(collectByClass(tree, "tool-question-mode").map((node) => node.props.children), ["多选"]);
+});
+
+const READ_IMAGE_ENVELOPE = [
+  "<path>shots/card.png</path>",
+  "<type>image</type>",
+  "<content>",
+  "image/png image, 320x200 px, 4096 bytes",
+  "</content>",
+].join("\n");
+
+function readImageRowProps(overrides = {}) {
+  return {
+    item: {
+      key: "event-3",
+      kind: "tool",
+      label: "read_image",
+      text: JSON.stringify({ file_path: "shots/card.png" }),
+      toolName: "read_image",
+      toolCallId: "call-1",
+      toolState: "result",
+      toolResultText: READ_IMAGE_ENVELOPE,
+      images: [{ mediaType: "image/png", attachmentId: "attachment-1", name: "card.png" }],
+    },
+    diff: undefined,
+    hasToolResult: true,
+    toolStatus: "returned",
+    locale: "zh",
+    onOpenUrl: async () => {},
+    onOpenPath: async () => {},
+    onPreviewImage: () => {},
+    onLoadImageAttachment: async () => "data:image/png;base64,AAAA",
+    ...overrides,
+  };
+}
+
+test("a read_image row renders the returned image inside its result part", async () => {
+  const renderer = createHookRenderer();
+  const { ToolEntryView } = await loadTranscriptExports(renderer.react);
+  const props = readImageRowProps();
+
+  let tree = renderer.render(ToolEntryView, props);
+
+  // 图片挂在结果分区里，经会话附件加载器解析（源文件可能已经被删掉），点击放大
+  // 复用消息图片同一个画廊回调。
+  const gallery = collectByClass(tree, "tool-result-images");
+  assert.equal(gallery.length, 1);
+  assert.deepEqual(gallery[0].props.children.props.images, props.item.images);
+  assert.equal(gallery[0].props.children.props.onLoadAttachment, props.onLoadImageAttachment);
+  assert.equal(gallery[0].props.children.props.onOpen, props.onPreviewImage);
+  // 模型信封换成一行路径与尺寸，而不是把 XML 当正文显示。
+  assert.equal(findElementByClass(tree, "tool-result-image-path").props.children, "shots/card.png");
+  assert.equal(collectByClass(tree, "tool-result-image-note").length, 1);
+
+  // 「查看原文」保留完整信封；图片不因此消失。
+  const rawToggles = collectByClass(tree, "tool-raw-toggle");
+  assert.equal(rawToggles.length, 2);
+  rawToggles[1].props.onClick();
+  tree = renderer.render(ToolEntryView, props);
+  assert.equal(collectByClass(tree, "tool-result-image-note").length, 0);
+  assert.equal(collectByClass(tree, "tool-result-images").length, 1);
+});
+
+test("a result whose images carry unrecognised text keeps the generic result view", async () => {
+  const renderer = createHookRenderer();
+  const { ToolEntryView } = await loadTranscriptExports(renderer.react);
+  const props = readImageRowProps({
+    item: { ...readImageRowProps().item, toolResultText: "not the image envelope" },
+  });
+
+  const tree = renderer.render(ToolEntryView, props);
+
+  // 信封没识别出来时结果文本原样交给通用视图，不能被悄悄藏起来。
+  assert.equal(collectByClass(tree, "tool-result-image-note").length, 0);
+  assert.equal(collectByClass(tree, "tool-result-images").length, 1);
+  assert.equal(collectByProp(tree, "text", "not the image envelope").length, 1);
+});
+
+function collectByProp(node, key, value, out = []) {
+  if (Array.isArray(node)) {
+    for (const child of node) collectByProp(child, key, value, out);
+    return out;
+  }
+  if (!node || typeof node !== "object") return out;
+  if (node.props?.[key] === value) out.push(node);
+  collectByProp(node.props?.children, key, value, out);
+  return out;
+}
