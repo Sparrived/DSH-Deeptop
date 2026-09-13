@@ -92,6 +92,7 @@ fn main() {
         "pick_pet_bundle",
         "pick_plugin_entry",
         "pick_theme_css",
+        "presented_host",
         "read_image_attachment",
         "read_theme_css",
         "read_workspace_file",

@@ -105,6 +105,7 @@
     "allow-pick-pet-bundle",
     "allow-pick-plugin-entry",
     "allow-pick-theme-css",
+    "allow-presented-host",
     "allow-read-image-attachment",
     "allow-read-pet-bundle",
     "allow-read-theme-css",
