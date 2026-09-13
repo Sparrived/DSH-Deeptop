@@ -82,7 +82,8 @@ export function ConversationHeader({
           onToggleCollapsed={onToggleGoalCollapsed}
           onTogglePhase={onToggleGoalPhase}
         />
-        {conversationPageActive && !activeGoal && <button
+        {/* Goal 需要会话；没有会话时这个入口点了也不会弹窗，因此不渲染。 */}
+        {conversationPageActive && activeSession && !activeGoal && <button
           type="button"
           className="current-goal-create"
           onClick={onOpenGoal}
