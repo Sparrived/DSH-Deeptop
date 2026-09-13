@@ -1405,9 +1405,9 @@
 .about-link-row code { flex: 0 0 auto; color: var(--muted); font: 9px/1.4 var(--mono); }
 @media (max-width: 640px) { .about-identity { grid-template-columns: 52px minmax(0, 1fr); gap: 12px; padding: 13px; } .about-mark { width: 52px; height: 52px; font-size: 28px; } .about-update-card { align-items: flex-start; flex-direction: column; } .about-update-actions { justify-content: flex-start; } }
 
-/* 两层头部：主题化头部壳统一收窄为壳级内边距，行内间距交给 titlebar/toolbar 基础样式。
+/* 头部壳统一收窄为壳级内边距，行内间距交给 titlebar 基础样式。
    用复合选择器提高特异性，同时压过各 dock 文件里遗留的单行布局
-   （display:flex 行向 / space-between / 大内边距），保证标题行+工具条两层结构。 */
+   （display:flex 行向 / space-between / 大内边距），保证标题行独立成层。 */
 .dock-frame-header.todo-panel-header,
 .dock-frame-header.task-panel-header,
 .dock-frame-header.deliverables-panel-header,
