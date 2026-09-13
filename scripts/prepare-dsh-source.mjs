@@ -7,7 +7,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourceRoot = path.join(root, "vendor", "dsh");
 const publicBase = "183f08e9c6dde7e36cd2318eaee70b0da08fb35e";
 const publicTag = "dsh-v0.1.5-rc.1";
-const patchedCommit = "2742360aacfd7b4e1d2d02611516552da70a318f";
+const patchedCommit = "03113acb43e83f5e27ac0cce56a53090606c1fee";
 const upstream = "https://github.com/deepseek-ai/deepseek-harness.git";
 
 // The vendored runtime ships seven local commits on top of 0.1.5-rc.1.
@@ -155,7 +155,7 @@ const patches = [
   },
   {
     file: "dsh-jobs-peek-output.patch",
-    commit: "2742360aacfd7b4e1d2d02611516552da70a318f",
+    commit: "03113acb43e83f5e27ac0cce56a53090606c1fee",
     authorName: "Sparrived",
     authorEmail: "sparrived@outlook.com",
     authorDate: "2026-09-13T15:05:00+08:00",

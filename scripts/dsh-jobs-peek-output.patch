@@ -958,10 +958,18 @@ index 880cfcd31f..924c4aa3c3 100644
            },
          })
 diff --git a/packages/terminal/tool-terminal/tests/tools.spec.ts b/packages/terminal/tool-terminal/tests/tools.spec.ts
-index 8c0c7f6292..d9e483846f 100644
+index 8c0c7f6292..560df390fd 100644
 --- a/packages/terminal/tool-terminal/tests/tools.spec.ts
 +++ b/packages/terminal/tool-terminal/tests/tools.spec.ts
-@@ -56,6 +56,7 @@ class StubSession implements TerminalBackendSession {
+@@ -10,6 +10,7 @@ import type { ToolSdkSchema } from '@deepseek-ai/dsh-tools/src/ts-types.ts'
+ import TerminalSessionService, { TerminalSessionId } from '@deepseek-ai/dsh-terminal'
+ import type { TerminalBackend, TerminalBackendSession, TerminalSendOperation, TerminalSendRequest, TerminalSessionStatus, TerminalSignal } from '@deepseek-ai/dsh-terminal'
+ import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
++import { JobId } from '@deepseek-ai/dsh-jobs'
+ import * as ToolTasks from '@deepseek-ai/dsh-tool-jobs'
+ import * as ToolPty from '@deepseek-ai/dsh-tool-terminal'
+ import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
+@@ -56,6 +57,7 @@ class StubSession implements TerminalBackendSession {
      const operation: TerminalSendOperation = {
        done,
        readOutput: () => ({ delta: this.delta, truncated: this.deltaTruncated }),
@@ -969,3 +977,13 @@ index 8c0c7f6292..d9e483846f 100644
        cancel: () => {
          if (cancelled) return false
          cancelled = true
+@@ -410,6 +412,9 @@ describe('tool-terminal task integration', () => {
+     const started = await call(ctx, 'terminal_send', { sessionId: 'pty-1', text: 'build', run_in_background: true }, agent)
+     expect(text(started)).toBe('started background job pty-send-1')
+     expect(started).toMatchObject({ isError: false, value: { kind: 'background', jobId: 'pty-send-1' } })
++    // The desktop projects the task through the non-consuming peek; the model's
++    // own reader still receives the same operation output afterwards.
++    expect(ctx.jobs.peek(JobId('pty-send-1'), agent)).toMatchObject({ available: true, text: 'live output' })
+     const output = await call(ctx, 'job_output', { job_id: 'pty-send-1', wait: true }, agent)
+     expect(text(output)).toContain('live output')
+     expect(text(output)).toContain('[status: completed, wait: stdin_read]')
