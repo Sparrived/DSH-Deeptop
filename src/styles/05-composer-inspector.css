@@ -852,7 +852,7 @@
   color: var(--accent-deep);
 }
 
-/* 档位越多标签越挤：5–6 档缩排淡化，7 档以上只保留当前档位文案。 */
+/* 档位越多标签越挤：5–7 档缩排淡化，8 档以上只保留当前档位文案。 */
 .effort-slider[data-density="compact"] .effort-slider-label {
   font-size: 10px;
 }

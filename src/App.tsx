@@ -276,7 +276,7 @@ import { defaultWorkingIndicator, normalizeWorkingIndicator } from "./app/workin
 import { externalLaunchKey } from "./lib/external-launch";
 import { DEFAULT_PERMISSION_OPTIONS, isDefaultPermission, readStoredDefaultModel, readStoredDefaultPermission, writeStoredDefaultModel, writeStoredDefaultPermission, type DefaultPermission } from "./app/session-defaults";
 import { isSchemaEnvelope, schemaEnumChoices, schemaNodeAtPath } from "./app/schema-model";
-import { MODEL_REASONING_EFFORT_PRESET, declareModelReasoningEffortsOps, providerModels } from "./app/settings-model";
+import { MODEL_REASONING_EFFORT_PRESET, MODEL_REASONING_EFFORT_PRESET_NAMES, declareModelReasoningEffortsOps, providerModels } from "./app/settings-model";
 import { resolveSubmitMode } from "./app/submit-mode";
 import { presentedPhaseKey, type PresentedAction, type PresentedOpenPhase } from "./app/presented-file";
 import {
@@ -1813,13 +1813,15 @@ function AppContent() {
     const namespace = provider && settings.namespaces.find((item) => item.ns === provider.settingsNs);
     return provider && namespace ? { provider, namespace } : undefined;
   }, [composerModels, providers, selectedReasoning, settings]);
-  // 预设档位与声明后的档位列表同形（默认档在最前），因此声明落地、目录刷新
-  // 之后滑块不跳位。
+  // 预设档位与声明后的档位列表同形：默认档在最前、档位顺序一致、名称同为
+  // 英文，因此声明落地、目录刷新之后滑块与标签都不变。
   const presetReasoningChoices = useMemo<Array<{ key: string; id?: string; name: string; description?: string }>>(() => [
     { key: "provider-default", name: t("reasoning.default", locale) },
-    { key: "effort:low", id: "low", name: t("reasoning.effort.low", locale) },
-    { key: "effort:medium", id: "medium", name: t("reasoning.effort.medium", locale) },
-    { key: "effort:high", id: "high", name: t("reasoning.effort.high", locale) },
+    ...Object.keys(MODEL_REASONING_EFFORT_PRESET).map((id) => ({
+      key: `effort:${id}`,
+      id,
+      name: MODEL_REASONING_EFFORT_PRESET_NAMES[id] ?? id,
+    })),
   ], [locale]);
   const reasoningChoices: Array<{ key: string; id?: string; name: string; description?: string }> = selectedReasoning === undefined
     ? (reasoningDeclaration ? presetReasoningChoices : [])

@@ -124,10 +124,31 @@ export function toggleModelMaxReasoning(model: Record<string, unknown>): Record<
 
 /**
  * 未声明思考档位的 pi-ai 模型在本地补上的档位：键是 DSH 的档位 id，值是协议上
- * `reasoning_effort` 的拼写。不含 `off`，因为留空的 `off` 什么都不发送，与
- * 「跟随模型默认」是同一个请求。
+ * `reasoning_effort` 的拼写。`off` 留空（不发送该参数，这是 DSH 文档给普通端点
+ * 的关闭语义），`xhigh` 与 `max` 是 pi-ai 的 opt-in 档位，必须显式给值才会出现在
+ * 菜单里。
  */
-export const MODEL_REASONING_EFFORT_PRESET: Record<string, string> = { low: "low", medium: "medium", high: "high" };
+export const MODEL_REASONING_EFFORT_PRESET: Record<string, string | null> = {
+  off: null,
+  low: "low",
+  medium: "medium",
+  high: "high",
+  xhigh: "xhigh",
+  max: "max",
+};
+
+/**
+ * 预设档位的显示名。固定英文，并与 DSH 对已声明模型给出的等级名同一写法
+ * （pi-ai 适配器把档位 id 首字母大写），因此声明落地、目录刷新后标签不变。
+ */
+export const MODEL_REASONING_EFFORT_PRESET_NAMES: Record<string, string> = {
+  off: "Off",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Xhigh",
+  max: "Max",
+};
 
 /**
  * 为一个路由的某个模型生成「本地声明思考档位」的路径操作。路由的 `models`
@@ -138,7 +159,7 @@ export function declareModelReasoningEffortsOps(
   settingsPath: string[],
   models: Array<Record<string, unknown>>,
   modelId: string,
-  efforts: Record<string, string>,
+  efforts: Record<string, string | null>,
 ): SettingsPathOp[] {
   const index = models.findIndex((model) => String(model.id) === modelId);
   if (index < 0) return [{ op: "set", path: [...settingsPath, "modelOverrides", modelId, "reasoningEfforts"], value: efforts }];

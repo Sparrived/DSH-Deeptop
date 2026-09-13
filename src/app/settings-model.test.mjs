@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { declareModelReasoningEffortsOps, errorText, modelHasMaxReasoning, providerApiKeyEnvOp, providerSettingsOps, toggleModelMaxReasoning } from "./settings-model.ts";
+import { MODEL_REASONING_EFFORT_PRESET, MODEL_REASONING_EFFORT_PRESET_NAMES, declareModelReasoningEffortsOps, errorText, modelHasMaxReasoning, providerApiKeyEnvOp, providerSettingsOps, toggleModelMaxReasoning } from "./settings-model.ts";
 
 test("maps RC8 routing, timezone and image admission errors", () => {
   const modelError = new Error("provider rejected model");
@@ -47,14 +47,25 @@ test("toggleModelMaxReasoning removes an off-only declaration instead of creatin
   assert.deepEqual(disabled, { id: "unified-model" });
 });
 
+test("the local preset offers off/low/medium/high/xhigh/max with English names", () => {
+  assert.deepEqual(Object.keys(MODEL_REASONING_EFFORT_PRESET), ["off", "low", "medium", "high", "xhigh", "max"]);
+  // `off` sends nothing, which is the documented "not thinking" spelling for a
+  // generic endpoint; xhigh and max are opt-in levels pi-ai hides unless the
+  // map names them explicitly.
+  assert.equal(MODEL_REASONING_EFFORT_PRESET.off, null);
+  assert.equal(MODEL_REASONING_EFFORT_PRESET.xhigh, "xhigh");
+  assert.equal(MODEL_REASONING_EFFORT_PRESET.max, "max");
+  assert.deepEqual(Object.values(MODEL_REASONING_EFFORT_PRESET_NAMES), ["Off", "Low", "Medium", "High", "Xhigh", "Max"]);
+});
+
 test("declareModelReasoningEffortsOps declares on the listed model entry", () => {
-  const efforts = { low: "low", medium: "medium", high: "high" };
-  const ops = declareModelReasoningEffortsOps(settingsPath, stored.models, "unified-model", efforts);
+  const ops = declareModelReasoningEffortsOps(settingsPath, stored.models, "unified-model", MODEL_REASONING_EFFORT_PRESET);
   assert.deepEqual(ops, [{
     op: "set",
     path: [...settingsPath, "models"],
-    value: [{ id: "unified-model", name: "统一模型", reasoningEfforts: efforts }],
+    value: [{ id: "unified-model", name: "统一模型", reasoningEfforts: MODEL_REASONING_EFFORT_PRESET }],
   }]);
+  assert.equal(ops[0].value[0].reasoningEfforts.off, null);
 });
 
 test("declareModelReasoningEffortsOps falls back to modelOverrides for a catalog model", () => {

@@ -50,8 +50,8 @@ export function ReasoningSlider({ locale = "zh", choices, value, onChange }: Rea
   const ratio = effortSliderRatio(activeIndex, count);
   const fill = effortSliderFillRatio(activeIndex, count);
   const settlingValue = settlingIndex === null ? undefined : effortSliderValueAt(choices, settlingIndex);
-  // 档位越多标签越挤：5–6 档缩排淡化，7 档以上只保留当前档位文案。
-  const density = count >= 7 ? "dense" : count > 4 ? "compact" : undefined;
+  // 档位越多标签越挤：5–7 档缩排淡化，8 档以上只保留当前档位文案。
+  const density = count >= 8 ? "dense" : count > 4 ? "compact" : undefined;
   const hasDescriptions = choices.some((choice) => !!choice.description);
 
   useEffect(() => {
