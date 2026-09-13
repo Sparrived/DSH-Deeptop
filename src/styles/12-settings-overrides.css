@@ -1357,3 +1357,107 @@
   .mcp-save-bar { align-items: stretch; flex-direction: column; }
   .mcp-save-bar > div:last-child { justify-content: flex-end; }
 }
+
+/* ── 子代理模型路由（设置 → 模型） ───────────────────────────── */
+
+.settings-block-heading .subagent-route-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.settings-block-heading .subagent-route-add:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-deep); }
+.subagent-route-add svg { width: 14px; height: 14px; }
+
+.subagent-routing-toggle { display: flex; align-items: flex-start; gap: 10px; margin: 4px 0 14px; }
+.subagent-routing-toggle input { margin: 3px 0 0; accent-color: var(--accent); }
+.subagent-routing-toggle > span { display: grid; gap: 3px; }
+.subagent-routing-toggle strong { color: var(--ink-strong); font-size: 13px; font-weight: 600; }
+.subagent-routing-toggle small { color: var(--ink-faint); font-size: 11px; }
+
+.subagent-route-list { display: grid; gap: 10px; }
+
+.subagent-route-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr) 30px;
+  gap: 10px;
+  align-items: end;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+}
+
+.subagent-route-row label { display: grid; gap: 5px; min-width: 0; }
+.subagent-route-row label > span { color: var(--ink-faint); font-size: 11px; }
+
+.subagent-route-row select,
+.subagent-route-row input,
+.subagent-routing-guidance textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.subagent-route-row select:focus,
+.subagent-route-row input:focus,
+.subagent-routing-guidance textarea:focus { outline: 0; border-color: var(--accent); }
+
+.subagent-route-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--ink-faint);
+}
+
+.subagent-route-remove:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); }
+.subagent-route-remove svg { width: 14px; height: 14px; }
+
+.subagent-routing-guidance { display: grid; gap: 6px; margin-top: 14px; }
+.subagent-routing-guidance > span { color: var(--ink-muted); font-size: 12px; font-weight: 600; }
+.subagent-routing-guidance textarea { resize: vertical; }
+.subagent-routing-guidance small { color: var(--ink-faint); font-size: 11px; }
+
+.subagent-routing-actions { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+.subagent-routing-actions small { margin-right: auto; color: var(--ink-faint); font-size: 11px; }
+
+.subagent-routing-actions button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.subagent-routing-actions button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-deep); }
+.subagent-routing-actions button:disabled { cursor: not-allowed; opacity: .5; }
+.subagent-routing-actions button.confirm { border-color: transparent; background: var(--accent); color: #fff; }
+.subagent-routing-actions button.confirm:hover:not(:disabled) { background: var(--accent-deep); color: #fff; }
+
+@media (max-width: 900px) {
+  .subagent-route-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 30px; }
+  .subagent-route-note { grid-column: 1 / 3; }
+  .subagent-route-remove { grid-column: 3; grid-row: 2; }
+  .subagent-routing-actions { flex-wrap: wrap; }
+  .subagent-routing-actions small { flex-basis: 100%; margin-right: 0; }
+}

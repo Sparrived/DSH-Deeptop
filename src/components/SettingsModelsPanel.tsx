@@ -1,10 +1,12 @@
 import type { DshProvider, DshSettingsDescription, DshSettingsNamespace } from "../lib/desktop";
 import { credentialRefForProvider, providerModels, valueAtPath } from "../app/settings-model";
 import type { DshHostModelCatalog } from "../app/model-types";
+import type { SubagentRoutingSave } from "../app/subagent-routing-model";
 import type { ProviderSettingsController } from "../app/useProviderSettings";
 import { SettingsCustomProviderPanel } from "./SettingsCustomProviderPanel";
 import { SettingsModelCatalog } from "./SettingsModelCatalog";
 import { SettingsProviderCard, type SettingsProviderCardActions, type SettingsProviderCardView } from "./SettingsProviderCard";
+import { SubagentRoutingPanel } from "./SubagentRoutingPanel";
 import { t, type UiLocale } from "../app/i18n";
 
 type SettingsModelsPanelProps = {
@@ -12,12 +14,18 @@ type SettingsModelsPanelProps = {
   settings: DshSettingsDescription | null;
   hostModels: DshHostModelCatalog | null;
   providerSettings: ProviderSettingsController;
+  /** 子代理模型路由：白名单来自官方命名空间，说明来自 Deeptop 命名空间。 */
+  subagentRouting: {
+    current: SubagentRoutingSave;
+    saving: boolean;
+    onSave: (next: SubagentRoutingSave) => void | Promise<void>;
+  };
   onOpenNamespace: (namespace: DshSettingsNamespace | undefined) => void;
   /** 界面语言；可选，默认 "zh"，保持向后兼容。 */
   locale?: UiLocale;
 };
 
-export function SettingsModelsPanel({ providers, settings, hostModels, providerSettings, onOpenNamespace, locale = "zh" }: SettingsModelsPanelProps) {
+export function SettingsModelsPanel({ providers, settings, hostModels, providerSettings, subagentRouting, onOpenNamespace, locale = "zh" }: SettingsModelsPanelProps) {
   const {
     credentials,
     credentialDrafts,
@@ -122,6 +130,16 @@ export function SettingsModelsPanel({ providers, settings, hostModels, providerS
           return <SettingsProviderCard key={provider.provider} view={view} actions={actions} locale={locale} />;
         })}</div>}
       </div>
+
+      <SubagentRoutingPanel
+        current={subagentRouting.current}
+        providers={providers}
+        settings={settings}
+        hostModels={hostModels}
+        saving={subagentRouting.saving}
+        locale={locale}
+        onSave={subagentRouting.onSave}
+      />
 
       <SettingsModelCatalog catalog={hostModels} locale={locale} />
     </div>

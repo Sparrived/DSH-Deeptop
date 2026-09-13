@@ -43,6 +43,7 @@ import { DockTabBody } from "./components/DockTabBody";
 import { PopupDialog } from "./components/PopupDialog";
 import { PluginInstallDialog, type PluginInstallDraft } from "./components/PluginInstallDialog";
 import { useProviderSettings } from "./app/useProviderSettings";
+import { readSubagentRouting, subagentRoutingOps, SUBAGENT_MODEL_SELECTION_NS, SUBAGENT_ROUTING_NS, type SubagentRoutingSave } from "./app/subagent-routing-model";
 import { useToolSettings } from "./app/useToolSettings";
 import { useWindowControls } from "./app/useWindowControls";
 import { normalizeWindowBehavior } from "./app/window-behavior";
@@ -1932,6 +1933,10 @@ function AppContent() {
   const selectedSubagent = selectedSubagentIndex >= 0 ? childSubagents[selectedSubagentIndex] : undefined;
   const providerNamespaces = useMemo(() => new Set(providers.map((provider) => provider.settingsNs)), [providers]);
   const pluginSettings = useMemo(() => (settings?.namespaces ?? []).filter((namespace) => !providerNamespaces.has(namespace.ns) && !["locale", "permission", "ui-conversation", "ui-theme", "ui-onboarding"].includes(namespace.ns)), [providerNamespaces, settings]);
+  const subagentRoutingCurrent = useMemo(() => readSubagentRouting(
+    settings?.namespaces.find((namespace) => namespace.ns === SUBAGENT_MODEL_SELECTION_NS),
+    settings?.namespaces.find((namespace) => namespace.ns === SUBAGENT_ROUTING_NS),
+  ), [settings]);
   const visiblePlugins = useMemo(() => {
     const query = pluginSearch.trim().toLocaleLowerCase();
     return (pluginInventory ?? []).filter((plugin) => plugin.compatibility?.supported !== false)
@@ -2558,6 +2563,33 @@ function AppContent() {
       if (settingsDraft?.ns === ns) setSettingsDraft(null);
       await refreshAfterSettingsWrite(ns);
       setNotice(t("notice.namespaceUpdated", locale, { ns }));
+    } catch (error) {
+      setErrorNotice(errorText(error, locale));
+    } finally {
+      setSettingsSaving(false);
+    }
+  }
+
+  /** 保存子代理模型路由：白名单写入官方命名空间，说明写入 Deeptop 路由命名空间。 */
+  async function saveSubagentRouting(next: SubagentRoutingSave) {
+    const policyNamespace = settings?.namespaces.find((item) => item.ns === SUBAGENT_MODEL_SELECTION_NS);
+    const routingNamespace = settings?.namespaces.find((item) => item.ns === SUBAGENT_ROUTING_NS);
+    if (!policyNamespace) {
+      setErrorNotice(t("subagentRouting.unavailable", locale));
+      return;
+    }
+    const ops = subagentRoutingOps(readSubagentRouting(policyNamespace, routingNamespace), next);
+    if (ops.policy.length === 0 && ops.routing.length === 0) return;
+    setSettingsSaving(true);
+    try {
+      if (ops.policy.length > 0) {
+        await desktopRequest("settings.mutate", { ns: SUBAGENT_MODEL_SELECTION_NS, ops: ops.policy, expectedRevision: policyNamespace.revision });
+      }
+      if (ops.routing.length > 0 && routingNamespace) {
+        await desktopRequest("settings.mutate", { ns: SUBAGENT_ROUTING_NS, ops: ops.routing, expectedRevision: routingNamespace.revision });
+      }
+      await refreshSettings();
+      setNotice(t("subagentRouting.saved", locale));
     } catch (error) {
       setErrorNotice(errorText(error, locale));
     } finally {
@@ -5906,6 +5938,7 @@ function AppContent() {
                     settings={settings}
                     hostModels={hostModels}
                     providerSettings={providerSettings}
+                    subagentRouting={{ current: subagentRoutingCurrent, saving: settingsSaving, onSave: saveSubagentRouting }}
                     onOpenNamespace={openSettingsNamespace}
                   />}
 
