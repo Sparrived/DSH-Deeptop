@@ -702,9 +702,8 @@
   background: color-mix(in srgb, var(--surface-soft) 60%, transparent);
   border-bottom: 1px solid var(--line);
 }
-.git-commit-children-graph { flex: 0 0 auto; display: block; }
-/* 尺寸必须与 git-model 的 gitCommitChildrenHeight 保持一致：
-   上下内边距合计 10、单个文件行 24、动作行 30 */
+/* 左列泳道随展开块高度拉伸：竖线用百分比长度，因此不必知道块有多高 */
+.git-commit-children-graph { flex: 0 0 auto; display: block; align-self: stretch; height: 100%; }
 .git-commit-children-body {
   flex: 1 1 auto;
   min-width: 0;
@@ -712,7 +711,15 @@
 }
 .git-commit-children-body .git-commit-detail-files { margin-top: 0; }
 .git-commit-children-body .git-commit-file-row { height: 24px; }
-.git-commit-children-body .git-commit-detail-actions { margin-top: 6px; height: 30px; align-items: center; }
+/* 动作行不换行、横向可滚：窄栏里也不会撑高到压住下一行（高度由实测回填给虚拟化） */
+.git-commit-children-body .git-commit-detail-actions {
+  margin-top: 6px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.git-commit-children-body .git-commit-detail-actions::-webkit-scrollbar { display: none; }
+.git-commit-children-body .git-commit-detail-actions button { flex: 0 0 auto; }
 .git-graph-synthetic {
   display: flex;
   align-items: center;

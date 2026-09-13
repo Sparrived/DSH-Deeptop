@@ -84,6 +84,8 @@ export function isKnownDockTabKind(kind: string): boolean {
 
 export function DockTabBody({ tab, workspace, locale = "zh", onError }: DockTabBodyProps) {
   const state = dockTabBodyState(tab, workspace, isKnownDockTabKind);
+  // 面板类标签由 DockFrame 自己把正文搬进宿主：这里返回 null，避免多出一块说明
+  if (state === "panel") return null;
   if (state === "foreign") {
     return (
       <div className="dock-tab-notice" role="status">

@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   DOCK_RAIL_MAX_WIDTH,
   DOCK_RAIL_MIN_WIDTH,
@@ -9,7 +12,9 @@ import {
   closeDockTab,
   collectDockPanes,
   dockAxisForZone,
+  DOCK_PANEL_TAB_KINDS,
   dockTabBodyState,
+  isDockPanelTabKind,
   dockTabKey,
   dockTabWorkspace,
   dockWorkspacesMatch,
@@ -26,6 +31,13 @@ import {
   resizeDockSplit,
 } from "./dock-layout.ts";
 
+/** 收集 src/components 下的 tsx（扫描 DockFrame 面板 id 用）。 */
+function collectComponentFiles() {
+  const root = fileURLToPath(new URL("../components", import.meta.url));
+  return readdirSync(root)
+    .filter((entry) => entry.endsWith(".tsx"))
+    .map((entry) => join(root, entry));
+}
 function tab(kind, extra = {}) {
   return { id: `tab-${kind}-${extra.path ?? ""}`, kind, title: kind, ...extra };
 }
@@ -342,6 +354,31 @@ test("decides whether a tab body is ready, foreign or unknown", () => {
   assert.equal(dockWorkspacesMatch("D:/repo", "D:/other"), false);
 });
 
+test("panel tabs are left to DockFrame and never render a content notice", () => {
+  const known = (kind) => kind === "file";
+  // 面板类标签：正文由 DockFrame 自己搬进宿主，分发点必须什么都不渲染
+  for (const kind of DOCK_PANEL_TAB_KINDS) {
+    assert.equal(dockTabBodyState(tab(kind), "D:/repo", known), "panel");
+    assert.equal(isDockPanelTabKind(kind), true);
+  }
+  // 内容标签不受影响
+  assert.equal(dockTabBodyState(tab("file", { path: "a.ts" }), "D:/repo", known), "ready");
+  assert.equal(dockTabBodyState(tab("mystery"), "D:/repo", known), "unknown");
+  assert.equal(isDockPanelTabKind("mystery"), false);
+});
+
+test("every DockFrame panel in the components is registered as a panel tab kind", () => {
+  const files = collectComponentFiles();
+  const found = new Set();
+  for (const file of files) {
+    const text = readFileSync(file, "utf8");
+    for (const match of text.matchAll(/id="([a-z0-9-]+-dock)"/gu)) found.add(match[1]);
+  }
+  assert.ok(found.size > 0, "没有扫描到任何 DockFrame 面板 id");
+  const unregistered = [...found].filter((kind) => !DOCK_PANEL_TAB_KINDS.includes(kind));
+  assert.deepEqual(unregistered, [], `以下面板未登记进 DOCK_PANEL_TAB_KINDS，会在右栏多出一块说明：${unregistered.join(", ")}`);
+  assert.equal(new Set(DOCK_PANEL_TAB_KINDS).size, DOCK_PANEL_TAB_KINDS.length, "面板类型列表存在重复项");
+});
 test("dedupes instance tabs by content key and keeps singleton kinds single", () => {
   // 文件类仍然按路径去重
   assert.equal(dockTabKey("file", "D:/repo/a.ts"), "file:d:/repo/a.ts");

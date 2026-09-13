@@ -67,6 +67,41 @@ function formatCommitTime(timestamp: number | null, locale: UiLocale): string {
   }
 }
 
+/**
+ * 行容器：展开时测量整行实际高度并回传（减去固定行高即"追加高度"）。
+ * 虚拟化用实测值算偏移，因此展开块里换行、边框、间距变化都不会让后续行错位。
+ */
+function GitGraphItem({
+  hash,
+  expanded,
+  onMeasured,
+  children,
+}: {
+  hash: string;
+  expanded: boolean;
+  onMeasured: (hash: string, extraHeight: number) => void;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const node = ref.current;
+    if (!node || !expanded) return undefined;
+    const report = () => {
+      onMeasured(hash, Math.max(0, node.getBoundingClientRect().height - ROW_H));
+    };
+    report();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(report);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hash, expanded, onMeasured]);
+  return (
+    <div className="git-graph-item" ref={ref}>
+      {children}
+    </div>
+  );
+}
+
 export function GitTreeGraph({
   lines,
   selectedHash,
@@ -93,11 +128,25 @@ export function GitTreeGraph({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
+  // 展开行的高度以 DOM 实测为准：CSS 里的 gap/border/min-height 很容易和公式差几像素，
+  // 这点误差会累加成可见错位（连线断开、卡片偏移、可见区间算错）。
+  const [measuredExtras, setMeasuredExtras] = useState<Record<string, number>>({});
+  const reportExtra = useCallback((hash: string, extra: number) => {
+    setMeasuredExtras((current) => (current[hash] === extra ? current : { ...current, [hash]: extra }));
+  }, []);
+  const extraHeightOf = useCallback((row: GitGraphRow) => {
+    if (row.synthetic || !expandedHashes?.has(row.hash)) return 0;
+    const measured = measuredExtras[row.hash];
+    if (measured !== undefined) return measured;
+    // 还没量到（首帧）时用宿主的估算值兜底
+    return Math.max(0, rowChildrenHeight?.(row) ?? 0);
+  }, [expandedHashes, measuredExtras, rowChildrenHeight]);
+
   // 每行高度与累计偏移：展开行比普通行高，滚动定位与可见区间都由此推导。
-  const offsets = useMemo(() => {
-    const heights = gitGraphRowHeights(layout.rows, rowChildrenHeight);
-    return gitGraphRowOffsets(heights);
-  }, [layout.rows, rowChildrenHeight]);
+  const offsets = useMemo(
+    () => gitGraphRowOffsets(gitGraphRowHeights(layout.rows, extraHeightOf)),
+    [layout.rows, extraHeightOf],
+  );
   const offsetsRef = useRef(offsets);
   offsetsRef.current = offsets;
 
@@ -213,7 +262,7 @@ export function GitTreeGraph({
           ? t("gitGraph.incoming", locale, { count: row.count ?? 0 })
           : t("gitGraph.outgoing", locale, { count: row.count ?? 0 });
         return (
-          <div className="git-graph-item" key={row.hash}>
+          <GitGraphItem key={row.hash} hash={row.hash} expanded={expanded} onMeasured={reportExtra}>
             <button
               type="button"
               className={`git-graph-row ${selected ? "selected" : ""}${expanded ? " expanded" : ""}${row.synthetic ? ` git-graph-row-synthetic git-graph-row-${row.synthetic}` : ""}`}
@@ -339,7 +388,7 @@ export function GitTreeGraph({
               </span>
             </button>
             {expanded && renderRowChildren?.(row, { graphWidth: svgWidth })}
-          </div>
+          </GitGraphItem>
         );
       })}
       {lastRow < total && (

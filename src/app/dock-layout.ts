@@ -74,6 +74,25 @@ export const DOCK_RAIL_DEFAULT_WIDTH = 420;
 /** 空栏宽度：只在拖拽期间展开成一条可命中的落点条，平时不占位。 */
 export const DOCK_RAIL_EMPTY_WIDTH = 132;
 
+/**
+ * "面板类"标签：正文由 `DockFrame` 自己搬进标签宿主，不属于内容注册表。
+ * 渲染层必须对它们返回 null——否则面板上方会多出一块"类型未登记"的说明。
+ * 新增 `DockFrame` 面板时把它的 id 加进来（有测试扫描组件源码防止漏登记）。
+ */
+export const DOCK_PANEL_TAB_KINDS: readonly string[] = [
+  "deliverables-dock",
+  "git-dock",
+  "tasks-dock",
+  "terminal-dock",
+  "todo-dock",
+  "workspace-files-dock",
+];
+
+/** 该标签是否由面板自己渲染正文（内容分发点应跳过）。 */
+export function isDockPanelTabKind(kind: string): boolean {
+  return DOCK_PANEL_TAB_KINDS.includes(kind);
+}
+
 /** 单个分栏内允许的最小分数占比，避免拖拽把某一侧压成 0。 */
 const MIN_SPLIT_FRACTION = 0.08;
 /** 布局树允许的最大节点数与 nesting 深度，用于持久化输入的归一化。 */
@@ -501,7 +520,7 @@ export function dockWorkspacesMatch(left: string | null, right: string | null): 
   return normalizeDockPath(left) === normalizeDockPath(right);
 }
 
-export type DockTabBodyState = "ready" | "foreign" | "unknown";
+export type DockTabBodyState = "ready" | "foreign" | "unknown" | "panel";
 
 /**
  * 判定某个标签在给定工作区下该渲染什么：
@@ -514,6 +533,8 @@ export function dockTabBodyState(
   workspace: string | null,
   isKnownKind: (kind: string) => boolean,
 ): DockTabBodyState {
+  // 面板类标签的正文由面板自己挂进宿主，内容分发点什么都不该渲染
+  if (isDockPanelTabKind(tab.kind)) return "panel";
   if (!dockWorkspacesMatch(dockTabWorkspace(tab), workspace)) return "foreign";
   return isKnownKind(tab.kind) ? "ready" : "unknown";
 }

@@ -53,8 +53,7 @@ import {
 import { errorText } from "../app/model";
 import { buildHunkPatch, parseGitDiff } from "../app/git-diff";
 import {
-  GIT_GRAPH_ROW_HEIGHT,
-  gitGraphLaneLinePath,
+  gitGraphLaneX,
   type GitGraphRow,
 } from "../app/git-graph-layout";
 import { onGitChanged, notifyGitChanged } from "../app/git-events";
@@ -905,8 +904,12 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     setCommitFiles(commitFilesRef.current);
   }
 
-  /** 展开行追加的高度：必须与 renderCommitChildren 渲染出来的高度一致。 */
+  /**
+   * 展开行追加高度的"首帧估算"：真实高度由 GitTreeGraph 测量后回填，
+   * 这里只保证第一帧不至于从 0 跳一下；收起时必须返回 0。
+   */
   function commitChildrenHeight(row: GitGraphRow): number {
+    if (!expandedCommits.has(row.hash)) return 0;
     const entry = commitFiles[row.hash];
     if (!entry || entry.loading || entry.error || !entry.detail) {
       return GIT_COMMIT_CHILD_PADDING + GIT_COMMIT_CHILD_ROW_HEIGHT;
@@ -956,16 +959,23 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     const height = commitChildrenHeight(row);
     return (
       <div className="git-commit-children">
-        <svg className="git-commit-children-graph" width={context.graphWidth} height={height} aria-hidden="true">
+        {/* 竖线用百分比长度：展开块多高都连贯，不依赖预测高度 */}
+        <svg
+          className="git-commit-children-graph"
+          width={context.graphWidth}
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
           {row.outputLanes.map((lane, index) => (
-            <path
+            <line
               key={`child-lane${index}`}
-              d={gitGraphLaneLinePath(index)}
-              fill="none"
+              x1={gitGraphLaneX(index)}
+              y1="0"
+              x2={gitGraphLaneX(index)}
+              y2="100%"
               stroke={gitGraphLaneColor(lane.color)}
               strokeWidth={1.5}
               strokeLinecap="round"
-              transform={`scale(1 ${height / GIT_GRAPH_ROW_HEIGHT})`}
             />
           ))}
         </svg>
