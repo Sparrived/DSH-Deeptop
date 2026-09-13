@@ -465,10 +465,6 @@
     padding-left: 58px;
   }
 
-  .tool-parts {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .tool-entry > .tool-entry-summary {
     grid-template-columns: minmax(0, 1fr) auto auto 16px;
     gap: 7px;
@@ -488,11 +484,6 @@
   .tool-status { min-width: 0; }
 
   .tool-diff-badge { font-size: 10px; }
-
-  .tool-call-part {
-    border-right: 0;
-    border-bottom: 1px dashed var(--line-strong);
-  }
 
   .composer-area,
   .interaction-panel {

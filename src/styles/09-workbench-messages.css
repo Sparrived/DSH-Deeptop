@@ -604,7 +604,8 @@
 }
 
 .tool-entry.tool-paired .tool-call-part {
-  border-right-color: var(--line-strong);
+  border-right: 0;
+  border-bottom: 1px dashed var(--line-strong);
 }
 
 .tool-entry.tool-error {
@@ -655,10 +656,11 @@
 .tool-result-error .tool-part-label { color: var(--danger); }
 .tool-error .tool-state { background: var(--danger); }
 
+/* 调用参数在上、执行结果在下：两栏并排会把两侧都压成窄列。 */
 .tool-parts {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .tool-part {
@@ -667,7 +669,7 @@
 }
 
 .tool-call-part {
-  border-right: 1px dashed var(--line-strong);
+  border-right: 0;
 }
 
 .tool-part + .tool-part { border-top: 0; }
@@ -834,7 +836,7 @@
 
 .tool-entry pre { width: 100%; }
 
-/* Call arguments should remain readable inside the split tool card. */
+/* Call arguments should remain readable inside the tool card. */
 .tool-entry pre.tool-call-arguments {
   min-width: 0;
   overflow-x: hidden;

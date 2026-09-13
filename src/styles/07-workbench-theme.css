@@ -1011,15 +1011,6 @@ textarea:focus-visible {
     font-size: 21px;
   }
 
-  .tool-paired .tool-parts {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .tool-paired .tool-call-part {
-    border-right: 0;
-    border-bottom: 1px dashed #b8c3b5;
-  }
-
   .tool-entry.tool-paired::before {
     top: auto;
     right: 14px;

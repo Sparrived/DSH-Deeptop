@@ -404,7 +404,7 @@
   box-shadow: 0 1px 0 rgba(80, 91, 79, 0.08);
 }
 
-/* 无调用参数时不建立左右输入/输出分栏，结果占据完整工具卡片宽度。 */
+/* 无调用参数时不建立输入/输出分区，结果占据完整工具卡片宽度。 */
 .tool-entry.tool-result-only > .tool-entry-summary {
   border-bottom: 1px solid #c8d0c5;
 }
@@ -470,10 +470,11 @@
   border-bottom: 1px solid #c8d0c5;
 }
 
+/* 调用参数与执行结果上下排列：并排时两侧各只剩一半宽度，参数与结果都要折行。 */
 .tool-paired .tool-parts {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .tool-paired .tool-part {
@@ -481,8 +482,10 @@
   padding-top: 2px;
 }
 
+/* 上下排列时分隔线落在调用区底部；右侧不再有第二栏。 */
 .tool-paired .tool-call-part {
-  border-right: 1px dashed #b8c3b5;
+  border-right: 0;
+  border-bottom: 1px dashed #b8c3b5;
 }
 
 .tool-paired .tool-result-part {
