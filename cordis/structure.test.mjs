@@ -9,6 +9,7 @@ const pluginDirectories = [
   'message-annotations-ui',
   'session-pins',
   'skill-installer',
+  'subagent-routing',
   'theme-settings',
   'ui-registry',
 ]
@@ -21,6 +22,7 @@ const pluginExports = {
   './session-pins': './session-pins/index.mjs',
   './skill-installer': './skill-installer/index.mjs',
   './skill-install-plugin': './skill-installer/index.mjs',
+  './subagent-routing': './subagent-routing/index.mjs',
   './theme-settings': './theme-settings/index.mjs',
   './ui-registry': './ui-registry/index.mjs',
 }

@@ -9,6 +9,7 @@ This directory is the source of the embedded `deeptop-bridge` runtime package. T
 | `message-annotations-ui/` | Host registration for the built-in message-annotation Client Plugin |
 | `session-pins/` | Durable workspace session-pin service and its pure model |
 | `skill-installer/` | Skill installer plugin (approval-gated; the prompt is skipped under a user-chosen never-approval policy such as the full-access preset) and shared installer implementation |
+| `subagent-routing/` | Subagent delegation routing: registers the `deeptop-subagent-routing` settings namespace, injects its guidance as a system-prompt section, and mirrors per-route notes into provider catalog model descriptions |
 | `theme-settings/` | Host registration for desktop theme and locale settings |
 | `ui-registry/` | UI Plugin registry, manifest validation, scoped routes and storage |
 

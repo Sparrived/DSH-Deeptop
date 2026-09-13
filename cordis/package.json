@@ -13,6 +13,7 @@
     "./session-pins": "./session-pins/index.mjs",
     "./skill-installer": "./skill-installer/index.mjs",
     "./skill-install-plugin": "./skill-installer/index.mjs",
+    "./subagent-routing": "./subagent-routing/index.mjs",
     "./theme-settings": "./theme-settings/index.mjs",
     "./package.json": "./package.json",
     "./ui-registry": "./ui-registry/index.mjs"

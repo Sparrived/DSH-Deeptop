@@ -48,6 +48,7 @@ export const DEEPTOP_PROFILE_ENTRY_IDS = new Set([
   'compaction-basic',
   'command-compact',
   'tool-result-pruner',
+  'subagent-routing',
   'tool-subagent-control',
   'tool-subagent-list-agents',
   'tool-subagent',

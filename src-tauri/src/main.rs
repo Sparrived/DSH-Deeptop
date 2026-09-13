@@ -110,6 +110,8 @@ const BRIDGE_PROFILE_PATCH: &str = include_str!("../../cordis/desktop-bridge/pro
 const BRIDGE_TOOL_CONFIG: &str = include_str!("../../cordis/desktop-bridge/tool-config.mjs");
 const BRIDGE_NETWORK_PROXY: &str = include_str!("../../cordis/desktop-bridge/network-proxy.mjs");
 const BRIDGE_THEME_SETTINGS: &str = include_str!("../../cordis/theme-settings/index.mjs");
+const BRIDGE_SUBAGENT_ROUTING: &str = include_str!("../../cordis/subagent-routing/index.mjs");
+const BRIDGE_SUBAGENT_ROUTING_MODEL: &str = include_str!("../../cordis/subagent-routing/model.mjs");
 const PROFILE_TEMPLATE: &str = include_str!("../../cordis/desktop-profile.json");
 const PROFILE_PATCH_TEMPLATE: &str = include_str!("../../cordis/profile.patch.yml");
 const PROFILE_PNPM_WORKSPACE: &str =
@@ -921,7 +923,7 @@ fn migrate_desktop_profile_patch(path: &Path) -> Result<(), String> {
     write_text(path, &format!("{}{newline}", filtered.join(newline)))
 }
 
-fn bundled_bridge_files() -> [(&'static str, &'static str); 29] {
+fn bundled_bridge_files() -> [(&'static str, &'static str); 31] {
     [
         ("package.json", BRIDGE_PACKAGE_JSON),
         ("cordis.patch.yml", BRIDGE_PATCH),
@@ -958,6 +960,8 @@ fn bundled_bridge_files() -> [(&'static str, &'static str); 29] {
         ("desktop-bridge/tool-config.mjs", BRIDGE_TOOL_CONFIG),
         ("desktop-bridge/network-proxy.mjs", BRIDGE_NETWORK_PROXY),
         ("theme-settings/index.mjs", BRIDGE_THEME_SETTINGS),
+        ("subagent-routing/index.mjs", BRIDGE_SUBAGENT_ROUTING),
+        ("subagent-routing/model.mjs", BRIDGE_SUBAGENT_ROUTING_MODEL),
     ]
 }
 

@@ -84,6 +84,11 @@
     - id: subagent-model-selection-settings
       name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
 
+    # Per-route 「何时使用」说明：注入每个 Session 的 prompt 引导段（本插件拥有），
+    # 并投影到声明了 models[].description 的 provider catalog。
+    - id: subagent-routing
+      name: 'deeptop-bridge/subagent-routing'
+
     - id: cordis-host-runner
       name: '@deepseek-ai/dsh-cordis-host-runner'
 
