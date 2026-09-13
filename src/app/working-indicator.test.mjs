@@ -1,24 +1,36 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { defaultWorkingIndicator, normalizeWorkingIndicator, workingIndicatorTextAt } from "./working-indicator.ts";
+import { defaultWorkingIndicator, normalizeWorkingIndicator, workingIndicatorEffectClass, workingIndicatorTextAt } from "./working-indicator.ts";
 
 test("normalizes custom texts, color, effect, and interval", () => {
   assert.deepEqual(normalizeWorkingIndicator({
     texts: ["  读取上下文… ", "执行工具", ""],
     color: "#12AbEF",
+    gradientColor: "#FF00AA",
     effect: "glow",
+    shimmerStyle: "rainbow",
     rotationInterval: 3500,
   }), {
     texts: ["读取上下文…", "执行工具"],
     color: "#12AbEF",
+    gradientColor: "#FF00AA",
     effect: "glow",
+    shimmerStyle: "rainbow",
     rotationInterval: 3500,
   });
 });
 
 test("falls back from invalid persisted values", () => {
-  assert.deepEqual(normalizeWorkingIndicator({ texts: [""], color: "red", effect: "unknown", rotationInterval: 20 }), { ...defaultWorkingIndicator, rotationInterval: 1200 });
+  assert.deepEqual(normalizeWorkingIndicator({ texts: [""], color: "red", gradientColor: "blue", effect: "unknown", shimmerStyle: "plasma", rotationInterval: 20 }), { ...defaultWorkingIndicator, rotationInterval: 1200 });
   assert.deepEqual(normalizeWorkingIndicator(null), defaultWorkingIndicator);
+});
+
+test("accepts the hidden effect and derives the effect class", () => {
+  assert.equal(normalizeWorkingIndicator({ effect: "hidden" }).effect, "hidden");
+  assert.equal(workingIndicatorEffectClass({ ...defaultWorkingIndicator, effect: "hidden" }), "effect-hidden");
+  assert.equal(workingIndicatorEffectClass({ ...defaultWorkingIndicator, shimmerStyle: "rainbow" }), "effect-shimmer shimmer-rainbow");
+  assert.equal(workingIndicatorEffectClass({ ...defaultWorkingIndicator, shimmerStyle: "gradient" }), "effect-shimmer shimmer-gradient");
+  assert.equal(workingIndicatorEffectClass({ ...defaultWorkingIndicator, effect: "pulse" }), "effect-pulse");
 });
 
 test("accepts newline text input and bounds the list", () => {

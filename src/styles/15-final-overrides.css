@@ -1341,14 +1341,20 @@
 /* Running indicator: one quiet customization surface for copy, color, and motion. */
 .agent-working { color: var(--working-indicator-color, var(--accent)); background: none; -webkit-text-fill-color: currentColor; background-clip: initial; animation: none; }
 .agent-working > span { display: inline-block; color: var(--working-indicator-color, var(--accent)); }
-.agent-working.effect-shimmer > span,
-.working-indicator-preview > .effect-shimmer { color: transparent; background: linear-gradient(100deg, var(--working-indicator-color, var(--accent)) 35%, color-mix(in srgb, var(--working-indicator-color, var(--accent)) 35%, white) 50%, var(--working-indicator-color, var(--accent)) 65%); background-size: 220% 100%; background-position: 120% 50%; background-clip: text; -webkit-background-clip: text; animation: dsh-custom-indicator-shimmer 2.4s linear infinite; }
+/* 「隐藏」只收起可见文字，role="status" 保留在无障碍树上继续播报运行状态。 */
+.agent-working.effect-hidden { position: absolute; width: 1px; height: 1px; min-height: 0; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); }
+.agent-working.effect-shimmer.shimmer-gradient > span,
+.working-indicator-preview > .effect-shimmer.shimmer-gradient { color: transparent; background: linear-gradient(100deg, var(--working-indicator-color, var(--accent)) 35%, var(--working-indicator-gradient-color, color-mix(in srgb, var(--working-indicator-color, var(--accent)) 35%, white)) 50%, var(--working-indicator-color, var(--accent)) 65%); background-size: 220% 100%; background-position: 120% 50%; background-clip: text; -webkit-background-clip: text; animation: dsh-custom-indicator-shimmer 2.4s linear infinite; }
+/* 七彩流光：光谱在背景里铺两遍，一次扫光正好走完一个周期，衔接不跳色。 */
+.agent-working.effect-shimmer.shimmer-rainbow > span,
+.working-indicator-preview > .effect-shimmer.shimmer-rainbow { color: transparent; background: linear-gradient(100deg, #ff5a5a 0%, #ffb03a 7%, #ffe95a 14%, #4ade80 21%, #38bdf8 28%, #818cf8 35%, #e879f9 42%, #ff5a5a 50%, #ffb03a 57%, #ffe95a 64%, #4ade80 71%, #38bdf8 78%, #818cf8 85%, #e879f9 92%, #ff5a5a 100%); background-size: 200% 100%; background-position: 120% 50%; background-clip: text; -webkit-background-clip: text; animation: dsh-custom-indicator-rainbow 2.6s linear infinite; }
 .agent-working.effect-pulse > span,
 .working-indicator-preview > .effect-pulse { animation: dsh-custom-indicator-pulse 1.6s ease-in-out infinite; }
 .agent-working.effect-glow > span,
 .working-indicator-preview > .effect-glow { text-shadow: 0 0 10px color-mix(in srgb, var(--working-indicator-color, var(--accent)) 70%, transparent); }
 .working-indicator-preview { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 13px 14px; border: 1px solid var(--line); background: var(--surface-soft); color: var(--working-indicator-color, var(--accent)); font-size: 14px; }
 .working-indicator-preview > span { display: inline-block; min-width: 0; overflow-wrap: anywhere; }
+.working-indicator-preview > .working-indicator-hidden-note { color: var(--ink-faint); font-size: 12px; }
 .working-indicator-preview small { color: var(--ink-faint); font-size: 11px; }
 .appearance-custom-field textarea { min-height: 88px; resize: vertical; }
 .appearance-color-control { display: inline-flex; align-items: center; gap: 8px; }
@@ -1357,6 +1363,10 @@
 @keyframes dsh-custom-indicator-shimmer {
   from { background-position: 120% 50%; }
   to { background-position: -20% 50%; }
+}
+@keyframes dsh-custom-indicator-rainbow {
+  from { background-position: 120% 50%; }
+  to { background-position: 20% 50%; }
 }
 @keyframes dsh-custom-indicator-pulse { 0%, 100% { opacity: .48; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .agent-working.effect-shimmer > span, .working-indicator-preview > .effect-shimmer, .agent-working.effect-pulse > span, .working-indicator-preview > .effect-pulse { animation: none; } }

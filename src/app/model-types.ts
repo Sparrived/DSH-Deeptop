@@ -37,12 +37,18 @@ export type BackgroundConfig = {
 /** 按区域组织的背景图设置集合。 */
 export type BackgroundSettings = Record<BackgroundZone, BackgroundConfig>;
 
-export type WorkingIndicatorEffect = "none" | "shimmer" | "pulse" | "glow";
+export type WorkingIndicatorEffect = "none" | "shimmer" | "pulse" | "glow" | "hidden";
+
+/** 流光的取色方式：渐变用文本色到渐变色的双色扫光，七彩走固定彩虹光谱。 */
+export type WorkingIndicatorShimmerStyle = "gradient" | "rainbow";
 
 export type WorkingIndicatorSettings = {
   texts: string[];
   color: string;
+  /** 渐变流光的第二色；七彩流光不使用。 */
+  gradientColor: string;
   effect: WorkingIndicatorEffect;
+  shimmerStyle: WorkingIndicatorShimmerStyle;
   rotationInterval: number;
 };
 

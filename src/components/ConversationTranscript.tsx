@@ -35,7 +35,7 @@ import {
   type TranscriptItem,
 } from "../app/model";
 import type { MessageStats, TranscriptImage, WorkingIndicatorSettings } from "../app/model";
-import { normalizeWorkingIndicator, workingIndicatorTextAt } from "../app/working-indicator";
+import { normalizeWorkingIndicator, workingIndicatorEffectClass, workingIndicatorTextAt } from "../app/working-indicator";
 import { t, type UiLocale } from "../app/i18n";
 
 type ConversationTranscriptProps = {
@@ -114,8 +114,9 @@ function WorkingIndicator({ settings, locale }: { settings: WorkingIndicatorSett
   }, [safeSettings.rotationInterval, safeSettings.texts.length, textKey]);
 
   return (
-    <div className={`agent-working effect-${safeSettings.effect}`} role="status" aria-label={t("conversation.working", locale)} style={{ "--working-indicator-color": safeSettings.color } as CSSProperties}>
-      <span aria-hidden="true">{workingIndicatorTextAt(safeSettings, index)}</span>
+    <div className={`agent-working ${workingIndicatorEffectClass(safeSettings)}`} role="status" aria-label={t("conversation.working", locale)} style={{ "--working-indicator-color": safeSettings.color, "--working-indicator-gradient-color": safeSettings.gradientColor } as CSSProperties}>
+      {/* 「隐藏」只关掉可见文字，role="status" 仍把运行状态留给读屏。 */}
+      {safeSettings.effect !== "hidden" && <span aria-hidden="true">{workingIndicatorTextAt(safeSettings, index)}</span>}
     </div>
   );
 }

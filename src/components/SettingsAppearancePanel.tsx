@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ComponentProps, type CSSProperties } from "react";
-import type { AppearanceSettings, AppearanceSection, WorkingIndicatorEffect } from "../app/model";
+import type { AppearanceSettings, AppearanceSection, WorkingIndicatorEffect, WorkingIndicatorShimmerStyle } from "../app/model";
 import type { AppTheme, ThemeMode } from "../app/model";
 import { SettingsBackgroundPanel } from "./SettingsBackgroundPanel";
-import { normalizeWorkingIndicator, workingIndicatorTextAt } from "../app/working-indicator";
+import { normalizeWorkingIndicator, workingIndicatorEffectClass, workingIndicatorTextAt } from "../app/working-indicator";
 import { t, type UiLocale } from "../app/i18n";
 
 type FontPreset = { value: string; labelKey: string };
@@ -213,10 +213,17 @@ export function SettingsAppearancePanel({
           <div className="settings-preference-list">
             <label className="appearance-custom-field"><span>{t("appearance.workingTextLabel", locale)}</span><textarea value={appearance.workingIndicator.texts.join("\n")} onChange={(event) => onUpdate({ workingIndicator: { ...appearance.workingIndicator, texts: event.target.value.split(/\r?\n/) } })} placeholder={t("appearance.workingPlaceholder", locale)} rows={4} maxLength={1500} /></label>
             <label className="settings-preference-row"><span><strong>{t("appearance.workingColor", locale)}</strong><small>{appearance.workingIndicator.color}</small></span><span className="appearance-color-control"><input type="color" value={appearance.workingIndicator.color} onChange={(event) => onUpdate({ workingIndicator: { ...appearance.workingIndicator, color: event.target.value } })} /><code>{appearance.workingIndicator.color}</code></span></label>
-            <label className="settings-preference-row"><span><strong>{t("appearance.workingEffect", locale)}</strong><small>{t("appearance.workingEffectHint", locale)}</small></span><select value={appearance.workingIndicator.effect} onChange={(event) => onUpdate({ workingIndicator: { ...appearance.workingIndicator, effect: event.target.value as WorkingIndicatorEffect } })}><option value="shimmer">{t("appearance.effectShimmer", locale)}</option><option value="pulse">{t("appearance.effectPulse", locale)}</option><option value="glow">{t("appearance.effectGlow", locale)}</option><option value="none">{t("appearance.effectNone", locale)}</option></select></label>
+            <label className="settings-preference-row"><span><strong>{t("appearance.workingEffect", locale)}</strong><small>{t("appearance.workingEffectHint", locale)}</small></span><select value={appearance.workingIndicator.effect} onChange={(event) => onUpdate({ workingIndicator: { ...appearance.workingIndicator, effect: event.target.value as WorkingIndicatorEffect } })}><option value="shimmer">{t("appearance.effectShimmer", locale)}</option><option value="pulse">{t("appearance.effectPulse", locale)}</option><option value="glow">{t("appearance.effectGlow", locale)}</option><option value="none">{t("appearance.effectNone", locale)}</option><option value="hidden">{t("appearance.effectHidden", locale)}</option></select></label>
+            {workingIndicator.effect === "shimmer" && <label className="settings-preference-row"><span><strong>{t("appearance.shimmerStyle", locale)}</strong><small>{t("appearance.shimmerStyleHint", locale)}</small></span><select value={workingIndicator.shimmerStyle} onChange={(event) => onUpdate({ workingIndicator: { ...appearance.workingIndicator, shimmerStyle: event.target.value as WorkingIndicatorShimmerStyle } })}><option value="gradient">{t("appearance.shimmerGradient", locale)}</option><option value="rainbow">{t("appearance.shimmerRainbow", locale)}</option></select></label>}
+            {workingIndicator.effect === "shimmer" && workingIndicator.shimmerStyle === "gradient" && <label className="settings-preference-row"><span><strong>{t("appearance.workingGradientColor", locale)}</strong><small>{workingIndicator.gradientColor}</small></span><span className="appearance-color-control"><input type="color" value={workingIndicator.gradientColor} onChange={(event) => onUpdate({ workingIndicator: { ...appearance.workingIndicator, gradientColor: event.target.value } })} /><code>{workingIndicator.gradientColor}</code></span></label>}
             {workingTextCount > 1 && <label className="settings-preference-row"><span><strong>{t("appearance.rotationSpeed", locale)}</strong><small>{t("appearance.rotationSpeedHint", locale, { seconds: (appearance.workingIndicator.rotationInterval / 1000).toFixed(1) })}</small></span><span className="appearance-range-control"><input type="range" min="1200" max="10000" step="100" value={appearance.workingIndicator.rotationInterval} onChange={(event) => onUpdate({ workingIndicator: { ...appearance.workingIndicator, rotationInterval: Number(event.target.value) } })} /><output>{(appearance.workingIndicator.rotationInterval / 1000).toFixed(1)}s</output></span></label>}
           </div>
-          <div className="working-indicator-preview" style={{ "--working-indicator-color": workingIndicator.color } as CSSProperties}><span className={`effect-${workingIndicator.effect}`}>{workingIndicatorTextAt(workingIndicator, previewIndex)}</span><small>{t("appearance.previewRotation", locale, { count: workingTextCount })}</small></div>
+          <div className="working-indicator-preview" style={{ "--working-indicator-color": workingIndicator.color, "--working-indicator-gradient-color": workingIndicator.gradientColor } as CSSProperties}>
+            {workingIndicator.effect === "hidden"
+              ? <span className="working-indicator-hidden-note">{t("appearance.workingHiddenPreview", locale)}</span>
+              : <span className={workingIndicatorEffectClass(workingIndicator)}>{workingIndicatorTextAt(workingIndicator, previewIndex)}</span>}
+            {workingIndicator.effect !== "hidden" && <small>{t("appearance.previewRotation", locale, { count: workingTextCount })}</small>}
+          </div>
         </div>
       )}
 

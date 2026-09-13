@@ -489,6 +489,7 @@ export function useAppearanceSettings({ locale, onNotice, onError }: UseAppearan
       "--message-font-size": `${appearance.messageFontSize}px`,
       "--message-line-height": String(appearance.messageLineHeight),
       "--working-indicator-color": appearance.workingIndicator.color,
+      "--working-indicator-gradient-color": appearance.workingIndicator.gradientColor,
       "--app-background-image": backgroundUrl("global"),
       "--app-background-opacity": String(appearance.backgrounds.global.opacity),
       "--app-background-blur": `${appearance.backgrounds.global.blur}px`,

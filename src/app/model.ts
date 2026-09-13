@@ -48,4 +48,5 @@ export type {
   WorkspaceViewMode,
   WorkingIndicatorEffect,
   WorkingIndicatorSettings,
+  WorkingIndicatorShimmerStyle,
 } from "./model-types";
