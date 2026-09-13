@@ -7121,7 +7121,7 @@ mod tests {
             "packageName": "@deepseek-ai/dsh",
             "packageVersion": "0.1.5-rc.1",
             "entry": "node_modules/@deepseek-ai/dsh/lib/bin.js",
-            "sourceCommit": "9a3e4ba654ffce5016f7c4f7df9f882bcf56fd1d",
+            "sourceCommit": "03113acb43e83f5e27ac0cce56a53090606c1fee",
             "platform": runtime_platform(),
             "arch": runtime_arch(),
             "treeSha256": "0123456789012345678901234567890123456789012345678901234567890123",
