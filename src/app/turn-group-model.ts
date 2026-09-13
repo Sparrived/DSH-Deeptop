@@ -107,6 +107,43 @@ export function groupTranscriptTurns(items: readonly TranscriptItem[], loopLive:
 }
 
 /**
+ * 一轮是否仍在推进：决定步骤区保持展开还是收起。
+ *
+ * 一轮（用户看到的这一件事）往往由多个 DSH 轮次组成：模型返回一次、子代理回报、
+ * 后台任务通知、目标循环的下一轮都会各开一个新轮次，而两次轮次之间 agent 的 running
+ * 状态会短暂回落到 idle。只按 running 判断，就会在轮次途中把这一轮的历史收起再展开，
+ * 所以只要还有任一信号在推进就保持展开，整轮真正停下来才收起。
+ *
+ * 信号全部来自当前会话的事件或投影，不含时间窗口判断。
+ */
+export type RoundActivity = {
+  /** agent 驱动正在跑（DSH 的 running 状态）。 */
+  agentRunning: boolean;
+  /** 窗口里还有一个没有 turn/end 的轮次。 */
+  turnOpen: boolean;
+  /** 子代理仍在运行：父代理要等它回报才会继续。 */
+  subagentRunning: boolean;
+  /** 后台任务仍在运行。 */
+  jobRunning: boolean;
+  /** 目标处于 active：目标循环还会开新的轮次。 */
+  goalActive: boolean;
+  /** 还有排队的输入：下一轮马上开始。 */
+  queuedTurn: boolean;
+  /** 正在等待用户批准或回答：轮次停在这里，而不是结束。 */
+  awaitingInput: boolean;
+};
+
+export function roundActivityLive(activity: RoundActivity): boolean {
+  return activity.agentRunning
+    || activity.turnOpen
+    || activity.subagentRunning
+    || activity.jobRunning
+    || activity.goalActive
+    || activity.queuedTurn
+    || activity.awaitingInput;
+}
+
+/**
  * 记录一次步骤区手动折叠：只有与自动状态不同时才记住，切回自动状态就丢弃覆盖。
  * 浏览器在自动展开/收起时也会派发原生 toggle，这条规则保证它们不会写坏默认行为。
  */

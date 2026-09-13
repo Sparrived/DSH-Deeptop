@@ -47,8 +47,11 @@ type ConversationTranscriptProps = {
   activeSession: DshSessionSummary | null;
   activeSessionId: string | null;
   activeRunning: boolean;
-  /** True while a turn (the whole Agent loop) is open, from turn/start → turn/end. */
-  turnLive?: boolean;
+  /**
+   * 整轮（用户看到的这一件事）是否仍在推进：由 turn/start、子代理、后台任务、目标、
+   * 待办、等待输入等信号合成。为真时当前轮次的中间步骤保持展开。
+   */
+  loopLive?: boolean;
   loading: boolean;
   workingIndicator: WorkingIndicatorSettings;
   historyHasMore: boolean;
@@ -1072,7 +1075,7 @@ export function ConversationTranscript({
   activeSession,
   activeSessionId,
   activeRunning,
-  turnLive = false,
+  loopLive = activeRunning,
   loading,
   workingIndicator,
   historyHasMore,
@@ -1112,7 +1115,6 @@ export function ConversationTranscript({
   // 轮次分组：提示 → 中间步骤 → 答复。步骤区默认跟随整轮状态（Agent loop 还在
   // 跑就展开、整轮结束后收起），`stepOverrides` 只记住读者手动切换过的那几轮。
   // 一轮里有几十个 step，任何一次模型返回结束都不算「整轮结束」。
-  const loopLive = activeRunning || turnLive;
   const turnGroups = useMemo(
     () => groupTranscriptTurns(transcript.filter((item) => item.kind !== "deliverables"), loopLive),
     [loopLive, transcript],

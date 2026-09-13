@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   applyStepToggle,
   groupTranscriptTurns,
+  roundActivityLive,
   stepKindCounts,
 } from "./turn-group-model.ts";
 
@@ -124,6 +125,28 @@ test("stepKindCounts counts only intermediate kinds", () => {
     workflow: 1,
   });
   assert.deepEqual(stepKindCounts([]), { reasoning: 0, tool: 0, system: 0, workflow: 0 });
+});
+
+test("a round stays live while any part of the agent loop is still working", () => {
+  const idle = {
+    agentRunning: false,
+    turnOpen: false,
+    subagentRunning: false,
+    jobRunning: false,
+    goalActive: false,
+    queuedTurn: false,
+    awaitingInput: false,
+  };
+  assert.equal(roundActivityLive(idle), false);
+
+  // One model return ends and the agent status blips idle, but a subagent is
+  // still running: the round is *not* over, so the steps must stay open.
+  assert.equal(roundActivityLive({ ...idle, subagentRunning: true }), true);
+  // Same for a goal loop, a background job, a queued continuation and a pending
+  // approval — each means more work is coming or the round is waiting on it.
+  for (const signal of ["agentRunning", "turnOpen", "subagentRunning", "jobRunning", "goalActive", "queuedTurn", "awaitingInput"]) {
+    assert.equal(roundActivityLive({ ...idle, [signal]: true }), true, signal);
+  }
 });
 
 test("applyStepToggle only records a state that differs from the automatic one", () => {

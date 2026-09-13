@@ -49,6 +49,7 @@ import { normalizeWindowBehavior } from "./app/window-behavior";
 import { clearQueuedSessionEvents, routeBridgeEvent } from "./app/bridge-event-handler";
 import { displayHistoryStartSeq, latestRoundInputIndex, loadCompleteDisplayHistory, mergeDisplayHistory } from "./app/display-history";
 import { loadedTurnFacts, mergeTurnRailItems, EMPTY_RAIL_ITEMS, type TurnRailItem } from "./app/turn-rail-model";
+import { roundActivityLive } from "./app/turn-group-model";
 import { emptyGoalBarState, nextGoalBarState } from "./app/goal-bar-state";
 import { trackAsyncCleanup } from "./lib/async-cleanup";
 import { ImageAttachmentCache } from "./app/image-attachment-cache";
@@ -1792,6 +1793,18 @@ function AppContent() {
   }, [conversationPageActive]);
   const subagentEntries = subagents?.entries ?? [];
   const childSubagents = subagentEntries.filter((entry): entry is ChildSubagentEntry => entry.kind === "child");
+  // 步骤区收起用的「这一轮是否还在推进」：一次模型返回结束后 agent 状态会短暂回到
+  // idle，但子代理、后台任务、目标循环、排队输入、等待输入的批准都说明这一轮还没结束；
+  // 任一项为真就保持步骤展开，避免轮次途中反复收起再展开。
+  const transcriptLoopLive = roundActivityLive({
+    agentRunning: activeRunning,
+    turnOpen: hasLiveTurn,
+    subagentRunning: childSubagents.some((entry) => entry.activity === "running"),
+    jobRunning: hasLiveJob,
+    goalActive: goal?.goal.phase === "active",
+    queuedTurn: queue.length > 0,
+    awaitingInput: activeSessionId !== null && pendingSessionIds.has(activeSessionId),
+  });
   // 可停靠右栏：停靠状态由布局树权威决定，浮动卡片只负责未停靠时的位置。
   // 看板/轨迹页不显示右栏，但布局保留，回到对话页即恢复。
   const dockedPanels: Record<string, DockTab | null> = {
@@ -5327,7 +5340,7 @@ function AppContent() {
               historyLoadingOlder={historyLoadingOlder}
               transcriptFollowing={transcriptFollowing}
               trajectoryOpen={trajectoryOpen}
-              turnLive={hasLiveTurn}
+              loopLive={transcriptLoopLive}
               workspace={workspace}
               runtimeDirectory={status.runtimeDirectory}
               modelName={models?.current.model ?? defaultModelName}
