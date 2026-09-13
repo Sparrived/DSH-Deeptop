@@ -10,6 +10,7 @@ import type {
 import { displayTitle, formatTokens } from "../app/model";
 import { sessionDashboard } from "../app/session-dashboard";
 import { formatSessionElapsed } from "../app/session-events";
+import { formatMetricDuration, formatMetricTokens, formatTokensPerSecond } from "../app/session-metrics";
 import { tokenUsagePercent, tokenUsageTotals } from "../app/token-usage";
 import { estimateTokenCost, formatUsd, modelPricing, modelPricingSnapshot } from "../app/model-pricing";
 import type { DshHistoryEntry, DshSessionSummary } from "../lib/desktop";
@@ -53,22 +54,6 @@ function Metric({ label, value, detail, tone }: { label: string; value: string; 
     <strong>{value}</strong>
     <small>{detail}</small>
   </div>;
-}
-
-function formatDuration(ms: number | undefined) {
-  if (ms === undefined || !Number.isFinite(ms) || ms <= 0) return "—";
-  if (ms < 1000) return `${Math.round(ms)} ms`;
-  return formatSessionElapsed(ms);
-}
-
-function formatDecodeTokens(value: number | undefined) {
-  if (value === undefined || !Number.isFinite(value) || value <= 0) return "—";
-  return formatTokens(value);
-}
-
-function formatTokensPerSecond(value: number) {
-  const speed = Math.max(0, value);
-  return speed >= 10 ? String(Math.round(speed)) : (Math.round(speed * 10) / 10).toFixed(1);
 }
 
 function formatEventTime(value: number | undefined, locale: UiLocale) {
@@ -121,7 +106,7 @@ function TurnActivity({ turns, locale }: { turns: SessionTurnPoint[]; locale: Ui
         tokens: turn.totalTokens,
       });
       return <div className="session-turn-row" key={turn.key} aria-label={label}>
-        <div className="session-turn-label"><b>{turn.label}</b><span>{formatDuration(turn.durationMs)}</span></div>
+        <div className="session-turn-label"><b>{turn.label}</b><span>{formatMetricDuration(turn.durationMs)}</span></div>
         <div className="session-turn-pulse" role="img" aria-label={label}>
           {visibleSignals.length > 0 ? visibleSignals.map((signal, index) => <i className={signal} key={`${turn.key}-${index}`} title={t(SIGNAL_LABELS[signal], locale)} />) : <span>{t("sessionDashboard.activity.noSignals", locale)}</span>}
         </div>
@@ -145,15 +130,15 @@ function TimingPanel({ data, sessionStats, locale }: { data: SessionDashboardDat
     ? Math.max(0, ((data.summary.toolResults - data.summary.toolFailures) / data.summary.toolResults) * 100)
     : undefined;
   const totals = [
-    { label: t("token.timing.llm", locale), value: formatDuration(sessionStats.llmMs), detail: t("token.timing.llmDetail", locale) },
-    { label: t("token.timing.tool", locale), value: formatDuration(sessionStats.toolMs), detail: t("token.timing.toolDetail", locale) },
-    { label: t("token.timing.ttft", locale), value: formatDuration(sessionStats.ttftMs), detail: t("token.timing.ttftDetail", locale, { count: formatTokens(sessionStats.ttftSteps ?? 0) }) },
-    { label: t("token.timing.decode", locale), value: formatDuration(sessionStats.decodeMs), detail: t("token.timing.decodeDetail", locale, { tokens: formatDecodeTokens(sessionStats.decodeTokens), speed: sessionStats.decodeMs && sessionStats.decodeTokens ? formatTokensPerSecond(sessionStats.decodeTokens / (sessionStats.decodeMs / 1000)) : "—" }) },
+    { label: t("token.timing.llm", locale), value: formatMetricDuration(sessionStats.llmMs), detail: t("token.timing.llmDetail", locale) },
+    { label: t("token.timing.tool", locale), value: formatMetricDuration(sessionStats.toolMs), detail: t("token.timing.toolDetail", locale) },
+    { label: t("token.timing.ttft", locale), value: formatMetricDuration(sessionStats.ttftMs), detail: t("token.timing.ttftDetail", locale, { count: formatTokens(sessionStats.ttftSteps ?? 0) }) },
+    { label: t("token.timing.decode", locale), value: formatMetricDuration(sessionStats.decodeMs), detail: t("token.timing.decodeDetail", locale, { tokens: formatMetricTokens(sessionStats.decodeTokens), speed: sessionStats.decodeMs && sessionStats.decodeTokens ? formatTokensPerSecond(sessionStats.decodeTokens / (sessionStats.decodeMs / 1000)) : "—" }) },
   ];
   const timingAria = t("sessionDashboard.timing.aria", locale, {
-    llm: formatDuration(sessionStats.llmMs),
-    tool: formatDuration(sessionStats.toolMs),
-    other: formatDuration(remainderMs),
+    llm: formatMetricDuration(sessionStats.llmMs),
+    tool: formatMetricDuration(sessionStats.toolMs),
+    other: formatMetricDuration(remainderMs),
   });
   return <div className="session-panel session-timing-panel">
     <div className="session-panel-heading"><div><span>{t("sessionDashboard.timing.kicker", locale)}</span><h3>{t("sessionDashboard.timing.title", locale)}</h3></div><b>{t("token.timing.turnsSteps", locale, { turns: formatTokens(data.summary.turns), steps: formatTokens(data.summary.steps) })}</b></div>
@@ -197,7 +182,7 @@ function UsageBars({ point, max, locale }: { point: TokenUsagePoint; max: number
     reasoning: point.reasoningTokens.toLocaleString(),
   });
   return <div className="token-usage-row" aria-label={label}>
-    <div className="token-point-label"><b>{point.label}</b><span>{formatDuration(point.runMs)}</span></div>
+    <div className="token-point-label"><b>{point.label}</b><span>{formatMetricDuration(point.runMs)}</span></div>
     <div className="token-bars">
       <div className="token-composition-track" role="img" aria-label={label} style={{ width: `${totalWidth}%` }}><i style={{ width: `${inputPercent}%`, background: COLORS.input }} /><i style={{ width: `${outputPercent}%`, background: COLORS.output }} /></div>
       <div className="token-bar-values"><span><i style={{ background: COLORS.input }} />{t("token.inputTokens", locale, { tokens: formatTokens(point.inputTokens) })}</span><span><i style={{ background: COLORS.output }} />{t("token.outputTokens", locale, { tokens: formatTokens(point.outputTokens) })}</span><span><i style={{ background: COLORS.reasoning }} />{t("token.reasoningTokens", locale, { tokens: formatTokens(point.reasoningTokens) })}</span></div>

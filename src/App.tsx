@@ -5593,6 +5593,7 @@ function AppContent() {
             modelMenuPane={modelMenuPane}
             sessionStats={sessionStats}
             sessionRunningMs={sessionRunningMs}
+            onOpenSessionDashboard={() => { setTrajectoryOpen(false); setSessionDashboardOpen(true); }}
              sendShortcut={sendShortcut}
              dropActive={composerDropActive}
              plan={plan}

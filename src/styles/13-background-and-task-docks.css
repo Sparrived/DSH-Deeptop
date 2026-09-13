@@ -651,8 +651,7 @@
   .mode-picker-trigger { width: 64px; min-width: 64px; padding: 0 7px; font-size: 12px; }
   .model-picker,
   .model-picker-trigger { width: 136px; max-width: 136px; }
-  .composer-stats { align-items: flex-start; flex-wrap: wrap; white-space: normal; line-height: 1.4; }
-  .composer-stats .context-meter { flex: 0 0 auto; }
+  .composer-stats { align-items: center; }
   .empty-meta span + span { padding-left: 0; border-left: 0; }
 }
 

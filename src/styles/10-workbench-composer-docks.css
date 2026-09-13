@@ -299,24 +299,6 @@
   gap: 5px 12px;
   margin: 0 auto;
   padding: 0 2px;
-  color: var(--ink-faint);
-  font-family: var(--mono);
-  font-size: 11px;
-}
-
-.context-meter {
-  width: 52px;
-  height: 5px;
-  overflow: hidden;
-  border-radius: 3px;
-  background: var(--surface-muted);
-}
-
-.context-meter i {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--accent);
 }
 
 .todo-panel {

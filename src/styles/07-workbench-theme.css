@@ -609,14 +609,6 @@ textarea:focus-visible {
   color: var(--accent-deep);
 }
 
-.context-meter {
-  background: color-mix(in srgb, var(--muted) 22%, transparent);
-}
-
-.context-meter i {
-  background: var(--accent);
-}
-
 .stop-button {
   color: var(--danger);
 }

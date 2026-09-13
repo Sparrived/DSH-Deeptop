@@ -6,10 +6,10 @@ import { ComposerCandidates } from "./ComposerCandidates";
 import { ModelPicker } from "./ModelPicker";
 import { PermissionPicker } from "./PermissionPicker";
 import type { ComposerAttachment, ComposerCandidate, ComposerTrigger, ModelMenuPane, PromptMode, SessionStats } from "../app/model";
-import { contextPercent, formatSessionElapsed, formatTokens } from "../app/model";
 import { planEffectiveTarget } from "../app/ui-model";
 import { t, type UiLocale } from "../app/i18n";
 import type { DshModel, DshPermissionSelect, DshPlanProjection, DshSessionModels } from "../lib/desktop";
+import { StatsPills } from "./StatsPills";
 
 type ReasoningChoice = {
   key: string;
@@ -44,6 +44,8 @@ interface ComposerShellProps {
   modelMenuPane: ModelMenuPane;
   sessionStats: SessionStats;
   sessionRunningMs: number;
+  /** 打开完整会话看板；统计胶囊弹窗以此为出口。 */
+  onOpenSessionDashboard?: () => void;
   sendShortcut: SendShortcut;
   /** Native OS drag is hovering this composer; highlights the drop target. */
   dropActive?: boolean;
@@ -98,6 +100,7 @@ export function ComposerShell({
   modelMenuPane,
   sessionStats,
   sessionRunningMs,
+  onOpenSessionDashboard,
   sendShortcut,
   dropActive,
   plan,
@@ -310,14 +313,6 @@ export function ComposerShell({
       </div>
       {utilityPanel}
     </div>
-    <div className="composer-stats" title={sessionStats.contextTokensAvailable ? (sessionStats.contextLimit ? t("composer.stats.contextTitle", locale, { used: formatTokens(sessionStats.contextTokens), limit: formatTokens(sessionStats.contextLimit) }) : t("composer.stats.titleNoLimit", locale)) : t("composer.stats.titleNoContext", locale)}>
-      <span className="context-meter" aria-label={t("composer.stats.contextAria", locale)}><i style={{ width: String(contextPercent(sessionStats)) + "%" }} /></span>
-      <span>{t("composer.stats.context", locale, { value: sessionStats.contextTokensAvailable ? formatTokens(sessionStats.contextTokens) : t("composer.stats.notProvided", locale) })}{sessionStats.contextTokensAvailable && sessionStats.contextLimit ? " / " + formatTokens(sessionStats.contextLimit) : sessionStats.contextTokensAvailable ? t("composer.stats.limitUnknown", locale) : ""}</span>
-      <span title={t("composer.stats.inputTitle", locale)}>↓ {formatTokens(sessionStats.inputTokens)}</span>
-      <span title={t("composer.stats.outputTitle", locale)}>↑ {formatTokens(sessionStats.outputTokens)}</span>
-      <span title={t("composer.stats.cacheTitle", locale)}>{t("composer.stats.cache", locale, { value: sessionStats.cacheHitRate ? String(sessionStats.cacheHitRate.toFixed(0)) + "%" : t("composer.stats.notProvided", locale) })}</span>
-      <span title={t("composer.stats.runTitle", locale)}>{t("composer.stats.run", locale, { value: formatSessionElapsed(sessionRunningMs) })}</span>
-      <span>{t("composer.stats.messages", locale, { count: sessionStats.messages })}</span>
-    </div>
+    <StatsPills sessionStats={sessionStats} sessionRunningMs={sessionRunningMs} locale={locale} onOpenDashboard={onOpenSessionDashboard} />
   </footer>;
 }

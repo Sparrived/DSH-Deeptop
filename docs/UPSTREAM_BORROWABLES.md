@@ -46,11 +46,17 @@ Deeptop 已对齐的行为：`src/app/submit-mode.ts` 提供同一判定的纯�
 
 上游区分偏好与手势：模式选择器（`ComposerShell.tsx` 的 `mode-picker`）表示**偏好**，发送按钮的 title 与 `aria-label` 表示**本次点击的实际行为**，仅在会话运行中、草稿可投递、且不是 `/` 命令行时才显示 Queue/Steer，其余情况保持普通发送文案。
 
-### 4. 统计改为图标胶囊 `[-]`
+### 4. 统计改为图标胶囊 `[x]`
 
 上游 `packages/client/ui-chat/src/client/chat/StatsPills.tsx` 把 composer 下方一行密集文本换成两个图标按钮（仪表盘胶囊打开时间与速度弹窗、数据库胶囊打开 token 用量弹窗），共用同一个锚定并钳制在视口内的弹窗座位。
 
-Deeptop 现状：`src/components/ComposerShell.tsx:302-306` 是那行密集文本，而分析能力已经集中在 `src/components/SessionDashboard.tsx`（上下文环形与进度、token 构成环图、输入/输出账本、时间范围切换、TTFT 与 decode 速度）。上游这条对 Deeptop 属于外观与入口调整，不新增分析能力，因此不做。
+Deeptop 已对齐：
+
+- `src/components/StatsPills.tsx` 取代了 `ComposerShell` 下方那行文本：两个胶囊按钮分别表示时间与速度、Token 用量，共用同一个弹窗座位；座位复用 `useFloatingMenuPosition`，锚在按钮上方并在视口内钳制，弹窗挂到 `document.body`，因此不会被输入区裁切。
+- 弹窗的行由 `src/app/session-metrics.ts` 推导（运行时间、模型耗时、工具耗时、首 Token、解码速度；上下文占用、输入、输出、缓存命中率、轮次与步骤），与会话看板共用同一套时长、速度与上下文百分比口径——看板里原先的三个格式化函数已收敛到这里，两处不会再各算一套。
+- 弹窗底部保留「打开会话看板」出口，完整分析能力仍由 `SessionDashboard` 提供；点击同时收起轨迹面板。
+
+量级：小。`context-meter` 与那行密集文本的样式已随之删除。
 
 ### 5. Markdown 与代码块细节 `[x]`
 
