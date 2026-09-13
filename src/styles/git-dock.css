@@ -1139,3 +1139,25 @@
   color: var(--ink-muted);
 }
 .git-confirm-command button:hover { border-color: var(--accent); color: var(--accent-deep); }
+
+/* —— 确认框：不再询问 + 悬浮卡片里的分支行 —— */
+.git-confirm-skip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+.git-confirm-skip input { accent-color: var(--accent); }
+.git-graph-tooltip-branches { flex-wrap: wrap; gap: 4px; }
+.git-graph-tooltip-label { color: var(--ink-faint); font-size: 10px; }
+.git-graph-tooltip-pending { color: var(--ink-faint); font-size: 10px; }
+.git-graph-branch-chip {
+  padding: 1px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 10px;
+}

@@ -44,6 +44,7 @@ import {
   getWorkspaceGitStatus,
   isTauri,
   listGitBranches,
+  listGitBranchesContaining,
   listGitGraph,
   listGitLog,
   listGitStashes,
@@ -191,7 +192,7 @@ function ChangeRow({
 }
 
 export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh" }: GitDockProps) {
-  const { openTab } = useDockSettings();
+  const { openTab, gitConfirmSkip, skipGitConfirm } = useDockSettings();
   const [tab, setTab] = useState<GitDockTab>("changes");
   const [status, setStatus] = useState<WorkspaceGitStatus | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
@@ -217,12 +218,20 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   // 图谱里展开的提交（文件块显示在该行下方而不是面板底部）
   // 待二次确认的写操作：展示将要执行的 git 命令，确认后才真正执行
   const [copiedCommand, setCopiedCommand] = useState(false);
+  // 悬浮节点时查询"包含该提交的分支"，按哈希缓存
+  const [hoveredCommit, setHoveredCommit] = useState<string | null>(null);
+  const [commitBranches, setCommitBranches] = useState<Record<string, string[]>>({});
+  const commitBranchesRef = useRef<Record<string, string[]>>({});
   const [gitConfirm, setGitConfirm] = useState<{
     reason: string;
     command: string;
+    /** 后端命令名，勾选"不再询问"时持久化它。 */
+    commandName?: string;
     warning?: string;
+    optional?: boolean;
     resolve: (confirmed: boolean) => void;
   } | null>(null);
+  const [skipConfirmNext, setSkipConfirmNext] = useState(false);
   const [expandedCommits, setExpandedCommits] = useState<ReadonlySet<string>>(new Set());
   // 展开行的详情缓存：键是提交哈希，避免每次收放都重新读一遍
   const [commitFiles, setCommitFiles] = useState<Record<string, GitCommitFilesEntry>>({});
@@ -583,6 +592,15 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   async function applyHunks(text: string, hunkLines: number[], unstage: boolean) {
     const patch = buildHunkPatch(parseGitDiff(text), hunkLines);
     if (!patch) return;
+    let command = "";
+    try {
+      command = await previewGitCommand("git_apply_patch", { dir: workspace, patch, cached: true, reverse: unstage });
+    } catch (error) {
+      onError(t("git.error.previewFailed", locale, { reason: t("git.stageHunk", locale), error: errorText(error, locale) }));
+      return;
+    }
+    const confirmed = await askGitConfirm({ reason: t(unstage ? "git.unstageHunk" : "git.stageHunk", locale), command });
+    if (!confirmed) return;
     setBusyHunks(new Set(hunkLines));
     try {
       const result = await applyGitPatch(workspace, patch, true, unstage);
@@ -695,9 +713,9 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   async function runMutation(
     action: () => Promise<void | GitCommandResult>,
     reason: string,
-    preview?: { command: string; payload: Record<string, unknown>; warning?: string },
+    preview?: { command: string; payload: Record<string, unknown>; warning?: string; optional?: boolean },
   ) {
-    if (preview) {
+    if (preview && !(preview.optional && gitConfirmSkip.includes(preview.command))) {
       let command = "";
       try {
         command = await previewGitCommand(preview.command, preview.payload);
@@ -705,7 +723,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
         onError(t("git.error.previewFailed", locale, { reason, error: errorText(error, locale) }));
         return;
       }
-      const confirmed = await askGitConfirm({ reason, command, warning: preview.warning });
+      const confirmed = await askGitConfirm({ reason, command, commandName: preview.command, warning: preview.warning, optional: preview.optional });
       if (!confirmed) return;
     }
     setBusy(true);
@@ -721,8 +739,24 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     }
   }
 
+  /** 悬浮提交节点：查询并缓存包含该提交的分支（没有分支包含时是空数组）。 */
+  async function handleHoverCommit(hash: string | null) {
+    setHoveredCommit(hash);
+    if (!hash || !workspace || commitBranchesRef.current[hash]) return;
+    try {
+      const branches = await listGitBranchesContaining(workspace, hash);
+      commitBranchesRef.current = { ...commitBranchesRef.current, [hash]: branches };
+      setCommitBranches(commitBranchesRef.current);
+    } catch {
+      // 分支信息只是补充：查询失败就留空，不打扰用户
+      commitBranchesRef.current = { ...commitBranchesRef.current, [hash]: [] };
+      setCommitBranches(commitBranchesRef.current);
+    }
+  }
+
   /** 弹出二次确认框（展示将要执行的 git 命令，可复制），返回用户是否确认。 */
-  function askGitConfirm(request: { reason: string; command: string; warning?: string }): Promise<boolean> {
+  function askGitConfirm(request: { reason: string; command: string; commandName?: string; warning?: string; optional?: boolean }): Promise<boolean> {
+    setSkipConfirmNext(false);
     return new Promise((resolve) => {
       setGitConfirm({ ...request, resolve });
     });
@@ -744,23 +778,27 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   function settleGitConfirm(confirmed: boolean) {
     const pending = gitConfirm;
     setGitConfirm(null);
+    // 勾了"不再询问"才记住：只对声明 optional 的简单可逆操作开放
+    if (confirmed && skipConfirmNext && pending?.optional && pending.commandName) {
+      skipGitConfirm(pending.commandName);
+    }
     pending?.resolve(confirmed);
   }
 
   async function handleStage(file: WorkspaceGitFile) {
-    await runMutation(() => stageGitPaths(workspace, [file.path]), t("git.stage", locale), { command: "git_stage_paths", payload: { dir: workspace, paths: [file.path] } });
+    await runMutation(() => stageGitPaths(workspace, [file.path]), t("git.stage", locale), { command: "git_stage_paths", payload: { dir: workspace, paths: [file.path] }, optional: true });
   }
 
   async function handleUnstage(file: WorkspaceGitFile) {
-    await runMutation(() => unstageGitPaths(workspace, [file.path]), t("git.unstage", locale), { command: "git_unstage_paths", payload: { dir: workspace, paths: [file.path] } });
+    await runMutation(() => unstageGitPaths(workspace, [file.path]), t("git.unstage", locale), { command: "git_unstage_paths", payload: { dir: workspace, paths: [file.path] }, optional: true });
   }
 
   async function handleStageAll() {
-    await runMutation(() => stageAllGit(workspace), t("git.stageAll", locale), { command: "git_stage_all", payload: { dir: workspace } });
+    await runMutation(() => stageAllGit(workspace), t("git.stageAll", locale), { command: "git_stage_all", payload: { dir: workspace }, optional: true });
   }
 
   async function handleUnstageAll() {
-    await runMutation(() => unstageAllGit(workspace), t("git.unstageAll", locale), { command: "git_unstage_all", payload: { dir: workspace } });
+    await runMutation(() => unstageAllGit(workspace), t("git.unstageAll", locale), { command: "git_unstage_all", payload: { dir: workspace }, optional: true });
   }
 
   async function confirmDiscard() {
@@ -1887,6 +1925,16 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
               {copiedCommand ? t("git.copied", locale) : t("git.confirmCopy", locale)}
             </button>
           </div>
+          {gitConfirm.optional && (
+            <label className="git-confirm-skip">
+              <input
+                type="checkbox"
+                checked={skipConfirmNext}
+                onChange={(event) => setSkipConfirmNext(event.target.checked)}
+              />
+              {t("git.confirmSkip", locale)}
+            </label>
+          )}
         </PopupDialog>
       )}
 

@@ -54,6 +54,10 @@ type GitTreeGraphProps = {
    */
   rowChildrenHeight?: (row: GitGraphRow) => number;
   locale?: UiLocale;
+  /** 悬浮节点时上报提交哈希（离开传 null）：宿主据此查询"包含该提交的分支"。 */
+  onHoverCommit?: (hash: string | null) => void;
+  /** 当前悬浮提交所属的分支；null/undefined 表示还在查询。 */
+  hoveredBranches?: string[] | null;
 };
 
 function formatCommitTime(timestamp: number | null, locale: UiLocale): string {
@@ -113,6 +117,8 @@ export function GitTreeGraph({
   loadingMore = false,
   markers,
   onOpenRange,
+  onHoverCommit,
+  hoveredBranches,
   expandedHashes,
   renderRowChildren,
   rowChildrenHeight,
@@ -205,6 +211,11 @@ export function GitTreeGraph({
     // 头部换了但没有可锚定的新增（历史被重写），或用户本来就在顶部：计数清零
     if (shift.headChanged || node.scrollTop === 0) setPendingAbove(0);
   }, [layout, offsets, measure]);
+
+  // 悬浮节点变化时上报，宿主机据此查询包含该提交的分支
+  useEffect(() => {
+    onHoverCommit?.(hoveredHash);
+  }, [hoveredHash, onHoverCommit]);
 
   // 底部哨兵进入视口时触发 onLoadMore：比监听滚动阈值更稳。
   useEffect(() => {
@@ -445,6 +456,18 @@ export function GitTreeGraph({
             <span>{hoveredRow.author ?? t("gitGraph.unknownAuthor", locale)}{hoveredRow.email ? ` <${hoveredRow.email}>` : ""}</span>
           </div>
           <div className="git-graph-tooltip-row">{formatCommitTime(hoveredRow.timestamp, locale)}</div>
+          <div className="git-graph-tooltip-row git-graph-tooltip-branches">
+            <span className="git-graph-tooltip-label">{t("gitGraph.branches", locale)}</span>
+            {hoveredBranches === null || hoveredBranches === undefined ? (
+              <span className="git-graph-tooltip-pending">{t("gitGraph.branchesLoading", locale)}</span>
+            ) : hoveredBranches.length === 0 ? (
+              <span className="git-graph-tooltip-pending">{t("gitGraph.branchesNone", locale)}</span>
+            ) : (
+              hoveredBranches.map((branch) => (
+                <span key={branch} className="git-graph-branch-chip">{branch}</span>
+              ))
+            )}
+          </div>
           {hoveredRow.refs.length > 0 && (
             <div className="git-graph-tooltip-row">
               {hoveredRow.refs.map((ref) => (

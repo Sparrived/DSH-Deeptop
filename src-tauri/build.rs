@@ -33,6 +33,7 @@ fn main() {
         "get_workspace_git_status",
         "git_apply_patch",
         "git_branches",
+        "git_branches_containing",
         "git_checkout_branch",
         "git_cherry_pick",
         "git_commit_amend",

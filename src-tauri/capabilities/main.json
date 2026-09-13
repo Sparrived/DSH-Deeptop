@@ -46,6 +46,7 @@
     "allow-get-workspace-git-status",
     "allow-git-apply-patch",
     "allow-git-branches",
+    "allow-git-branches-containing",
     "allow-git-checkout-branch",
     "allow-git-cherry-pick",
     "allow-git-commit",

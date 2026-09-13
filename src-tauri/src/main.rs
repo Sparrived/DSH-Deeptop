@@ -4935,6 +4935,46 @@ fn git_commit_file_diff(dir: String, hash: String, path: String) -> Result<Strin
     Ok(text)
 }
 
+/// 包含指定提交的本地与远端分支，用于悬浮卡片展示"这条提交属于哪些分支"。
+#[tauri::command(async)]
+fn git_branches_containing(dir: String, hash: String) -> Result<Vec<String>, String> {
+    let hash = validate_git_oid(&hash)?;
+    let root = git_repository_root(Path::new(&dir))?;
+    let output = git_raw_output(
+        &root,
+        &[
+            "--no-pager",
+            "branch",
+            "--all",
+            "--contains",
+            hash,
+            "--format=%(refname:short)",
+        ],
+    )?;
+    if !output.ok {
+        // 没有提交的仓库或引用已消失：没有分支包含它是正常结果
+        return Ok(Vec::new());
+    }
+    let mut locals: Vec<String> = Vec::new();
+    let mut remotes: Vec<String> = Vec::new();
+    for line in output.stdout.lines() {
+        let name = line.trim();
+        if name.is_empty() || name.ends_with("/HEAD") {
+            continue;
+        }
+        if name.contains('/') {
+            remotes.push(name.to_string());
+        } else {
+            locals.push(name.to_string());
+        }
+    }
+    locals.sort();
+    remotes.sort();
+    locals.extend(remotes);
+    locals.truncate(12);
+    Ok(locals)
+}
+
 /// 列出本地与远程分支，当前分支优先。
 #[tauri::command(async)]
 fn git_branches(dir: String) -> Result<Vec<WorkspaceGitBranch>, String> {
@@ -7721,6 +7761,7 @@ fn main() {
             git_commit_detail,
             git_commit_file_diff,
             git_branches,
+            git_branches_containing,
             git_checkout_branch,
             git_create_branch,
             git_delete_branch,

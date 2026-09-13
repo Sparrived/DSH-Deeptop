@@ -24,6 +24,8 @@ export interface DockPosition {
 }
 
 export interface DockSettings {
+  /** 用户勾选过“不再询问”的 git 写操作（后端命令名，例如 git_stage_paths）。 */
+  gitConfirmSkip?: string[];
   autoCollapseOnOutsideClick: boolean;
   /**
    * 可停靠右栏的布局快照；由 dock-layout 模块负责归一化与几何计算。
@@ -1800,6 +1802,16 @@ export async function deleteGitBranch(dir: string, name: string): Promise<GitCom
 export async function renameGitBranch(dir: string, from: string, to: string): Promise<GitCommandResult> {
   if (!isTauri()) throw new Error("Git 管理只在桌面端可用");
   return invoke<GitCommandResult>("git_rename_branch", { dir, from, to });
+}
+
+/**
+ * Branches (local first, then remotes) that contain the given commit.
+ * 悬浮卡片用它回答“这条提交属于哪些分支”；没有分支包含时返回空数组。
+ */
+export async function listGitBranchesContaining(dir: string, hash: string): Promise<string[]> {
+  if (!isTauri()) return [];
+  const result = await invoke<unknown>("git_branches_containing", { dir, hash });
+  return Array.isArray(result) ? result.filter((item): item is string => typeof item === "string") : [];
 }
 
 /** Common ancestor of two refs; null when there is none (or a ref is gone). */

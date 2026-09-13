@@ -28,6 +28,10 @@ pub struct DockSettings {
     /// 用户拖拽调整后的右栏宽度；缺失表示使用默认宽度。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rail_width: Option<u32>,
+    /// 用户勾选过"不再询问"的 git 写操作（存后端命令名，例如 `git_stage_paths`）。
+    /// 只允许简单可逆的操作进入这个列表，破坏性操作始终确认。
+    #[serde(default)]
+    pub git_confirm_skip: Vec<String>,
 }
 
 fn clamp_rail_width(value: Option<u32>) -> Option<u32> {
@@ -148,11 +152,13 @@ mod tests {
             auto_collapse_on_outside_click: true,
             layout: json!({ "root": null, "tabs": {} }),
             rail_width: Some(420),
+            git_confirm_skip: vec!["git_stage_paths".to_string()],
         })
         .unwrap();
         assert_eq!(value["autoCollapseOnOutsideClick"], true);
         assert_eq!(value["layout"]["tabs"], json!({}));
         assert_eq!(value["railWidth"], 420);
+        assert_eq!(value["gitConfirmSkip"], json!(["git_stage_paths"]));
     }
 
     #[test]
@@ -200,12 +206,14 @@ mod tests {
             auto_collapse_on_outside_click: false,
             layout: json!({}),
             rail_width: Some(80),
+            git_confirm_skip: Vec::new(),
         });
         assert_eq!(settings.rail_width, Some(260));
         let settings = sanitize(DockSettings {
             auto_collapse_on_outside_click: false,
             layout: json!({}),
             rail_width: Some(2_000),
+            git_confirm_skip: Vec::new(),
         });
         assert_eq!(settings.rail_width, Some(960));
         assert_eq!(sanitize(DockSettings::default()).rail_width, None);

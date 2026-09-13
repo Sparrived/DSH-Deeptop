@@ -93,6 +93,9 @@ type DockSettingsContextValue = {
   tabElements: Readonly<Record<string, HTMLElement>>;
   railWidth: number;
   setRailWidth: (width: number) => void;
+  /** 勾选过"不再询问"的 git 写操作（后端命令名）。 */
+  gitConfirmSkip: readonly string[];
+  skipGitConfirm: (command: string) => void;
   resetRailWidth: () => void;
 };
 
@@ -106,11 +109,26 @@ function nextDockId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${dockIdCounter.toString(36)}`;
 }
 
+/** 只接受后端命令名形状的短字符串，去重并限量，避免配置文件被写花。 */
+function normalizeGitConfirmSkip(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const name = item.trim();
+    if (!name || name.length > 64 || !/^[a-z][a-z0-9_]*$/u.test(name) || name.startsWith("git_discard")) continue;
+    seen.add(name);
+    if (seen.size >= 32) break;
+  }
+  return [...seen];
+}
+
 function normalizeSettings(settings: Partial<DockSettings> | null | undefined): DockSettings {
   return {
     autoCollapseOnOutsideClick: settings?.autoCollapseOnOutsideClick === true,
     layout: normalizeDockLayout(settings?.layout),
     railWidth: clampDockRailWidth(settings?.railWidth),
+    gitConfirmSkip: normalizeGitConfirmSkip(settings?.gitConfirmSkip),
   };
 }
 
@@ -327,6 +345,19 @@ export function DockSettingsProvider({ children }: { children: ReactNode }) {
       });
   }, [persist]);
 
+  const skipGitConfirm = useCallback((command: string) => {
+    const next = normalizeGitConfirmSkip([...(settingsRef.current.gitConfirmSkip ?? []), command]);
+    const target = normalizeSettings({ ...settingsRef.current, gitConfirmSkip: next });
+    settingsRef.current = target;
+    setSettings(target);
+    persistenceRef.current = persistenceRef.current
+      .catch(() => undefined)
+      .then(() => persist(target))
+      .catch((error) => {
+        console.error("保存 git 确认偏好失败", error);
+      });
+  }, [persist]);
+
   const panes = useMemo(() => collectDockPanes(layout.root), [layout]);
   const railWidth = clampDockRailWidth(settings.railWidth) ?? DOCK_RAIL_DEFAULT_WIDTH;
 
@@ -354,6 +385,8 @@ export function DockSettingsProvider({ children }: { children: ReactNode }) {
     registerTabElement,
     registerRailElement,
     tabElements,
+    gitConfirmSkip: settings.gitConfirmSkip ?? [],
+    skipGitConfirm,
     railWidth,
     setRailWidth,
     resetRailWidth,
