@@ -1528,6 +1528,8 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                     loadingMore={graphLoadingMore}
                     markers={graphMarkers}
                     onOpenRange={openRangeTab}
+                    onHoverCommit={(hash) => void handleHoverCommit(hash)}
+                    hoveredBranches={hoveredCommit ? commitBranches[hoveredCommit] ?? null : null}
                     expandedHashes={expandedCommits}
                     renderRowChildren={renderCommitChildren}
                     rowChildrenHeight={commitChildrenHeight}

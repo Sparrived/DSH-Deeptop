@@ -212,10 +212,13 @@ export function GitTreeGraph({
     if (shift.headChanged || node.scrollTop === 0) setPendingAbove(0);
   }, [layout, offsets, measure]);
 
-  // 悬浮节点变化时上报，宿主机据此查询包含该提交的分支
+  // 悬浮节点变化时上报，宿主据此查询"包含该提交的分支"。
+  // 回调放 ref：宿主常传内联函数，直接当依赖会让 effect 每次渲染都重跑。
+  const hoverCommitRef = useRef(onHoverCommit);
+  hoverCommitRef.current = onHoverCommit;
   useEffect(() => {
-    onHoverCommit?.(hoveredHash);
-  }, [hoveredHash, onHoverCommit]);
+    hoverCommitRef.current?.(hoveredHash);
+  }, [hoveredHash]);
 
   // 底部哨兵进入视口时触发 onLoadMore：比监听滚动阈值更稳。
   useEffect(() => {
