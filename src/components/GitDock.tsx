@@ -1224,7 +1224,6 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
       title="Git"
       kicker={t("git.kicker", locale)}
        icon={<GitBranch />}
-      total={t("git.totalChanges", locale, { count: totalChanges })}
        toggleGlyph={<ChevronLeft />}
       onToggle={onToggle}
       railClassName="git-dock-rail"
@@ -1235,7 +1234,6 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
       headingClassName="git-dock-heading"
       kickerClassName="git-dock-kicker"
       headerActionsClassName="git-dock-header-actions"
-      totalClassName="git-dock-total"
       toggleClassName="git-dock-toggle"
       bodyClassName="git-dock-body"
     >

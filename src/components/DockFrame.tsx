@@ -36,6 +36,7 @@ type DockFrameProps = {
   icon: ReactNode;
   railExtra?: ReactNode;
   keepBodyMounted?: boolean;
+  /** 计数只用于嵌入式头部（工具区标签页）；浮动/停靠卡片头部不显示计数文字。 */
   total?: ReactNode;
   toggleGlyph?: ReactNode;
   headerContent?: ReactNode;
@@ -440,31 +441,29 @@ export function DockFrame({
               {headerContent}
             </div>
           </div>
-          <button
-            className={joinClasses("dock-frame-toggle", toggleClassName)}
-            type="button"
-            onClick={onToggle}
-            aria-controls={contentId}
-            aria-expanded={!collapsed}
-            aria-label={t("dock.collapse", locale, { label })}
-            title={t("dock.collapse", locale, { label })}
-          >
-            <span aria-hidden="true">{toggleGlyph}</span>
-          </button>
-        </div>
-        <div className={joinClasses("dock-frame-toolbar", headerActionsClassName)} role="group" aria-label={t("dock.toolbarAria", locale, { label })}>
-          {total !== undefined && <span className={joinClasses("dock-frame-total", totalClassName)}>{total}</span>}
-          <span className="dock-frame-toolbar-spacer" aria-hidden="true" />
-          <span className="dock-frame-drag-hint" aria-hidden="true">{t("dock.dragToRail", locale)}</span>
-          <button
-            className="dock-frame-reset"
-            type="button"
-            onClick={handleResetPosition}
-            aria-label={t("dock.resetPosition", locale)}
-            title={t("dock.resetPosition", locale)}
-          >
-            <RotateCcw aria-hidden="true" />
-          </button>
+          {/* 标题行动作组：还原位置紧挨收起钮左侧，两者同一行，动作不再另起一行。 */}
+          <div className={joinClasses("dock-frame-titlebar-actions", headerActionsClassName)} role="group" aria-label={t("dock.toolbarAria", locale, { label })}>
+            <button
+              className="dock-frame-reset"
+              type="button"
+              onClick={handleResetPosition}
+              aria-label={t("dock.resetPosition", locale)}
+              title={t("dock.resetPosition", locale)}
+            >
+              <RotateCcw aria-hidden="true" />
+            </button>
+            <button
+              className={joinClasses("dock-frame-toggle", toggleClassName)}
+              type="button"
+              onClick={onToggle}
+              aria-controls={contentId}
+              aria-expanded={!collapsed}
+              aria-label={t("dock.collapse", locale, { label })}
+              title={t("dock.collapse", locale, { label })}
+            >
+              <span aria-hidden="true">{toggleGlyph}</span>
+            </button>
+          </div>
         </div>
       </header>
       {/* 正文槽：内容节点由上面的 effect 挂进来，React 不参与这里的子节点。 */}

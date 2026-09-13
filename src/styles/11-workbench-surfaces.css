@@ -62,8 +62,8 @@
   transform: translate3d(var(--dock-position-x, 0px), var(--dock-position-y, 0px), 0);
 }
 
-/* 两层头部：外壳只管配色/边框（主题化头部见各 dock 与 15-final-overrides 的收窄规则），
-   标题行放图标+标题+收起钮，工具条放计数与还原，避免按钮增多挤压标题文字。 */
+/* 头部：外壳只管配色/边框（主题化头部见各 dock 与 15-final-overrides 的收窄规则），
+   单行标题栏放图标+标题+还原+收起；嵌入式头部另外用工具条放计数与关闭。 */
 .dock-frame-header {
   min-width: 0;
   display: flex;
@@ -75,18 +75,26 @@
   user-select: none;
 }
 .dock-frame-header-dragging { cursor: grabbing; }
+/* 单行标题栏：上下留白对称，动作组与标题同一行（嵌入式头部在 22-utility-panel 里另行覆写）。 */
 .dock-frame-titlebar {
   min-width: 0;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
-  padding: 13px 10px 4px 14px;
+  padding: 8px 10px 12px 14px;
 }
 .dock-frame-heading { min-width: 0; flex: 1 1 auto; display: flex; align-items: flex-start; gap: 10px; }
 .dock-frame-titles { min-width: 0; flex: 1 1 auto; }
 .dock-frame-header h2 { margin: 0; color: var(--ink-strong); font-size: 16px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dock-frame-kicker { display: block; margin-bottom: 3px; max-width: 100%; color: var(--ink-faint); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 还原与收起并排成组：不换行、不被标题挤压。 */
+.dock-frame-titlebar-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .dock-frame-toolbar {
   min-width: 0;
   display: flex;
@@ -95,7 +103,6 @@
   padding: 5px 10px 10px 14px;
 }
 .dock-frame-toolbar .dock-frame-total { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.dock-frame-toolbar-spacer { flex: 1 1 auto; min-width: 8px; }
 .dock-frame-total { color: var(--accent-deep); font-family: var(--mono); font-size: 13px; font-weight: 700; white-space: nowrap; }
 .dock-frame-toggle,
 .dock-frame-reset {
@@ -113,20 +120,6 @@
 .dock-frame-toggle { font-size: 18px; }
 .dock-frame-toggle:hover,
 .dock-frame-reset:hover { border-color: var(--accent); color: var(--accent-deep); }
-
-/* 未停靠面板的标题栏提示：固定动作靠拖拽完成，没有单独的按钮。
-   面板进入停靠后这段提示与浮动卡片一起消失。 */
-.dock-frame-drag-hint {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 10px;
-  letter-spacing: 0.02em;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.dock-frame-header-dragging .dock-frame-drag-hint { color: var(--accent-deep); }
 
 /* 已停靠的面板：内容由右栏承载，窄栏入口只表示“已固定”。 */
 .dock-frame.docked-to-rail .dock-frame-rail { border-color: var(--accent); color: var(--accent-deep); }

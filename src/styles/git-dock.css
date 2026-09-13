@@ -61,7 +61,6 @@
 .git-dock-kicker { display: block; margin-bottom: 3px; color: var(--ink-faint); font-size: 11px; }
 .git-dock-header h2 { margin: 0; color: var(--ink-strong); font-size: 16px; line-height: 1.35; }
 .git-dock-header-actions { display: flex; align-items: center; gap: 8px; }
-.git-dock-total { color: var(--accent-deep); font-family: var(--mono); font-size: 13px; font-weight: 700; }
 .git-dock-toggle {
   width: 30px;
   height: 30px;

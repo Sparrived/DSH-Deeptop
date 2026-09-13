@@ -391,7 +391,6 @@ export function TerminalDock({ workspace, collapsed, locale = "zh", onToggle, on
       title={t("terminal.title", locale)}
       kicker={t("terminal.kicker", locale)}
        icon={<TerminalSquare />}
-      total={tabs.length > 0 ? t("terminal.tabCount", locale, { count: tabs.length }) : terminals.length > 0 ? t("terminal.count", locale, { count: terminals.length }) : undefined}
        toggleGlyph={<ChevronLeft />}
       onToggle={onToggle}
       railClassName="terminal-panel-rail"
@@ -402,7 +401,6 @@ export function TerminalDock({ workspace, collapsed, locale = "zh", onToggle, on
       headingClassName="terminal-panel-heading"
       kickerClassName="terminal-panel-kicker"
       headerActionsClassName="terminal-panel-header-actions"
-      totalClassName="terminal-panel-total"
       toggleClassName="terminal-panel-toggle"
       bodyClassName="terminal-panel-body"
     >
