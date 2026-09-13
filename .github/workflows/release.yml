@@ -34,7 +34,7 @@ jobs:
   prepare:
     name: Validate release version
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       version: ${{ steps.version.outputs.version }}
@@ -59,6 +59,12 @@ jobs:
 
       - name: Install npm dependencies
         run: npm ci
+
+      - name: Enable Corepack for DSH source build
+        run: corepack enable
+
+      - name: Build and verify embedded DSH runtime
+        run: npm run dsh:sync && npm run dsh:verify
 
       - name: Run JavaScript tests
         run: npm test
