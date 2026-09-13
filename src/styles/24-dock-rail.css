@@ -198,13 +198,16 @@ body.dock-tab-dragging * {
   overflow: hidden;
 }
 
+/* 标签栏顶部不再叠加内边距：标签到右栏顶部与到右栏左侧的距离因此一致（都取自
+   .dock-rail 的内边距），标签左右边缘也和下方正文卡片对齐。底部 5px 是标签与
+   正文卡片之间的空隙。 */
 .dock-rail-tabbar {
   display: flex;
   flex: 0 0 auto;
   align-items: stretch;
   gap: 2px;
   min-width: 0;
-  padding: 4px 4px 6px;
+  padding: 0 4px 5px;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
