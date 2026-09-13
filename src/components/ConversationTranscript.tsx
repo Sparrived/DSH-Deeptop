@@ -622,8 +622,12 @@ export const ReasoningEntry = memo(function ReasoningEntry({ text, streaming, lo
         <span className="reasoning-marker">{streaming ? t("conversation.reasoning.running", locale) : "Think"}</span>
         <em>{summary}</em>
       </button>
+      {/* 折叠动画的 grid 行只能被没有内边距的项压到 0 高，正文连内边距一起放在
+          裁剪层内部，折叠/展开时才不会漏出十几像素的正文。 */}
       <div className="reasoning-collapse">
-        <div className="reasoning-body"><pre aria-live="off" ref={attachBodyRef} /></div>
+        <div className="reasoning-clip">
+          <div className="reasoning-body"><pre aria-live="off" ref={attachBodyRef} /></div>
+        </div>
       </div>
     </div>
   );
@@ -1260,7 +1264,9 @@ export function ConversationTranscript({
                       {stepSummary && <span className="turn-steps-breakdown">{stepSummary}</span>}
                     </button>
                     <div className="turn-steps-collapse">
-                      <div className="turn-steps-body">{group.steps.map(renderTranscriptItem)}</div>
+                      <div className="turn-steps-clip">
+                        <div className="turn-steps-body">{group.steps.map(renderTranscriptItem)}</div>
+                      </div>
                     </div>
                   </div>
                 )}

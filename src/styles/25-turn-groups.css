@@ -16,6 +16,7 @@
 .reasoning-collapse {
   display: grid;
   grid-template-rows: 1fr;
+  overflow: hidden;
   transition: grid-template-rows var(--motion-standard) var(--motion-ease-enter);
 }
 
@@ -24,8 +25,10 @@
   grid-template-rows: 0fr;
 }
 
-.turn-steps-collapse > .turn-steps-body,
-.reasoning-collapse > .reasoning-body {
+/* 裁剪层是 grid 项：它自己没有内边距，`min-height: 0` 才能让 0fr 行真正归零。
+   内边距留在它内部的正文上，折叠时连内边距一起被裁掉，展开过程也照常过渡。 */
+.turn-steps-collapse > .turn-steps-clip,
+.reasoning-collapse > .reasoning-clip {
   min-height: 0;
   overflow: hidden;
 }
@@ -119,7 +122,7 @@
 }
 
 /* 展开后步骤留一条左侧引导线，标示它们属于同一轮的中间工作。 */
-.turn-steps[data-open="true"] > .turn-steps-collapse > .turn-steps-body > .message-row {
+.turn-steps[data-open="true"] > .turn-steps-collapse > .turn-steps-clip > .turn-steps-body > .message-row {
   margin-left: 2px;
   padding: 14px 0 16px 12px;
   border-left: 1px solid var(--line-strong);
