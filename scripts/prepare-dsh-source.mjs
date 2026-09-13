@@ -7,7 +7,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourceRoot = path.join(root, "vendor", "dsh");
 const publicBase = "183f08e9c6dde7e36cd2318eaee70b0da08fb35e";
 const publicTag = "dsh-v0.1.5-rc.1";
-const patchedCommit = "686b1bcab520f083adbd9380b1ba7617648b2f10";
+const patchedCommit = "9a3e4ba654ffce5016f7c4f7df9f882bcf56fd1d";
 const upstream = "https://github.com/deepseek-ai/deepseek-harness.git";
 
 // The vendored runtime ships seven local commits on top of 0.1.5-rc.1.
@@ -124,27 +124,32 @@ const patches = [
   },
   {
     file: "dsh-session-title-without-thinking.patch",
-    commit: "686b1bcab520f083adbd9380b1ba7617648b2f10",
+    commit: "9a3e4ba654ffce5016f7c4f7df9f882bcf56fd1d",
     authorName: "Sparrived",
     authorEmail: "sparrived@outlook.com",
-    authorDate: "2026-09-13T14:10:08+08:00",
-    committerDate: "2026-09-13T14:10:08+08:00",
+    authorDate: "2026-09-13T14:28:27+08:00",
+    committerDate: "2026-09-13T14:28:27+08:00",
     message: [
       "fix(session-title): 标题请求不再继承部署思考档位",
       "",
       "改动：pi-ai 适配器在 purpose 为 session-title 时不再套用请求或供应商配置的",
-      "reasoning 档位，交由 pi-ai 落到该模型自身的 off 状态；base bundle 的",
-      "session-title-llm.maxOutputTokens 由 64 提高到 2048。",
+      "reasoning 档位，交由 pi-ai 落到该模型自身的 off 状态。标题输出上限保持 base",
+      "bundle 的 64 不变。",
       "",
-      "原因：标题辅助请求只为一句话标题而发，却会继承供应商的思考档位，而部分网关",
-      "默认开启思考并忽略客户端的 thinking: disabled。上限被思考前导吃光后模型不再",
-      "输出正文，自动标题以 max-tokens 失败，会话只能停在首条消息的确定性回退上；",
-      "实测同一路由上思考前导可达 700 余 token，64 的上限必然失败。",
+      "原因：标题辅助请求只为一句话标题而发，却会继承供应商的思考档位；部署一旦配置",
+      "reasoning（如 reasoning: high），标题请求会带着 thinking: enabled 发出，64",
+      "token 的上限被思考前导吃光后模型不再输出正文，自动标题以 max-tokens 失败，会话",
+      "只能停在首条消息的确定性回退上。llm-deepseek 适配器一直对同一 purpose 关闭思考，",
+      "pi-ai 路由此前缺这一档。",
       "",
-      "验证：llm-pi-ai adapter.spec.ts 327 项通过（新增标题请求保持 off 的用例，移除",
-      "修复后该用例失败；标题请求默认档位下由 thinking: enabled 变为 thinking:",
-      "disabled）；session-title-llm llm.spec.ts 13 项通过（新增思考前导后取正文的",
-      "用例）；tsc -b packages/llm/llm-pi-ai 通过；base bundle 2 项通过。",
+      "已知限制：网关默认开启思考且忽略客户端的 thinking: disabled 时，客户端无法关闭",
+      "思考，64 上限仍可能被思考前导吃光。这类部署需要把标题请求指向不思考的模型",
+      "（session-title-llm 配置的 provider/model），而不是抬高输出上限。",
+      "",
+      "验证：llm-pi-ai adapter.spec.ts 51 项通过（新增标题请求保持 off 的用例，移除修复",
+      "后该用例失败：thinking 由 disabled 变 enabled 且带 reasoning_effort）；llm-pi-ai",
+      "全套 327 项、session-title* 66 项、base bundle 2 项通过；tsc -b",
+      "packages/llm/llm-pi-ai 通过。",
       "",
     ].join("\n"),
   },
