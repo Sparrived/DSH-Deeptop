@@ -1,6 +1,7 @@
 import type { DshHistoryEntry, DshSessionEvent } from "../lib/desktop";
 import { toolApprovalLabel, type ToolApprovalOutcome } from "./permission-audit.ts";
 import { displayToolName } from "./tool-call-display.ts";
+import { PTC_DISPATCH_EVENT, PTC_DISPATCH_START_EVENT, readPtcDispatch } from "./ptc-program.ts";
 import { t, type UiLocale } from "./i18n.ts";
 
 export type TrajectoryKind = "system" | "user" | "context" | "assistant" | "tool" | "turn" | "approval";
@@ -20,6 +21,13 @@ export type TrajectoryRecord = {
   startedAt?: number;
   durationMs?: number | null;
   callId?: string;
+  /**
+   * PTC 子调用所属的 `run_code` 调用 id。有值时这条记录是程序内部的一次调用，
+   * 在账本里缩进显示，序号与对话栏程序 gutter 上的标记一致。
+   */
+  parentCallId?: string;
+  /** 该子调用在所属程序内的提交序号（1-based）。 */
+  subIndex?: number;
   argumentsText?: string;
   resultText?: string;
   resultError?: boolean;
@@ -322,6 +330,8 @@ export function buildTrajectoryRecords(entries: DshHistoryEntry[], locale: UiLoc
   const tools = new Map<string, string>();
   const compactions = new Map<string, CompactionState>();
   const approvals = new Map<string, ApprovalState>();
+  // PTC：`run_code` 调用 id → 该程序内部子调用记录的 key（提交顺序）。
+  const ptcChildren = new Map<string, string[]>();
   const turnStarts = new Map<number, number>();
   const stepStarts = new Map<string, number>();
   let currentTurn: number | undefined;
@@ -562,6 +572,51 @@ export function buildTrajectoryRecords(entries: DshHistoryEntry[], locale: UiLoc
       continue;
     }
 
+    if (event.type === PTC_DISPATCH_START_EVENT || event.type === PTC_DISPATCH_EVENT) {
+      const dispatch = readPtcDispatch(event, locale);
+      if (!dispatch) continue;
+      const key = `ptc-${dispatch.subCallId}`;
+      const children = ptcChildren.get(dispatch.rootCallId) ?? [];
+      if (!children.includes(key)) {
+        children.push(key);
+        ptcChildren.set(dispatch.rootCallId, children);
+      }
+      const current = records.get(key);
+      const settled = dispatch.settled;
+      const startedAt = current?.startedAt ?? dispatch.startedAt;
+      const resultText = settled ? dispatch.resultText : undefined;
+      put({
+        key,
+        seq: current?.seq ?? event.seq,
+        time: current?.time ?? event.time,
+        kind: "tool",
+        status: settled ? (dispatch.error ? "error" : "complete") : "running",
+        title: displayToolName(dispatch.name),
+        summary: settled
+          ? dispatch.error
+            ? t("trajectory.tool.error", locale)
+            : preview(resultText || t("trajectory.result.noContent", locale))
+          : t("trajectory.tool.waitingResult", locale),
+        detail: pretty({
+          name: dispatch.name,
+          arguments: dispatch.argsText,
+          parentCallId: dispatch.parentCallId,
+          subCallId: dispatch.subCallId,
+          result: resultText,
+        }),
+        turn,
+        step,
+        callId: dispatch.subCallId,
+        parentCallId: dispatch.rootCallId,
+        subIndex: current?.subIndex ?? children.length,
+        ...(dispatch.argsText === "" ? {} : { argumentsText: pretty(dispatch.argsText) }),
+        ...(resultText === undefined ? {} : { resultText, resultError: dispatch.error }),
+        ...(startedAt === undefined ? {} : { startedAt }),
+        durationMs: durationMs(startedAt, dispatch.settledAt),
+      });
+      continue;
+    }
+
     if (event.type === "step/end") {
       const key = stepKey(turn, step, event.seq);
       const state = assistants.get(key);
@@ -655,6 +710,24 @@ export function buildTrajectoryRecords(entries: DshHistoryEntry[], locale: UiLoc
         step,
       });
     }
+  }
+
+  // 父 `run_code` 记录改报程序内部的情况：程序自己的输出留在检查器里，账本上的这一行
+  // 要能直接读出「程序里跑了几次调用、失败几次」。
+  for (const [rootCallId, childKeys] of ptcChildren) {
+    const parentKey = tools.get(rootCallId);
+    if (parentKey === undefined || !records.has(parentKey)) continue;
+    const children = childKeys
+      .map((key) => records.get(key))
+      .filter((record): record is TrajectoryRecord => record !== undefined);
+    if (children.length === 0) continue;
+    const failures = children.filter((child) => child.status === "error").length;
+    patch(parentKey, {
+      summary: [
+        t("trajectory.ptc.calls", locale, { count: children.length }),
+        failures > 0 ? t("trajectory.ptc.failures", locale, { count: failures }) : "",
+      ].filter(Boolean).join(" · "),
+    });
   }
 
   return order

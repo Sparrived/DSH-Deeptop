@@ -114,7 +114,7 @@ export function TrajectoryView({ entries, active, locale = "zh" }: { entries: Ds
                     const left = ((record.time - firstTime) / timeRange) * 100;
                     const width = Math.max(0.7, ((record.durationMs ?? 0) / timeRange) * 100);
                     const style: CSSProperties = { left: `${Math.min(99.3, Math.max(0, left))}%`, width: `${Math.min(100, width)}%` };
-                    return <button className={`trajectory-overview-mark ${record.kind} ${record.status}`} key={record.key} style={style} onClick={() => setSelectedKey(record.key)} title={`#${index + 1} ${record.title}`} aria-label={t("trajectory.selectRecordAria", locale, { index: index + 1 })} />;
+                    return <button className={`trajectory-overview-mark ${record.kind}${record.parentCallId ? " sub" : ""} ${record.status}`} key={record.key} style={style} onClick={() => setSelectedKey(record.key)} title={`#${index + 1} ${record.title}`} aria-label={t("trajectory.selectRecordAria", locale, { index: index + 1 })} />;
                   })}
                 </div>
               ))}
@@ -141,8 +141,9 @@ export function TrajectoryView({ entries, active, locale = "zh" }: { entries: Ds
                   const index = (recordIndex.get(record.key) ?? 0) + 1;
                   const selectedRow = selectedKey === record.key;
                   return (
-                    <button className={`trajectory-record ${record.kind} ${record.status} ${selectedRow ? "selected" : ""}`} key={record.key} onClick={() => setSelectedKey(record.key)} role="listitem" aria-pressed={selectedRow}>
-                      <span className="trajectory-record-index">#{index}</span>
+                    <button className={`trajectory-record ${record.kind} ${record.status} ${record.parentCallId ? "is-sub" : ""} ${selectedRow ? "selected" : ""}`} key={record.key} onClick={() => setSelectedKey(record.key)} role="listitem" aria-pressed={selectedRow}>
+                      {/* 程序内部调用显示它在程序里的提交序号，与对话栏 gutter 标记同号。 */}
+                      <span className="trajectory-record-index" title={`#${index}`}>{record.parentCallId ? `↳${record.subIndex ?? ""}` : `#${index}`}</span>
                       <span className="trajectory-record-kind">{kindLabel(record.kind, locale)}</span>
                       <span className="trajectory-record-main"><strong>{record.title}{record.step === undefined ? "" : ` · Step ${record.step}`}</strong><span>{record.summary}</span></span>
                       <span className="trajectory-record-meta"><em>{statusLabel(record.status, locale)}</em><time>{durationLabel(record.durationMs, locale)}</time></span>
@@ -165,6 +166,7 @@ export function TrajectoryView({ entries, active, locale = "zh" }: { entries: Ds
               {selected.turn !== undefined && <div><dt>{t("trajectory.meta.position", locale)}</dt><dd>Turn {selected.turn}{selected.step === undefined ? "" : ` / Step ${selected.step}`}</dd></div>}
               <div><dt>{t("trajectory.meta.duration", locale)}</dt><dd>{durationLabel(selected.durationMs, locale)}</dd></div>
               {selected.callId && <div><dt>{t("trajectory.meta.callId", locale)}</dt><dd>{selected.callId}</dd></div>}
+              {selected.parentCallId && <div><dt>{t("trajectory.meta.parentCall", locale)}</dt><dd>{selected.parentCallId}</dd></div>}
             </dl>
             <div className="trajectory-inspector-block"><span>{t("trajectory.block.summary", locale)}</span><p>{selected.summary}</p></div>
             {selected.argumentsText && <div className="trajectory-inspector-block"><span>{t("trajectory.block.arguments", locale)}</span><pre>{selected.argumentsText}</pre></div>}

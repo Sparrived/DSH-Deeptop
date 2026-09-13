@@ -15,6 +15,9 @@ type MarkdownEntityActions = {
   onOpenUrl?: (url: string) => void | Promise<void>;
 };
 import { TrajectoryView } from "./TrajectoryView";
+import { PtcProgramView } from "./PtcProgramView";
+import type { PtcProgram } from "../app/ptc-program";
+import { durationLabel } from "../app/trajectory";
 import { isResultDomainCard, toolDomainCard, type ToolDomainCard } from "../app/tool-domain";
 import { ToolArgsView } from "../app/tool-args-render";
 import { displayToolName, hasVisibleToolArguments, parseToolArgs, toolArgsLayout, toolCallEditDiff, toolCallSummary } from "../app/tool-call-display";
@@ -132,6 +135,38 @@ function formatToolCall(text: string) {
 }
 
 /**
+ * PTC 折叠条尾部的统计串：调用数 · 并行峰值 · 失败数 · 程序总耗时。
+ * 只列出真实存在的数字：没有并行、没有失败、耗时未定时都不占位。
+ *
+ * @param program - 该行的 PTC 执行视图。
+ * @param locale - 界面语言。
+ * @returns 供折叠条尾部显示的统计串。
+ */
+export function programStatsText(program: PtcProgram, locale: UiLocale): string {
+  const { stats } = program;
+  const parts = [t("conversation.ptc.calls", locale, { count: stats.calls })];
+  if (stats.parallel >= 2) parts.push(t("conversation.ptc.parallel", locale, { count: stats.parallel }));
+  if (stats.failures > 0) parts.push(t("conversation.ptc.failures", locale, { count: stats.failures }));
+  if (stats.spanMs !== undefined) parts.push(durationLabel(stats.spanMs, locale));
+  return parts.join(" · ");
+}
+
+/**
+ * 程序执行中：折叠条尾显示正在派发的那次调用与进度。
+ *
+ * @param program - 该行的 PTC 执行视图。
+ * @param locale - 界面语言。
+ * @returns 形如「bash · ls · 3/5」的运行中摘要。
+ */
+export function programTickerText(program: PtcProgram, locale: UiLocale): string {
+  const active = program.active;
+  const done = program.stats.calls - program.stats.running;
+  const progress = t("conversation.ptc.ticker", locale, { done, total: program.stats.calls });
+  if (!active) return progress;
+  return [displayToolName(active.name), active.summary, progress].filter(Boolean).join(" · ");
+}
+
+/**
  * 工具行渲染:
  *   - 默认展示「可视化卡片」:`ToolArgsView` 解析参数,`ToolResultView` 解析结果
  *   - 每个 part 顶部都有「查看原文」按钮,可独立切换回原始 JSON/文本
@@ -164,7 +199,10 @@ function ToolEntryView({
   const args = useMemo(() => parseToolArgs(item.text), [item.text]);
   const description = toolCallSummary(item.toolName, args);
   const argsLayout = toolArgsLayout(item.toolName, args ?? {});
-  const hasVisibleArgs = hasVisibleToolArguments(item.toolName, args) || (args === undefined && Boolean(item.text.trim()));
+  // PTC 行：程序内部每次子调用都在 item.program 里，参数区改成「程序 / 执行」双栏，
+  // 结果区继续渲染程序自己打印与返回的内容。
+  const program = item.program;
+  const hasVisibleArgs = Boolean(program) || hasVisibleToolArguments(item.toolName, args) || (args === undefined && Boolean(item.text.trim()));
   const editDiff = args ? toolCallEditDiff(item.toolName, args) : undefined;
   const displayName = displayToolName(item.toolName);
 
@@ -178,7 +216,7 @@ function ToolEntryView({
   return (
     <DisclosureEntry
       base="tool-entry"
-      className={`tool-status-${toolStatus} tool-layout-${argsLayout} ${hasToolResult && hasVisibleArgs ? "tool-paired" : ""} ${!hasVisibleArgs ? "tool-result-only" : ""} ${item.toolResultError ? "tool-error" : ""}`}
+      className={`tool-status-${toolStatus} tool-layout-${argsLayout}${program ? " tool-layout-program" : ""} ${hasToolResult && hasVisibleArgs ? "tool-paired" : ""} ${!hasVisibleArgs ? "tool-result-only" : ""} ${item.toolResultError ? "tool-error" : ""}`}
       data-tool-status={toolStatus}
       open={open}
       onToggle={() => setOpen((value) => !value)}
@@ -186,14 +224,16 @@ function ToolEntryView({
         <span className="tool-summary-main"><span className="tool-state" aria-hidden="true" /><span className="tool-name">{displayName}</span></span>
         {description && <span className="tool-description">{description}</span>}
         {diff && <span className="tool-diff-badge" key={`${item.key}-diff-${diff.added}-${diff.removed}`} aria-label={t("conversation.tool.diffAria", locale, { added: diff.added, removed: diff.removed })}><b>+{diff.added}</b><b>-{diff.removed}</b></span>}
-        <span className={`tool-status ${toolStatus}`}><span className="tool-status-dot" aria-hidden="true" />{item.toolResultError ? t("conversation.tool.error", locale) : hasToolResult ? t("conversation.tool.returned", locale) : t("conversation.tool.running", locale)}</span>
+        <span className={`tool-status ${toolStatus}`}><span className="tool-status-dot" aria-hidden="true" />{item.toolResultError ? t("conversation.tool.error", locale) : hasToolResult ? t("conversation.tool.returned", locale) : t("conversation.tool.running", locale)}{program && <span className={`ptc-stats${program.active ? " live" : ""}`}>{program.active && <span className="ptc-ticker-dot" aria-hidden="true" />}{program.active ? programTickerText(program, locale) : programStatsText(program, locale)}</span>}</span>
         <span className="tool-toggle" aria-hidden="true" />
       </>}
     >
       <div className="tool-parts">
         {item.domainCard && !isResultDomainCard(item.domainCard) && <section className="tool-part tool-domain-part"><div className="tool-part-label"><span>{t("conversation.tool.domainView", locale)}</span></div><ToolDomainCardView card={item.domainCard} locale={locale} onOpenUrl={onOpenUrl} /></section>}
-        {hasVisibleArgs && <section className="tool-part tool-call-part">
-          <div className="tool-part-label">
+        {hasVisibleArgs && <section className={`tool-part tool-call-part${program ? " tool-program-part" : ""}`}>
+          {/* 程序行的分栏自带头部（程序 / 执行 + 各自的计数与调用时间），这里再放一层
+              「程序」标签只会把同一个词说两遍。 */}
+          {!program && <div className="tool-part-label">
             <span>{t("conversation.tool.callArgs", locale)}</span>
             <div className="tool-part-label-right">
               <time>{formatClock(item.time)}</time>
@@ -204,10 +244,12 @@ function ToolEntryView({
                 aria-pressed={showRawArgs}
               >{showRawArgs ? t("conversation.tool.collapseRaw", locale) : t("conversation.tool.viewRaw", locale)}</button>
             </div>
-          </div>
-          {showRawArgs
-            ? <pre className="tool-call-arguments">{formatToolCall(item.text)}</pre>
-            : <ToolArgsView text={item.text} toolName={item.toolName} args={args} locale={locale} onOpenPath={onOpenPath} onOpenUrl={onOpenUrl} />}
+          </div>}
+          {program
+            ? <PtcProgramView program={program} locale={locale} open={open} timeLabel={formatClock(item.time)} onOpenPath={onOpenPath} onOpenUrl={onOpenUrl} />
+            : showRawArgs
+              ? <pre className="tool-call-arguments">{formatToolCall(item.text)}</pre>
+              : <ToolArgsView text={item.text} toolName={item.toolName} args={args} locale={locale} onOpenPath={onOpenPath} onOpenUrl={onOpenUrl} />}
           {item.toolDiff
             ? <DiffResult diff={item.toolDiff} locale={locale} />
             : editDiff && <EditCallDiff {...editDiff} locale={locale} />}
@@ -231,7 +273,7 @@ function ToolEntryView({
             {item.toolResultText !== undefined && (
               showRawResult
                 ? <pre>{item.toolResultText}</pre>
-                : <ToolResultView text={item.toolResultText} locale={locale} />
+                  : <ToolResultView text={item.toolResultText} locale={locale} />
             )}
           </section>
         )}
@@ -331,6 +373,40 @@ function sameDomainCard(left: ToolDomainCard | undefined, right: ToolDomainCard 
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+/**
+ * PTC 执行视图的值比较。
+ *
+ * 每次 transcript 重建都会为同一批事件生成新的视图对象，逐字段比较让未变化的行继续
+ * 命中 memo：折叠条读 stats/active，正文读每个调用的状态、耗时与结果。
+ */
+function sameProgram(left: PtcProgram | undefined, right: PtcProgram | undefined) {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  if (left.lines.length !== right.lines.length
+    || left.unplaced.length !== right.unplaced.length
+    || left.caughtFailures !== right.caughtFailures
+    || left.active?.callId !== right.active?.callId
+    || left.stats.calls !== right.stats.calls
+    || left.stats.failures !== right.stats.failures
+    || left.stats.running !== right.stats.running
+    || left.stats.spanMs !== right.stats.spanMs
+    || left.stats.maxDurationMs !== right.stats.maxDurationMs
+    || left.stats.parallel !== right.stats.parallel
+    || left.calls.length !== right.calls.length) return false;
+  for (let index = 0; index < left.calls.length; index += 1) {
+    const a = left.calls[index];
+    const b = right.calls[index];
+    if (a.callId !== b.callId
+      || a.name !== b.name
+      || a.state !== b.state
+      || a.durationMs !== b.durationMs
+      || a.line !== b.line
+      || a.concurrent !== b.concurrent
+      || a.resultText !== b.resultText) return false;
+  }
+  return true;
+}
+
 function sameItemFields(left: TranscriptItem, right: TranscriptItem) {
   if (left === right) return true;
   return left.kind === right.kind
@@ -358,6 +434,7 @@ function sameItemFields(left: TranscriptItem, right: TranscriptItem) {
     && left.workflow === right.workflow
     && sameImages(left.images, right.images)
     && sameStats(left.stats, right.stats)
+    && sameProgram(left.program, right.program)
     && sameDomainCard(left.domainCard, right.domainCard);
 }
 

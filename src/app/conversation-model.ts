@@ -18,6 +18,7 @@ import {
   streamKey,
 } from "./message-model.ts";
 import { deliverablesFromHistory, workflowViewsFromHistory } from "./workflow-model.ts";
+import { buildPtcProgramView, readPtcDispatch, type PtcDispatch } from "./ptc-program.ts";
 import { isTransientStreamSeq } from "./display-history.ts";
 import { turnTimingItems } from "./session-events.ts";
 import { toolDomainCard } from "./tool-domain.ts";
@@ -76,12 +77,35 @@ function transcriptOrder(left: TranscriptItem, right: TranscriptItem): number {
   return (left.seq ?? Number.MAX_SAFE_INTEGER) - (right.seq ?? Number.MAX_SAFE_INTEGER);
 }
 
+/**
+ * 把 PTC 子调用挂到已配对的 `run_code` 行上。
+ *
+ * 必须在配对之后做：只有配对后的行才同时握着参数（程序源码）与结果状态，而
+ * 「程序捕获了内部失败」正需要这两者。挂不上的行原样返回，非 PTC 会话不受影响。
+ */
+function attachPtcPrograms(
+  items: TranscriptItem[],
+  dispatches: Map<string, PtcDispatch[]>,
+  locale: UiLocale,
+): TranscriptItem[] {
+  if (dispatches.size === 0) return items;
+  return items.map((item) => {
+    if (item.kind !== "tool" || !item.toolCallId) return item;
+    const calls = dispatches.get(item.toolCallId);
+    if (calls === undefined) return item;
+    const program = buildPtcProgramView(item.text, calls, locale, Boolean(item.toolResultError));
+    return program === undefined ? item : { ...item, program };
+  });
+}
+
 export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLocale = "zh"): TranscriptItem[] {
   const items: TranscriptItem[] = [];
   // `thinking` tracks whether the newest delta of a live stream was reasoning:
   // thinking ends the moment the step moves on to answer text or tool arguments,
   // so the Think box folds there instead of waiting for the whole step to end.
   const streams = new Map<string, { text: string; reasoning: string; seq: number; time: number; streaming: boolean; thinking: boolean }>();
+  // PTC 的内部派发不单独成行：它们折进所属 `run_code` 行的「程序 / 执行」视图。
+  const ptcDispatches = new Map<string, PtcDispatch[]>();
   const orderedEntries = [...entries].sort((left, right) => left.event.seq - right.event.seq);
   const messageStats = assistantMessageStats(orderedEntries);
   for (const entry of orderedEntries) {
@@ -170,6 +194,15 @@ export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLoca
       if (reasoning) items.push({ key: `reasoning-${event.seq}`, kind: "reasoning", label: "Think", text: reasoning, seq: reasoningSeq, seqFrom: reasoningFrom === undefined ? undefined : Math.min(reasoningFrom, reasoningSeq), time: event.time });
       if (text || segments.images.length > 0) items.push({ key: `event-${event.seq}`, kind: "assistant", label: "DSH", text, images: segments.images, seq: event.seq, seqFrom: entryStartOf(entry), messageId, time: event.time, stats: messageStats.get(event.seq) });
       streams.delete(streamKey(event));
+      continue;
+    }
+    if (event.type === "tool/ptc-dispatch-start" || event.type === "tool/ptc-dispatch") {
+      const dispatch = readPtcDispatch(event, locale);
+      if (dispatch) {
+        const bucket = ptcDispatches.get(dispatch.rootCallId);
+        if (bucket === undefined) ptcDispatches.set(dispatch.rootCallId, [dispatch]);
+        else bucket.push(dispatch);
+      }
       continue;
     }
     if (event.type === "tool/call" || event.type === "tool/result") {
@@ -264,5 +297,5 @@ export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLoca
       pendingResultsWithoutId.push(item);
     }
   }
-  return paired;
+  return attachPtcPrograms(paired, ptcDispatches, locale);
 }

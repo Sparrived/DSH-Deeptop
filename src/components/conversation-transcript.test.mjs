@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { build } from "esbuild";
+import { buildPtcProgramView, readPtcDispatch } from "../app/ptc-program.ts";
 
 function dependenciesMatch(left, right) {
   return left?.length === right?.length && left.every((value, index) => Object.is(value, right[index]));
@@ -322,4 +323,136 @@ test("a live Think entry unfolds itself and folds back when the step ends", asyn
   const { ReasoningEntry: FreshEntry } = await loadTranscriptExports(fresh.react);
   const settled = fresh.render(FreshEntry, { text, streaming: false, locale: "en" });
   assert.equal(settled.props["data-open"], "false");
+});
+
+function collectByClass(node, className, out = []) {
+  if (Array.isArray(node)) {
+    for (const child of node) collectByClass(child, className, out);
+    return out;
+  }
+  if (!node || typeof node !== "object") return out;
+  if (typeof node.props?.className === "string" && node.props.className.split(" ").includes(className)) out.push(node);
+  collectByClass(node.props?.children, className, out);
+  return out;
+}
+
+/** PTC 执行视图的测试夹具：一次循环外的 bash、一次失败的 read、一次定位不到的动态调用。 */
+const PTC_CODE = [
+  "const listing = await tools.bash({ command: 'ls' })",
+  "return [listing, await tools.read({ file_path: 'missing.txt' })]",
+].join("\n");
+
+function ptcProgram(programFailed = false) {
+  const dispatch = (settle) => (time, subCallId, name, args, text = "ok", error = false) => ({
+    type: settle ? "tool/ptc-dispatch" : "tool/ptc-dispatch-start",
+    seq: time,
+    time,
+    data: {
+      rootCallId: "call-1",
+      parentCallId: "call-1",
+      subCallId,
+      name,
+      arguments: args,
+      ...(settle ? { isError: error, content: [{ type: "text", text }] } : {}),
+    },
+  });
+  const started = dispatch(false);
+  const settled = dispatch(true);
+  const events = [
+    started(1_000, "call-1:ptc:1", "bash", { command: "ls" }),
+    settled(1_200, "call-1:ptc:1", "bash", { command: "ls" }, "demo.txt"),
+    started(1_300, "call-1:ptc:2", "read", { file_path: "missing.txt" }),
+    settled(1_400, "call-1:ptc:2", "read", { file_path: "missing.txt" }, "Error: not found", true),
+    started(1_500, "call-1:ptc:3", "mystery", { n: 1 }),
+    settled(1_600, "call-1:ptc:3", "mystery", { n: 1 }, "ok"),
+  ];
+  return buildPtcProgramView(
+    JSON.stringify({ code: PTC_CODE, description: "列目录并读取" }),
+    events.map((event) => readPtcDispatch(event)),
+    "zh",
+    programFailed,
+  );
+}
+
+test("PTC execution view keeps its panes out of the DOM while the card is folded", async () => {
+  const renderer = createHookRenderer();
+  const { PtcProgramView } = await loadModuleExports(renderer.react, "./PtcProgramView.tsx");
+
+  const closed = renderer.render(PtcProgramView, { program: ptcProgram(), locale: "zh", open: false });
+  assert.equal(closed, null);
+
+  const open = renderer.render(PtcProgramView, { program: ptcProgram(), locale: "zh", open: true });
+  assert.equal(findElementByClass(open, "ptc-program").props["data-has-program"], "true");
+  assert.equal(findElementByClass(open, "ptc-pane-program") !== null, true);
+  assert.equal(findElementByClass(open, "ptc-pane-trace") !== null, true);
+});
+
+test("PTC call-site marks share their numbering with the execution rows", async () => {
+  const renderer = createHookRenderer();
+  const { PtcProgramView } = await loadModuleExports(renderer.react, "./PtcProgramView.tsx");
+  const program = ptcProgram();
+
+  const tree = renderer.render(PtcProgramView, { program, locale: "zh", open: true });
+
+  // Two of the three calls have a source call site; the dynamically named one has none.
+  const lines = collectByClass(tree, "ptc-line");
+  assert.equal(lines.length, PTC_CODE.split("\n").length);
+  assert.deepEqual(lines.map((line) => line.props["data-anchored"] ?? "false"), ["true", "true"]);
+  const marks = collectByClass(tree, "ptc-mark");
+  assert.deepEqual(marks.map((mark) => mark.props.children), [1, 2]);
+  assert.deepEqual(marks.map((mark) => mark.props["data-state"]), ["ok", "error"]);
+
+  const rows = collectByClass(tree, "ptc-call-row");
+  assert.deepEqual(rows.map((row) => row.props["aria-expanded"]), [false, false, false]);
+  // 顺序与源码调用位点一致：程序里先 bash 后 read，执行栏也如此。
+  assert.deepEqual(collectByClass(tree, "ptc-call-index").map((cell) => cell.props.children), [1, 2, 3]);
+  // 三次调用彼此不重叠，因此没有并行标记。
+  assert.equal(collectByClass(tree, "ptc-call-parallel").length, 0);
+  // 未定位与「程序捕获了失败」各一条脚注。
+  assert.equal(collectByClass(tree, "ptc-note").length, 2);
+});
+
+test("expanding one PTC trace row reveals only that call's arguments and result", async () => {
+  const renderer = createHookRenderer();
+  const { PtcProgramView } = await loadModuleExports(renderer.react, "./PtcProgramView.tsx");
+
+  let tree = renderer.render(PtcProgramView, { program: ptcProgram(), locale: "zh", open: true });
+  collectByClass(tree, "ptc-call-row")[1].props.onClick();
+  tree = renderer.render(PtcProgramView, { program: ptcProgram(), locale: "zh", open: true });
+
+  const rows = collectByClass(tree, "ptc-call-row");
+  assert.deepEqual(rows.map((row) => row.props["aria-expanded"]), [false, true, false]);
+  const detail = collectByClass(tree, "ptc-call-detail");
+  assert.equal(detail.length, 1);
+  // 失败调用的结果分区带着错误修饰符，程序成功的整体状态不因此改变。
+  assert.equal(collectByClass(detail[0], "ptc-call-block").some((block) => block.props.className.includes("error")), true);
+});
+
+test("the folded PTC row reports calls, failures and wall time, omitting what does not exist", async () => {
+  const renderer = createHookRenderer();
+  const { programStatsText } = await loadTranscriptExports(renderer.react);
+
+  // 三次调用顺序发生（无并行）、一次失败、跨度 600ms。
+  assert.equal(programStatsText(ptcProgram(), "zh"), "3 次调用 · 1 次失败 · 600 ms");
+  assert.equal(programStatsText(ptcProgram(), "en"), "3 calls · 1 failed · 600 ms");
+  // 外层程序自己失败时，内部失败就不再是「被捕获」的，脚注不计。
+  assert.equal(ptcProgram(true).caughtFailures, 0);
+});
+
+test("the folded PTC row shows the in-flight call and its progress while the program runs", async () => {
+  const renderer = createHookRenderer();
+  const { programTickerText } = await loadTranscriptExports(renderer.react);
+  const running = buildPtcProgramView(
+    JSON.stringify({ code: "await tools.bash({ command: 'ls notes' })", description: "列目录" }),
+    [readPtcDispatch({
+      type: "tool/ptc-dispatch-start",
+      seq: 1,
+      time: 1_000,
+      data: { rootCallId: "call-1", parentCallId: "call-1", subCallId: "call-1:ptc:1", name: "bash", arguments: { command: "ls notes" } },
+    })],
+    "zh",
+  );
+
+  assert.equal(programTickerText(running, "zh"), "bash · ls notes · 0/1");
+  assert.equal(running.active.line, 1);
 });

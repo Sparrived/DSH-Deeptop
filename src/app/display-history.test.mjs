@@ -474,3 +474,48 @@ test("shows the v3 system prompt node in the trajectory but not in the transcrip
   // Upstream never renders the prompt node as a chat bubble.
   assert.equal(transcriptFromHistory(history).some(item => item.text === "be brief"), false);
 });
+
+test("folds PTC sub-dispatches into the run_code row instead of their own rows", () => {
+  const code = "const out = await tools.bash({ command: 'ls' })";
+  const history = [
+    entry(1, "step/start", { turn: 1, step: 1 }),
+    entry(2, "tool/call", { turn: 1, step: 1, name: "run_code", callId: "call-1", arguments: JSON.stringify({ code, description: "列目录" }) }),
+    entry(3, "tool/ptc-dispatch-start", {
+      rootCallId: "call-1", parentCallId: "call-1", subCallId: "call-1:ptc:1",
+      name: "bash", arguments: { command: "ls" },
+    }),
+    entry(4, "tool/ptc-dispatch", {
+      rootCallId: "call-1", parentCallId: "call-1", subCallId: "call-1:ptc:1",
+      name: "bash", arguments: { command: "ls" }, isError: false, content: [{ type: "text", text: "demo.txt" }],
+    }),
+    entry(5, "tool/result", {
+      turn: 1,
+      step: 1,
+      message: { source: { callId: "call-1" }, content: [{ type: "tool-result", toolCallId: "call-1", content: [{ type: "text", text: "done" }] }] },
+    }),
+  ];
+
+  const toolRows = transcriptFromHistory(history).filter(item => item.kind === "tool");
+
+  // 内部派发不单独成行：它们只出现在所属 run_code 行的执行视图里。
+  assert.equal(toolRows.length, 1);
+  const row = toolRows[0];
+  assert.equal(row.toolResultText, "done");
+  assert.equal(row.program.calls.length, 1);
+  assert.equal(row.program.calls[0].name, "bash");
+  assert.equal(row.program.calls[0].line, 1);
+  assert.equal(row.program.calls[0].resultText, "demo.txt");
+  assert.equal(row.program.lines[0].calls.length, 1);
+  assert.equal(row.program.unplaced.length, 0);
+});
+
+test("leaves a native tool row without a PTC execution view", () => {
+  const history = [
+    entry(1, "step/start", { turn: 1, step: 1 }),
+    entry(2, "tool/call", { turn: 1, step: 1, name: "read", callId: "call-9", arguments: { file_path: "README.md" } }),
+  ];
+
+  const row = transcriptFromHistory(history).find(item => item.kind === "tool");
+
+  assert.equal(row.program, undefined);
+});

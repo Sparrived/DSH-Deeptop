@@ -7,6 +7,7 @@ import type {
   DshSubagentCatalog,
 } from "../lib/desktop";
 import type { ToolDomainCard } from "./tool-domain";
+import type { PtcProgram } from "./ptc-program";
 
 export type PromptMode = "queue" | "steer";
 export type ModelMenuPane = "root" | "model";
@@ -105,6 +106,11 @@ export type TranscriptItem = {
   toolResultDiff?: DiffSummary;
   /** Official tool-presentation domain card (search/fetch/skill), when emitted. */
   domainCard?: ToolDomainCard;
+  /**
+   * PTC 执行视图：`run_code` 内部每次子调用的程序位点、耗时与结果。只有 PTC 会话的
+   * `run_code` 行带这个字段；原生工具调用没有。
+   */
+  program?: PtcProgram;
   source?: string;
   contextRole?: "inject" | "recall";
   contextForm?: "instructions" | "catalog" | "snapshot" | "notice" | "relay" | "recall" | null;

@@ -111,3 +111,58 @@ test("approval record stays running until the decision lands", () => {
   assert.equal(approval.status, "running");
   assert.ok(approval.summary.includes("等待审批"));
 });
+
+test("projects PTC sub-dispatches as nested tool records under run_code", () => {
+  const records = buildTrajectoryRecords([
+    event(1, "turn/start", { turn: 1 }),
+    event(2, "step/start", { turn: 1, step: 1 }),
+    event(3, "tool/call", {
+      turn: 1,
+      step: 1,
+      name: "run_code",
+      callId: "call-1",
+      arguments: { code: "const out = await tools.bash({ command: 'ls' })", description: "列目录" },
+    }),
+    event(4, "tool/ptc-dispatch-start", {
+      rootCallId: "call-1", parentCallId: "call-1", subCallId: "call-1:ptc:1",
+      name: "bash", arguments: { command: "ls" },
+    }),
+    event(5, "tool/ptc-dispatch", {
+      rootCallId: "call-1", parentCallId: "call-1", subCallId: "call-1:ptc:1",
+      name: "bash", arguments: { command: "ls" }, isError: false, content: [{ type: "text", text: "demo.txt" }],
+    }),
+    event(6, "tool/result", {
+      turn: 1,
+      step: 1,
+      message: { source: { callId: "call-1" }, content: [{ type: "tool-result", toolCallId: "call-1", content: [{ type: "text", text: "done" }] }] },
+    }),
+  ]);
+  const parent = records.find((record) => record.key === "tool-call-1");
+  const child = records.find((record) => record.key === "ptc-call-1:ptc:1");
+
+  // 派发事件自己不再是「未知事件」的系统记录。
+  assert.equal(records.some((record) => record.title.includes("ptc-dispatch")), false);
+  assert.ok(child);
+  assert.equal(child.title, "bash");
+  assert.equal(child.parentCallId, "call-1");
+  assert.equal(child.subIndex, 1);
+  assert.equal(child.callId, "call-1:ptc:1");
+  assert.equal(child.status, "complete");
+  assert.equal(child.resultText, "demo.txt");
+  assert.equal(child.durationMs, 1_000);
+  assert.equal(parent.summary, "1 次内部调用");
+});
+
+test("keeps a PTC sub-dispatch running until its settle event arrives", () => {
+  const records = buildTrajectoryRecords([
+    event(1, "tool/call", { turn: 1, step: 1, name: "run_code", callId: "call-1", arguments: { code: "await tools.bash({ command: 'ls' })" } }),
+    event(2, "tool/ptc-dispatch-start", {
+      rootCallId: "call-1", parentCallId: "call-1", subCallId: "call-1:ptc:1",
+      name: "bash", arguments: { command: "ls" },
+    }),
+  ]);
+  const child = records.find((record) => record.key === "ptc-call-1:ptc:1");
+  assert.equal(child.status, "running");
+  assert.equal(child.durationMs, null);
+  assert.equal(records.find((record) => record.key === "tool-call-1").summary, "1 次内部调用");
+});
