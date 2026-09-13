@@ -12,8 +12,14 @@
 
 /* --- 折叠动画 --------------------------------------------------------- */
 
+/* 工具 / 注入 / 工作流横条与 Think 卡片、步骤摘要条同款：内容常驻，行高
+   `1fr ↔ 0fr` 过渡，收起和展开都有动画。 */
 .turn-steps-collapse,
-.reasoning-collapse {
+.reasoning-collapse,
+.tool-entry-collapse,
+.injected-entry-collapse,
+.workflow-entry-collapse,
+.subagent-tool-entry-collapse {
   display: grid;
   grid-template-rows: 1fr;
   overflow: hidden;
@@ -21,14 +27,22 @@
 }
 
 .turn-steps[data-open="false"] > .turn-steps-collapse,
-.reasoning-entry[data-open="false"] > .reasoning-collapse {
+.reasoning-entry[data-open="false"] > .reasoning-collapse,
+.tool-entry[data-open="false"] > .tool-entry-collapse,
+.injected-entry[data-open="false"] > .injected-entry-collapse,
+.workflow-entry[data-open="false"] > .workflow-entry-collapse,
+.subagent-tool-entry[data-open="false"] > .subagent-tool-entry-collapse {
   grid-template-rows: 0fr;
 }
 
 /* 裁剪层是 grid 项：它自己没有内边距，`min-height: 0` 才能让 0fr 行真正归零。
    内边距留在它内部的正文上，折叠时连内边距一起被裁掉，展开过程也照常过渡。 */
 .turn-steps-collapse > .turn-steps-clip,
-.reasoning-collapse > .reasoning-clip {
+.reasoning-collapse > .reasoning-clip,
+.tool-entry-collapse > .tool-entry-clip,
+.injected-entry-collapse > .injected-entry-clip,
+.workflow-entry-collapse > .workflow-entry-clip,
+.subagent-tool-entry-collapse > .subagent-tool-entry-clip {
   min-height: 0;
   overflow: hidden;
 }
@@ -165,7 +179,11 @@
 
 @media (prefers-reduced-motion: reduce) {
   .turn-steps-collapse,
-  .reasoning-collapse {
+  .reasoning-collapse,
+  .tool-entry-collapse,
+  .injected-entry-collapse,
+  .workflow-entry-collapse,
+  .subagent-tool-entry-collapse {
     transition-duration: .01ms;
   }
 

@@ -469,7 +469,7 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .tool-entry > summary {
+  .tool-entry > .tool-entry-summary {
     grid-template-columns: minmax(0, 1fr) auto auto 16px;
     gap: 7px;
     padding-right: 10px;

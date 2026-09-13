@@ -80,6 +80,20 @@ function findElement(node, type) {
   return findElement(children, type);
 }
 
+function findElementByClass(node, className) {
+  if (!node || typeof node !== "object") return null;
+  if (typeof node.props?.className === "string" && node.props.className.split(" ").includes(className)) return node;
+  const children = node.props?.children;
+  if (Array.isArray(children)) {
+    for (const child of children) {
+      const found = findElementByClass(child, className);
+      if (found) return found;
+    }
+    return null;
+  }
+  return findElementByClass(children, className);
+}
+
 function createPre() {
   let nodes = [];
   const createTextNode = (value) => ({
@@ -98,9 +112,9 @@ function createPre() {
   };
 }
 
-async function loadTranscriptExports(react) {
+async function loadModuleExports(react, entry) {
   const compiled = await build({
-    entryPoints: [fileURLToPath(new URL("./ConversationTranscript.tsx", import.meta.url))],
+    entryPoints: [fileURLToPath(new URL(entry, import.meta.url))],
     bundle: true,
     format: "cjs",
     platform: "node",
@@ -118,6 +132,48 @@ async function loadTranscriptExports(react) {
   }, module, module.exports);
   return module.exports;
 }
+
+function loadTranscriptExports(react) {
+  return loadModuleExports(react, "./ConversationTranscript.tsx");
+}
+
+test("the disclosure shell keeps its body mounted and animates by state", async () => {
+  const renderer = createHookRenderer();
+  const { DisclosureEntry } = await loadModuleExports(renderer.react, "./DisclosureEntry.tsx");
+  const body = { type: "div", key: null, props: { className: "tool-parts", children: "body" } };
+  const props = {
+    base: "tool-entry",
+    className: "tool-paired",
+    open: false,
+    onToggle: () => { toggles += 1; },
+    summary: null,
+    children: body,
+    "data-tool-status": "returned",
+  };
+  let toggles = 0;
+
+  let tree = renderer.render(DisclosureEntry, props);
+  assert.equal(tree.props.className, "tool-entry tool-paired");
+  assert.equal(tree.props["data-open"], "false");
+  assert.equal(tree.props["data-tool-status"], "returned");
+  // The body is always mounted, inside 折叠层 → 裁剪层, so the collapse has
+  // something to animate and the text survives folding.
+  assert.equal(findElementByClass(tree, "tool-entry-clip").props.children, body);
+  assert.ok(findElementByClass(tree, "tool-entry-collapse"));
+  const summary = findElement(tree, "button");
+  assert.equal(summary.props.className, "tool-entry-summary");
+  assert.equal(summary.props["aria-expanded"], false);
+  summary.props.onClick();
+  assert.equal(toggles, 1);
+
+  tree = renderer.render(DisclosureEntry, { ...props, open: true });
+  assert.equal(tree.props["data-open"], "true");
+  assert.equal(findElement(tree, "button").props["aria-expanded"], true);
+  // Attributes the entry does not carry stay off the root element.
+  const injected = renderer.render(DisclosureEntry, { ...props, base: "injected-entry", className: undefined, "data-tool-status": undefined });
+  assert.equal(injected.props.className, "injected-entry");
+  assert.equal("data-tool-status" in injected.props, false);
+});
 
 test("folding a Think entry keeps one reasoning body surface", async () => {
   const renderer = createHookRenderer();

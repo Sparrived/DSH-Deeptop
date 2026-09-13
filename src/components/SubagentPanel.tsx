@@ -1,4 +1,5 @@
 import { X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { MarkdownContent } from "../lib/markdown";
 import {
   formatClock,
@@ -10,6 +11,32 @@ import {
 import { displayToolName } from "../app/tool-call-display";
 import { t, type UiLocale } from "../app/i18n";
 import type { DshSubagentAddress } from "../lib/desktop";
+import { DisclosureEntry } from "./DisclosureEntry";
+
+/** 子代理抽屉里的一条工具横条：与对话流里的工具卡片同款折叠动画。 */
+function SubagentToolEntry({ item, locale }: { item: TranscriptItem; locale: UiLocale }) {
+  // 结果到达时自动展开（原来由 `<details open>` 承担），其余情况默认收起。
+  const resultReady = item.toolResultText !== undefined;
+  const [open, setOpen] = useState(resultReady);
+  const readyRef = useRef(resultReady);
+  useEffect(() => {
+    if (readyRef.current === resultReady) return;
+    readyRef.current = resultReady;
+    if (resultReady) setOpen(true);
+  }, [resultReady]);
+  return (
+    <DisclosureEntry
+      base="subagent-tool-entry"
+      className={`subagent-tool-status-${item.toolResultError ? "error" : resultReady ? "returned" : "running"}${item.toolResultError ? " error" : ""}`}
+      data-tool-status={item.toolResultError ? "error" : resultReady ? "returned" : "running"}
+      open={open}
+      onToggle={() => setOpen((value) => !value)}
+      summary={<><span className="subagent-tool-state" /><strong>{displayToolName(item.toolName)}</strong><em>{item.toolResultError ? t("subagent.toolError", locale) : resultReady ? t("subagent.toolReturned", locale) : t("subagent.toolRunning", locale)}</em></>}
+    >
+      <div className="subagent-tool-content"><pre>{item.text}</pre>{resultReady && <div className="subagent-tool-result"><span>{t("subagent.toolResult", locale)}</span><pre>{item.toolResultText}</pre></div>}</div>
+    </DisclosureEntry>
+  );
+}
 
 function subagentActivityText(activity: ChildSubagentEntry["activity"], locale: UiLocale) {
   return t(activity === "running" ? "subagent.running" : "subagent.stopped", locale);
@@ -87,10 +114,7 @@ export function SubagentPanel({
         ) : session ? (
           <div className="subagent-history">
             {transcript.map((item) => item.kind === "tool" ? (
-              <details className={`subagent-tool-entry subagent-tool-status-${item.toolResultError ? "error" : item.toolResultText !== undefined ? "returned" : "running"}${item.toolResultError ? " error" : ""}`} data-tool-status={item.toolResultError ? "error" : item.toolResultText !== undefined ? "returned" : "running"} key={item.key} open={item.toolResultText !== undefined}>
-                <summary><span className="subagent-tool-state" /><strong>{displayToolName(item.toolName)}</strong><em>{item.toolResultError ? t("subagent.toolError", locale) : item.toolResultText !== undefined ? t("subagent.toolReturned", locale) : t("subagent.toolRunning", locale)}</em></summary>
-                <div className="subagent-tool-content"><pre>{item.text}</pre>{item.toolResultText !== undefined && <div className="subagent-tool-result"><span>{t("subagent.toolResult", locale)}</span><pre>{item.toolResultText}</pre></div>}</div>
-              </details>
+              <SubagentToolEntry item={item} locale={locale} key={item.key} />
             ) : (
               <article className={`subagent-message ${item.kind}`} key={item.key}>
                 <div className="subagent-message-meta"><strong>{item.label}</strong><time>{formatClock(item.time)}</time></div>

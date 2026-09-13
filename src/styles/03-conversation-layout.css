@@ -580,7 +580,10 @@
   background: #f1e3df;
 }
 
-.subagent-tool-entry summary {
+.subagent-tool-entry-summary {
+  appearance: none;
+  border: 0;
+  background: transparent;
   min-height: 36px;
   display: flex;
   align-items: center;
@@ -588,12 +591,12 @@
   padding: 7px 9px;
   color: #465248;
   cursor: pointer;
-  list-style: none;
+  font-family: inherit;
+  line-height: inherit;
+  text-align: left;
 }
 
-.subagent-tool-entry summary::-webkit-details-marker { display: none; }
-
-.subagent-tool-entry summary::after {
+.subagent-tool-entry-summary::after {
   margin-left: auto;
   color: #829084;
   content: "+";
@@ -601,7 +604,7 @@
   font-size: 12px;
 }
 
-.subagent-tool-entry[open] summary::after { content: "-"; }
+.subagent-tool-entry[data-open="true"] > .subagent-tool-entry-summary::after { content: "-"; }
 
 .subagent-tool-state {
   width: 6px;
@@ -613,7 +616,7 @@
 
 .subagent-tool-entry.error .subagent-tool-state { background: var(--accent); }
 
-.subagent-tool-entry summary strong {
+.subagent-tool-entry-summary strong {
   min-width: 0;
   overflow: hidden;
   font-family: var(--mono);
@@ -622,7 +625,7 @@
   white-space: nowrap;
 }
 
-.subagent-tool-entry summary em {
+.subagent-tool-entry-summary em {
   color: var(--muted);
   font-family: var(--mono);
   font-size: 8px;
@@ -1653,7 +1656,7 @@
   background: #eef0eb;
 }
 
-.workflow-entry summary {
+.workflow-entry-summary {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -1665,9 +1668,7 @@
   font-weight: 600;
 }
 
-.workflow-entry summary::-webkit-details-marker { display: none; }
-
-.workflow-entry summary::after {
+.workflow-entry-summary::after {
   margin-left: auto;
   color: var(--muted);
   content: "+";
@@ -1675,9 +1676,9 @@
   font-size: 11px;
 }
 
-.workflow-entry[open] summary::after { content: "-"; }
+.workflow-entry[data-open="true"] > .workflow-entry-summary::after { content: "-"; }
 
-.workflow-entry summary em {
+.workflow-entry-summary em {
   color: var(--muted);
   font-family: var(--mono);
   font-size: 8px;

@@ -20,6 +20,7 @@ import { ToolArgsView } from "../app/tool-args-render";
 import { displayToolName, hasVisibleToolArguments, parseToolArgs, toolArgsLayout, toolCallEditDiff, toolCallSummary } from "../app/tool-call-display";
 import { ToolResultView } from "../app/tool-result-render";
 import { entityHost } from "../lib/message-entities";
+import { DisclosureEntry } from "./DisclosureEntry";
 import { isWithinSelector, TRANSCRIPT_CONTEXT_MENU_SELECTOR, TRANSCRIPT_TEXT_SELECTOR } from "../app/context-menu";
 import { useFloatingMenuPosition } from "../app/useFloatingMenuPosition";
 import { applyStepToggle, groupTranscriptTurns, stepKindCounts, type TranscriptTurnGroup } from "../app/turn-group-model";
@@ -156,21 +157,38 @@ function ToolEntryView({
 }) {
   const [showRawArgs, setShowRawArgs] = useState(false);
   const [showRawResult, setShowRawResult] = useState(false);
+  // 工具报错时自动展开（原来由 `<details open>` 承担），其余情况默认收起。
+  const [open, setOpen] = useState(Boolean(item.toolResultError));
+  const errorRef = useRef(Boolean(item.toolResultError));
   const args = useMemo(() => parseToolArgs(item.text), [item.text]);
   const description = toolCallSummary(item.toolName, args);
   const argsLayout = toolArgsLayout(item.toolName, args ?? {});
   const hasVisibleArgs = hasVisibleToolArguments(item.toolName, args) || (args === undefined && Boolean(item.text.trim()));
   const editDiff = args ? toolCallEditDiff(item.toolName, args) : undefined;
   const displayName = displayToolName(item.toolName);
+
+  useEffect(() => {
+    const failed = Boolean(item.toolResultError);
+    if (errorRef.current === failed) return;
+    errorRef.current = failed;
+    if (failed) setOpen(true);
+  }, [item.toolResultError]);
+
   return (
-    <details className={`tool-entry tool-status-${toolStatus} tool-layout-${argsLayout} ${hasToolResult && hasVisibleArgs ? "tool-paired" : ""} ${!hasVisibleArgs ? "tool-result-only" : ""} ${item.toolResultError ? "tool-error" : ""}`} data-tool-status={toolStatus} open={item.toolResultError || undefined}>
-      <summary>
+    <DisclosureEntry
+      base="tool-entry"
+      className={`tool-status-${toolStatus} tool-layout-${argsLayout} ${hasToolResult && hasVisibleArgs ? "tool-paired" : ""} ${!hasVisibleArgs ? "tool-result-only" : ""} ${item.toolResultError ? "tool-error" : ""}`}
+      data-tool-status={toolStatus}
+      open={open}
+      onToggle={() => setOpen((value) => !value)}
+      summary={<>
         <span className="tool-summary-main"><span className="tool-state" aria-hidden="true" /><span className="tool-name">{displayName}</span></span>
         {description && <span className="tool-description">{description}</span>}
         {diff && <span className="tool-diff-badge" key={`${item.key}-diff-${diff.added}-${diff.removed}`} aria-label={t("conversation.tool.diffAria", locale, { added: diff.added, removed: diff.removed })}><b>+{diff.added}</b><b>-{diff.removed}</b></span>}
         <span className={`tool-status ${toolStatus}`}><span className="tool-status-dot" aria-hidden="true" />{item.toolResultError ? t("conversation.tool.error", locale) : hasToolResult ? t("conversation.tool.returned", locale) : t("conversation.tool.running", locale)}</span>
         <span className="tool-toggle" aria-hidden="true" />
-      </summary>
+      </>}
+    >
       <div className="tool-parts">
         {item.domainCard && !isResultDomainCard(item.domainCard) && <section className="tool-part tool-domain-part"><div className="tool-part-label"><span>{t("conversation.tool.domainView", locale)}</span></div><ToolDomainCardView card={item.domainCard} locale={locale} onOpenUrl={onOpenUrl} /></section>}
         {hasVisibleArgs && <section className="tool-part tool-call-part">
@@ -217,7 +235,7 @@ function ToolEntryView({
           </section>
         )}
       </div>
-    </details>
+    </DisclosureEntry>
   );
 }
 
@@ -894,6 +912,16 @@ function TranscriptArticleView({
   const hasToolResult = item.toolResultText !== undefined || item.toolResultDiff !== undefined || isResultDomainCard(item.domainCard) || item.toolState === "result";
   const toolStatus = item.toolResultError ? "error" : hasToolResult ? "returned" : "running";
   const streamingAssistant = item.kind === "assistant" && item.streaming === true;
+  // 注入行与工作流行默认收起；工作流运行中展开，结束后自动收起一次（原 `<details open>` 的意图）。
+  const [injectedOpen, setInjectedOpen] = useState(false);
+  const workflowRunning = item.workflow?.status === "running";
+  const [workflowOpen, setWorkflowOpen] = useState(workflowRunning);
+  const workflowRef = useRef(workflowRunning);
+  useEffect(() => {
+    if (workflowRef.current === workflowRunning) return;
+    workflowRef.current = workflowRunning;
+    setWorkflowOpen(workflowRunning);
+  }, [workflowRunning]);
   return (
     <article
       className={`message-row ${item.kind}${item.injected ? " context-row" : ""}${item.kind === "tool" ? " tool-row" : ""}${streamingAssistant ? " is-streaming" : ""}${entered ? " is-entering" : ""}`}
@@ -936,8 +964,14 @@ function TranscriptArticleView({
         ) : item.kind === "reasoning" ? (
           <ReasoningEntry text={item.text} streaming={Boolean(item.streaming)} locale={locale} />
         ) : item.kind === "workflow" ? (
-          <details className={`workflow-entry workflow-status-${item.workflow?.status ?? "running"}`} data-workflow-status={item.workflow?.status ?? "running"} open={item.workflow?.status === "running"}>
-            <summary><span className={`workflow-status ${item.workflow?.status ?? "running"}`} />{item.workflow?.name || item.text}<em>{item.workflow ? t(workflowStatusKey(item.workflow.status), locale) : "Workflow"}</em></summary>
+          <DisclosureEntry
+            base="workflow-entry"
+            className={`workflow-status-${item.workflow?.status ?? "running"}`}
+            data-workflow-status={item.workflow?.status ?? "running"}
+            open={workflowOpen}
+            onToggle={() => setWorkflowOpen((value) => !value)}
+            summary={<><span className={`workflow-status ${item.workflow?.status ?? "running"}`} />{item.workflow?.name || item.text}<em>{item.workflow ? t(workflowStatusKey(item.workflow.status), locale) : "Workflow"}</em></>}
+          >
             <div className="workflow-body">{item.workflow?.phases.length ? item.workflow.phases.map((phase, phaseIndex) => <div className="workflow-phase" key={`${item.key}-phase-${phaseIndex}`}><strong>{phase.phase || t("conversation.workflow.unnamedPhase", locale)}</strong><div>{phase.members.map((member) => {
               const childId = member.childId;
               const navigable = Boolean(childId && onOpenWorkflowMember);
@@ -950,19 +984,23 @@ function TranscriptArticleView({
                 disabled={!navigable}
               ><i />{member.label}</button>;
             })}</div></div>) : <span className="workflow-empty">{t("conversation.workflow.emptyMembers", locale)}</span>}</div>
-          </details>
+          </DisclosureEntry>
         ) : item.injected ? (
-          <details className="injected-entry">
-            <summary>
+          <DisclosureEntry
+            base="injected-entry"
+            open={injectedOpen}
+            onToggle={() => setInjectedOpen((value) => !value)}
+            summary={<>
               <span className="injected-state" aria-hidden="true" />
               <strong>{item.label}</strong>
               {item.source && <><span className="injected-separator" aria-hidden="true" /><span className="injected-source">{item.source}</span></>}
               {item.contextSummary && <><span className="injected-separator" aria-hidden="true" /><span className="injected-summary">{item.contextSummary}</span></>}
-            </summary>
+            </>}
+          >
             <div className="injected-body" data-context-form={item.contextForm ?? undefined}>
               <pre className="message-text">{item.text}</pre>
             </div>
-          </details>
+          </DisclosureEntry>
         ) : streamingAssistant ? (
           <StreamingAssistantText text={item.text} locale={locale} onOpenPath={onOpenPath} onCheckPath={onCheckPath} onOpenUrl={onOpenUrl} />
         ) : <MarkdownContent text={item.text} locale={locale} onOpenPath={onOpenPath} onCheckPath={onCheckPath} onOpenUrl={onOpenUrl} />}

@@ -1954,7 +1954,7 @@
 
 
 /* 工具条把“做什么”置于名称之后；状态使用行尾，不再与主信息抢中线。 */
-.tool-entry > summary {
+.tool-entry > .tool-entry-summary {
   min-width: 0;
   display: grid;
   align-items: center;
@@ -1993,7 +1993,7 @@
 .tool-command-body { max-height: 260px; }
 
 @media (max-width: 720px) {
-  .tool-entry > summary {
+  .tool-entry > .tool-entry-summary {
     grid-template-columns: auto minmax(0, 1fr) auto 16px;
     gap: 8px;
   }

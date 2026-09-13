@@ -293,11 +293,26 @@
   font-size: 10px;
 }
 
+/* 折叠横条的自绘摘要按钮：清掉 UA 按钮外观（按钮默认有 buttonface 底色、
+   UA 字体与边框），排版与配色继续交给各横条自己的规则。 */
+.tool-entry-summary,
+.injected-entry-summary,
+.workflow-entry-summary {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  line-height: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
 .injected-entry {
   min-width: 0;
 }
 
-.injected-entry summary {
+.injected-entry-summary {
   min-width: 0;
   display: flex;
   align-items: center;
@@ -311,8 +326,7 @@
   list-style: none;
 }
 
-.injected-entry summary::-webkit-details-marker { display: none; }
-.injected-entry summary strong {
+.injected-entry-summary strong {
   flex: none;
   color: #505850;
   font-weight: 500;
@@ -327,7 +341,7 @@
   transform: rotate(-45deg);
   transition: transform 100ms ease;
 }
-.injected-entry[open] .injected-state {
+.injected-entry[data-open="true"] .injected-state {
   transform: rotate(45deg) translate(-1px, -1px);
 }
 .injected-separator {
@@ -386,7 +400,7 @@
 }
 
 /* 无调用参数时不建立左右输入/输出分栏，结果占据完整工具卡片宽度。 */
-.tool-entry.tool-result-only > summary {
+.tool-entry.tool-result-only > .tool-entry-summary {
   border-bottom: 1px solid #c8d0c5;
 }
 .tool-entry.tool-result-only .tool-result-part {
@@ -405,7 +419,7 @@
   box-shadow: 0 0 0 3px #f3e5df;
 }
 
-.tool-entry.tool-error > summary {
+.tool-entry.tool-error > .tool-entry-summary {
   border-bottom-color: #e5c1b7;
   color: #a34838;
 }
@@ -414,7 +428,7 @@
   background: #c65a46;
 }
 
-.tool-entry.tool-error summary em {
+.tool-entry.tool-error .tool-entry-summary em {
   color: #b64a36;
 }
 
@@ -446,7 +460,7 @@
   transform: translate(-50%, -50%);
 }
 
-.tool-paired > summary {
+.tool-paired > .tool-entry-summary {
   width: 100%;
   border-bottom: 1px solid #c8d0c5;
 }
@@ -470,11 +484,11 @@
   border-top: 0;
 }
 
-.tool-entry[open] {
+.tool-entry[data-open="true"] {
   border-left-color: #9caa99;
 }
 
-.tool-entry summary {
+.tool-entry-summary {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -486,11 +500,7 @@
   list-style: none;
 }
 
-.tool-entry summary::-webkit-details-marker {
-  display: none;
-}
-
-.tool-entry summary em {
+.tool-entry-summary em {
   margin-left: auto;
   color: #969a92;
   font-size: 9px;
@@ -783,7 +793,7 @@
   line-height: 16px;
 }
 
-.tool-entry[open] .diff-line { animation-play-state: running; }
+.tool-entry[data-open="true"] .diff-line { animation-play-state: running; }
 
 .diff-line > span {
   color: var(--faint);
