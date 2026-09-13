@@ -100,10 +100,11 @@
 
 ### 已完成
 
-- 内嵌运行时升级到 `0.1.5-rc.1`，六条本地补丁在新基线上重新派生；`fs-ext` 延迟加载补丁作废——上游改用预编译 `@deepseek-ai/node-addon-system/flock`，其加载器在 Windows 上只做纯 JS 判定，不再在模块求值时加载原生依赖。
+- 内嵌运行时升级到 `0.1.5-rc.1`，八条本地补丁在新基线上重新派生；`fs-ext` 延迟加载补丁作废——上游改用预编译 `@deepseek-ai/node-addon-system/flock`，其加载器在 Windows 上只做纯 JS 判定，不再在模块求值时加载原生依赖。
 - 会话格式 v2→v3 由官方迁移目录吸收：`system/message` 成为 surface 节点 0、`request/header.header.system` 退休、`surfaceOp` 的 replace 改为 `startSeq/endSeq`、`tool/code-dispatch*` 改名 `tool/ptc-dispatch*`。Bridge 依赖的 `sessionController.page()` 契约未变（记录仍为 `{ type: 'event', event }`），Deeptop 只比较 `surfaceOp === 'append'`，因此除系统提示词可见性外无需改动。
 - 轨迹 Inspector 改从 `system/message` 读取系统提示词（此前来自已退休的 `header.system`）；会话转录仍不把该节点渲染为消息气泡，与官方 `never renders a system/message as a transcript bubble` 一致。
 - 官方 `standard` preset 新增 `present` 工具，其交付以持久事件 `deliverables/presented` 记录；生成文件卡片改为读取该事件，presented 文件不携带 diff 统计。
+- 本地补丁 `dsh-jobs-peek-output`：`ctx.jobs` 增加非消费式投影 `peek`（`peekOutput` 贯穿 jobs → shell → bash/pwsh/terminal 提供方与工具生产方）。官方的会话控制投影刻意不读任务输出，唯一消费游标归模型的 `job_output`；桌面任务面板据此点击展开输出，运行中按秒跟随刷新，模型侧读取不受影响。`job.output` 路由要求 `jobs.peek`，能力探测键为 `tasks`。
 
 ### Web 借鉴清单
 

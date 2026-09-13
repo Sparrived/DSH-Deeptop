@@ -76,7 +76,7 @@ const MAX_AUTO_RESTARTS: u32 = 3;
 /// Base delay for the first auto-restart; each consecutive crash doubles it.
 const AUTO_RESTART_BASE_DELAY: Duration = Duration::from_millis(1000);
 const BUNDLED_DSH_VERSION: &str = "0.1.5-rc.1";
-const BUNDLED_DSH_SOURCE_COMMIT: &str = "9a3e4ba654ffce5016f7c4f7df9f882bcf56fd1d";
+const BUNDLED_DSH_SOURCE_COMMIT: &str = "2742360aacfd7b4e1d2d02611516552da70a318f";
 const BRIDGE_PACKAGE_JSON: &str = include_str!("../../cordis/package.json");
 const BRIDGE_PATCH: &str = include_str!("../../cordis/cordis.patch.yml");
 const BRIDGE_ENTRY: &str = include_str!("../../cordis/desktop-bridge/index.mjs");

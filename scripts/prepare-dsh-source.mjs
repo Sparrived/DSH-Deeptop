@@ -7,7 +7,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourceRoot = path.join(root, "vendor", "dsh");
 const publicBase = "183f08e9c6dde7e36cd2318eaee70b0da08fb35e";
 const publicTag = "dsh-v0.1.5-rc.1";
-const patchedCommit = "9a3e4ba654ffce5016f7c4f7df9f882bcf56fd1d";
+const patchedCommit = "2742360aacfd7b4e1d2d02611516552da70a318f";
 const upstream = "https://github.com/deepseek-ai/deepseek-harness.git";
 
 // The vendored runtime ships seven local commits on top of 0.1.5-rc.1.
@@ -150,6 +150,35 @@ const patches = [
       "后该用例失败：thinking 由 disabled 变 enabled 且带 reasoning_effort）；llm-pi-ai",
       "全套 327 项、session-title* 66 项、base bundle 2 项通过；tsc -b",
       "packages/llm/llm-pi-ai 通过。",
+      "",
+    ].join("\n"),
+  },
+  {
+    file: "dsh-jobs-peek-output.patch",
+    commit: "2742360aacfd7b4e1d2d02611516552da70a318f",
+    authorName: "Sparrived",
+    authorEmail: "sparrived@outlook.com",
+    authorDate: "2026-09-13T15:05:00+08:00",
+    committerDate: "2026-09-13T15:05:00+08:00",
+    message: [
+      "feat(jobs): 新增任务输出的非消费式投影",
+      "",
+      "改动：jobs seam 增加 JobHooks.peekOutput 与 JobRegistry.peek（返回",
+      "available/text/snapshot，可用性由生产方投影或最终输出结算决定）；jobs-local 记录",
+      "生产方投影，没有投影的流式任务报告不可用而不是消费读取；shell seam 增加",
+      "ShellProcess.peekOutput，bash-local/pwsh-local 以 offset 0 复用同一次 stdout/stderr",
+      "合并渲染与 spill/lossy 提示；terminal seam 增加 TerminalSendOperation.peekOutput；",
+      "tool-bash/tool-pwsh/tool-terminal 把各自后台任务的投影接上；jobs、shell、",
+      "bash-local、pwsh-local 的 README 对更新并重录 i18n 配对。",
+      "",
+      "原因：会话控制投影刻意不读任务输出——唯一的消费游标属于模型的 job_output，读一次",
+      "模型之后只能看到 (no new output)。桌面端要展示后台任务输出，就必须有非消费式读取；",
+      "上游 jobs README 已把「独立观察者需要游标或快照 API」列为已知限制，本次补上快照 API。",
+      "",
+      "验证：jobs/jobs、jobs-local、shell/shell、pwsh-local、tool-pwsh、terminal、",
+      "tool-terminal 的 spec 通过（216 项，含 peek 重复投影不消费、peek 后 job_output 仍能",
+      "取回全部输出、以及 owner/session 围栏用例）；bash-local 与 terminal-bash 的 spec 在",
+      "Windows 上不执行，本机未运行；tsc -b tsconfig.host.json 无错误。",
       "",
     ].join("\n"),
   },

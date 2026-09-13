@@ -1,0 +1,971 @@
+diff --git a/packages/jobs/jobs-local/src/index.ts b/packages/jobs/jobs-local/src/index.ts
+index 8c71ae1b79..6c3f75e3ab 100644
+--- a/packages/jobs/jobs-local/src/index.ts
++++ b/packages/jobs/jobs-local/src/index.ts
+@@ -17,7 +17,7 @@ import type { ScopeLayer } from '@deepseek-ai/dsh-scope'
+ import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
+ import { JobRegistry, JobId } from '@deepseek-ai/dsh-jobs'
+ import type {
+-  JobDoneListener, JobKind, JobOutcome, JobRead, JobSnapshot, JobStart, JobStatus,
++  JobDoneListener, JobKind, JobOutcome, JobPeek, JobRead, JobSnapshot, JobStart, JobStatus,
+   JobsChangedListener,
+ } from '@deepseek-ai/dsh-jobs'
+ 
+@@ -46,6 +46,7 @@ interface TrackedTask {
+   owner: Agent | undefined
+   cancel: (reason?: string) => void
+   readOutput: (() => string) | undefined
++  peekOutput: (() => string) | undefined
+   status: JobStatus
+   detail: string | undefined
+   output: string | undefined
+@@ -162,6 +163,7 @@ export class LocalJobRegistry extends JobRegistry {
+       owner: spec.owner,
+       cancel: hooks.cancel.bind(hooks),
+       readOutput: hooks.readOutput?.bind(hooks),
++      peekOutput: hooks.peekOutput?.bind(hooks),
+       status: 'running',
+       detail: undefined,
+       output: undefined,
+@@ -212,6 +214,22 @@ export class LocalJobRegistry extends JobRegistry {
+     return { text, snapshot: this.snapshot(job) }
+   }
+ 
++  peek(id: JobId, caller?: Agent): JobPeek {
++    const job = this.expect(id)
++    this.assertAccess(job, caller)
++    const snapshot = this.snapshot(job)
++    if (job.peekOutput !== undefined) {
++      return { available: true, text: job.peekOutput(), snapshot }
++    }
++    // A final-output job's outcome is idempotent, so projecting it takes
++    // nothing from the reader. A stream job whose producer projects nothing
++    // reports unavailable instead of consuming the one reader's cursor.
++    if (job.readOutput === undefined) {
++      return { available: true, text: isTerminal(job.status) ? job.output ?? '' : '', snapshot }
++    }
++    return { available: false, text: '', snapshot }
++  }
++
+   kill(id: JobId, caller?: Agent, reason?: string): 'requested' | 'already-finished' {
+     const job = this.expect(id)
+     this.assertAccess(job, caller)
+diff --git a/packages/jobs/jobs-local/tests/jobs.spec.ts b/packages/jobs/jobs-local/tests/jobs.spec.ts
+index 14f4ecd847..da4640721c 100644
+--- a/packages/jobs/jobs-local/tests/jobs.spec.ts
++++ b/packages/jobs/jobs-local/tests/jobs.spec.ts
+@@ -321,6 +321,77 @@ describe('LocalJobRegistry reads and settlement', () => {
+     expect(ctx.jobs.read(id)).toMatchObject({ text: '', snapshot: { status: 'failed', detail: 'max-tokens' } })
+   })
+ 
++  it('peeks a stream producer whole retained output without taking the read cursor', async () => {
++    const ctx = await harness()
++    let produced = 'first\n'
++    let cursor = 0
++    const p = producer({
++      peekOutput: () => produced,
++      readOutput: () => {
++        const text = produced.slice(cursor)
++        cursor = produced.length
++        return text
++      },
++    })
++    const id = ctx.jobs.start(p.spec)
++
++    // Repeating a peek repeats the same projection and consumes nothing.
++    expect(ctx.jobs.peek(id)).toMatchObject({
++      available: true, text: 'first\n', snapshot: { status: 'running', reported: false },
++    })
++    expect(ctx.jobs.read(id).text).toBe('first\n')
++
++    // The projection follows the producer's retained window, not the reader's cursor.
++    produced = 'first\nrest\n'
++    expect(ctx.jobs.peek(id).text).toBe('first\nrest\n')
++
++    p.settle({ status: 'completed' })
++    await tick()
++    // The reader still owns every byte the projection showed, and a terminal
++    // read is what marks the job reported.
++    expect(ctx.jobs.read(id).text).toBe('rest\n')
++    expect(ctx.jobs.read(id).snapshot.reported).toBe(true)
++    expect(ctx.jobs.peek(id)).toMatchObject({ available: true, text: 'first\nrest\n' })
++  })
++
++  it('reports a stream job with no producer projection as unavailable rather than reading it', async () => {
++    const ctx = await harness()
++    const reads = { count: 0 }
++    const p = producer({ readOutput: () => { reads.count += 1; return 'stolen output' } })
++    const id = ctx.jobs.start(p.spec)
++
++    expect(ctx.jobs.peek(id)).toMatchObject({ available: false, text: '', snapshot: { status: 'running' } })
++    expect(reads.count).toBe(0)
++  })
++
++  it('peeks a final-output job from its settled outcome and never before settlement', async () => {
++    const ctx = await harness()
++    const p = producer({ kind: 'subagent' })
++    const id = ctx.jobs.start(p.spec)
++
++    expect(ctx.jobs.peek(id)).toMatchObject({ available: true, text: '', snapshot: { status: 'running' } })
++
++    p.settle({ status: 'completed', output: 'final answer' })
++    await tick()
++    expect(ctx.jobs.peek(id)).toMatchObject({
++      available: true, text: 'final answer', snapshot: { status: 'completed', reported: false },
++    })
++    // A projection is not a read: the notice state and the outcome both survive.
++    expect(ctx.jobs.read(id).text).toBe('final answer')
++  })
++
++  it('fences peeks by owner session like every other accessor', async () => {
++    const ctx = await harness()
++    const owner = stubAgent(ctx, 'session-owner')
++    ctx.agents.register(owner)
++    const other = stubAgent(ctx, 'session-other')
++    const id = ctx.jobs.start({ ...producer({ peekOutput: () => 'x' }).spec, owner })
++
++    expect(ctx.jobs.peek(id, owner).text).toBe('x')
++    expect(() => ctx.jobs.peek(id, other)).toThrow(`job ${id} belongs to another session`)
++    expect(() => ctx.jobs.peek(JobId('bash-99'))).toThrow('unknown job bash-99')
++  })
++
+   it('throws for unknown job ids', async () => {
+     const ctx = await harness()
+     expect(() => ctx.jobs.read(JobId('bash-99'))).toThrow('unknown job bash-99')
+diff --git a/packages/jobs/jobs/README.i18n.yaml b/packages/jobs/jobs/README.i18n.yaml
+index 1fda12a749..e502748ce9 100644
+--- a/packages/jobs/jobs/README.i18n.yaml
++++ b/packages/jobs/jobs/README.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write packages/jobs/jobs/README.md
+-README.md: 06cccd6a65a4f9ee34521b050076abb445319559
+-README.zh.md: 911ff6a44ad00b5926640be524142f1ccb8a4670
++README.md: a5c455a1f7e6643b3d755e7534a1ee931f102fa0
++README.zh.md: 916af144dd54eb41f98840a7b08b426236e228cf
+diff --git a/packages/jobs/jobs/README.md b/packages/jobs/jobs/README.md
+index 06cccd6a65..a5c455a1f7 100644
+--- a/packages/jobs/jobs/README.md
++++ b/packages/jobs/jobs/README.md
+@@ -118,7 +118,7 @@ No direct invalidation; the named consumers own any request-prefix changes.
+ These limits define when the contract is a poor fit. They are current package constraints, not a task backlog.
+ 
+ - **The contract is in-process** — `JobStart.run()` passes callbacks and exact `Agent` objects; a durable or cross-process backend must reshape identity, restart, ownership, and observation semantics before it can implement this seam.
+-- **Stream output has one consuming cursor** — independent observers need a cursor or snapshot API.
++- **Stream output has one consuming cursor** — `peek` gives an independent observer a bounded snapshot without touching it; a backend that must *consume* independently still needs a cursor API.
+ - **Foreground work cannot be promoted** — producers choose foreground or background before starting.
+ 
+ <a id="dev-note"></a>
+diff --git a/packages/jobs/jobs/README.zh.md b/packages/jobs/jobs/README.zh.md
+index 911ff6a44a..916af144dd 100644
+--- a/packages/jobs/jobs/README.zh.md
++++ b/packages/jobs/jobs/README.zh.md
+@@ -118,7 +118,7 @@ kind: "package-reference"
+ 这些限制说明约定何时不合适。它们是当前包约束，不是任务积压。
+ 
+ - **约定是进程内的**——`JobStart.run()` 传入回调和确切的 `Agent` 对象；持久化或跨进程后端必须先重塑身份、重启、所有权与观察语义，才能实现此 seam。
+-- **流输出只有一个消费游标**——独立观察者需要游标或快照 API。
++- **流输出只有一个消费游标**——`peek` 让独立观察者在不触碰该游标的前提下取得有界快照；需要独立**消费**的后端仍需游标 API。
+ - **前台工作无法转为后台**——生产方在启动前选择前台或后台。
+ 
+ <a id="dev-note"></a>
+diff --git a/packages/jobs/jobs/src/index.ts b/packages/jobs/jobs/src/index.ts
+index 7d46dfa342..9f39871519 100644
+--- a/packages/jobs/jobs/src/index.ts
++++ b/packages/jobs/jobs/src/index.ts
+@@ -9,7 +9,7 @@
+ import { Context, Service } from '@deepseek-ai/cordis'
+ import type { Agent } from '@deepseek-ai/dsh-agent'
+ import type {
+-  JobDoneListener, JobId, JobRead, JobSnapshot, JobStart, JobsChangedListener,
++  JobDoneListener, JobId, JobPeek, JobRead, JobSnapshot, JobStart, JobsChangedListener,
+ } from './types.ts'
+ 
+ export { JobId } from './types.ts'
+@@ -19,6 +19,7 @@ export type {
+   JobKind,
+   JobKindMap,
+   JobOutcome,
++  JobPeek,
+   JobRead,
+   JobSnapshot,
+   JobStart,
+@@ -108,6 +109,18 @@ export abstract class JobRegistry extends Service {
+    */
+   abstract read(id: JobId, caller?: Agent): JobRead
+ 
++  /**
++   * Project a job's output without consuming it: a producer's full retained
++   * stream, or a final-output job's settled outcome. Never advances the read
++   * cursor and marks nothing reported, so an independent observer — a desktop
++   * view, a diagnostic — shows output the one reader still owns unchanged.
++   * Throws for an unknown or foreign job.
++   * @param id - job to project.
++   * @param caller - reading agent checked against the owner.
++   * @returns the non-consuming projection and the post-peek snapshot.
++   */
++  abstract peek(id: JobId, caller?: Agent): JobPeek
++
+   /**
+    * Request cancellation, then mark the job stopping and reported. A producer
+    * throw propagates without changing job state. Throws for an unknown or
+diff --git a/packages/jobs/jobs/src/types.ts b/packages/jobs/jobs/src/types.ts
+index 2842f6a3a5..a7d98a34b9 100644
+--- a/packages/jobs/jobs/src/types.ts
++++ b/packages/jobs/jobs/src/types.ts
+@@ -88,6 +88,14 @@ export interface JobHooks {
+    * job has one consuming cursor.
+    */
+   readOutput?(): string
++  /**
++   * Project output produced so far without advancing the consuming cursor, for
++   * observers that must not take what {@link readOutput} owes its reader. The
++   * producer formats truncation and loss notices exactly as for a read, and
++   * bounds the projection with its own retained window. An absent hook leaves a
++   * stream job with no non-consuming projection.
++   */
++  peekOutput?(): string
+ }
+ 
+ /**
+@@ -127,6 +135,27 @@ export interface JobSnapshot {
+   reported: boolean
+ }
+ 
++/**
++ * Non-consuming output projection returned by {@link JobRegistry.peek}.
++ */
++export interface JobPeek {
++  /**
++   * Whether this job has a non-consuming projection: a producer
++   * {@link JobHooks.peekOutput}, or the settled outcome of a final-output job.
++   * A stream job whose producer supplies no projection reports `false` with
++   * empty text, rather than risk the one reader's cursor.
++   */
++  available: boolean
++  /**
++   * Everything the job has produced so far — a final-output job's terminal text
++   * once settled — bounded by the producer's own retained window. Empty while
++   * nothing exists; repeating a peek repeats the same text.
++   */
++  text: string
++  /** The job's state at peek time. */
++  snapshot: JobSnapshot
++}
++
+ /** Output and post-read state returned by {@link JobRegistry.read}. */
+ export interface JobRead {
+   /**
+diff --git a/packages/jobs/jobs/tests/service.spec.ts b/packages/jobs/jobs/tests/service.spec.ts
+index 6c4f65c52f..336cd6b385 100644
+--- a/packages/jobs/jobs/tests/service.spec.ts
++++ b/packages/jobs/jobs/tests/service.spec.ts
+@@ -3,7 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
+ import type { Agent } from '@deepseek-ai/dsh-agent'
+ import { JobId, JobRegistry } from '@deepseek-ai/dsh-jobs'
+ import type {
+-  JobDoneListener, JobRead, JobSnapshot, JobStart, JobsChangedListener,
++  JobDoneListener, JobPeek, JobRead, JobSnapshot, JobStart, JobsChangedListener,
+ } from '@deepseek-ai/dsh-jobs'
+ 
+ /**
+@@ -40,6 +40,10 @@ class StubJobRegistry extends JobRegistry {
+     return { text: '', snapshot: this.snapshotOf(id) }
+   }
+ 
++  peek(id: JobId): JobPeek {
++    return { available: true, text: '', snapshot: this.snapshotOf(id) }
++  }
++
+   kill(): 'requested' | 'already-finished' {
+     return 'requested'
+   }
+@@ -72,6 +76,7 @@ describe('JobRegistry seam', () => {
+     expect(ctx.jobs.list()).toHaveLength(1)
+     expect(ctx.jobs.get(id).status).toBe('running')
+     expect(ctx.jobs.read(id).text).toBe('')
++    expect(ctx.jobs.peek(id)).toMatchObject({ available: true, text: '' })
+     expect(ctx.jobs.kill(id)).toBe('requested')
+     await expect(ctx.jobs.wait(id, 5)).resolves.toMatchObject({ id })
+     const detachListener = ctx.jobs.onJobDone(() => {})
+diff --git a/packages/shell/bash-local/README.i18n.yaml b/packages/shell/bash-local/README.i18n.yaml
+index 2c2e783ba3..23e838a9f0 100644
+--- a/packages/shell/bash-local/README.i18n.yaml
++++ b/packages/shell/bash-local/README.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write packages/shell/bash-local/README.md
+-README.md: 462054d435433067355a91103aa0d606cea6521b
+-README.zh.md: 6127c6265079d522b5a58d8b1fd019c1bd909262
++README.md: 8d7c66ef9ec6b110240a3a3f050a095367e65ef2
++README.zh.md: b1691e5683fc3c0277bb3247901c8a1d3289956c
+diff --git a/packages/shell/bash-local/README.md b/packages/shell/bash-local/README.md
+index 462054d435..8d7c66ef9e 100644
+--- a/packages/shell/bash-local/README.md
++++ b/packages/shell/bash-local/README.md
+@@ -61,7 +61,7 @@ if (result.timedOut) console.log('timed out after', result.timeoutMs)
+ 
+ ### Background processes
+ 
+-Call `start` to run a command in the background; it returns a handle immediately and no timeout applies. `readOutput()` merges the stream deltas into one consuming read, marking stderr under a `[stderr]` section; `kill()` terminates the provider-managed range; `done` settles when the direct command closes and never rejects. Job ids, ownership, polling, and notices belong to the generic `ctx.jobs` runtime, which the tool layer registers the handle with.
++Call `start` to run a command in the background; it returns a handle immediately and no timeout applies. `readOutput()` merges the stream deltas into one consuming read, marking stderr under a `[stderr]` section; `peekOutput()` renders the whole retained stream the same way without advancing that cursor; `kill()` terminates the provider-managed range; `done` settles when the direct command closes and never rejects. Job ids, ownership, polling, and notices belong to the generic `ctx.jobs` runtime, which the tool layer registers the handle with.
+ 
+ <a id="adjusting-budgets-at-runtime"></a>
+ ### Adjusting budgets at runtime
+diff --git a/packages/shell/bash-local/README.zh.md b/packages/shell/bash-local/README.zh.md
+index 6127c62650..b1691e5683 100644
+--- a/packages/shell/bash-local/README.zh.md
++++ b/packages/shell/bash-local/README.zh.md
+@@ -61,7 +61,7 @@ if (result.timedOut) console.log('timed out after', result.timeoutMs)
+ 
+ ### 后台进程
+ 
+-调用 `start` 即可在后台运行命令；它立即返回句柄，且不应用任何超时。`readOutput()` 把流增量合并为一次消费式读取，并在 `[stderr]` 分段下标记 stderr；`kill()` 终止提供方管理的 range；`done` 在直接命令关闭时结算且绝不 reject。job id、所有权、轮询与通知属于通用 `ctx.jobs` 运行时，工具层会把句柄注册进去。
++调用 `start` 即可在后台运行命令；它立即返回句柄，且不应用任何超时。`readOutput()` 把流增量合并为一次消费式读取，并在 `[stderr]` 分段下标记 stderr；`peekOutput()` 以同样方式渲染整段保留输出而不推进该游标；`kill()` 终止提供方管理的 range；`done` 在直接命令关闭时结算且绝不 reject。job id、所有权、轮询与通知属于通用 `ctx.jobs` 运行时，工具层会把句柄注册进去。
+ 
+ <a id="adjusting-budgets-at-runtime"></a>
+ ### 运行时调整预算
+diff --git a/packages/shell/bash-local/src/index.ts b/packages/shell/bash-local/src/index.ts
+index 0ab4c03964..cd9ba0022d 100644
+--- a/packages/shell/bash-local/src/index.ts
++++ b/packages/shell/bash-local/src/index.ts
+@@ -13,7 +13,7 @@ import { Context } from '@deepseek-ai/cordis'
+ import z from '@deepseek-ai/schemastery'
+ import { SHELL_SETTINGS_NAMESPACE, ShellExecutor } from '@deepseek-ai/dsh-shell'
+ import type { ShellExecRequest, ShellExecSpec, ShellProcess, ShellProcessRead, ShellRunResult, CollectedOutput } from '@deepseek-ai/dsh-shell'
+-import type { SubprocessCollect, SubprocessHandle, SubprocessOutputReader, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
++import type { SubprocessCollect, SubprocessHandle, SubprocessOutputRead, SubprocessOutputReader, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+ import type {} from '@deepseek-ai/dsh-settings'
+ import { clampTimeout, deadline, MAX_TIMER_DELAY_MS, timeoutOf } from '@deepseek-ai/dsh-timeout'
+ 
+@@ -66,6 +66,36 @@ function finalOutput(reader: SubprocessOutputReader): CollectedOutput {
+   }
+ }
+ 
++/**
++ * Merge one stdout/stderr pair into the model-facing background read under a
++ * single `[stderr]` section. Shared by the consuming read and the
++ * non-consuming projection so both render the same bytes identically.
++ * @param out - stdout read or projection.
++ * @param err - stderr read or projection.
++ * @param providerFailure - pending provider-failure note; empty for a projection.
++ * @returns the merged background process read.
++ */
++function mergeBackgroundRead(
++  out: SubprocessOutputRead,
++  err: SubprocessOutputRead,
++  providerFailure: string,
++): ShellProcessRead {
++  const failureSeparator = err.text.length > 0 && !err.text.endsWith('\n') ? '\n' : ''
++  const errText = err.text
++    + (providerFailure.length > 0 ? `${failureSeparator}${providerFailure}` : '')
++  // Single newline between sections: stdout chunks usually end with one
++  // already; add it only when missing.
++  const separator = out.text.length > 0 && !out.text.endsWith('\n') ? '\n' : ''
++  const delta = out.text
++    + (errText.length > 0 ? `${separator}[stderr]\n${errText}` : '')
++  return {
++    delta,
++    lossy: out.lossy || err.lossy,
++    ...out.spillPath !== undefined ? { stdoutSpillPath: out.spillPath } : {},
++    ...err.spillPath !== undefined ? { stderrSpillPath: err.spillPath } : {},
++  }
++}
++
+ function assertPositiveFinite(name: string, value: number): void {
+   if (!Number.isFinite(value) || value <= 0) {
+     throw new Error(`bash-local: ${name} must be a positive finite number`)
+@@ -299,23 +329,15 @@ export class LocalBashExecutor extends ShellExecutor {
+         const err = collected.stderr.readFrom(stderrOffset)
+         stdoutOffset = out.nextOffset
+         stderrOffset = err.nextOffset
+-
+-        const providerFailure = consumeProviderFailure()
+-        const failureSeparator = err.text.length > 0 && !err.text.endsWith('\n') ? '\n' : ''
+-        const errText = err.text
+-          + (providerFailure.length > 0 ? `${failureSeparator}${providerFailure}` : '')
+-        // Single newline between sections: stdout chunks usually end with one
+-        // already; add it only when missing.
+-        const separator = out.text.length > 0 && !out.text.endsWith('\n') ? '\n' : ''
+-        const delta = out.text
+-          + (errText.length > 0 ? `${separator}[stderr]\n${errText}` : '')
+-        return {
+-          delta,
+-          lossy: out.lossy || err.lossy,
+-          ...out.spillPath !== undefined ? { stdoutSpillPath: out.spillPath } : {},
+-          ...err.spillPath !== undefined ? { stderrSpillPath: err.spillPath } : {},
+-        }
++        return mergeBackgroundRead(out, err, consumeProviderFailure())
+       },
++      peekOutput: (): ShellProcessRead => mergeBackgroundRead(
++        collected.stdout.readFrom(0),
++        collected.stderr.readFrom(0),
++        // The pending provider-failure note belongs to the consuming read this
++        // projection must leave intact.
++        '',
++      ),
+       kill: (): boolean => {
+         if (proc.status !== 'running') return false
+         proc.status = 'killed'
+diff --git a/packages/shell/bash-local/tests/executor.spec.ts b/packages/shell/bash-local/tests/executor.spec.ts
+index 7a690b3984..c6b8d173de 100644
+--- a/packages/shell/bash-local/tests/executor.spec.ts
++++ b/packages/shell/bash-local/tests/executor.spec.ts
+@@ -209,6 +209,18 @@ describe('LocalBashExecutor.start (background process handles)', () => {
+     expect(proc.readOutput().delta).toBe('out\n[stderr]\nerr\n')
+   })
+ 
++  it('peekOutput projects the whole retained stream without advancing reads', async () => {
++    const { bash } = await setup()
++    const proc = bash.start(bash.resolve({ command: 'echo out; echo err >&2' }))
++    await proc.done
++
++    expect(proc.peekOutput().delta).toBe('out\n[stderr]\nerr\n')
++    // The consuming reader still owns the same bytes after any number of peeks.
++    expect(proc.readOutput().delta).toBe('out\n[stderr]\nerr\n')
++    expect(proc.peekOutput().delta).toBe('out\n[stderr]\nerr\n')
++    expect(proc.readOutput().delta).toBe('')
++  })
++
+   it('readOutput reports stderr-only deltas without a leading newline', async () => {
+     const { bash } = await setup()
+     const proc = bash.start(bash.resolve({ command: 'echo err >&2' }))
+diff --git a/packages/shell/pwsh-local/README.i18n.yaml b/packages/shell/pwsh-local/README.i18n.yaml
+index 2737493806..046fb5fa0c 100644
+--- a/packages/shell/pwsh-local/README.i18n.yaml
++++ b/packages/shell/pwsh-local/README.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write packages/shell/pwsh-local/README.md
+-README.md: 1d6872ec6b342f415b1632f87be5a485c4dfa270
+-README.zh.md: 2594ecc1623fec9ea8022f92d1c38941f643d979
++README.md: 225a067982f489a8366c20aabb2c00911923c2c7
++README.zh.md: d09726e2c064a7529ad7bc9e06c286c39197915f
+diff --git a/packages/shell/pwsh-local/README.md b/packages/shell/pwsh-local/README.md
+index 1d6872ec6b..225a067982 100644
+--- a/packages/shell/pwsh-local/README.md
++++ b/packages/shell/pwsh-local/README.md
+@@ -66,7 +66,7 @@ if (result.timedOut) console.log('timed out after', result.timeoutMs)
+ 
+ ### Background processes
+ 
+-Call `start` to run a command in the background; it returns a handle immediately and no timeout applies. `readOutput()` merges the stream deltas into one consuming read, marking stderr under a `[stderr]` section; `kill()` terminates the provider-managed range; `done` settles when the direct command closes and never rejects. Job ids, ownership, polling, and notices belong to the generic `ctx.jobs` runtime, which the tool layer registers the handle with.
++Call `start` to run a command in the background; it returns a handle immediately and no timeout applies. `readOutput()` merges the stream deltas into one consuming read, marking stderr under a `[stderr]` section; `peekOutput()` renders the whole retained stream the same way without advancing that cursor; `kill()` terminates the provider-managed range; `done` settles when the direct command closes and never rejects. Job ids, ownership, polling, and notices belong to the generic `ctx.jobs` runtime, which the tool layer registers the handle with.
+ 
+ <a id="adjusting-budgets-at-runtime"></a>
+ ### Adjusting budgets at runtime
+diff --git a/packages/shell/pwsh-local/README.zh.md b/packages/shell/pwsh-local/README.zh.md
+index 2594ecc162..d09726e2c0 100644
+--- a/packages/shell/pwsh-local/README.zh.md
++++ b/packages/shell/pwsh-local/README.zh.md
+@@ -66,7 +66,7 @@ if (result.timedOut) console.log('timed out after', result.timeoutMs)
+ 
+ ### 后台进程
+ 
+-调用 `start` 即可在后台运行命令；它立即返回句柄，且不应用任何超时。`readOutput()` 把流增量合并为一次消费式读取，并在 `[stderr]` 分段下标记 stderr；`kill()` 终止由提供方管理的 range；`done` 在 direct command 关闭时结算且绝不 reject。job id、所有权、轮询与通知属于通用 `ctx.jobs` 运行时，工具层会把句柄注册进去。
++调用 `start` 即可在后台运行命令；它立即返回句柄，且不应用任何超时。`readOutput()` 把流增量合并为一次消费式读取，并在 `[stderr]` 分段下标记 stderr；`peekOutput()` 以同样方式渲染整段保留输出而不推进该游标；`kill()` 终止由提供方管理的 range；`done` 在 direct command 关闭时结算且绝不 reject。job id、所有权、轮询与通知属于通用 `ctx.jobs` 运行时，工具层会把句柄注册进去。
+ 
+ <a id="adjusting-budgets-at-runtime"></a>
+ ### 运行时调整预算
+diff --git a/packages/shell/pwsh-local/src/index.ts b/packages/shell/pwsh-local/src/index.ts
+index cecd1fff09..df3580d9b0 100644
+--- a/packages/shell/pwsh-local/src/index.ts
++++ b/packages/shell/pwsh-local/src/index.ts
+@@ -19,7 +19,7 @@ import { Context } from '@deepseek-ai/cordis'
+ import z from '@deepseek-ai/schemastery'
+ import { SHELL_SETTINGS_NAMESPACE, ShellExecutor } from '@deepseek-ai/dsh-shell'
+ import type { ShellExecRequest, ShellExecSpec, ShellProcess, ShellProcessRead, ShellRunResult, CollectedOutput } from '@deepseek-ai/dsh-shell'
+-import type { SubprocessCollect, SubprocessHandle, SubprocessOutputReader, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
++import type { SubprocessCollect, SubprocessHandle, SubprocessOutputRead, SubprocessOutputReader, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+ import type {} from '@deepseek-ai/dsh-settings'
+ import { clampTimeout, deadline, MAX_TIMER_DELAY_MS, timeoutOf } from '@deepseek-ai/dsh-timeout'
+ /* jscpd:ignore-end */
+@@ -94,6 +94,36 @@ function finalOutput(reader: SubprocessOutputReader): CollectedOutput {
+   }
+ }
+ 
++/**
++ * Merge one stdout/stderr pair into the model-facing background read under a
++ * single `[stderr]` section. Shared by the consuming read and the
++ * non-consuming projection so both render the same bytes identically.
++ * @param out - stdout read or projection.
++ * @param err - stderr read or projection.
++ * @param providerFailure - pending provider-failure note; empty for a projection.
++ * @returns the merged background process read.
++ */
++function mergeBackgroundRead(
++  out: SubprocessOutputRead,
++  err: SubprocessOutputRead,
++  providerFailure: string,
++): ShellProcessRead {
++  const failureSeparator = err.text.length > 0 && !err.text.endsWith('\n') ? '\n' : ''
++  const errText = err.text
++    + (providerFailure.length > 0 ? `${failureSeparator}${providerFailure}` : '')
++  // Single newline between sections: stdout chunks usually end with one
++  // already; add it only when missing.
++  const separator = out.text.length > 0 && !out.text.endsWith('\n') ? '\n' : ''
++  const delta = out.text
++    + (errText.length > 0 ? `${separator}[stderr]\n${errText}` : '')
++  return {
++    delta,
++    lossy: out.lossy || err.lossy,
++    ...out.spillPath !== undefined ? { stdoutSpillPath: out.spillPath } : {},
++    ...err.spillPath !== undefined ? { stderrSpillPath: err.spillPath } : {},
++  }
++}
++
+ function assertPositiveFinite(name: string, value: number): void {
+   if (!Number.isFinite(value) || value <= 0) {
+     throw new Error(`pwsh-local: ${name} must be a positive finite number`)
+@@ -319,23 +349,15 @@ export class PwshLocalExecutor extends ShellExecutor {
+         const err = collected.stderr.readFrom(stderrOffset)
+         stdoutOffset = out.nextOffset
+         stderrOffset = err.nextOffset
+-
+-        const providerFailure = consumeProviderFailure()
+-        const failureSeparator = err.text.length > 0 && !err.text.endsWith('\n') ? '\n' : ''
+-        const errText = err.text
+-          + (providerFailure.length > 0 ? `${failureSeparator}${providerFailure}` : '')
+-        // Single newline between sections: stdout chunks usually end with one
+-        // already; add it only when missing.
+-        const separator = out.text.length > 0 && !out.text.endsWith('\n') ? '\n' : ''
+-        const delta = out.text
+-          + (errText.length > 0 ? `${separator}[stderr]\n${errText}` : '')
+-        return {
+-          delta,
+-          lossy: out.lossy || err.lossy,
+-          ...out.spillPath !== undefined ? { stdoutSpillPath: out.spillPath } : {},
+-          ...err.spillPath !== undefined ? { stderrSpillPath: err.spillPath } : {},
+-        }
++        return mergeBackgroundRead(out, err, consumeProviderFailure())
+       },
++      peekOutput: (): ShellProcessRead => mergeBackgroundRead(
++        collected.stdout.readFrom(0),
++        collected.stderr.readFrom(0),
++        // The pending provider-failure note belongs to the consuming read this
++        // projection must leave intact.
++        '',
++      ),
+       kill: (): boolean => {
+         if (proc.status !== 'running') return false
+         proc.status = 'killed'
+diff --git a/packages/shell/pwsh-local/tests/executor.spec.ts b/packages/shell/pwsh-local/tests/executor.spec.ts
+index 09657e2331..72b74c1a65 100644
+--- a/packages/shell/pwsh-local/tests/executor.spec.ts
++++ b/packages/shell/pwsh-local/tests/executor.spec.ts
+@@ -540,6 +540,30 @@ describe.skipIf(!hasPwsh)('PwshLocalExecutor.start (background process handles)'
+     expect(lf(proc.readOutput().delta)).toBe('out\n[stderr]\nerr\n')
+   })
+ 
++  it('peekOutput projects the whole retained stream without advancing reads', async () => {
++    const { bash } = await setup()
++    const proc = bash.start(bash.resolve({ command: 'Write-Output out; [Console]::Error.WriteLine("err")' }))
++    await proc.done
++
++    expect(lf(proc.peekOutput().delta)).toBe('out\n[stderr]\nerr\n')
++    expect(proc.peekOutput().lossy).toBe(false)
++    // The consuming reader still owns the same bytes after any number of peeks.
++    expect(lf(proc.readOutput().delta)).toBe('out\n[stderr]\nerr\n')
++    expect(lf(proc.peekOutput().delta)).toBe('out\n[stderr]\nerr\n')
++    expect(proc.readOutput().delta).toBe('')
++  })
++
++  it('peekOutput flags lossy projections exactly like a read from byte zero', async () => {
++    const { bash } = await setup({ maxOutputBytes: 100 })
++    const proc = bash.start(bash.resolve({ command: '1..100 | ForEach-Object { "line-$_" }' }))
++    await proc.done
++
++    const peeked = proc.peekOutput()
++    expect(peeked.lossy).toBe(true)
++    expect(proc.readOutput().lossy).toBe(true)
++    expect(lf(proc.peekOutput().delta)).toBe(lf(peeked.delta))
++  })
++
+   it('readOutput reports stderr-only deltas without a leading newline', async () => {
+     const { bash } = await setup()
+     const proc = bash.start(bash.resolve({ command: '[Console]::Error.WriteLine("err")' }))
+diff --git a/packages/shell/shell/README.i18n.yaml b/packages/shell/shell/README.i18n.yaml
+index 8e2e5f4322..e48a26e49e 100644
+--- a/packages/shell/shell/README.i18n.yaml
++++ b/packages/shell/shell/README.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write packages/shell/shell/README.md
+-README.md: 35daabef167f0d1276382b5b024a610d810488c6
+-README.zh.md: e964c3982ad266f1b3123d839b9b51734c23e67b
++README.md: 8780f3ab6e932aa974692acb53311efe0e9c47c8
++README.zh.md: ed2c12b0a2c2d611ece2e3e21b17064e4d3c4456
+diff --git a/packages/shell/shell/README.md b/packages/shell/shell/README.md
+index 35daabef16..8780f3ab6e 100644
+--- a/packages/shell/shell/README.md
++++ b/packages/shell/shell/README.md
+@@ -38,7 +38,7 @@ console.log(result.exitCode, result.stdout.text)
+ 
+ ### Background processes
+ 
+-Call `start` with a resolved spec to launch a background process; it returns a handle immediately and no timeout applies. Read output incrementally with `readOutput()` — consecutive reads never repeat output, and lossy reads point at full-stream spill files. Terminate the provider-managed range with `kill()` (returns `false` once the direct command has finished) and await `done` for direct-command settlement. Job ids, ownership, polling, and notices belong to the generic `ctx.jobs` runtime, where the tool layer registers the handle.
++Call `start` with a resolved spec to launch a background process; it returns a handle immediately and no timeout applies. Read output incrementally with `readOutput()` — consecutive reads never repeat output, and lossy reads point at full-stream spill files. Project the whole retained stream with `peekOutput()`, which renders the same bytes and loss notices without advancing `readOutput()`'s cursor, for observers that must not take what the one reader is owed. Terminate the provider-managed range with `kill()` (returns `false` once the direct command has finished) and await `done` for direct-command settlement. Job ids, ownership, polling, and notices belong to the generic `ctx.jobs` runtime, where the tool layer registers the handle.
+ 
+ ### Requests and resolved specs
+ 
+@@ -91,7 +91,7 @@ The package is one role of a standard capability seam: the Service Definition th
+ 
+ ### Background lifecycle and ownership
+ 
+-A background process belongs to the subprocess service, not to the executor: it survives an executor-only reload and is killed and joined when the composition tears down. Implementations must honor the seam's semantics — `run` rejects only for infrastructure failures; `start` returns immediately with no timeout and its `done` never rejects (a subprocess provider rejection settles as `killed` with a stage-neutral error on stderr); `readOutput` is consuming and lossy reads report spill files.
++A background process belongs to the subprocess service, not to the executor: it survives an executor-only reload and is killed and joined when the composition tears down. Implementations must honor the seam's semantics — `run` rejects only for infrastructure failures; `start` returns immediately with no timeout and its `done` never rejects (a subprocess provider rejection settles as `killed` with a stage-neutral error on stderr); `readOutput` is consuming and lossy reads report spill files; `peekOutput` projects the same retained stream and loss facts without consuming it.
+ 
+ </details>
+ 
+diff --git a/packages/shell/shell/README.zh.md b/packages/shell/shell/README.zh.md
+index e964c3982a..ed2c12b0a2 100644
+--- a/packages/shell/shell/README.zh.md
++++ b/packages/shell/shell/README.zh.md
+@@ -38,7 +38,7 @@ console.log(result.exitCode, result.stdout.text)
+ 
+ ### 后台进程
+ 
+-用已解析的 spec 调用 `start` 即可启动后台进程；它会立即返回句柄，且不应用任何超时。用 `readOutput()` 增量读取输出——连续读取绝不会重复交付，有损读取会指向完整流的 spill 文件。用 `kill()` 终止提供方管理的 range（直接命令结束后返回 `false`），并等待 `done` 完成直接命令结算。job id、所有权、轮询与通知属于通用 `ctx.jobs` 运行时，工具层会把句柄注册进去。
++用已解析的 spec 调用 `start` 即可启动后台进程；它会立即返回句柄，且不应用任何超时。用 `readOutput()` 增量读取输出——连续读取绝不会重复交付，有损读取会指向完整流的 spill 文件。用 `peekOutput()` 投影整段保留输出：渲染与丢失提示同一次读取一致，但不推进 `readOutput()` 的游标，供不得取走唯一读取方应得字节的观察者使用。用 `kill()` 终止提供方管理的 range（直接命令结束后返回 `false`），并等待 `done` 完成直接命令结算。job id、所有权、轮询与通知属于通用 `ctx.jobs` 运行时，工具层会把句柄注册进去。
+ 
+ ### 请求与已解析 spec
+ 
+@@ -91,7 +91,7 @@ seam 本身不是执行器：每个组合只挂载一个提供方，工具即可
+ 
+ ### 后台生命周期与归属
+ 
+-后台进程属于 subprocess 服务而非执行器：它能在仅重载执行器后存活，并在组合拆解时被终止并 join。实现必须遵守 seam 的语义——`run` 只在基础设施失败时 reject；`start` 立即返回且不设超时，其 `done` 绝不 reject（subprocess provider rejection 以 `killed` 结算，并把不声明阶段的错误写入 stderr）；`readOutput` 是消费式的，有损读取会报告 spill 文件。
++后台进程属于 subprocess 服务而非执行器：它能在仅重载执行器后存活，并在组合拆解时被终止并 join。实现必须遵守 seam 的语义——`run` 只在基础设施失败时 reject；`start` 立即返回且不设超时，其 `done` 绝不 reject（subprocess provider rejection 以 `killed` 结算，并把不声明阶段的错误写入 stderr）；`readOutput` 是消费式的，有损读取会报告 spill 文件；`peekOutput` 在不消费的前提下投影同一份保留输出与丢失事实。
+ 
+ </details>
+ 
+diff --git a/packages/shell/shell/src/types.ts b/packages/shell/shell/src/types.ts
+index 8a17c3880b..9970751f20 100644
+--- a/packages/shell/shell/src/types.ts
++++ b/packages/shell/shell/src/types.ts
+@@ -140,9 +140,9 @@ export interface ShellRunResult {
+ /** Lifecycle of a background process. */
+ export type ShellProcessStatus = 'running' | 'completed' | 'killed'
+ 
+-/** One incremental {@link ShellProcess.readOutput} read. */
++/** One {@link ShellProcess.readOutput} delta or {@link ShellProcess.peekOutput} projection. */
+ export interface ShellProcessRead {
+-  /** Output produced since the previous read (stderr in a marked section). */
++  /** Output produced since the previous read (stderr in a marked section); a peek projects the whole retained stream. */
+   delta: string
+   /** True when truncation dropped unread bytes the delta cannot include. */
+   lossy: boolean
+@@ -178,6 +178,13 @@ export interface ShellProcess {
+    * full-stream spill files when available.
+    */
+   readOutput(): ShellProcessRead
++  /**
++   * Project the whole retained stream without advancing {@link readOutput}'s
++   * cursor, under the same rendering, bounds, and loss reporting (a truncated
++   * stream is `lossy` and points at the same spill files). Independent
++   * observers use this; bytes the consuming reader has not taken stay untaken.
++   */
++  peekOutput(): ShellProcessRead
+   /**
+    * Terminate the provider-managed range. Returns false when it had already finished
+    * (no-op); idempotent.
+diff --git a/packages/shell/shell/tests/service.spec.ts b/packages/shell/shell/tests/service.spec.ts
+index 48c23af6b2..f51d9cae08 100644
+--- a/packages/shell/shell/tests/service.spec.ts
++++ b/packages/shell/shell/tests/service.spec.ts
+@@ -40,6 +40,7 @@ class StubExecutor extends ShellExecutor {
+       signal: null,
+       done: Promise.resolve(),
+       readOutput: (): ShellProcessRead => ({ delta: '', lossy: false }),
++      peekOutput: (): ShellProcessRead => ({ delta: '', lossy: false }),
+       kill: (): boolean => {
+         if (proc.status !== 'running') return false
+         proc.status = 'killed'
+@@ -64,6 +65,7 @@ describe('ShellExecutor service seam', () => {
+     const proc = ctx.shell.start(spec)
+     expect(proc.status).toBe('running')
+     expect(proc.readOutput()).toEqual({ delta: '', lossy: false })
++    expect(proc.peekOutput()).toEqual({ delta: '', lossy: false })
+     expect(proc.kill()).toBe(true)
+     expect(proc.kill()).toBe(false) // already settled → no-op
+     await proc.done
+diff --git a/packages/shell/tool-bash-persistent/tests/tools.spec.ts b/packages/shell/tool-bash-persistent/tests/tools.spec.ts
+index 7f3ed90c52..ff2e8542f9 100644
+--- a/packages/shell/tool-bash-persistent/tests/tools.spec.ts
++++ b/packages/shell/tool-bash-persistent/tests/tools.spec.ts
+@@ -277,6 +277,7 @@ class StubPtySession implements TerminalBackendSession {
+     return {
+       done,
+       readOutput: () => ({ delta, truncated: false }),
++      peekOutput: () => ({ delta, truncated: false }),
+       cancel: () => false,
+     }
+   }
+diff --git a/packages/shell/tool-bash/src/index.ts b/packages/shell/tool-bash/src/index.ts
+index 278d643910..a855485879 100644
+--- a/packages/shell/tool-bash/src/index.ts
++++ b/packages/shell/tool-bash/src/index.ts
+@@ -371,6 +371,7 @@ export function apply(ctx: Context, config: Config = {}): void {
+               cancel: () => void proc.kill(),
+               done: proc.done.then(() => processOutcome(proc)),
+               readOutput: () => renderProcessRead(proc.readOutput(), proc.sandbox, escalationModes),
++              peekOutput: () => renderProcessRead(proc.peekOutput(), proc.sandbox, escalationModes),
+             }
+           },
+         })
+diff --git a/packages/shell/tool-bash/tests/tools.spec.ts b/packages/shell/tool-bash/tests/tools.spec.ts
+index 1dfbd27b81..f1fa8a7b26 100644
+--- a/packages/shell/tool-bash/tests/tools.spec.ts
++++ b/packages/shell/tool-bash/tests/tools.spec.ts
+@@ -13,6 +13,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
+ import { turnBoundaryProjectionDefinition } from '@deepseek-ai/dsh-agent-loop'
+ import { SessionId } from '@deepseek-ai/dsh-session'
+ import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
++import { JobId } from '@deepseek-ai/dsh-jobs'
+ import * as ToolTasks from '@deepseek-ai/dsh-tool-jobs'
+ import ApprovalService from '@deepseek-ai/dsh-user-approval'
+ import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
+@@ -152,6 +153,7 @@ class RecordingSandboxExecutor extends ShellExecutor {
+       done: Promise.resolve(),
+       sandbox: { mode: spec.sandboxPolicy?.mode ?? 'read-only', denied: false },
+       readOutput: () => ({ delta: '', lossy: false }),
++      peekOutput: () => ({ delta: '', lossy: false }),
+       kill: () => false,
+     }
+   }
+@@ -181,6 +183,7 @@ class CountingStartExecutor extends ShellExecutor {
+       signal: null,
+       done: Promise.resolve(),
+       readOutput: () => ({ delta: '', lossy: false }),
++      peekOutput: () => ({ delta: '', lossy: false }),
+       kill: () => false,
+     }
+   }
+@@ -470,6 +473,20 @@ describe('background execution through the job runtime', () => {
+     expect(final.isError).toBe(false)
+   })
+ 
++  it('peeks a settled background job without taking its output from job_output', async () => {
++    const ctx = await setupWithTasks()
++    await call(ctx, 'bash', { command: 'echo peeked', description: 'test command', run_in_background: true })
++    await ctx.jobs.wait(JobId('bash-1'), 10_000)
++
++    const peeked = ctx.jobs.peek(JobId('bash-1'))
++    expect(peeked.available).toBe(true)
++    expect(peeked.text).toContain('bg-ok')
++
++    // The model's one reader still receives every byte the peek showed.
++    const read = await call(ctx, 'job_output', { job_id: 'bash-1' })
++    expect(text(read)).toContain('bg-ok')
++  })
++
+   it('a running background job is killable through the REAL job_kill tool', async () => {
+     const ctx = await setupWithTasks()
+     await call(ctx, 'bash', { command: 'sleep 60', description: 'test command', run_in_background: true })
+@@ -791,6 +808,7 @@ describe('processOutcome', () => {
+       signal: null,
+       done: Promise.resolve(),
+       readOutput: () => ({ delta: '', lossy: false }),
++      peekOutput: () => ({ delta: '', lossy: false }),
+       kill: () => false,
+       ...over,
+     }
+@@ -1114,6 +1132,7 @@ describe('the model-facing bash tool builds its request from named args only (no
+         signal: null,
+         done: Promise.resolve(),
+         readOutput: () => ({ delta: '', lossy: false }),
++        peekOutput: () => ({ delta: '', lossy: false }),
+         kill: () => false,
+       }
+     }
+diff --git a/packages/shell/tool-pwsh-persistent/tests/tools.spec.ts b/packages/shell/tool-pwsh-persistent/tests/tools.spec.ts
+index e65859e4c8..2662c03e21 100644
+--- a/packages/shell/tool-pwsh-persistent/tests/tools.spec.ts
++++ b/packages/shell/tool-pwsh-persistent/tests/tools.spec.ts
+@@ -291,6 +291,7 @@ class StubTerminalSession implements TerminalBackendSession {
+     return {
+       done,
+       readOutput: () => ({ delta, truncated: false }),
++      peekOutput: () => ({ delta, truncated: false }),
+       cancel: () => false,
+     }
+   }
+diff --git a/packages/shell/tool-pwsh/src/index.ts b/packages/shell/tool-pwsh/src/index.ts
+index 5a558a542e..54202f9a87 100644
+--- a/packages/shell/tool-pwsh/src/index.ts
++++ b/packages/shell/tool-pwsh/src/index.ts
+@@ -387,6 +387,7 @@ export function apply(ctx: Context, config: Config = {}): void {
+               cancel: () => void proc.kill(),
+               done: proc.done.then(() => processOutcome(proc)),
+               readOutput: () => renderPwshProcessRead(proc.readOutput(), proc.sandbox, escalationModes),
++              peekOutput: () => renderPwshProcessRead(proc.peekOutput(), proc.sandbox, escalationModes),
+             }
+           },
+         })
+diff --git a/packages/shell/tool-pwsh/tests/tools.spec.ts b/packages/shell/tool-pwsh/tests/tools.spec.ts
+index dbd1f13bdd..90e09ac70c 100644
+--- a/packages/shell/tool-pwsh/tests/tools.spec.ts
++++ b/packages/shell/tool-pwsh/tests/tools.spec.ts
+@@ -19,6 +19,7 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
+ import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
+ import ToolRuntime, { TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
+ import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
++import { JobId } from '@deepseek-ai/dsh-jobs'
+ import * as ToolTasks from '@deepseek-ai/dsh-tool-jobs'
+ import AgentRegistry from '@deepseek-ai/dsh-agent'
+ import type { Agent } from '@deepseek-ai/dsh-agent'
+@@ -110,6 +111,7 @@ function fakeProcess(delta = 'bg-ok\n'): ShellProcess {
+       consumed = true
+       return { delta, lossy: false }
+     },
++    peekOutput: () => ({ delta, lossy: false }),
+     kill: () => false,
+   }
+ }
+@@ -124,6 +126,7 @@ function killableProcess(): ShellProcess {
+     signal: null,
+     done,
+     readOutput: () => ({ delta: '', lossy: false }),
++    peekOutput: () => ({ delta: '', lossy: false }),
+     kill: () => {
+       if (proc.status !== 'running') return false
+       proc.status = 'killed'
+@@ -756,6 +759,20 @@ describe('background execution through the job runtime', () => {
+     expect(final.isError).toBe(false)
+   })
+ 
++  it('peeks a settled background job without taking its output from job_output', async () => {
++    const { ctx } = await setupWithTasks()
++    await call(ctx, 'pwsh', { command: 'Write-Output peeked', description: 'test command', run_in_background: true })
++    await ctx.jobs.wait(JobId('pwsh-1'), 10_000)
++
++    const peeked = ctx.jobs.peek(JobId('pwsh-1'))
++    expect(peeked.available).toBe(true)
++    expect(peeked.text).toContain('bg-ok')
++
++    // The model's one reader still receives every byte the peek showed.
++    const read = await call(ctx, 'job_output', { job_id: 'pwsh-1' })
++    expect(text(read)).toContain('bg-ok')
++  })
++
+   it('a running background job is killable through the REAL job_kill tool', async () => {
+     const { ctx, bash } = await setupWithTasks()
+     bash.backgroundHandler = () => killableProcess()
+@@ -1073,6 +1090,7 @@ describe('processOutcome', () => {
+       signal: null,
+       done: Promise.resolve(),
+       readOutput: () => ({ delta: '', lossy: false }),
++      peekOutput: () => ({ delta: '', lossy: false }),
+       kill: () => false,
+       ...over,
+     }
+diff --git a/packages/terminal/terminal-bash/src/session.ts b/packages/terminal/terminal-bash/src/session.ts
+index d40db28c10..ad252e5edb 100644
+--- a/packages/terminal/terminal-bash/src/session.ts
++++ b/packages/terminal/terminal-bash/src/session.ts
+@@ -135,6 +135,11 @@ class LocalSendOperation implements TerminalSendOperation {
+     return this.output.consume()
+   }
+ 
++  peekOutput(): TerminalSendRead {
++    const projected = this.output.snapshot()
++    return { delta: projected.text, truncated: projected.truncated }
++  }
++
+   setInitialForeground(foreground: SubprocessTerminalForeground | undefined): void {
+     this.initialForegroundPgid = foreground?.processGroupId
+     this.initialForegroundLeftWait = foreground?.inputWaiting !== true
+diff --git a/packages/terminal/terminal-bash/tests/session.spec.ts b/packages/terminal/terminal-bash/tests/session.spec.ts
+index b28c579375..84ca55f7fc 100644
+--- a/packages/terminal/terminal-bash/tests/session.spec.ts
++++ b/packages/terminal/terminal-bash/tests/session.spec.ts
+@@ -582,7 +582,13 @@ describe('LocalPtySession readiness and output', () => {
+ 
+     const inferred = session.startSend({ text: 'sleep', submit: false })
+     terminal.emitData('working')
++    // A projection repeats the retained operation output and takes nothing from
++    // the consuming reader.
++    expect(inferred.peekOutput()).toEqual({ delta: 'working', truncated: false })
++    expect(inferred.peekOutput()).toEqual({ delta: 'working', truncated: false })
+     expect(inferred.readOutput()).toEqual({ delta: 'working', truncated: false })
++    expect(inferred.peekOutput()).toEqual({ delta: '', truncated: false })
++    expect(inferred.readOutput()).toEqual({ delta: '', truncated: false })
+     await vi.advanceTimersByTimeAsync(60)
+     expect((await inferred.done).waitReason).toBe('inferred_idle')
+ 
+diff --git a/packages/terminal/terminal/src/types.ts b/packages/terminal/terminal/src/types.ts
+index cbdd08d8a8..5bfbba9001 100644
+--- a/packages/terminal/terminal/src/types.ts
++++ b/packages/terminal/terminal/src/types.ts
+@@ -72,7 +72,7 @@ export interface TerminalSendRequest {
+ 
+ /** Incremental output consumed from one live send operation. */
+ export interface TerminalSendRead {
+-  /** Output produced since the previous operation read. */
++  /** Output produced since the previous operation read; a peek projects the whole retained operation output. */
+   delta: string
+   /** Whether unread operation output was dropped by the backend's bound. */
+   truncated: boolean
+@@ -96,6 +96,13 @@ export interface TerminalSendOperation {
+   done: Promise<TerminalSendResult>
+   /** Consume output produced since the prior call. */
+   readOutput(): TerminalSendRead
++  /**
++   * Project the operation's whole retained output without advancing
++   * {@link readOutput}'s cursor, under the same byte bound and truncation flag.
++   * Independent observers use this; the consuming reader's unread output stays
++   * unread.
++   */
++  peekOutput(): TerminalSendRead
+   /** Request `SIGINT`; returns false after the operation settled. */
+   cancel(): boolean
+ }
+diff --git a/packages/terminal/terminal/tests/service.spec.ts b/packages/terminal/terminal/tests/service.spec.ts
+index c5c552d18f..3886c8afd0 100644
+--- a/packages/terminal/terminal/tests/service.spec.ts
++++ b/packages/terminal/terminal/tests/service.spec.ts
+@@ -60,7 +60,7 @@ class StubSession implements TerminalBackendSession {
+ 
+   startSend(_request: TerminalSendRequest): TerminalSendOperation {
+     if (this.rejectSend) {
+-      return { done: Promise.reject(new Error('send failed')), readOutput: () => ({ delta: '', truncated: false }), cancel: () => false }
++      return { done: Promise.reject(new Error('send failed')), readOutput: () => ({ delta: '', truncated: false }), peekOutput: () => ({ delta: '', truncated: false }), cancel: () => false }
+     }
+     let settle!: () => void
+     let settled = false
+@@ -73,6 +73,7 @@ class StubSession implements TerminalBackendSession {
+     const operation: TerminalSendOperation = {
+       done,
+       readOutput: () => ({ delta: 'delta', truncated: false }),
++      peekOutput: () => ({ delta: 'delta', truncated: false }),
+       cancel: () => {
+         if (settled) return false
+         settled = true
+diff --git a/packages/terminal/tool-terminal/src/index.ts b/packages/terminal/tool-terminal/src/index.ts
+index 880cfcd31f..924c4aa3c3 100644
+--- a/packages/terminal/tool-terminal/src/index.ts
++++ b/packages/terminal/tool-terminal/src/index.ts
+@@ -269,6 +269,7 @@ export function apply(ctx: Context, config: Config = {}): void {
+                 (error: unknown) => ({ status: 'failed' as const, detail: String(error) }),
+               ),
+               readOutput: () => renderSendRead(operation.readOutput()),
++              peekOutput: () => renderSendRead(operation.peekOutput()),
+             }
+           },
+         })
+diff --git a/packages/terminal/tool-terminal/tests/tools.spec.ts b/packages/terminal/tool-terminal/tests/tools.spec.ts
+index 8c0c7f6292..d9e483846f 100644
+--- a/packages/terminal/tool-terminal/tests/tools.spec.ts
++++ b/packages/terminal/tool-terminal/tests/tools.spec.ts
+@@ -56,6 +56,7 @@ class StubSession implements TerminalBackendSession {
+     const operation: TerminalSendOperation = {
+       done,
+       readOutput: () => ({ delta: this.delta, truncated: this.deltaTruncated }),
++      peekOutput: () => ({ delta: this.delta, truncated: this.deltaTruncated }),
+       cancel: () => {
+         if (cancelled) return false
+         cancelled = true
