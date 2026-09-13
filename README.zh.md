@@ -35,7 +35,7 @@ Deeptop 不是对 `dsh web` 的页面包装，也不会在桌面进程中复制�
 <!-- @deeptop-pets:start readme-zh-feature -->
 | 互动宠物 | 已支持 | 独立透明置顶窗口可跨应用和显示器拖动，并响应点击、长按和任务状态；共享养成层保存饱食、心情和亲密度，支持喂食、摸摸和陪玩，换皮不会重置状态且可单独暂停。活动列表按 Deeptop 的“需要输入、阻塞、已完成未读、运行中”顺序显示多个会话，卡片可处理会话并切换到照顾面板。第三方宠物使用不含脚本的 `.deeptop-pet` 精灵包导入、导出和分享，总开关会直接销毁窗口。需要完全移除源码时执行 `npm run pets:remove`。 |
 <!-- @deeptop-pets:end readme-zh-feature -->
-| 模型与 Provider | 有边界地支持 | Provider/模型目录、每会话模型选择、思考程度、上下文窗口和输入模态元数据、Provider 发现及自定义连接设置；在 `llm-pi-ai` Provider 的已配置模型上可直接声明或关闭 `Max` 思考程度。RC8 的 `current`/`routable` 是发送准入依据，`groups` 仅用于候选展示；Schema 驱动的 Provider 表单尚未完整实现。 |
+| 模型与 Provider | 有边界地支持 | Provider/模型目录、每会话模型选择、思考程度、上下文窗口和输入模态元数据、Provider 发现及自定义连接设置；`llm-pi-ai` Provider 上未声明思考档位的模型可直接在发送框滑选低/中/高，首次提交把档位声明写进该路由的本地设置，设置里也能为已配置模型声明或关闭 `Max`。RC8 的 `current`/`routable` 是发送准入依据，`groups` 仅用于候选展示；Schema 驱动的 Provider 表单尚未完整实现。 |
 | File/Session Reference | 已支持 | 使用 DSH RC8 官方 Host 服务提供 `@` 文件/目录候选和 canonical session mention；查询通过 Bridge 传递取消信号，React 不读取历史或构造会话快照。 |
 | 图片附件限制 | 已支持 | 从 `session.history` projection 和实时 projection 事件读取 RC8 `imageLimits`，在本地提前检查媒体类型、字节数、像素/边长、单条消息图片数和总大小；Host 仍是最终校验者。 |
 | 工具与交互 | 已支持 | 工具调用/结果、Workflow、Job、Todo、轨迹视图、单选/多选/自定义问题响应，以及审批响应。 |

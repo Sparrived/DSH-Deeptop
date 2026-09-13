@@ -122,6 +122,30 @@ export function toggleModelMaxReasoning(model: Record<string, unknown>): Record<
   return next;
 }
 
+/**
+ * 未声明思考档位的 pi-ai 模型在本地补上的档位：键是 DSH 的档位 id，值是协议上
+ * `reasoning_effort` 的拼写。不含 `off`，因为留空的 `off` 什么都不发送，与
+ * 「跟随模型默认」是同一个请求。
+ */
+export const MODEL_REASONING_EFFORT_PRESET: Record<string, string> = { low: "low", medium: "medium", high: "high" };
+
+/**
+ * 为一个路由的某个模型生成「本地声明思考档位」的路径操作。路由的 `models`
+ * 已列出该模型时改它的条目，否则写 `modelOverrides`——这两处是 DSH 分别
+ * 校验的声明位置，`models` 条目优先于内置 catalog。
+ */
+export function declareModelReasoningEffortsOps(
+  settingsPath: string[],
+  models: Array<Record<string, unknown>>,
+  modelId: string,
+  efforts: Record<string, string>,
+): SettingsPathOp[] {
+  const index = models.findIndex((model) => String(model.id) === modelId);
+  if (index < 0) return [{ op: "set", path: [...settingsPath, "modelOverrides", modelId, "reasoningEfforts"], value: efforts }];
+  if (sameJson(models[index]!.reasoningEfforts, efforts)) return [];
+  return [{ op: "set", path: [...settingsPath, "models"], value: models.map((model, at) => at === index ? { ...model, reasoningEfforts: efforts } : model) }];
+}
+
 export function sameJson(left: unknown, right: unknown) {
   return JSON.stringify(left) === JSON.stringify(right);
 }

@@ -274,6 +274,7 @@ import { defaultWorkingIndicator, normalizeWorkingIndicator } from "./app/workin
 import { externalLaunchKey } from "./lib/external-launch";
 import { DEFAULT_PERMISSION_OPTIONS, isDefaultPermission, readStoredDefaultModel, readStoredDefaultPermission, writeStoredDefaultModel, writeStoredDefaultPermission, type DefaultPermission } from "./app/session-defaults";
 import { isSchemaEnvelope, schemaEnumChoices, schemaNodeAtPath } from "./app/schema-model";
+import { MODEL_REASONING_EFFORT_PRESET, declareModelReasoningEffortsOps, providerModels } from "./app/settings-model";
 import { resolveSubmitMode } from "./app/submit-mode";
 import { presentedPhaseKey, type PresentedAction, type PresentedOpenPhase } from "./app/presented-file";
 import {
@@ -1782,17 +1783,34 @@ function AppContent() {
   const selectedModel = modelOptions.find((option) => option.value === selectedModelValue);
   const selectedReasoning = selectedModel?.reasoning;
   const selectedReasoningEffort = composerModels?.current.reasoningEffort ?? selectedReasoning?.defaultEffort;
-  const selectedReasoningLabel = selectedReasoning === undefined
-    ? undefined
-    : selectedReasoningEffort === undefined
-      ? t("reasoning.default", locale)
-      : selectedReasoning.efforts.find((effort) => effort.id === selectedReasoningEffort)?.name ?? selectedReasoningEffort;
+  // 内置 catalog 之外的模型（手写路由、网关新模型）DSH 无从得知思考档位，
+  // 但档位本来就是本地声明：这里允许在发送框直接滑选，首次提交时把声明写进
+  // 该路由的本地设置，省掉「先去设置里声明再回来选」的往返。
+  const reasoningDeclaration = useMemo(() => {
+    if (selectedReasoning !== undefined || !settings?.writable) return undefined;
+    const selection = composerModels?.current;
+    if (!selection) return undefined;
+    const provider = providers.find((item) => item.provider === selection.provider && item.settingsNs === "llm-pi-ai");
+    const namespace = provider && settings.namespaces.find((item) => item.ns === provider.settingsNs);
+    return provider && namespace ? { provider, namespace } : undefined;
+  }, [composerModels, providers, selectedReasoning, settings]);
+  // 预设档位与声明后的档位列表同形（默认档在最前），因此声明落地、目录刷新
+  // 之后滑块不跳位。
+  const presetReasoningChoices = useMemo<Array<{ key: string; id?: string; name: string; description?: string }>>(() => [
+    { key: "provider-default", name: t("reasoning.default", locale) },
+    { key: "effort:low", id: "low", name: t("reasoning.effort.low", locale) },
+    { key: "effort:medium", id: "medium", name: t("reasoning.effort.medium", locale) },
+    { key: "effort:high", id: "high", name: t("reasoning.effort.high", locale) },
+  ], [locale]);
   const reasoningChoices: Array<{ key: string; id?: string; name: string; description?: string }> = selectedReasoning === undefined
-    ? []
+    ? (reasoningDeclaration ? presetReasoningChoices : [])
     : [
       ...(selectedReasoning.defaultEffort === undefined ? [{ key: "provider-default", name: t("reasoning.default", locale) }] : []),
       ...selectedReasoning.efforts.map((effort) => ({ key: `effort:${effort.id}`, id: effort.id, name: effort.name, description: effort.description })),
     ];
+  const selectedReasoningLabel = selectedReasoningEffort !== undefined
+    ? reasoningChoices.find((choice) => choice.id === selectedReasoningEffort)?.name ?? selectedReasoningEffort
+    : selectedReasoning === undefined ? undefined : t("reasoning.default", locale);
 
   const goalProjectionLoaded = goal !== undefined;
   const activeGoal = goal && typeof goal === "object" ? goal.goal : null;
@@ -4252,12 +4270,45 @@ function AppContent() {
     }
   }
 
+  /**
+   * 把该模型缺失的思考档位声明写进它的路由设置并刷新目录。声明本身不改变
+   * 请求——只有选定某个档位才会发送 `reasoning_effort`。
+   */
+  async function declareModelReasoningEfforts(): Promise<boolean> {
+    const selection = composerModels?.current;
+    const declaration = reasoningDeclaration;
+    if (!selection || !declaration) return false;
+    const ops = declareModelReasoningEffortsOps(
+      declaration.provider.settingsPath,
+      providerModels(declaration.provider, declaration.namespace),
+      selection.model,
+      { ...MODEL_REASONING_EFFORT_PRESET },
+    );
+    try {
+      if (ops.length > 0) {
+        await desktopRequest("settings.mutate", { ns: declaration.namespace.ns, ops, expectedRevision: declaration.namespace.revision });
+      }
+      await loadRuntimeDetails();
+      return true;
+    } catch (error) {
+      setErrorNotice(errorText(error, locale));
+      return false;
+    }
+  }
+
   // 思考程度由滑条提交：提交后保留模型菜单，便于在滑动条上连续微调档位。
+  // 未声明档位的模型先落地本地声明，用户只需要拖动这一次。
   async function changeReasoningEffort(reasoningEffort?: string) {
+    const declaring = reasoningEffort !== undefined && reasoningDeclaration !== undefined && selectedReasoningEffort !== reasoningEffort;
+    if (declaring && !await declareModelReasoningEfforts()) return;
+    const declarationNotice = declaring
+      ? t("notice.reasoningDeclared", locale, { model: selectedModel?.name ?? composerModels?.current.model ?? "" })
+      : t("notice.reasoningUpdated", locale);
     if (!activeSessionId || !models) {
       if (!activeSessionId && pendingModelSelection) {
         setDraftModelSelection({ ...pendingModelSelection, reasoningEffort });
       }
+      if (declaring) setNotice(declarationNotice);
       return;
     }
     if (selectedReasoningEffort === reasoningEffort) return;
@@ -4269,7 +4320,7 @@ function AppContent() {
         ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
       });
       setModels((current) => current ? { ...current, current: { ...current.current, reasoningEffort } } : current);
-      setNotice(t("notice.reasoningUpdated", locale));
+      setNotice(declarationNotice);
     } catch (error) { setErrorNotice(errorText(error, locale)); }
   }
 

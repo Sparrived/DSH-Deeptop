@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { errorText, modelHasMaxReasoning, providerApiKeyEnvOp, providerSettingsOps, toggleModelMaxReasoning } from "./settings-model.ts";
+import { declareModelReasoningEffortsOps, errorText, modelHasMaxReasoning, providerApiKeyEnvOp, providerSettingsOps, toggleModelMaxReasoning } from "./settings-model.ts";
 
 test("maps RC8 routing, timezone and image admission errors", () => {
   const modelError = new Error("provider rejected model");
@@ -45,6 +45,31 @@ test("toggleModelMaxReasoning adds and removes only the canonical max level", ()
 test("toggleModelMaxReasoning removes an off-only declaration instead of creating an invalid profile", () => {
   const disabled = toggleModelMaxReasoning({ id: "unified-model", reasoningEfforts: { off: null, max: "max" } });
   assert.deepEqual(disabled, { id: "unified-model" });
+});
+
+test("declareModelReasoningEffortsOps declares on the listed model entry", () => {
+  const efforts = { low: "low", medium: "medium", high: "high" };
+  const ops = declareModelReasoningEffortsOps(settingsPath, stored.models, "unified-model", efforts);
+  assert.deepEqual(ops, [{
+    op: "set",
+    path: [...settingsPath, "models"],
+    value: [{ id: "unified-model", name: "统一模型", reasoningEfforts: efforts }],
+  }]);
+});
+
+test("declareModelReasoningEffortsOps falls back to modelOverrides for a catalog model", () => {
+  const ops = declareModelReasoningEffortsOps(settingsPath, stored.models, "unlisted-model", { high: "high" });
+  assert.deepEqual(ops, [{
+    op: "set",
+    path: [...settingsPath, "modelOverrides", "unlisted-model", "reasoningEfforts"],
+    value: { high: "high" },
+  }]);
+});
+
+test("declareModelReasoningEffortsOps skips an already identical entry declaration", () => {
+  const declared = [{ id: "unified-model", reasoningEfforts: { low: "low" } }];
+  assert.deepEqual(declareModelReasoningEffortsOps(settingsPath, declared, "unified-model", { low: "low" }), []);
+  assert.equal(declareModelReasoningEffortsOps(settingsPath, declared, "unified-model", { high: "high" }).length, 1);
 });
 
 test("providerSettingsOps only touches the edited field", () => {

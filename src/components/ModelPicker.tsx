@@ -65,8 +65,9 @@ export function ModelPicker({
             <span className="model-menu-cell-value">{selectedModelName ?? t("modelPicker.chooseModel", locale)}</span>
             <span className="model-menu-arrow" aria-hidden="true"><ChevronRight /></span>
           </button>
-          {/* 思考程度直接在一级菜单里滑选，不再进入二级菜单。 */}
-          {selectedReasoning !== undefined && <section className="model-menu-effort" role="group" aria-label={t("modelPicker.reasoningEffort", locale)}>
+          {/* 思考程度直接在一级菜单里滑选，不再进入二级菜单。模型尚未声明档位时
+              也给出滑块：首次提交由发送框把声明写进该路由的本地设置。 */}
+          {(selectedReasoning !== undefined || reasoningChoices.length > 0) && <section className="model-menu-effort" role="group" aria-label={t("modelPicker.reasoningEffort", locale)}>
             <div className="model-menu-effort-title">
               <span>{t("modelPicker.reasoningEffort", locale)}</span>
               <span className="model-menu-effort-value">{selectedReasoningLabel ?? t("modelPicker.default", locale)}</span>
