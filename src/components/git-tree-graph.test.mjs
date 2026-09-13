@@ -169,11 +169,13 @@ test("draws a straight lane, a merge arc, a converging shift and a HEAD ring", a
   assert.equal(headCircles.length, 3);
   assert.ok(headCircles.some((node) => node.props.className === "git-graph-node-hole"));
   // 合并线：从圆点平拉到目标列左缘，再用圆弧落进目标列底部
-  assert.ok(collectElements(head, "path").some((node) => node.props.d === "M 18 12 A 12 12 0 0 1 24 24 M 18 12 H 12"));
+  assert.ok(collectElements(head, "path").some((node) => node.props.d === "M 12 12 H 19 A 5 5 0 0 1 24 17 V 24"));
   // 分支链在本行是同列竖线，不换道、不带圆弧
   const firstPaths = collectElements(first, "path").map((node) => node.props.d);
   assert.ok(firstPaths.includes("M 24 0 V 24"));
   assert.ok(!firstPaths.some((d) => d.includes("A 12 12")));
+  // 圆角半径一律是 CURVE_RADIUS，不允许出现用列宽当半径的弧
+  assert.ok(collectElements(tree, "path").every((node) => !String(node.props.d ?? "").includes("A 12 12")));
   // 汇合行：节点自己的线在本行内斜向并入已有泳道（不跨行追父提交）
   assert.ok(collectElements(second, "path").some((node) => node.props.d === "M 24 12 H 17 A 5 5 0 0 0 12 17 V 24"));
   // 根提交：没有双亲，不再向下延伸

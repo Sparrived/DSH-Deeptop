@@ -171,15 +171,19 @@ export function gitGraphLaneShiftPath(fromLane: number, toLane: number, fromTop:
  * 目标列在左侧时同样成立——水平段始终从「目标列左缘」连到圆点。
  */
 export function gitGraphMergePath(fromLane: number, toLane: number): string {
+  const radius = GIT_GRAPH_CURVE_RADIUS;
+  const mid = GIT_GRAPH_ROW_HEIGHT / 2;
   const xFrom = gitGraphLaneX(fromLane);
   const xTo = gitGraphLaneX(toLane);
-  const mid = GIT_GRAPH_ROW_HEIGHT / 2;
-  const half = GIT_GRAPH_LANE_WIDTH / 2;
+  const dir = xTo > xFrom ? 1 : -1;
+  // 与 gitGraphLaneShiftPath 的"从圆点出发"分支同形：平拉到目标列前 radius 处，
+  // 再用半径 radius 的圆角收口竖直落到行底。用列宽当半径会让圆弧被拉成异形。
+  const sweep = dir > 0 ? 1 : 0;
   return [
-    `M ${xTo - half} ${mid}`,
-    `A ${GIT_GRAPH_LANE_WIDTH} ${GIT_GRAPH_LANE_WIDTH} 0 0 1 ${xTo} ${GIT_GRAPH_ROW_HEIGHT}`,
-    `M ${xTo - half} ${mid}`,
-    `H ${xFrom}`,
+    `M ${xFrom} ${mid}`,
+    `H ${xTo - dir * radius}`,
+    `A ${radius} ${radius} 0 0 ${sweep} ${xTo} ${mid + radius}`,
+    `V ${GIT_GRAPH_ROW_HEIGHT}`,
   ].join(" ");
 }
 

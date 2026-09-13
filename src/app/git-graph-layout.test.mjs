@@ -369,7 +369,8 @@ test("geometry helpers stay inside the row and line up with lane centers", () =>
   assert.match(gitGraphLaneShiftPath(1, 0, false), /^M 24 12 H 17 A 5 5 0 0 0 12 17 V 24$/);
 
   // 合并线：从目标列左缘起弧，并从圆点平拉过去
-  assert.match(gitGraphMergePath(0, 2), /^M 30 12 A 12 12 0 0 1 36 24 M 30 12 H 12$/);
+  assert.equal(gitGraphMergePath(0, 2), "M 12 12 H 31 A 5 5 0 0 1 36 17 V 24");
+  assert.equal(gitGraphMergePath(2, 0), "M 36 12 H 17 A 5 5 0 0 0 12 17 V 24");
 });
 
 test("splitInlineRefs keeps short lists fully visible", () => {
