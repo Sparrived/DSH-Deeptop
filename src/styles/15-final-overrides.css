@@ -1453,6 +1453,149 @@
   .workspace-layout > .dock-rail { grid-column: 3; }
 }
 
+/* ============================================================
+ * 会话语侧栏收起
+ *
+ * 收起只替换第一列的轨道宽度：--sidebar-width 保持不变，展开即回到用户拖动过
+ * 的宽度。侧栏内部保留完整子树，只让通用动作按钮可见——新建会话（仅“+”）、
+ * 设置、添加工作目录，以及标题行里退化成的「展开侧栏」图标。
+ *
+ * 新建会话按钮默认已经占满动作行（320px 时 4 个 42px 按钮会挤掉它的文字），
+ * 因此收起开关放在标题行：那一行在 300px 宽度下仍有富余，且收起后正好紧接在
+ * 动作列下方，键盘顺序与视觉顺序一致。
+ *
+ * 面板宽度用 grid-template-columns 过渡（Chromium 可插值）。搜索框位于动作行
+ * 和标题行之间，收起时必须退出布局，否则会把「展开」图标顶到轨道外面；列表
+ * 在标题行之后，只淡出即可。
+ * ============================================================ */
+
+.workspace-layout {
+  --sidebar-collapsed-width: 66px;
+  /* 面板级过渡比 --motion-standard 略长，收起时才有“滑动”而不是“闪现”。 */
+  --sidebar-toggle-duration: calc(var(--motion-standard) * 1.5);
+  --sidebar-toggle-ease: cubic-bezier(.32, .72, 0, 1);
+}
+
+.sidebar-heading-actions .sidebar-collapse-button {
+  width: 28px;
+  min-width: 28px;
+  min-height: 26px;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+}
+
+.session-sidebar.collapsed {
+  --sidebar-inline-space: 12px;
+  gap: 8px;
+  padding-right: 12px;
+  padding-left: 12px;
+}
+
+.session-sidebar.collapsed > .search-box {
+  display: none;
+}
+
+.session-sidebar.collapsed > .session-list,
+.session-sidebar.collapsed > .sidebar-bottom {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.session-sidebar.collapsed > .sidebar-actions {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding-right: 0;
+  padding-left: 0;
+}
+
+.session-sidebar.collapsed > .sidebar-actions > * {
+  width: 100%;
+  min-width: 0;
+  height: 42px;
+  min-height: 42px;
+  flex: 0 0 42px;
+  padding: 0;
+  justify-content: center;
+}
+
+/* 标题行退化成轨道上的一个图标按钮。 */
+.session-sidebar.collapsed > .sidebar-heading {
+  min-height: 42px;
+  padding: 0;
+}
+
+.session-sidebar.collapsed > .sidebar-heading > :not(.sidebar-heading-actions),
+.session-sidebar.collapsed > .sidebar-heading .sidebar-heading-actions > :not(.sidebar-collapse-button) {
+  display: none;
+}
+
+/* 宽度跟着轨道内容盒（侧栏右边框会让它比 42px 少一点），否则第 4 个图标
+   会比动作列那三个宽出不到 1px，横向对不齐。 */
+.session-sidebar.collapsed > .sidebar-heading .sidebar-heading-actions {
+  width: 100%;
+  gap: 0;
+}
+
+.session-sidebar.collapsed > .sidebar-heading .sidebar-collapse-button {
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  font-size: 18px;
+}
+
+.session-sidebar.collapsed .new-session-button .new-session-button-label,
+.session-sidebar.collapsed .sidebar-settings-button .settings-button-label {
+  display: none;
+}
+
+/* 收起后没有可拖动的分隔线：淡出并让出指针命中，避免拖到一条隐形边。 */
+.workspace-layout.sidebar-collapsed .sidebar-resizer {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (min-width: 761px) {
+  .workspace-layout.sidebar-collapsed {
+    grid-template-columns:
+      var(--sidebar-collapsed-width)
+      minmax(0, 1fr)
+      minmax(0, min(var(--dock-rail-drag-width, var(--dock-rail-width, 0px)), 45%));
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .session-sidebar > .session-list,
+  .session-sidebar > .sidebar-bottom {
+    /* 展开：先让面板变宽，内容再淡入。 */
+    transition: opacity var(--motion-standard) ease 120ms, visibility 0s linear 0s;
+  }
+
+  .session-sidebar.collapsed > .session-list,
+  .session-sidebar.collapsed > .sidebar-bottom {
+    /* 收起：内容立即淡出，淡完再真正隐藏。 */
+    transition: opacity var(--motion-instant) ease, visibility 0s linear var(--motion-instant);
+  }
+
+  .sidebar-resizer {
+    transition: opacity var(--motion-fast) ease;
+  }
+}
+
+@media (min-width: 761px) and (prefers-reduced-motion: no-preference) {
+  .workspace-layout {
+    transition: grid-template-columns var(--sidebar-toggle-duration) var(--sidebar-toggle-ease);
+  }
+
+  /* 拖动分隔线时侧栏（或右栏）宽度逐帧跟随指针，任何过渡都会变成拖尾。 */
+  body.sidebar-resizing .workspace-layout,
+  body.dock-rail-resizing .workspace-layout {
+    transition: none;
+  }
+}
+
 
 /* ============================================================
  * 工具调用/结果可视化卡片（在 09/04 既有 tool-parts 之上扩展）
@@ -2284,4 +2427,130 @@
 @media (max-width: 720px) {
   .floating-question-anchor { padding-inline: 12px; }
   .floating-question-card { max-height: min(360px, calc(100vh - 220px)); }
+}
+
+/* ask_user_question 的问题清单：提问本身是一次调用唯一的事实，所以按
+   「编号 + 标题 → 问题原文 → 选项」的读序展开，而不是压进泛型列表。 */
+.tool-field-questions {
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+.tool-field-questions .tool-field-key { padding-top: 0; }
+.tool-question-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tool-question {
+  display: grid;
+  gap: 5px;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+}
+.tool-question-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.tool-question-index {
+  color: var(--ink-faint);
+  font: 10px/1.35 var(--mono);
+}
+.tool-question-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-muted);
+  font: 600 10px/1.4 var(--mono);
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.tool-question-mode {
+  margin-left: auto;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  border-radius: 999px;
+  color: var(--accent-deep);
+  font: 600 10px/1.5 var(--mono);
+  white-space: nowrap;
+}
+.tool-question-prompt {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.tool-question-options {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tool-question-option {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  align-items: start;
+  gap: 7px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: var(--surface-soft);
+}
+.tool-question-mark {
+  width: 6px;
+  height: 6px;
+  margin-top: 5px;
+  justify-self: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+}
+.tool-question-option-copy {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.tool-question-option-copy strong {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.tool-question-option-copy small {
+  color: var(--ink-muted);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* read_image 的结果图：图片来自会话附件（源文件可能已消失），加载后由
+   ImageAttachmentCache 复用；信封文本只留路径与尺寸一行说明。 */
+.tool-result-images { margin: 0; }
+.tool-result-images .message-images { margin-bottom: 0; }
+.tool-result-image-note {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--code-surface);
+}
+.tool-result-image-path {
+  color: var(--code-ink);
+  font: 12px/1.5 var(--mono);
+  overflow-wrap: anywhere;
+}
+.tool-result-image-note p {
+  margin: 0;
+  color: var(--ink-muted);
+  font: 11px/1.5 var(--mono);
+  overflow-wrap: anywhere;
 }

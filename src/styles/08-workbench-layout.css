@@ -645,6 +645,18 @@ textarea:focus-visible {
   .sidebar-actions .sidebar-settings-button .settings-button-label {
     display: none;
   }
+
+  /* 侧栏收起动画期间容器会扫过这一段宽度：新建会话先固定成 42px 图标按钮，
+     避免它作为唯一可伸缩项被压成 0 而在展开过程中整段消失。 */
+  .sidebar-actions .new-session-button {
+    min-width: 42px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .sidebar-actions .new-session-button .new-session-button-label {
+    display: none;
+  }
 }
 
 .small-icon-button:hover {
