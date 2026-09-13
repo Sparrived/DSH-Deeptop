@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useCallback, type ReactNode } from "react";
 import { DockedFileView } from "./DockedFileView";
 import { DockedGitCommitFile } from "./DockedGitCommitFile";
 import { DockedGitDiff } from "./DockedGitDiff";
@@ -6,6 +6,8 @@ import { DockedGitRange } from "./DockedGitRange";
 import { GitCommitDetailView } from "./GitCommitDetailView";
 import { GitMergeConflictView } from "./GitMergeConflictView";
 import { t, type UiLocale } from "../app/i18n";
+import { useDockSettings } from "../app/dock-settings";
+import { pathBasename, fileTabDetail } from "../app/ui-model";
 import { dockTabBodyState, dockTabWorkspace, type DockTab } from "../app/dock-layout";
 
 /**
@@ -23,10 +25,15 @@ export type DockTabBodyProps = {
   onError: (message: string) => void;
 };
 
-type DockTabRenderer = (props: DockTabBodyProps) => ReactNode;
+type DockTabRendererProps = DockTabBodyProps & {
+  /** 在标签内改指到另一个文件（图片预览翻页）；由标签所在的右栏负责落库。 */
+  onNavigatePath: (path: string) => void;
+};
+
+type DockTabRenderer = (props: DockTabRendererProps) => ReactNode;
 
 const DOCK_TAB_RENDERERS: Record<string, DockTabRenderer> = {
-  file: ({ tab, workspace, locale, onError }) => (tab.path ? (
+  file: ({ tab, workspace, locale, onError, onNavigatePath }) => (tab.path ? (
     <DockedFileView
       key={tab.id}
       path={tab.path}
@@ -34,6 +41,7 @@ const DOCK_TAB_RENDERERS: Record<string, DockTabRenderer> = {
       cwd={workspace}
       locale={locale}
       onError={onError}
+      onNavigatePath={onNavigatePath}
     />
   ) : null),
   "git-commit": ({ tab, locale, onError }) => {
@@ -83,6 +91,11 @@ export function isKnownDockTabKind(kind: string): boolean {
 }
 
 export function DockTabBody({ tab, workspace, locale = "zh", onError }: DockTabBodyProps) {
+  const { retargetFileTab } = useDockSettings();
+  // 标签身份是路径：面板里换了文件，标签的路径、标题与副标题必须一起改。
+  const onNavigatePath = useCallback((path: string) => {
+    retargetFileTab(tab.id, { path, title: pathBasename(path) || path, detail: fileTabDetail(path) });
+  }, [retargetFileTab, tab.id]);
   const state = dockTabBodyState(tab, workspace, isKnownDockTabKind);
   // 面板类标签由 DockFrame 自己把正文搬进宿主：这里返回 null，避免多出一块说明
   if (state === "panel") return null;
@@ -102,5 +115,5 @@ export function DockTabBody({ tab, workspace, locale = "zh", onError }: DockTabB
       </div>
     );
   }
-  return <>{DOCK_TAB_RENDERERS[tab.kind]({ tab, workspace, locale, onError })}</>;
+  return <>{DOCK_TAB_RENDERERS[tab.kind]({ tab, workspace, locale, onError, onNavigatePath })}</>;
 }

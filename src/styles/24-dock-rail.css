@@ -471,6 +471,108 @@ body.dock-tab-dragging * {
 
 .dock-file-line.is-target .dock-file-line-number { color: var(--accent-deep); font-weight: 700; }
 
+/* ── 停靠标签里的图片预览 ───────────────────────────────────────────────── */
+
+/* 舞台是固定视口，不滚动：平移只改图片的 transform，因此可测的舞台尺寸
+   不会因为滚动条出现而变化（尺寸决定显示尺寸，两者互相牵动会来回震荡）。 */
+.dock-image-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface-soft);
+  outline: none;
+}
+
+.dock-image-stage:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.dock-image-stage.is-pannable { cursor: grab; }
+.dock-image-stage.is-panning { cursor: grabbing; }
+
+/* 尺寸由 JS 按「适应面板 × 缩放」给出；还没量到尺寸时回落到 CSS 的 contain。
+   `flex: none` 是必须的：否则放大后的图片会被 flex 压回面板宽度。 */
+.dock-image { display: block; flex: none; max-width: 100%; max-height: 100%; }
+.dock-image.is-sized { max-width: none; max-height: none; }
+.dock-image-stage.is-panning .dock-image { user-select: none; }
+
+.dock-image-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin: 0;
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.dock-image-note.is-error { color: var(--danger); }
+
+.dock-image-note button {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+/* 舞台两侧的翻页按钮：只占上下半高，给放大后的图片留出拖拽区域。 */
+.dock-image-step {
+  position: absolute;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 56px;
+  padding: 0;
+  transform: translateY(-50%);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface-raised) 88%, transparent);
+  color: var(--ink-muted);
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.dock-image-step:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-deep); }
+.dock-image-step:disabled { opacity: 0.35; cursor: default; }
+.dock-image-step.is-previous { left: 6px; }
+.dock-image-step.is-next { right: 6px; }
+
+.dock-image-bar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border-top: 1px solid var(--line);
+}
+
+.dock-image-bar button {
+  display: grid;
+  place-items: center;
+  height: 24px;
+  min-width: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.dock-image-bar button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-deep); }
+.dock-image-bar button:disabled { opacity: 0.4; cursor: default; }
+.dock-image-zoom-value { font-family: var(--mono); font-size: 10px; }
+
 /* 标签正文占位：类型未登记或标签属于另一个工作区时的说明块 */
 .dock-tab-notice {
   display: grid;

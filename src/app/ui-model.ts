@@ -330,7 +330,12 @@ const droppedImageExtensionTypes: Record<string, ComposerAttachment["mediaType"]
   gif: "image/gif",
 };
 
-/** Classify a dropped OS path by extension; only these become image attachments. */
+/**
+ * 路径能否作为图片附件；也是停靠标签图片预览的可预览判定。
+ *
+ * 只按扩展名分类，实际格式由原生侧按魔数确认：这组格式必须与
+ * `read_image_attachment` 的白名单一致，否则前端会分流到一条读不出来的路径。
+ */
 export function droppedImageMediaType(path: string): ComposerAttachment["mediaType"] | null {
   const name = path.replace(/[\\/]+$/u, "");
   const dot = name.lastIndexOf(".");

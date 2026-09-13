@@ -2053,6 +2053,17 @@ export async function readDroppedImage(path: string, maxBytes: number): Promise<
   return invoke<DroppedImageAttachmentPayload>("read_image_attachment", { path, maxBytes });
 }
 
+/**
+ * 读取一张工作区图片供应用内预览（停靠标签的图片视图）。
+ *
+ * 与拖拽附件共用同一条原生读取命令：格式由原生侧按魔数确认（不信任扩展名），
+ * 字节上限也在原生侧强制。前端因此从不自己读用户文件，也不把文件交给外部程序。
+ */
+export async function readWorkspaceImage(path: string, maxBytes: number): Promise<DroppedImageAttachmentPayload> {
+  if (!isTauri()) throw new Error("图片预览只在桌面端可用");
+  return invoke<DroppedImageAttachmentPayload>("read_image_attachment", { path, maxBytes });
+}
+
 /** Native OS drag position over this webview, in logical pixels relative to the window. */
 export type WebviewFileDropEvent =
   | { type: "enter" | "over"; x: number; y: number }

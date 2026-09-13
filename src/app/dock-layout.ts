@@ -341,6 +341,36 @@ export function activateDockTab(layout: DockLayout, tabId: string): DockLayout {
   return { ...layout, root: replacePane(layout.root, pane.id, { ...pane, activeTabId: tabId }) };
 }
 
+/**
+ * 把文件标签改指到另一个文件（图片预览在标签内翻到兄弟图片时用它）。
+ *
+ * 标签的身份是路径（`dockTabKey` 的 `file:<路径>`），所以「标签里换了文件」
+ * 必须同时改 `path`：否则标签会顶着一个文件的名字显示另一个文件，之后按
+ * 原路径再打开时还会另开一个重复标签。定位行属于被替换的那个文件，未显式
+ * 给出时一并清掉。
+ *
+ * 目标文件已经有一个标签时不再造出重复路径：改为激活那个标签并关掉当前
+ * 标签，与 `openDockTab`「重复打开同一个键是复用并定位」的语义保持一致。
+ */
+export function retargetFileTab(
+  layout: DockLayout,
+  tabId: string,
+  target: { path: string; title: string; detail?: string; line?: number },
+): DockLayout {
+  const current = layout.tabs[tabId];
+  if (!current || current.kind !== "file") return layout;
+  const existing = findDockTabByKey(layout, dockTabKey("file", target.path));
+  if (existing && existing.id !== tabId) {
+    return activateDockTab(closeDockTab(layout, tabId), existing.id);
+  }
+  const updated: DockTab = { ...current, path: target.path, title: target.title };
+  if (target.detail === undefined) delete updated.detail;
+  else updated.detail = target.detail;
+  if (target.line === undefined) delete updated.line;
+  else updated.line = target.line;
+  return activateDockTab({ ...layout, tabs: { ...layout.tabs, [tabId]: updated } }, tabId);
+}
+
 /** 关闭标签；空面板被移除，只剩一个孩子的分栏被折叠成该孩子。 */
 export function closeDockTab(layout: DockLayout, tabId: string): DockLayout {
   if (!layout.tabs[tabId]) return layout;

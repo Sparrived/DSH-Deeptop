@@ -25,6 +25,7 @@ import {
   openDockTab,
   reorderDockTab,
   resizeDockSplit,
+  retargetFileTab as retargetFileTabModel,
   type DockLayout,
   type DockPaneNode,
   type DockTab,
@@ -73,6 +74,11 @@ type DockSettingsContextValue = {
   openTab: (tab: Omit<DockTab, "id"> & { id?: string }, options?: DockOpenOptions) => void;
   activateTab: (tabId: string) => void;
   closeTab: (tabId: string) => void;
+  /**
+   * 让一个文件标签改指到另一个文件（图片预览在标签内翻页）。标签身份是路径，
+   * 因此改指会让去重键、标题与持久化布局一起跟着走。
+   */
+  retargetFileTab: (tabId: string, target: { path: string; title: string; detail?: string; line?: number }) => void;
   closePane: (paneId: string) => void;
   moveTab: (tabId: string, options: DockOpenOptions & { zone: DockZone }) => void;
   reorderTab: (tabId: string, offset: number) => void;
@@ -219,6 +225,10 @@ export function DockSettingsProvider({ children }: { children: ReactNode }) {
 
   const closeTab = useCallback((tabId: string) => {
     commitLayout(closeDockTab(layoutRef.current, tabId));
+  }, [commitLayout]);
+
+  const retargetFileTab = useCallback((tabId: string, target: { path: string; title: string; detail?: string; line?: number }) => {
+    commitLayout(retargetFileTabModel(layoutRef.current, tabId, target));
   }, [commitLayout]);
 
   const closePane = useCallback((paneId: string) => {
@@ -370,6 +380,7 @@ export function DockSettingsProvider({ children }: { children: ReactNode }) {
     openTab,
     activateTab,
     closeTab,
+    retargetFileTab,
     closePane,
     moveTab,
     reorderTab,
@@ -412,6 +423,7 @@ export function DockSettingsProvider({ children }: { children: ReactNode }) {
     resetLayout,
     resetRailWidth,
     resizeSplit,
+    retargetFileTab,
     setRailWidth,
     settings,
     tabElements,

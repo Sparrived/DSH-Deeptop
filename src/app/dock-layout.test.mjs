@@ -29,6 +29,7 @@ import {
   openDockTab,
   reorderDockTab,
   resizeDockSplit,
+  retargetFileTab,
 } from "./dock-layout.ts";
 
 /** 收集 src/components 下的 tsx（扫描 DockFrame 面板 id 用）。 */
@@ -127,6 +128,48 @@ test("dedupes file tabs by normalized path and reveals the requested line", () =
   assert.deepEqual(panes[0].tabIds, ["file-1"]);
   assert.equal(again.tabs["file-1"].line, 42);
   assert.equal(Object.keys(again.tabs).length, 1);
+});
+
+// 图片预览在标签内翻到兄弟图片：标签身份必须跟着正在显示的文件走，
+// 否则标签会顶着一个文件的名字显示另一个文件，原路径再打开时还会多出一个标签。
+test("retargets a file tab in place and moves its identity with the path", () => {
+  const first = open(emptyDockLayout(), { id: "file-1", kind: "file", title: "a.png", path: "/w/a.png", detail: "/w", line: 7 });
+  const layout = open(first, { id: "file-2", kind: "file", title: "b.png", path: "/w/b.png", detail: "/w" });
+  const next = retargetFileTab(layout, "file-1", { path: "/w/c.png", title: "c.png", detail: "/w" });
+
+  // 同一个标签、同一个面板位置，只是改指到新文件。
+  assert.deepEqual(next.root.tabIds, ["file-1", "file-2"]);
+  assert.equal(next.root.activeTabId, "file-1");
+  assert.deepEqual(next.tabs["file-1"], { id: "file-1", kind: "file", title: "c.png", path: "/w/c.png", detail: "/w" });
+  // 旧路径不再是任何标签的身份；新路径才是。
+  assert.equal(findDockTabByKey(next, dockTabKey("file", "/w/a.png")), null);
+  assert.equal(findDockTabByKey(next, dockTabKey("file", "/w/c.png")).id, "file-1");
+  // 定位行属于被替换掉的那个文件，未显式给出时一并清掉。
+  assert.equal(next.tabs["file-1"].line, undefined);
+});
+
+test("keeps an explicit target line and drops a stale detail", () => {
+  const layout = open(emptyDockLayout(), { id: "file-1", kind: "file", title: "a.png", path: "/w/a.png", detail: "/w" });
+  const next = retargetFileTab(layout, "file-1", { path: "/w/b.png", title: "b.png", line: 12 });
+  assert.equal(next.tabs["file-1"].line, 12);
+  assert.equal(next.tabs["file-1"].detail, undefined);
+});
+
+test("activates the existing tab instead of duplicating a retargeted path", () => {
+  const first = open(emptyDockLayout(), { id: "file-1", kind: "file", title: "a.png", path: "/w/a.png" });
+  const layout = open(first, { id: "file-2", kind: "file", title: "b.png", path: "/w/b.png" });
+  const next = retargetFileTab(layout, "file-2", { path: "/w/a.png", title: "a.png" });
+
+  assert.deepEqual(next.root.tabIds, ["file-1"]);
+  assert.equal(next.root.activeTabId, "file-1");
+  assert.deepEqual(Object.keys(next.tabs), ["file-1"]);
+});
+
+test("leaves non-file and unknown tabs untouched", () => {
+  const first = open(emptyDockLayout(), tab("terminal"));
+  const layout = open(first, { id: "file-1", kind: "file", title: "a.png", path: "/w/a.png" });
+  assert.equal(retargetFileTab(layout, "tab-terminal-", { path: "/w/a.png", title: "a.png" }), layout);
+  assert.equal(retargetFileTab(layout, "missing", { path: "/w/a.png", title: "a.png" }), layout);
 });
 
 test("moves an existing tab into another pane on request", () => {
