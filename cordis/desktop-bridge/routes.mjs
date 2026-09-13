@@ -44,6 +44,7 @@ import {
   hostModels,
   hostOpenPath,
   hostPickDirectory,
+  jobOutput,
   llmDiscoverModels,
   llmProviders,
   respond,
@@ -398,6 +399,8 @@ function probeDesktopCapabilities(ctx) {
     references: has(get('fileReferences'), 'list') && has(get('sessionReferenceResolver'), 'remoteExportCandidates'),
     annotations: has(get('messageAnnotations'), 'list'),
     subagents: has(get('subagents'), 'remoteExportList'),
+    // 任务输出走非消费式投影；只有同时具备 peek 的注册表才让任务面板提供输出入口。
+    tasks: has(get('jobs'), 'peek'),
     skills: has(get('sessionSkillCatalog'), 'list'),
     agentPresets: has(get('agentPresets'), 'remoteExportList'),
     goals: has(get('goals'), 'create'),
@@ -438,6 +441,7 @@ export async function routeDesktopRequest(ctx, method, payload, signal) {
     case 'session.updateQueue': return sessionUpdateQueue(ctx, payloadOf())
     case 'session.cancel': return sessionCancel(ctx, payloadOf())
     case 'session.repairCorrupt': return repairCorruptSession(ctx, payload, signal)
+    case 'job.output': return jobOutput(ctx, payloadOf())
     case 'subagent.list': return subagentList(ctx, payloadOf(), signal)
     case 'subagent.history': {
       const events = await subagentHistory(ctx, payloadOf(), signal)

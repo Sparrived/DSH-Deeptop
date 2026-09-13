@@ -199,6 +199,7 @@
   "capability.settings": "Settings",
   "capability.skills": "Skill installation",
   "capability.subagents": "Subagents",
+  "capability.tasks": "Task output",
   "capability.tools": "Tool settings",
   "capability.workspace": "Workspace",
   "capability.uiPlugins": "UI plugin runtime",

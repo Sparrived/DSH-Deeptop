@@ -674,6 +674,7 @@ export type DshCapabilityKey =
   | "references"
   | "annotations"
   | "subagents"
+  | "tasks"
   | "skills"
   | "agentPresets"
   | "goals"
@@ -823,6 +824,18 @@ export interface DshJob {
   detail?: string;
   startedAt: number;
   finishedAt?: number;
+}
+
+/**
+ * `job.output` 的结果：任务输出的非消费式投影。
+ *
+ * `available` 为 false 表示该任务的生产方不提供非消费式投影（模型持有唯一的
+ * 消费式读取游标），此时 `text` 必为空，界面应说明原因而不是退化成消费模型输出。
+ */
+export interface DshJobOutput {
+  job: DshJob;
+  available: boolean;
+  text: string;
 }
 
 export const isTauri = (): boolean =>

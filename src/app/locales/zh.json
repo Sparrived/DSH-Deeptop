@@ -199,6 +199,7 @@
   "capability.settings": "设置",
   "capability.skills": "技能安装",
   "capability.subagents": "子 Agent",
+  "capability.tasks": "任务输出",
   "capability.tools": "工具设置",
   "capability.workspace": "工作区",
   "capability.uiPlugins": "UI 插件运行时",

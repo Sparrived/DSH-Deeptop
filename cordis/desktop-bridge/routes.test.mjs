@@ -930,6 +930,7 @@ test('probes official Host capabilities without failing when services are missin
       : key === 'sessionReferenceResolver' ? { remoteExportCandidates: async () => [] }
       : key === 'messageAnnotations' ? { list: async () => [], put: async () => ({}), delete: async () => ({}) }
       : key === 'subagents' ? { remoteExportList: async () => ({ entries: [], parentAvailable: true }) }
+      : key === 'jobs' ? { list: () => [], peek: () => ({ available: true, text: '', snapshot: {} }) }
       : key === 'sessionSkillCatalog' ? { list: async () => ({ skills: [] }) }
       : key === 'agentPresets' ? { remoteExportList: async () => ({ presets: [], authorable: true }) }
       : key === 'goals' ? { create: async () => ({}) }
@@ -951,6 +952,7 @@ test('probes official Host capabilities without failing when services are missin
     references: true,
     annotations: true,
     subagents: true,
+    tasks: true,
     skills: true,
     agentPresets: true,
     goals: true,
@@ -979,6 +981,11 @@ test('reports Tools unavailable when home or native directory opening is missing
     get: key => key === 'dshHome' ? home : key === 'sessionController' ? { canOpenWorkspacePath: async () => true, list: async () => ({ items: [] }) } : undefined,
   }, 'desktop.capabilities', {}, signal)
   assert.equal(incompleteSkills.services.skills, false)
+  // 只有带非消费式投影的 jobs 注册表才让任务面板提供输出入口。
+  const consumingJobs = await routeDesktopRequest({
+    get: key => key === 'jobs' ? { list: () => [], read: () => ({}) } : undefined,
+  }, 'desktop.capabilities', {}, signal)
+  assert.equal(consumingJobs.services.tasks, false)
 })
 
 test('keeps typed error codes in the bridge error frame and plain text otherwise', () => {
@@ -1033,6 +1040,99 @@ test('defaults direct child prompts to queue delivery and validates explicit del
   await assert.rejects(
     routeDesktopRequest(ctx, 'subagent.prompt', { ...payload, delivery: 'now' }, signal),
     error => error?.code === 'bad-request',
+  )
+})
+
+test('projects task output through the non-consuming job projection', async () => {
+  const agent = { id: 'session-target' }
+  const snapshot = {
+    id: 'bash-1',
+    kind: 'bash',
+    label: 'pnpm test',
+    status: 'running',
+    startedAt: 7,
+    reported: false,
+    outputLimitBytes: 1_024,
+    ownerSession: 'session-target',
+  }
+  const reads = { count: 0 }
+  const jobs = {
+    list: caller => { assert.equal(caller, agent); return [snapshot] },
+    peek: (id, caller) => {
+      assert.equal(id, 'bash-1')
+      assert.equal(caller, agent)
+      return { available: true, text: 'out\n', snapshot }
+    },
+    read: () => { reads.count += 1; return { text: 'stolen', snapshot } },
+  }
+  const ctx = {
+    get: key => key === 'agents' ? { get: id => id === agent.id ? agent : undefined }
+      : key === 'jobs' ? jobs
+      : undefined,
+  }
+
+  const result = await routeDesktopRequest(ctx, 'job.output', { sessionId: 'session-target', jobId: 'bash-1' }, signal)
+  assert.deepEqual(result, {
+    job: { id: 'bash-1', kind: 'bash', label: 'pnpm test', status: 'running', startedAt: 7 },
+    available: true,
+    text: 'out\n',
+  })
+  // 桌面读取绝不消费模型持有的读取游标。
+  assert.equal(reads.count, 0)
+})
+
+test('reports an unavailable task projection instead of consuming it', async () => {
+  const agent = { id: 'session-target' }
+  const snapshot = { id: 'bash-2', kind: 'bash', label: 'legacy producer', status: 'completed', startedAt: 7 }
+  const ctx = {
+    get: key => key === 'agents' ? { get: () => agent }
+      : key === 'jobs' ? { list: () => [snapshot], peek: () => ({ available: false, text: '', snapshot }) }
+      : undefined,
+  }
+  assert.deepEqual(await routeDesktopRequest(ctx, 'job.output', { sessionId: 'session-target', jobId: 'bash-2' }, signal), {
+    job: { id: 'bash-2', kind: 'bash', label: 'legacy producer', status: 'completed', startedAt: 7 },
+    available: false,
+    text: '',
+  })
+})
+
+test('rejects malformed, missing, and foreign task output requests', async () => {
+  const agent = { id: 'session-target' }
+  const ctx = {
+    get: key => key === 'agents' ? { get: id => id === agent.id ? agent : undefined }
+      : key === 'jobs' ? { list: () => [], peek: () => ({ available: true, text: '', snapshot: {} }) }
+      : undefined,
+  }
+  await assert.rejects(
+    routeDesktopRequest(ctx, 'job.output', { sessionId: 'session-target' }, signal),
+    error => error.code === 'bad-request',
+  )
+  // 别的会话的任务不出现在本会话的可见集合里，答案是“任务不存在”而不是泄露其存在。
+  await assert.rejects(
+    routeDesktopRequest(ctx, 'job.output', { sessionId: 'session-target', jobId: 'bash-9' }, signal),
+    error => error.code === 'job-not-found' && error.details.jobId === 'bash-9',
+  )
+  await assert.rejects(
+    routeDesktopRequest(ctx, 'job.output', { sessionId: 'session-gone', jobId: 'bash-1' }, signal),
+    error => error.code === 'session-not-found',
+  )
+})
+
+test('reports tasks unavailable when the Host exposes no non-consuming projection', async () => {
+  const agent = { id: 'session-target' }
+  const base = { get: key => key === 'agents' ? { get: () => agent } : undefined }
+  await assert.rejects(
+    routeDesktopRequest(base, 'job.output', { sessionId: 'session-target', jobId: 'bash-1' }, signal),
+    error => error.code === 'tasks-unavailable',
+  )
+  const consuming = {
+    get: key => key === 'agents' ? { get: () => agent }
+      : key === 'jobs' ? { list: () => [], read: () => ({ text: '', snapshot: {} }) }
+      : undefined,
+  }
+  await assert.rejects(
+    routeDesktopRequest(consuming, 'job.output', { sessionId: 'session-target', jobId: 'bash-1' }, signal),
+    error => error.code === 'tasks-unavailable',
   )
 })
 

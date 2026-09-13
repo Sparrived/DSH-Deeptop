@@ -11,7 +11,7 @@
 // publishes a public persistence contract.
 
 import { randomUUID } from 'node:crypto'
-import { codedError, requireService } from './api.mjs'
+import { codedError, remoteError, requireService, resolveAgent } from './api.mjs'
 import { unfoldRecords } from './session-records.mjs'
 
 function isRecord(value) {
@@ -360,6 +360,72 @@ async function enrichModelCatalogGroups(ctx, groups) {
     }))
     return { ...group, models }
   }))
+}
+
+// ── job.output (non-consuming background-job projection) ────────────────────
+
+/** The wire projection of one background job; the model's registry fields stay host-private. */
+function publicJob(snapshot) {
+  return {
+    id: String(snapshot.id),
+    kind: String(snapshot.kind),
+    label: String(snapshot.label),
+    status: snapshot.status,
+    ...(typeof snapshot.detail === 'string' ? { detail: snapshot.detail } : {}),
+    startedAt: snapshot.startedAt,
+    ...(snapshot.finishedAt !== undefined ? { finishedAt: snapshot.finishedAt } : {}),
+  }
+}
+
+/**
+ * Project one background job's output for the desktop task view.
+ *
+ * The model owns the single consuming cursor (`ctx.jobs.read` off the
+ * `job_output` tool), so the desktop reads through `ctx.jobs.peek`: the
+ * producer's whole retained stream, or a settled final-output job's text,
+ * leaving every byte the model's reader still owns untouched. A stream job
+ * whose producer projects nothing answers `available: false` instead of being
+ * consumed on the user's behalf.
+ *
+ * Resolution mirrors the control projection's ownership fence: only jobs the
+ * calling session can list are addressable, so another session's job id answers
+ * `job-not-found` rather than leaking that it exists.
+ * @param ctx - Cordis context carrying the `agents` registry and `jobs` service.
+ * @param payload - `{ sessionId, jobId }` from the renderer.
+ * @returns the public job snapshot plus `{ available, text }`.
+ */
+export function jobOutput(ctx, payload) {
+  const sessionId = sessionIdOf(payload, 'job.output')
+  const jobId = isRecord(payload)?.jobId
+  if (typeof jobId !== 'string' || jobId.trim() === '') {
+    throw codedError('bad-request', 'job.output requires jobId', { sessionId })
+  }
+  const requested = jobId.trim()
+  const agent = resolveAgent(ctx, sessionId)
+  const jobs = requireService(ctx, 'jobs', 'tasks-unavailable', '背景任务服务不可用')
+  if (typeof jobs.list !== 'function' || typeof jobs.peek !== 'function') {
+    throw codedError('tasks-unavailable', '当前 DSH 运行时不支持非消费式读取任务输出', { capability: 'jobs' })
+  }
+  const listed = jobs.list(agent).find(snapshot => snapshot.id === requested)
+  if (listed === undefined) {
+    throw codedError('job-not-found', `任务 ${requested} 不属于当前会话或已结束`, { sessionId, jobId: requested })
+  }
+  let peek
+  try {
+    peek = jobs.peek(requested, agent)
+  } catch (error) {
+    // Owner disposal between the listing and the projection is the one race
+    // left; the record is gone, not unreadable.
+    if (error instanceof Error && /unknown job/.test(error.message)) {
+      throw codedError('job-not-found', `任务 ${requested} 已不可用`, { sessionId, jobId: requested })
+    }
+    throw remoteError(error)
+  }
+  return {
+    job: publicJob(peek.snapshot ?? listed),
+    available: peek.available === true,
+    text: typeof peek.text === 'string' ? peek.text : '',
+  }
 }
 
 // ── subagents.* ─────────────────────────────────────────────────────────────

@@ -16,6 +16,7 @@ export const DEGRADABLE_CAPABILITIES: readonly DshCapabilityKey[] = [
   "sessionExport",
   "skills",
   "subagents",
+  "tasks",
   "goals",
   "agentPresets",
   "plugins",
@@ -30,6 +31,7 @@ export interface CapabilityFeatures {
   sessionExport: boolean;
   skills: boolean;
   subagents: boolean;
+  tasks: boolean;
   goals: boolean;
   agentPresets: boolean;
   plugins: boolean;
@@ -69,6 +71,7 @@ export const CAPABILITY_LABELS: Record<DshCapabilityKey, string> = {
   references: "capability.references",
   annotations: "capability.annotations",
   subagents: "capability.subagents",
+  tasks: "capability.tasks",
   skills: "capability.skills",
   agentPresets: "capability.agentPresets",
   goals: "capability.goals",

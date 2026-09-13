@@ -29,6 +29,7 @@ import type {
   DshMcpSettingsMutation,
   DshToolSettingsDescription,
   DshHostCapabilities,
+  DshJobOutput,
   DshSubagentCatalog,
   DshWorkspace,
 } from "./desktop";
@@ -242,6 +243,14 @@ const annotations = {
     requires: "annotations",
     payload: {} as { sessionId: string; messageId: string; ifVersion: string },
     value: {} as DshMessageAnnotationResult<{ absent: true }>,
+  },
+} as const satisfies Record<string, BridgeMethodContract>;
+
+const tasks = {
+  "job.output": {
+    requires: "tasks",
+    payload: {} as { sessionId: string; jobId: string },
+    value: {} as DshJobOutput,
   },
 } as const satisfies Record<string, BridgeMethodContract>;
 
@@ -559,6 +568,7 @@ export const bridgeContracts = {
   ...workspace,
   ...references,
   ...annotations,
+  ...tasks,
   ...agents,
   ...skills,
   ...presets,

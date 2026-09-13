@@ -12,6 +12,7 @@ function capabilities(services) {
       references: true,
       annotations: true,
       subagents: true,
+      tasks: true,
       skills: true,
       agentPresets: true,
       goals: true,
