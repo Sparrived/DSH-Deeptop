@@ -5,7 +5,9 @@
 .conversation-header { padding-top: 6px; padding-bottom: 6px; }
 .conversation-heading { flex: 1 1 auto; gap: 2px; }
 .conversation-title-row { min-width: 0; display: flex; align-items: baseline; gap: 10px; }
-.conversation-title-row > .conversation-title { flex: 1 1 auto; min-width: 0; }
+/* 标题只占内容宽度，副标题紧跟其后；标题行剩余的空白留在两者之后，不把副标题推到
+   右端。窗口收窄时两者按比例收缩，各自出省略号。 */
+.conversation-title-row > .conversation-title { flex: 0 1 auto; min-width: 0; }
 .conversation-title-row > .conversation-subtitle { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Goal 条独占标题区第二行：第一行是阶段与目标，第二行是回合刻度与内联操作。 */
