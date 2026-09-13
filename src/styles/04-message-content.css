@@ -271,6 +271,11 @@
   color: #383a36;
 }
 
+/* 用户自己输入的内容按纯文本展示：不解析 Markdown，只保留原有换行与空白。 */
+.message-text.plain-text {
+  white-space: pre-wrap;
+}
+
 .message-row.system {
   grid-template-columns: 88px minmax(0, 1fr);
   padding-top: 10px;

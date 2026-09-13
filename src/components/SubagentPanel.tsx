@@ -118,7 +118,7 @@ export function SubagentPanel({
             ) : (
               <article className={`subagent-message ${item.kind}`} key={item.key}>
                 <div className="subagent-message-meta"><strong>{item.label}</strong><time>{formatClock(item.time)}</time></div>
-                {item.injected ? <pre>{item.text}</pre> : <MarkdownContent text={item.text} reveal={item.kind === "assistant" && item.key.startsWith("stream-")} locale={locale} />}
+                {item.injected ? <pre>{item.text}</pre> : item.kind === "user" ? <div className="message-text plain-text">{item.text}</div> : <MarkdownContent text={item.text} reveal={item.kind === "assistant" && item.key.startsWith("stream-")} locale={locale} />}
               </article>
             ))}
             {transcript.length === 0 && <div className="subagent-drawer-empty"><strong>{t("subagent.noRecords", locale)}</strong><p>{t("subagent.noRecordsHint", locale)}</p></div>}

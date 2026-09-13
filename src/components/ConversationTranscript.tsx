@@ -1003,6 +1003,9 @@ function TranscriptArticleView({
           </DisclosureEntry>
         ) : streamingAssistant ? (
           <StreamingAssistantText text={item.text} locale={locale} onOpenPath={onOpenPath} onCheckPath={onCheckPath} onOpenUrl={onOpenUrl} />
+        ) : item.kind === "user" ? (
+          // 用户自己发送的内容原样呈现，不当 Markdown 解析。
+          <div className="message-text plain-text">{item.text}</div>
         ) : <MarkdownContent text={item.text} locale={locale} onOpenPath={onOpenPath} onCheckPath={onCheckPath} onOpenUrl={onOpenUrl} />}
         {item.kind === "assistant" && <MessageStatsLine stats={item.stats} locale={locale} />}
         {(item.kind === "user" || item.kind === "assistant") && (
