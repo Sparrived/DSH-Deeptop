@@ -4343,6 +4343,10 @@ struct GitCommandResult {
     stdout: String,
     stderr: String,
     text: String,
+    /// 本次执行（或 dry-run 将要执行）的 git 命令；前端确认弹窗展示并支持复制。
+    command: String,
+    /// 预演：只回显命令，没有真的改动仓库。
+    dry_run: bool,
 }
 
 impl GitCommandResult {
@@ -4364,8 +4368,109 @@ impl GitCommandResult {
             stdout,
             stderr,
             text: combined,
+            command: String::new(),
+            dry_run: false,
         }
     }
+
+    /// 附上本次实际执行的命令。
+    fn with_command(mut self, command: String) -> Self {
+        self.command = command;
+        self
+    }
+}
+
+/// 写操作的执行器：统一记录"将要执行/已执行"的 git 命令，`dry_run` 时只回显不执行。
+///
+/// 预览与执行共用这一个入口，所以确认弹窗里显示的命令必然就是真正会跑的命令
+///（包括多步操作：例如 cherry-pick 失败后回退、push 失败后补上游）。
+struct GitRunner {
+    root: PathBuf,
+    dry_run: bool,
+    commands: Vec<String>,
+}
+
+impl GitRunner {
+    fn new(directory: &Path, dry_run: bool) -> Result<Self, String> {
+        // 仓库探测本身是只读的：dry-run 也要跑，才能对非仓库给出同样的报错
+        Ok(Self {
+            root: git_repository_root(directory)?,
+            dry_run,
+            commands: Vec::new(),
+        })
+    }
+
+    /// 记录并（非 dry-run 时）执行一条 git 命令。
+    fn run(&mut self, args: &[&str]) -> Result<GitOutput, String> {
+        self.commands.push(display_git_command(&self.root, args));
+        if self.dry_run {
+            return Ok(GitOutput {
+                ok: true,
+                stdout: String::new(),
+                stderr: String::new(),
+            });
+        }
+        git_raw_output(&self.root, args)
+    }
+
+    /// 把这一步加进预览但不执行：用于"某条件下才会追加"的兜底命令。
+    fn note(&mut self, args: &[&str]) {
+        self.commands.push(display_git_command(&self.root, args));
+    }
+
+    fn command_text(&self) -> String {
+        self.commands.join(" && ")
+    }
+
+    /// 是否处于预演（只回显命令）状态。
+    fn is_dry_run(&self) -> bool {
+        self.dry_run
+    }
+
+    /// 记录一步"写文件"（不是 git 命令），让预览与实际动作一致。
+    fn note_write(&mut self, target: &Path) {
+        self.commands
+            .push(format!("write {}", shell_quote(&target.to_string_lossy())));
+    }
+
+    /// 收尾成结果：dry-run 时返回预演结果（ok=true、只有命令文本）。
+    fn into_result(self, stdout: String, stderr: String, ok: bool) -> GitCommandResult {
+        let command = self.command_text();
+        if self.dry_run {
+            return GitCommandResult {
+                ok: true,
+                stdout: String::new(),
+                stderr: String::new(),
+                text: String::new(),
+                command,
+                dry_run: true,
+            };
+        }
+        GitCommandResult::from_output(stdout, stderr, ok).with_command(command)
+    }
+
+    /// 只读步骤（例如生成补丁前的 diff）不进预览：直接跑。
+    fn root(&self) -> &Path {
+        &self.root
+    }
+}
+
+/// 供确认弹窗展示/复制的命令文本：`git -C <repo> …`，复制出去可直接执行。
+fn display_git_command(root: &Path, args: &[&str]) -> String {
+    let mut text = format!("git -C {}", shell_quote(&root.to_string_lossy()));
+    for arg in args {
+        text.push(' ');
+        text.push_str(&shell_quote(arg));
+    }
+    text
+}
+
+/// 只在必要时加引号：空格、引号或空串。
+fn shell_quote(value: &str) -> String {
+    if !value.is_empty() && !value.contains([' ', '\'', '"', '$', '\\']) {
+        return value.to_string();
+    }
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 /// git 命令原始输出：只区分“能否启动”，退出码由调用方判定。
@@ -4493,14 +4598,18 @@ fn git_file_diff(dir: String, path: String, staged: bool) -> Result<String, Stri
 
 /// 暂存指定文件（git add）。
 #[tauri::command(async)]
-fn git_stage_paths(dir: String, paths: Vec<String>) -> Result<(), String> {
+fn git_stage_paths(
+    dir: String,
+    paths: Vec<String>,
+    dry_run: Option<bool>,
+) -> Result<GitCommandResult, String> {
     validate_git_paths(&paths)?;
-    let root = git_repository_root(Path::new(&dir))?;
+    let mut runner = GitRunner::new(Path::new(&dir), dry_run.unwrap_or(false))?;
     let mut args = vec!["add", "--"];
     args.extend(paths.iter().map(String::as_str));
-    let output = git_raw_output(&root, &args)?;
+    let output = runner.run(&args)?;
     if output.ok {
-        Ok(())
+        Ok(runner.into_result(String::new(), String::new(), true))
     } else {
         Err(output.stderr.trim().to_string())
     }
@@ -4508,21 +4617,25 @@ fn git_stage_paths(dir: String, paths: Vec<String>) -> Result<(), String> {
 
 /// 取消暂存指定文件（git restore --staged，失败时回退 git reset --）。
 #[tauri::command(async)]
-fn git_unstage_paths(dir: String, paths: Vec<String>) -> Result<(), String> {
+fn git_unstage_paths(
+    dir: String,
+    paths: Vec<String>,
+    dry_run: Option<bool>,
+) -> Result<GitCommandResult, String> {
     validate_git_paths(&paths)?;
-    let root = git_repository_root(Path::new(&dir))?;
+    let mut runner = GitRunner::new(Path::new(&dir), dry_run.unwrap_or(false))?;
     let mut args = vec!["restore", "--staged", "--"];
     args.extend(paths.iter().map(String::as_str));
-    let output = git_raw_output(&root, &args)?;
+    let output = runner.run(&args)?;
     if output.ok {
-        return Ok(());
+        return Ok(runner.into_result(String::new(), String::new(), true));
     }
     // 未出生分支等场景 restore --staged 不可用时回退 reset。
     let mut fallback = vec!["reset", "-q", "--"];
     fallback.extend(paths.iter().map(String::as_str));
-    let retry = git_raw_output(&root, &fallback)?;
+    let retry = runner.run(&fallback)?;
     if retry.ok {
-        Ok(())
+        Ok(runner.into_result(String::new(), String::new(), true))
     } else {
         Err(format!("{}\n{}", output.stderr.trim(), retry.stderr.trim()))
     }
@@ -4531,9 +4644,14 @@ fn git_unstage_paths(dir: String, paths: Vec<String>) -> Result<(), String> {
 /// 放弃指定文件的全部改动：已暂存的恢复为未暂存，工作区改动还原到
 /// 仓库内容，未跟踪文件删除。仓库无提交时退化为清空暂存并删除。
 #[tauri::command(async)]
-fn git_discard_paths(dir: String, paths: Vec<String>) -> Result<(), String> {
+fn git_discard_paths(
+    dir: String,
+    paths: Vec<String>,
+    dry_run: Option<bool>,
+) -> Result<GitCommandResult, String> {
     validate_git_paths(&paths)?;
-    let root = git_repository_root(Path::new(&dir))?;
+    let mut runner = GitRunner::new(Path::new(&dir), dry_run.unwrap_or(false))?;
+    let root = runner.root().to_path_buf();
     let mut status_args = vec![
         "status",
         "--porcelain=v1",
@@ -4556,16 +4674,16 @@ fn git_discard_paths(dir: String, paths: Vec<String>) -> Result<(), String> {
     if has_head && !tracked.is_empty() {
         let mut args = vec!["restore", "--source=HEAD", "--staged", "--worktree", "--"];
         args.extend(tracked.iter().map(String::as_str));
-        let output = git_raw_output(&root, &args)?;
+        let output = runner.run(&args)?;
         if !output.ok {
             return Err(output.stderr.trim().to_string());
         }
     } else if !tracked.is_empty() {
         // 未出生分支：先清空暂存，再删除对应的新增/修改文件。
-        let _ = git_raw_output(&root, &["reset", "-q", "--"]);
+        let _ = runner.run(&["reset", "-q", "--"])?;
         let mut clean_args = vec!["clean", "-f", "-d", "--"];
         clean_args.extend(tracked.iter().map(String::as_str));
-        let clean = git_raw_output(&root, &clean_args)?;
+        let clean = runner.run(&clean_args)?;
         if !clean.ok {
             return Err(clean.stderr.trim().to_string());
         }
@@ -4573,21 +4691,21 @@ fn git_discard_paths(dir: String, paths: Vec<String>) -> Result<(), String> {
     if !untracked.is_empty() {
         let mut clean_args = vec!["clean", "-f", "-d", "--"];
         clean_args.extend(untracked.iter().map(String::as_str));
-        let clean = git_raw_output(&root, &clean_args)?;
+        let clean = runner.run(&clean_args)?;
         if !clean.ok {
             return Err(clean.stderr.trim().to_string());
         }
     }
-    Ok(())
+    Ok(runner.into_result(String::new(), String::new(), true))
 }
 
 /// 暂存所有更改（git add -A）。
 #[tauri::command(async)]
-fn git_stage_all(dir: String) -> Result<(), String> {
-    let root = git_repository_root(Path::new(&dir))?;
-    let output = git_raw_output(&root, &["add", "-A"])?;
+fn git_stage_all(dir: String, dry_run: Option<bool>) -> Result<GitCommandResult, String> {
+    let mut runner = GitRunner::new(Path::new(&dir), dry_run.unwrap_or(false))?;
+    let output = runner.run(&["add", "-A"])?;
     if output.ok {
-        Ok(())
+        Ok(runner.into_result(String::new(), String::new(), true))
     } else {
         Err(output.stderr.trim().to_string())
     }
@@ -4595,11 +4713,11 @@ fn git_stage_all(dir: String) -> Result<(), String> {
 
 /// 取消所有暂存（git reset）。
 #[tauri::command(async)]
-fn git_unstage_all(dir: String) -> Result<(), String> {
-    let root = git_repository_root(Path::new(&dir))?;
-    let output = git_raw_output(&root, &["reset", "-q"])?;
+fn git_unstage_all(dir: String, dry_run: Option<bool>) -> Result<GitCommandResult, String> {
+    let mut runner = GitRunner::new(Path::new(&dir), dry_run.unwrap_or(false))?;
+    let output = runner.run(&["reset", "-q"])?;
     if output.ok {
-        Ok(())
+        Ok(runner.into_result(String::new(), String::new(), true))
     } else {
         Err(output.stderr.trim().to_string())
     }
@@ -4607,7 +4725,11 @@ fn git_unstage_all(dir: String) -> Result<(), String> {
 
 /// 提交暂存区内容；提交信息为空或超长时拒绝。
 #[tauri::command(async)]
-fn git_commit(dir: String, message: String) -> Result<GitCommandResult, String> {
+fn git_commit(
+    dir: String,
+    message: String,
+    dry_run: Option<bool>,
+) -> Result<GitCommandResult, String> {
     let message = message.trim();
     if message.is_empty() {
         return Err("提交信息不能为空".into());
@@ -4615,13 +4737,9 @@ fn git_commit(dir: String, message: String) -> Result<GitCommandResult, String> 
     if message.chars().count() > 4096 {
         return Err("提交信息过长（最多 4096 字符）".into());
     }
-    let root = git_repository_root(Path::new(&dir))?;
-    let output = git_raw_output(&root, &["--no-pager", "commit", "-m", message])?;
-    Ok(GitCommandResult::from_output(
-        output.stdout,
-        output.stderr,
-        output.ok,
-    ))
+    let mut runner = GitRunner::new(Path::new(&dir), dry_run.unwrap_or(false))?;
+    let output = runner.run(&["--no-pager", "commit", "-m", message])?;
+    Ok(runner.into_result(output.stdout, output.stderr, output.ok))
 }
 
 /// 读取最近提交历史（含作者、时间、主题）。
@@ -5061,15 +5179,15 @@ fn validate_branch_name(name: &str) -> Result<&str, String> {
 
 /// 切换到已有分支（git switch）。
 #[tauri::command(async)]
-fn git_checkout_branch(dir: String, name: String) -> Result<GitCommandResult, String> {
+fn git_checkout_branch(
+    dir: String,
+    name: String,
+    dry_run: Option<bool>,
+) -> Result<GitCommandResult, String> {
     let name = validate_branch_name(&name)?;
-    let root = git_repository_root(Path::new(&dir))?;
-    let output = git_raw_output(&root, &["--no-pager", "switch", name])?;
-    Ok(GitCommandResult::from_output(
-        output.stdout,
-        output.stderr,
-        output.ok,
-    ))
+    let mut runner = GitRunner::new(Path::new(&dir), dry_run.unwrap_or(false))?;
+    let output = runner.run(&["--no-pager", "switch", name])?;
+    Ok(runner.into_result(output.stdout, output.stderr, output.ok))
 }
 
 /// 基于指定引用（缺省为当前 HEAD）创建并切换到新分支（git switch -c）。
@@ -5078,9 +5196,10 @@ fn git_create_branch(
     dir: String,
     name: String,
     from: Option<String>,
+    dry_run: Option<bool>,
 ) -> Result<GitCommandResult, String> {
     let name = validate_branch_name(&name)?;
-    let root = git_repository_root(Path::new(&dir))?;
+    let mut runner = GitRunner::new(Path::new(&dir), dry_run.unwrap_or(false))?;
     let from = match from
         .as_deref()
         .map(str::trim)
@@ -5093,20 +5212,20 @@ fn git_create_branch(
     if let Some(from) = from.as_deref() {
         args.push(from);
     }
-    let output = git_raw_output(&root, &args)?;
-    Ok(GitCommandResult::from_output(
-        output.stdout,
-        output.stderr,
-        output.ok,
-    ))
+    let output = runner.run(&args)?;
+    Ok(runner.into_result(output.stdout, output.stderr, output.ok))
 }
 
 /// 强制删除本地分支；当前分支与远程分支不允许删除。
 #[tauri::command(async)]
-fn git_delete_branch(dir: String, name: String) -> Result<GitCommandResult, String> {
+fn git_delete_branch(
+    dir: String,
+    name: String,
+    dry_run: Option<bool>,
+) -> Result<GitCommandResult, String> {
     let name = validate_branch_name(&name)?;
-    let root = git_repository_root(Path::new(&dir))?;
-    let current = git_raw_output(&root, &["branch", "--show-current"])?;
+    let mut runner = GitRunner::new(Path::new(&dir), dry_run.unwrap_or(false))?;
+    let current = git_raw_output(runner.root(), &["branch", "--show-current"])?;
     let current = current.stdout.trim().to_string();
     if !current.is_empty() && current == name {
         return Ok(GitCommandResult::from_output(
@@ -5115,18 +5234,18 @@ fn git_delete_branch(dir: String, name: String) -> Result<GitCommandResult, Stri
             false,
         ));
     }
-    let output = git_raw_output(&root, &["branch", "-D", name])?;
-    Ok(GitCommandResult::from_output(
-        output.stdout,
-        output.stderr,
-        output.ok,
-    ))
+    let output = runner.run(&["branch", "-D", name])?;
+    Ok(runner.into_result(output.stdout, output.stderr, output.ok))
 }
 
 /// 修正上一次提交：`message` 为空时沿用原提交信息（git commit --amend --no-edit）。
 #[tauri::command(async)]
-fn git_commit_amend(dir: String, message: Option<String>) -> Result<GitCommandResult, String> {
-    let root = git_repository_root(Path::new(&dir))?;
+fn git_commit_amend(
+    dir: String,
+    message: Option<String>,
+    dry_run: Option<bool>,
+) -> Result<GitCommandResult, String> {
+    let mut runner = GitRunner::new(Path::new(&dir), dry_run.unwrap_or(false))?;
     let message = message
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
@@ -5135,24 +5254,20 @@ fn git_commit_amend(dir: String, message: Option<String>) -> Result<GitCommandRe
             if message.chars().count() > 4096 {
                 return Err("提交信息过长（最多 4096 字符）".into());
             }
-            git_raw_output(&root, &["--no-pager", "commit", "--amend", "-m", &message])?
+            runner.run(&["--no-pager", "commit", "--amend", "-m", &message])?
         }
-        None => git_raw_output(&root, &["--no-pager", "commit", "--amend", "--no-edit"])?,
+        None => runner.run(&["--no-pager", "commit", "--amend", "--no-edit"])?,
     };
-    Ok(GitCommandResult::from_output(
-        output.stdout,
-        output.stderr,
-        output.ok,
-    ))
+    Ok(runner.into_result(output.stdout, output.stderr, output.ok))
 }
 
 /// 撤销上一次提交，改动退回暂存区（git reset --soft HEAD~1）。
 /// 根提交没有可回退的父提交，直接返回可读失败而不是让 git 报错。
 #[tauri::command(async)]
-fn git_undo_last_commit(dir: String) -> Result<GitCommandResult, String> {
-    let root = git_repository_root(Path::new(&dir))?;
+fn git_undo_last_commit(dir: String, dry_run: Option<bool>) -> Result<GitCommandResult, String> {
+    let mut runner = GitRunner::new(Path::new(&dir), dry_run.unwrap_or(false))?;
     let parent = git_raw_output(
-        &root,
+        runner.root(),
         &["--no-pager", "rev-parse", "--verify", "--quiet", "HEAD~1"],
     )?;
     if !parent.ok {
@@ -5162,26 +5277,29 @@ fn git_undo_last_commit(dir: String) -> Result<GitCommandResult, String> {
             false,
         ));
     }
-    let output = git_raw_output(&root, &["--no-pager", "reset", "--soft", "HEAD~1"])?;
-    Ok(GitCommandResult::from_output(
-        output.stdout,
-        output.stderr,
-        output.ok,
-    ))
+    let output = runner.run(&["--no-pager", "reset", "--soft", "HEAD~1"])?;
+    Ok(runner.into_result(output.stdout, output.stderr, output.ok))
 }
 
-/// 抓取远端更新但不合并；`prune` 为真时同时清理已删除的远端分支。
 /// 抓取远端更新但不合并；`prune` 为真时同时清理已删除的远端分支。
 /// 网络操作可能持续数秒到数分钟，落到阻塞线程池而不是异步 worker。
 #[tauri::command]
-async fn git_fetch(dir: String, prune: bool) -> Result<GitCommandResult, String> {
-    run_blocking_git(move || git_fetch_blocking(dir, prune)).await
+async fn git_fetch(
+    dir: String,
+    prune: bool,
+    dry_run: Option<bool>,
+) -> Result<GitCommandResult, String> {
+    run_blocking_git(move || git_fetch_blocking(dir, prune, dry_run)).await
 }
 
 #[tauri::command(async)]
-fn git_fetch_blocking(dir: String, prune: bool) -> Result<GitCommandResult, String> {
-    let root = git_repository_root(Path::new(&dir))?;
-    let remotes = git_raw_output(&root, &["--no-pager", "remote"])?;
+fn git_fetch_blocking(
+    dir: String,
+    prune: bool,
+    dry_run: Option<bool>,
+) -> Result<GitCommandResult, String> {
+    let mut runner = GitRunner::new(Path::new(&dir), dry_run.unwrap_or(false))?;
+    let remotes = git_raw_output(runner.root(), &["--no-pager", "remote"])?;
     if remotes.stdout.trim().is_empty() {
         return Ok(GitCommandResult::from_output(
             String::new(),
@@ -5193,12 +5311,8 @@ fn git_fetch_blocking(dir: String, prune: bool) -> Result<GitCommandResult, Stri
     if prune {
         args.push("--prune");
     }
-    let output = git_raw_output(&root, &args)?;
-    Ok(GitCommandResult::from_output(
-        output.stdout,
-        output.stderr,
-        output.ok,
-    ))
+    let output = runner.run(&args)?;
+    Ok(runner.into_result(output.stdout, output.stderr, output.ok))
 }
 
 /// 列出标签；附注标签额外给出解引用后的提交短哈希。
@@ -5251,9 +5365,10 @@ fn git_create_tag(
     name: String,
     hash: Option<String>,
     message: Option<String>,
+    dry_run: Option<bool>,
 ) -> Result<GitCommandResult, String> {
     let name = validate_tag_name(&name)?;
-    let root = git_repository_root(Path::new(&dir))?;
+    let mut runner = GitRunner::new(Path::new(&dir), dry_run.unwrap_or(false))?;
     let hash = match hash
         .as_deref()
         .map(str::trim)
@@ -5280,39 +5395,36 @@ fn git_create_tag(
     if let Some(hash) = hash.as_deref() {
         args.push(hash);
     }
-    let output = git_raw_output(&root, &args)?;
-    Ok(GitCommandResult::from_output(
-        output.stdout,
-        output.stderr,
-        output.ok,
-    ))
+    let output = runner.run(&args)?;
+    Ok(runner.into_result(output.stdout, output.stderr, output.ok))
 }
 
 /// 删除本地标签。
 #[tauri::command(async)]
-fn git_delete_tag(dir: String, name: String) -> Result<GitCommandResult, String> {
+fn git_delete_tag(
+    dir: String,
+    name: String,
+    dry_run: Option<bool>,
+) -> Result<GitCommandResult, String> {
     let name = validate_tag_name(&name)?;
-    let root = git_repository_root(Path::new(&dir))?;
-    let output = git_raw_output(&root, &["--no-pager", "tag", "-d", name])?;
-    Ok(GitCommandResult::from_output(
-        output.stdout,
-        output.stderr,
-        output.ok,
-    ))
+    let mut runner = GitRunner::new(Path::new(&dir), dry_run.unwrap_or(false))?;
+    let output = runner.run(&["--no-pager", "tag", "-d", name])?;
+    Ok(runner.into_result(output.stdout, output.stderr, output.ok))
 }
 
 /// 重命名本地分支（git branch -m），当前分支同样支持。
 #[tauri::command(async)]
-fn git_rename_branch(dir: String, from: String, to: String) -> Result<GitCommandResult, String> {
+fn git_rename_branch(
+    dir: String,
+    from: String,
+    to: String,
+    dry_run: Option<bool>,
+) -> Result<GitCommandResult, String> {
     let from = validate_branch_name(&from)?;
     let to = validate_branch_name(&to)?;
-    let root = git_repository_root(Path::new(&dir))?;
-    let output = git_raw_output(&root, &["--no-pager", "branch", "-m", from, to])?;
-    Ok(GitCommandResult::from_output(
-        output.stdout,
-        output.stderr,
-        output.ok,
-    ))
+    let mut runner = GitRunner::new(Path::new(&dir), dry_run.unwrap_or(false))?;
+    let output = runner.run(&["--no-pager", "branch", "-m", from, to])?;
+    Ok(runner.into_result(output.stdout, output.stderr, output.ok))
 }
 
 /// 拣选提交：`action` 为 start 时必须给出 `hash`；冲突后用 continue / abort / skip 收尾。
@@ -5321,8 +5433,9 @@ fn git_cherry_pick(
     dir: String,
     action: String,
     hash: Option<String>,
+    dry_run: Option<bool>,
 ) -> Result<GitCommandResult, String> {
-    let root = git_repository_root(Path::new(&dir))?;
+    let mut runner = GitRunner::new(Path::new(&dir), dry_run.unwrap_or(false))?;
     if action == "start" {
         let hash = hash
             .as_deref()
@@ -5330,47 +5443,40 @@ fn git_cherry_pick(
             .filter(|value| !value.is_empty())
             .ok_or_else(|| "缺少要拣选的提交".to_string())?;
         let hash = validate_git_oid(hash)?;
-        let output = git_raw_output(&root, &["--no-pager", "cherry-pick", hash])?;
-        return Ok(GitCommandResult::from_output(
-            output.stdout,
-            output.stderr,
-            output.ok,
-        ));
+        let output = runner.run(&["--no-pager", "cherry-pick", hash])?;
+        return Ok(runner.into_result(output.stdout, output.stderr, output.ok));
     }
     let flag = cherry_pick_action_flag(&action)?;
-    let output = git_raw_output(&root, &["--no-pager", "cherry-pick", flag])?;
-    Ok(GitCommandResult::from_output(
-        output.stdout,
-        output.stderr,
-        output.ok,
-    ))
+    let output = runner.run(&["--no-pager", "cherry-pick", flag])?;
+    Ok(runner.into_result(output.stdout, output.stderr, output.ok))
 }
 
 /// 回退某个提交（生成反向提交，git revert --no-edit）。
 #[tauri::command(async)]
-fn git_revert(dir: String, hash: String) -> Result<GitCommandResult, String> {
+fn git_revert(
+    dir: String,
+    hash: String,
+    dry_run: Option<bool>,
+) -> Result<GitCommandResult, String> {
     let hash = validate_git_oid(&hash)?;
-    let root = git_repository_root(Path::new(&dir))?;
-    let output = git_raw_output(&root, &["--no-pager", "revert", "--no-edit", hash])?;
-    Ok(GitCommandResult::from_output(
-        output.stdout,
-        output.stderr,
-        output.ok,
-    ))
+    let mut runner = GitRunner::new(Path::new(&dir), dry_run.unwrap_or(false))?;
+    let output = runner.run(&["--no-pager", "revert", "--no-edit", hash])?;
+    Ok(runner.into_result(output.stdout, output.stderr, output.ok))
 }
 
 /// 重置到某个提交：soft 保留暂存区与工作区、mixed 只保留工作区、hard 全部丢弃。
 #[tauri::command(async)]
-fn git_reset(dir: String, hash: String, mode: String) -> Result<GitCommandResult, String> {
+fn git_reset(
+    dir: String,
+    hash: String,
+    mode: String,
+    dry_run: Option<bool>,
+) -> Result<GitCommandResult, String> {
     let hash = validate_git_oid(&hash)?;
     let flag = reset_mode_flag(&mode)?;
-    let root = git_repository_root(Path::new(&dir))?;
-    let output = git_raw_output(&root, &["--no-pager", "reset", flag, hash])?;
-    Ok(GitCommandResult::from_output(
-        output.stdout,
-        output.stderr,
-        output.ok,
-    ))
+    let mut runner = GitRunner::new(Path::new(&dir), dry_run.unwrap_or(false))?;
+    let output = runner.run(&["--no-pager", "reset", flag, hash])?;
+    Ok(runner.into_result(output.stdout, output.stderr, output.ok))
 }
 
 /// 列出 stash 栈，栈顶在最前。
@@ -5410,8 +5516,9 @@ fn git_stash_push(
     dir: String,
     message: Option<String>,
     include_untracked: bool,
+    dry_run: Option<bool>,
 ) -> Result<GitCommandResult, String> {
-    let root = git_repository_root(Path::new(&dir))?;
+    let mut runner = GitRunner::new(Path::new(&dir), dry_run.unwrap_or(false))?;
     let message = message
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
@@ -5428,34 +5535,35 @@ fn git_stash_push(
         args.push("-m");
         args.push(message);
     }
-    let output = git_raw_output(&root, &args)?;
-    Ok(GitCommandResult::from_output(
-        output.stdout,
-        output.stderr,
-        output.ok,
-    ))
+    let output = runner.run(&args)?;
+    Ok(runner.into_result(output.stdout, output.stderr, output.ok))
 }
 
 /// 应用（apply）或弹出（pop）一条 stash。
 #[tauri::command(async)]
-fn git_stash_apply(dir: String, reference: String, drop: bool) -> Result<GitCommandResult, String> {
+fn git_stash_apply(
+    dir: String,
+    reference: String,
+    drop: bool,
+    dry_run: Option<bool>,
+) -> Result<GitCommandResult, String> {
     let reference = validate_stash_reference(&reference)?;
-    let root = git_repository_root(Path::new(&dir))?;
+    let mut runner = GitRunner::new(Path::new(&dir), dry_run.unwrap_or(false))?;
     let subcommand = if drop { "pop" } else { "apply" };
-    let output = git_raw_output(&root, &["--no-pager", "stash", subcommand, reference])?;
-    Ok(GitCommandResult::from_output(
-        output.stdout,
-        output.stderr,
-        output.ok,
-    ))
+    let output = runner.run(&["--no-pager", "stash", subcommand, reference])?;
+    Ok(runner.into_result(output.stdout, output.stderr, output.ok))
 }
 
 /// 删除一条 stash。
 #[tauri::command(async)]
-fn git_stash_drop(dir: String, reference: String) -> Result<GitCommandResult, String> {
+fn git_stash_drop(
+    dir: String,
+    reference: String,
+    dry_run: Option<bool>,
+) -> Result<GitCommandResult, String> {
     let reference = validate_stash_reference(&reference)?;
-    let root = git_repository_root(Path::new(&dir))?;
-    let output = git_raw_output(&root, &["--no-pager", "stash", "drop", reference])?;
+    let mut runner = GitRunner::new(Path::new(&dir), dry_run.unwrap_or(false))?;
+    let output = runner.run(&["--no-pager", "stash", "drop", reference])?;
     Ok(GitCommandResult::from_output(
         output.stdout,
         output.stderr,
@@ -5512,6 +5620,7 @@ fn git_apply_patch(
     patch: String,
     cached: bool,
     reverse: bool,
+    dry_run: Option<bool>,
 ) -> Result<GitCommandResult, String> {
     if patch.trim().is_empty() {
         return Err("补丁内容为空".into());
@@ -5522,7 +5631,7 @@ fn git_apply_patch(
     if !is_applicable_patch(&patch) {
         return Err("补丁格式无法识别".into());
     }
-    let root = git_repository_root(Path::new(&dir))?;
+    let mut runner = GitRunner::new(Path::new(&dir), dry_run.unwrap_or(false))?;
     let mut args: Vec<&str> = vec!["--no-pager", "apply", "--recount", "--whitespace=nowarn"];
     if cached {
         args.push("--cached");
@@ -5530,12 +5639,15 @@ fn git_apply_patch(
     if reverse {
         args.push("--reverse");
     }
-    let output = git_apply_stdin(&root, &args, &patch)?;
-    Ok(GitCommandResult::from_output(
-        output.stdout,
-        output.stderr,
-        output.ok,
-    ))
+    // 补丁走标准输入：预览里记成 `… -`（内容来自界面里勾选的块）
+    let mut display_args = args.clone();
+    display_args.push("-");
+    runner.note(&display_args);
+    if runner.is_dry_run() {
+        return Ok(runner.into_result(String::new(), String::new(), true));
+    }
+    let output = git_apply_stdin(runner.root(), &args, &patch)?;
+    Ok(runner.into_result(output.stdout, output.stderr, output.ok))
 }
 
 /// 冲突文件的三方内容与工作区现状；缺失的 stage 为 None（例如 add/add 没有 base）。
@@ -5635,25 +5747,28 @@ fn git_resolve_conflict(
     dir: String,
     path: String,
     content: String,
+    dry_run: Option<bool>,
 ) -> Result<GitCommandResult, String> {
     if content.len() > MAX_CONFLICT_WRITE_BYTES {
         return Err("内容过大（最多 1 MB）".into());
     }
-    let root = git_repository_root(Path::new(&dir))?;
-    let target = resolve_repo_relative_path(&root, &path)?;
+    let mut runner = GitRunner::new(Path::new(&dir), dry_run.unwrap_or(false))?;
+    let target = resolve_repo_relative_path(runner.root(), &path)?;
+    let relative = path.trim();
+    // 预览里先给出写入动作（内容来自界面里的三方合并结果），再是 git add
+    runner.note_write(&target);
+    if runner.is_dry_run() {
+        runner.note(&["--no-pager", "add", "--", relative]);
+        return Ok(runner.into_result(String::new(), String::new(), true));
+    }
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent)
             .map_err(|error| format!("创建目录 {} 失败：{error}", parent.display()))?;
     }
     fs::write(&target, content.as_bytes())
         .map_err(|error| format!("写入 {} 失败：{error}", target.display()))?;
-    let relative = path.trim();
-    let output = git_raw_output(&root, &["--no-pager", "add", "--", relative])?;
-    Ok(GitCommandResult::from_output(
-        output.stdout,
-        output.stderr,
-        output.ok,
-    ))
+    let output = runner.run(&["--no-pager", "add", "--", relative])?;
+    Ok(runner.into_result(output.stdout, output.stderr, output.ok))
 }
 
 /// 进行中的操作子命令；`none` 表示没有需要收尾的操作。
@@ -5728,90 +5843,63 @@ fn git_operation_action(
     dir: String,
     operation: String,
     action: String,
+    dry_run: Option<bool>,
 ) -> Result<GitCommandResult, String> {
     let subcommand = operation_subcommand(&operation)?;
     let flag = operation_action_flag(&action)?;
     if flag == "--skip" && subcommand == "merge" {
         return Err("合并不支持跳过，请先解决冲突或中止".into());
     }
-    let root = git_repository_root(Path::new(&dir))?;
+    let mut runner = GitRunner::new(Path::new(&dir), dry_run.unwrap_or(false))?;
     // continue 会打开编辑器写提交信息：固定 core.editor 避免卡在交互式编辑
-    let output = git_raw_output(
-        &root,
-        &["--no-pager", "-c", "core.editor=true", subcommand, flag],
-    )?;
-    Ok(GitCommandResult::from_output(
-        output.stdout,
-        output.stderr,
-        output.ok,
-    ))
+    let output = runner.run(&["--no-pager", "-c", "core.editor=true", subcommand, flag])?;
+    Ok(runner.into_result(output.stdout, output.stderr, output.ok))
 }
 
 /// 拉取当前分支的上游更新；结果含 git 完整输出，冲突时失败告知。
-/// 拉取当前分支的上游更新；结果含 git 完整输出，冲突时失败告知。
 /// 网络操作可能持续数秒到数分钟，落到阻塞线程池而不是异步 worker。
 #[tauri::command]
-async fn git_pull(dir: String) -> Result<GitCommandResult, String> {
-    run_blocking_git(move || git_pull_blocking(dir)).await
+async fn git_pull(dir: String, dry_run: Option<bool>) -> Result<GitCommandResult, String> {
+    run_blocking_git(move || git_pull_blocking(dir, dry_run)).await
 }
 
 #[tauri::command(async)]
-fn git_pull_blocking(dir: String) -> Result<GitCommandResult, String> {
-    let root = git_repository_root(Path::new(&dir))?;
-    let output = git_raw_output(&root, &["--no-pager", "pull"])?;
-    Ok(GitCommandResult::from_output(
-        output.stdout,
-        output.stderr,
-        output.ok,
-    ))
+fn git_pull_blocking(dir: String, dry_run: Option<bool>) -> Result<GitCommandResult, String> {
+    let mut runner = GitRunner::new(Path::new(&dir), dry_run.unwrap_or(false))?;
+    let output = runner.run(&["--no-pager", "pull"])?;
+    Ok(runner.into_result(output.stdout, output.stderr, output.ok))
 }
 
-/// 推送当前分支；未设置上游时自动带 -u 推送到 origin 并建立跟踪。
 /// 推送当前分支；未设置上游时自动带 -u 推送到 origin 并建立跟踪。
 /// 网络操作可能持续数秒到数分钟，落到阻塞线程池而不是异步 worker。
 #[tauri::command]
-async fn git_push(dir: String) -> Result<GitCommandResult, String> {
-    run_blocking_git(move || git_push_blocking(dir)).await
+async fn git_push(dir: String, dry_run: Option<bool>) -> Result<GitCommandResult, String> {
+    run_blocking_git(move || git_push_blocking(dir, dry_run)).await
 }
 
 #[tauri::command(async)]
-fn git_push_blocking(dir: String) -> Result<GitCommandResult, String> {
-    let root = git_repository_root(Path::new(&dir))?;
-    let first = git_raw_output(&root, &["--no-pager", "push"])?;
+fn git_push_blocking(dir: String, dry_run: Option<bool>) -> Result<GitCommandResult, String> {
+    let mut runner = GitRunner::new(Path::new(&dir), dry_run.unwrap_or(false))?;
+    // 未设置上游时 git push 会失败并提示补上游：预览里把这条也列出来
+    let branch = git_raw_output(runner.root(), &["branch", "--show-current"])?;
+    let branch = branch.stdout.trim().to_string();
+    if !branch.is_empty() {
+        runner.note(&["--no-pager", "push", "-u", "origin", &branch]);
+    }
+    let first = runner.run(&["--no-pager", "push"])?;
     if first.ok {
-        return Ok(GitCommandResult::from_output(
-            first.stdout,
-            first.stderr,
-            true,
-        ));
+        return Ok(runner.into_result(first.stdout, first.stderr, true));
     }
     let combined = format!("{}\n{}", first.stdout, first.stderr);
     let needs_upstream = combined.contains("no upstream")
         || combined.contains("has no upstream branch")
         || combined.contains("No configured push destination")
         || combined.contains("does not match the name of your current branch");
-    if !needs_upstream {
-        return Ok(GitCommandResult::from_output(
-            first.stdout,
-            first.stderr,
-            false,
-        ));
+    if !needs_upstream || branch.is_empty() {
+        return Ok(runner.into_result(first.stdout, first.stderr, false));
     }
-    let branch = git_raw_output(&root, &["branch", "--show-current"])?;
-    let branch = branch.stdout.trim().to_string();
-    if branch.is_empty() {
-        return Ok(GitCommandResult::from_output(
-            first.stdout,
-            first.stderr,
-            false,
-        ));
-    }
-    let retry = git_raw_output(&root, &["--no-pager", "push", "-u", "origin", &branch])?;
-    Ok(GitCommandResult::from_output(
-        retry.stdout,
-        retry.stderr,
-        retry.ok,
-    ))
+    let retry = runner.run(&["--no-pager", "push", "-u", "origin", &branch])?;
+    Ok(runner.into_result(retry.stdout, retry.stderr, retry.ok))
 }
 
 /// 列出工作区目录下的条目（文件夹优先，其余按名称排序），供左侧文件看板使用。
