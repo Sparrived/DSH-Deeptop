@@ -5361,6 +5361,7 @@ function AppContent() {
             goalRoundsStarted={goalRoundsStarted}
             goalCollapsed={goalBarCollapsed}
             goalBusy={goalPanelBusy}
+            conversationPageActive={conversationPageActive}
             trajectoryOpen={trajectoryOpen}
             sessionDashboardOpen={sessionDashboardOpen}
             onOpenGoal={openGoalPanel}

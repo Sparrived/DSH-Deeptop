@@ -1,5 +1,8 @@
 
-/* Current Goal owns the second heading row; the subtitle shares the title row. */
+/* Current Goal owns the second heading row; the subtitle shares the title row.
+   第二行需要额外高度，所以头部按内容撑开到 64px 以上；只有标题行时仍是 64px。 */
+.conversation-panel:not(.page-non-conversation) { grid-template-rows: minmax(64px, auto) minmax(0, 1fr) auto; }
+.conversation-header { padding-top: 6px; padding-bottom: 6px; }
 .conversation-heading { flex: 1 1 auto; gap: 2px; }
 .conversation-title-row { min-width: 0; display: flex; align-items: baseline; gap: 10px; }
 .conversation-title-row > .conversation-title { flex: 1 1 auto; min-width: 0; }
@@ -60,6 +63,23 @@
 .current-goal-bar.collapsed { padding: 2px 5px 2px 3px; }
 .current-goal-bar.collapsed .current-goal-collapse-toggle { width: auto; display: inline-flex; align-items: center; gap: 5px; padding: 0 5px 0 2px; }
 .current-goal-bar.collapsed .current-goal-mark { width: 20px; height: 20px; }
+
+/* 没有 Goal 时的创建入口：与 Goal 条同处第二行，位置保持一致。 */
+.current-goal-create {
+  justify-self: start;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 40%, var(--line));
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+.current-goal-create svg { width: 14px; height: 14px; stroke-width: 2; }
+.current-goal-create:hover { border-style: solid; border-color: var(--accent); background: var(--accent-soft); color: var(--accent-deep); }
 
 /* SVG controls retain the centered geometry of the glyph buttons they replace. */
 .composer-attachment button,

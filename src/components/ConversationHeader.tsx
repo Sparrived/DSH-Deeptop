@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Plus } from "lucide-react";
 import type { DshGoalProjection, DshPreset, DshSessionSummary } from "../lib/desktop";
 import { displayTitle, presetDisplayName } from "../app/model";
 import { t, type UiLocale } from "../app/i18n";
@@ -17,6 +18,8 @@ type ConversationHeaderProps = {
   goalRoundsStarted: number;
   goalCollapsed: boolean;
   goalBusy: boolean;
+  /** 只有对话页显示 Goal 状态条与创建入口。 */
+  conversationPageActive: boolean;
   trajectoryOpen: boolean;
   sessionDashboardOpen: boolean;
   onOpenGoal: () => void;
@@ -38,6 +41,7 @@ export function ConversationHeader({
   goalRoundsStarted,
   goalCollapsed,
   goalBusy,
+  conversationPageActive,
   trajectoryOpen,
   sessionDashboardOpen,
   onOpenGoal,
@@ -78,6 +82,12 @@ export function ConversationHeader({
           onToggleCollapsed={onToggleGoalCollapsed}
           onTogglePhase={onToggleGoalPhase}
         />
+        {conversationPageActive && !activeGoal && <button
+          type="button"
+          className="current-goal-create"
+          onClick={onOpenGoal}
+          title={t("goal.createFirst", locale)}
+        ><Plus aria-hidden="true" />{t("goal.create", locale)}</button>}
       </div>
       <div className="conversation-actions">
         {noticeIsError && notice && (
