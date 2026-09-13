@@ -1844,7 +1844,7 @@
   "subagentRouting.selectModel": "选择模型",
   "subagentRouting.selectProvider": "选择提供方",
   "subagentRouting.title": "子代理模型",
-  "subagentRouting.unavailable": "Host 未挂载 subagent-model-selection 命名空间，无法配置子代理模型路由。",
+  "subagentRouting.unavailable": "Host 未挂载 subagent-model-selection 或 deeptop-subagent-routing 命名空间，无法配置子代理模型路由。",
   "subagentSurface.diagnostic": "不可用：{reason}",
   "subagentSurface.empty": "当前会话没有子 Agent。",
   "subagentSurface.interruptTitle": "中断子 Agent",

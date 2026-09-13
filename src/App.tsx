@@ -2580,6 +2580,10 @@ function AppContent() {
     }
     const ops = subagentRoutingOps(readSubagentRouting(policyNamespace, routingNamespace), next);
     if (ops.policy.length === 0 && ops.routing.length === 0) return;
+    if (ops.routing.length > 0 && !routingNamespace) {
+      setErrorNotice(t("subagentRouting.unavailable", locale));
+      return;
+    }
     setSettingsSaving(true);
     try {
       if (ops.policy.length > 0) {

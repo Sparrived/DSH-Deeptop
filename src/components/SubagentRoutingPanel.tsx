@@ -5,6 +5,7 @@ import type { DshHostModelCatalog } from "../app/model-types";
 import { providerModels, sameJson } from "../app/settings-model";
 import {
   SUBAGENT_MODEL_SELECTION_NS,
+  SUBAGENT_ROUTING_NS,
   duplicateRoutingKey,
   type SubagentRoutingRow,
   type SubagentRoutingSave,
@@ -66,7 +67,11 @@ export function SubagentRoutingPanel({ current, providers, settings, hostModels,
   ])), [providers, settings, hostModels]);
 
   const writable = settings?.writable ?? false;
-  const policyAvailable = settings?.namespaces.some((namespace) => namespace.ns === SUBAGENT_MODEL_SELECTION_NS) ?? false;
+  // 两个命名空间缺一不可：白名单缺失时委派策略无从生效，说明命名空间缺失时
+  // 保存会丢掉用户填写的说明。
+  const namespacesAvailable = settings?.namespaces.some((namespace) => namespace.ns === SUBAGENT_MODEL_SELECTION_NS) ?? false;
+  const routingAvailable = settings?.namespaces.some((namespace) => namespace.ns === SUBAGENT_ROUTING_NS) ?? false;
+  const policyAvailable = namespacesAvailable && routingAvailable;
   const dirty = !sameJson(draft, current);
   const duplicate = duplicateRoutingKey(draft.rows);
   const canSave = writable && policyAvailable && dirty && duplicate === undefined && !saving;

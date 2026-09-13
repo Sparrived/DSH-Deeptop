@@ -1844,7 +1844,7 @@
   "subagentRouting.selectModel": "Select a model",
   "subagentRouting.selectProvider": "Select a provider",
   "subagentRouting.title": "Subagent models",
-  "subagentRouting.unavailable": "The Host does not mount the subagent-model-selection namespace, so subagent routes cannot be configured.",
+  "subagentRouting.unavailable": "The Host does not mount the subagent-model-selection or deeptop-subagent-routing namespace, so subagent routes cannot be configured.",
   "subagentSurface.diagnostic": "Unavailable: {reason}",
   "subagentSurface.empty": "The current session has no subagents.",
   "subagentSurface.interruptTitle": "Interrupt the subagent",
