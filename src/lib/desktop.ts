@@ -2005,6 +2005,20 @@ export async function revealInExplorer(path: string): Promise<void> {
   await invoke("reveal_in_explorer", { path });
 }
 
+/** 原生宿主可用的文件管理器：由 Rust 侧按编译目标给出，不从 WebView 推断。 */
+export type PresentedFileManager = "finder" | "explorer" | "directory";
+
+/** 交付卡片的原生宿主元数据。 */
+export interface PresentedHostInfo {
+  fileManager: PresentedFileManager;
+}
+
+/** 读取原生宿主元数据；非桌面端返回 null，调用方据此禁用交付卡片菜单。 */
+export async function presentedHost(): Promise<PresentedHostInfo | null> {
+  if (!isTauri()) return null;
+  return invoke<PresentedHostInfo>("presented_host");
+}
+
 /** Check through the native host whether a path resolves to a regular file. */
 export async function isFilePath(path: string): Promise<boolean> {
   if (!isTauri()) return false;

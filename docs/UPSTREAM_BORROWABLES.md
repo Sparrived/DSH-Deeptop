@@ -74,21 +74,25 @@ Deeptop 现状：会话级 `/feedback` **已经可用**——它由 `command-fee
 
 逐消息界面未接线：`cordis/cordis.patch.yml:20-23` 装载了 `message-feedback` Host 插件，但 `src/lib/desktop.ts:772` 只有 `DshMessageFeedbackItem` 类型，`src/` 与 `cordis/` 中没有调用点，也没有 Like/Dislike 组件。该界面记录的是本地评分，对桌面端使用价值有限，因此明确不做。
 
-### 7. 共享文件类型分类 `[ ]`
+### 7. 共享文件类型分类 `[x]`
 
 上游 `packages/client/ui-primitives/src/FileTypeIcon.tsx` 定义一份 `FileType` 联合与 `classifyFileType(path)`，附件卡片、链接字形、交付卡片与文件树共用，并由穷尽性检查兜底。
 
-Deeptop 现状：`src/components/DeliverablesPanel.tsx:17-22` 的 `fileTypeLabel` 只是把扩展名大写截断成六字符徽标，附件、链接图标与文件树各自处理类型。
+Deeptop 已对齐：`src/app/file-type.ts` 定义同一份分类表——`FileType` 联合、`fileExtension(path)`、`classifyFileType(path)` 与类别徽标 `fileTypeLabel(path)`。判定顺序与上游一致：文件名规则（`readme`/`changelog`/`contributing`）先于扩展名规则，扩展名大小写不敏感，无法识别的落到 `other`。交付卡片徽标与工作区文件树图标都读这份表，不再各写一份扩展名 switch。
 
-量级：小。桌面端对磁盘文件可能更适合系统图标，因此只借分类表。
+未做：上游那套 28px 图形与 `CodeFileType` 细分（按工程上下文换图标，例如 Flutter）没有搬。桌面端对磁盘文件继续用现有 lucide 图标，消息里的文件链接仍是单一 `FileText` 字形，附件也只有图片一种类型，因此这两处不接分类表。
 
-### 8. Presented 文件卡片 `[ ]`
+### 8. Presented 文件卡片 `[x]`
 
 上游交付卡片主体是应用内预览，旁挂一个 chevron 菜单（用默认应用打开、在文件管理器中显示），按阶段显示状态并据此禁用菜单项，执行动作后把焦点还给预览按钮；文件管理器名称显式建模为 `finder | explorer`，不从浏览器推断操作系统。
 
-Deeptop 现状：数据面已就绪（`deliverables/presented` 事件已投影为生成文件卡片），`src/components/DeliverablesPanel.tsx` 每行的主体点击已在右栏停靠标签中打开（第 2 条），但还没有旁挂的 chevron 菜单、阶段化状态与「用默认应用打开 / 在文件管理器中显示」的显式建模，底部仍是单一的「在文件夹中显示」。
+Deeptop 已对齐：
 
-量级：小，应用内预览已由第 2 条提供，剩下的是卡片菜单与状态。
+- `src/components/PresentedFileCard.tsx` 是每条交付一行的卡片：主体按钮在右栏停靠标签中预览（第 2 条），旁挂 chevron 菜单提供「用默认应用打开」（复用 Host 的 `host.openPath`）与「在文件管理器中显示」（原生命令 `reveal_in_explorer`）。两个按钮平级，动作按钮不嵌套在可点击卡片里。
+- 阶段状态建模在 `src/app/presented-file.ts`：`opening`/`opened`/`revealing`/`revealed`/`error`/`revealError` 按 `presentedPhaseKey(会话, 路径)` 记账，因此切换会话不会把上一个会话的状态带到同名路径上；进行中禁用菜单并在副标题位置显示进度，失败保留成可重试的错误色状态，执行动作后焦点回到主体按钮。
+- 文件管理器名称由原生侧声明：`src-tauri/src/main.rs` 新增 `presented_host` 命令，按编译目标返回 `finder | explorer | directory`，前端不读 `navigator` 推断操作系统；只有 `directory` 时文案退化为「已打开所在文件夹」，不假装有具名文件管理器。
+
+量级：小。底部保留的是工作目录级的「在文件夹中显示」（打开工作区本身），逐文件动作已上移到卡片菜单。
 
 ## 二、正确性教训
 

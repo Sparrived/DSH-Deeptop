@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Braces, ChevronLeft, ChevronRight, FileCode2, FileCog, FileText, FileType2, Folder, FolderOpen, Image, Plus, RefreshCw } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileCode2, FileText, FileType2, Folder, FolderOpen, Image, Plus, RefreshCw } from "lucide-react";
 import { createPortal } from "react-dom";
 import {
   createWorkspaceFolder,
@@ -14,6 +14,7 @@ import {
   type WorkspaceGitStatus,
 } from "../lib/desktop";
 import { errorText } from "../app/model";
+import { classifyFileType } from "../app/file-type";
 import { t, type UiLocale } from "../app/i18n";
 import { WORKSPACE_FILES_CONTEXT_MENU_SELECTOR } from "../app/context-menu";
 import { useFloatingMenuPosition } from "../app/useFloatingMenuPosition";
@@ -42,39 +43,15 @@ function formatFileSize(bytes: number): string {
 }
 
 function fileIcon(name: string): ReactNode {
-  const extension = name.includes(".") ? name.split(".").pop()?.toLowerCase() : "";
-  switch (extension) {
-    case "ts":
-    case "tsx":
-    case "js":
-    case "jsx":
-    case "mjs":
-    case "cjs":
-    case "py":
-      return <FileCode2 />;
-    case "json":
-      return <Braces />;
-    case "md":
-    case "mdx":
+  switch (classifyFileType(name)) {
+    case "image":
+      return <Image />;
+    case "markdown":
       return <FileText />;
     case "html":
-    case "htm":
-    case "css":
-    case "scss":
-    case "less":
       return <FileType2 />;
-    case "rs":
-    case "yml":
-    case "yaml":
-    case "toml":
-      return <FileCog />;
-    case "png":
-    case "jpg":
-    case "jpeg":
-    case "gif":
-    case "webp":
-    case "svg":
-      return <Image />;
+    case "code":
+      return <FileCode2 />;
     default:
       return <FileText />;
   }

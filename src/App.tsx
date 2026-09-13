@@ -84,6 +84,8 @@ import {
   setWindowBehaviorSettings,
   getNetworkProxy,
   setNetworkProxy,
+  presentedHost,
+  revealInExplorer,
   writeClipboard,
   type DshNetworkProxy,
   type DshEffectiveNetworkProxy,
@@ -144,6 +146,7 @@ import {
   type DshSubagentAddress,
   type DshSubagentCatalog,
   type DshWorkspace,
+  type PresentedHostInfo,
 } from "./lib/desktop";
 import { desktopClientRuntime } from "./lib/desktop-client-runtime";
 import { desktopRequest, desktopRemoteInvoke } from "./lib/desktop-api";
@@ -272,6 +275,7 @@ import { externalLaunchKey } from "./lib/external-launch";
 import { DEFAULT_PERMISSION_OPTIONS, isDefaultPermission, readStoredDefaultModel, readStoredDefaultPermission, writeStoredDefaultModel, writeStoredDefaultPermission, type DefaultPermission } from "./app/session-defaults";
 import { isSchemaEnvelope, schemaEnumChoices, schemaNodeAtPath } from "./app/schema-model";
 import { resolveSubmitMode } from "./app/submit-mode";
+import { presentedPhaseKey, type PresentedAction, type PresentedOpenPhase } from "./app/presented-file";
 import {
   reconcileSessionIndicators,
   sessionIndicatorForHistory,
@@ -492,6 +496,19 @@ function AppContent() {
   const [todos, setTodos] = useState<TodoItem[] | null>(null);
   const [trajectoryOpen, setTrajectoryOpen] = useState(false);
   const [sessionDashboardOpen, setSessionDashboardOpen] = useState(false);
+  // 交付卡片的原生宿主元数据与动作阶段：阶段按“被查看会话 + 文件路径”记账，
+  // 切换会话不会把上一个会话的打开状态带到同名路径上。
+  const [presentedHostInfo, setPresentedHostInfo] = useState<PresentedHostInfo | null>(null);
+  const [presentedPhases, setPresentedPhases] = useState<Record<string, PresentedOpenPhase>>({});
+  // 文件管理器名称由原生侧给出；非桌面端保持 null，交付卡片菜单整体禁用。
+  useEffect(() => {
+    if (!desktop) return;
+    let active = true;
+    void presentedHost()
+      .then((host) => { if (active) setPresentedHostInfo(host); })
+      .catch(() => { if (active) setPresentedHostInfo(null); });
+    return () => { active = false; };
+  }, [desktop]);
   const [workspace, setWorkspace] = useState("");
   const [composer, setComposer] = useState("");
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
@@ -4645,6 +4662,25 @@ function AppContent() {
     }
   }
 
+  /**
+   * 交付卡片的原生动作：默认应用打开复用 Host 的 `host.openPath`，
+   * 文件管理器定位走原生命令。阶段状态写在卡片上，失败保留为可重试的状态
+   * 而不是弹提示；作用域取发起时正在查看的会话，不跟随之后切换的会话。
+   */
+  async function actOnPresentedFile(path: string, action: PresentedAction) {
+    const session = sessionsRef.current.find((item) => item.sessionId === activeSessionRef.current);
+    const key = presentedPhaseKey(session?.sessionId ?? null, path);
+    setPresentedPhases((current) => ({ ...current, [key]: action === "open" ? "opening" : "revealing" }));
+    try {
+      const target = sessionPath(session?.cwd ?? workspace, path);
+      if (action === "open") await desktopRequest("host.openPath", { path: target });
+      else await revealInExplorer(target);
+      setPresentedPhases((current) => ({ ...current, [key]: action === "open" ? "opened" : "revealed" }));
+    } catch {
+      setPresentedPhases((current) => ({ ...current, [key]: action === "open" ? "error" : "revealError" }));
+    }
+  }
+
   async function openMessageUrl(url: string) {
     try {
       await openConnectionUrl(url);
@@ -5227,6 +5263,9 @@ function AppContent() {
       onToggle={() => setActiveUtilityPanel(null)}
       onOpenSessionPath={openSessionPath}
       onOpenFile={openSessionFile}
+      onPresentedAction={(path, action) => void actOnPresentedFile(path, action)}
+      presentedHost={presentedHostInfo}
+      presentedPhaseOf={(path) => presentedPhases[presentedPhaseKey(activeSessionId, path)]}
     /> : <UtilityPanelEmptyState icon={<PackageOpen />} title={t("utility.deliverablesEmptyTitle", locale)} description={t("utility.deliverablesEmpty", locale)} />}
     subagent={childSubagents.length > 0 ? <div className="subagent-workbench">
       <SubagentDock

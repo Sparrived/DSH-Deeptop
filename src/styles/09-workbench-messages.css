@@ -1089,6 +1089,17 @@
   border-top: 1px solid var(--line);
 }
 
+/* 一行 = 预览按钮 + 旁挂的 chevron 菜单按钮；动作按钮不嵌进可点击卡片里。 */
+.deliverables-files .deliverable-file-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22px;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+}
+
+.deliverables-files .deliverable-file-row:last-child { border-bottom: 0; }
+
 .deliverables-files .deliverable-file {
   min-width: 0;
   min-height: 48px;
@@ -1098,19 +1109,78 @@
   gap: 10px;
   padding: 8px 2px;
   border: 0;
-  border-bottom: 1px solid var(--line);
   border-radius: 0;
   background: transparent;
   color: var(--ink);
   text-align: left;
 }
 
-.deliverables-files .deliverable-file:last-child { border-bottom: 0; }
-
 .deliverables-files .deliverable-file:hover {
   background: color-mix(in srgb, var(--accent) 6%, var(--surface-raised));
   color: var(--accent-deep);
 }
+
+.deliverable-file-menu {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-faint);
+}
+
+.deliverable-file-menu:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  background: var(--surface-soft);
+  color: var(--accent-deep);
+}
+
+.deliverable-file-menu:disabled { opacity: 0.45; cursor: default; }
+
+.deliverable-file-menu svg { width: 14px; height: 14px; }
+
+.deliverable-file-actions {
+  position: fixed;
+  z-index: 1000;
+  min-width: 200px;
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-panel);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-panel);
+  color: var(--ink);
+}
+
+.deliverable-file-actions button {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.deliverable-file-actions button:hover:not(:disabled) {
+  background: var(--surface-soft);
+  color: var(--accent-deep);
+}
+
+.deliverable-file-actions button:disabled { opacity: 0.5; cursor: default; }
+
+.deliverable-file-actions svg { width: 14px; height: 14px; }
+
+.deliverable-file-status[data-error] { color: var(--danger); }
 
 .deliverable-file-type {
   width: 34px;

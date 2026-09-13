@@ -6127,6 +6127,29 @@ fn reveal_in_explorer(path: String) -> Result<(), String> {
         .map_err(|error| format!("无法在文件管理器中显示 {}：{error}", target.display()))
 }
 
+/// 交付卡片的原生宿主元数据。
+///
+/// 文件管理器名称必须由原生侧给出：WebView 里的 `navigator` 无法可靠判断
+/// 操作系统，菜单文案不能靠浏览器推断（上游 `PresentedHost.fileManager`）。
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PresentedHostInfo {
+    file_manager: &'static str,
+}
+
+/// 返回交付卡片可用的文件管理器名称（Apple 访达 / Windows 资源管理器 / 通用目录打开）。
+#[tauri::command]
+fn presented_host() -> PresentedHostInfo {
+    let file_manager = if cfg!(windows) {
+        "explorer"
+    } else if cfg!(target_os = "macos") {
+        "finder"
+    } else {
+        "directory"
+    };
+    PresentedHostInfo { file_manager }
+}
+
 /// 判断路径是否解析为一个普通文件；不存在、目录和其他文件系统对象均返回 false。
 #[tauri::command]
 fn is_file_path(path: String) -> bool {
@@ -7789,6 +7812,7 @@ fn main() {
             open_in_vscode,
             write_clipboard,
             reveal_in_explorer,
+            presented_host,
             is_file_path,
             delete_workspace_path,
             create_workspace_folder,

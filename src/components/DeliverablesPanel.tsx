@@ -1,8 +1,9 @@
-import { ExternalLink } from "lucide-react";
-import { pathBasename, type TranscriptItem } from "../app/model";
+import type { TranscriptItem } from "../app/model";
 import { t, type UiLocale } from "../app/i18n";
+import type { PresentedHost, PresentedOpenPhase } from "../app/presented-file";
 import type { DshSessionSummary } from "../lib/desktop";
 import { DockFrame } from "./DockFrame";
+import { PresentedFileCard } from "./PresentedFileCard";
 
 type DeliverablesPanelProps = {
   item: TranscriptItem;
@@ -15,14 +16,13 @@ type DeliverablesPanelProps = {
   onOpenFile: (path: string, location?: { line?: number }) => void | Promise<void>;
   /** 交给系统文件管理器；只用于“在文件夹中显示”。 */
   onOpenSessionPath: (path: string) => void | Promise<void>;
+  /** 卡片菜单触发的原生动作（用默认应用打开 / 在文件管理器中显示）。 */
+  onPresentedAction: (path: string, action: "open" | "reveal") => void | Promise<void>;
+  /** 原生宿主元数据；缺失时卡片菜单禁用。 */
+  presentedHost: PresentedHost | null;
+  /** 按 `presentedPhaseKey(activeSessionId, path)` 记账的阶段状态。 */
+  presentedPhaseOf: (path: string) => PresentedOpenPhase | undefined;
 };
-
-function fileTypeLabel(path: string) {
-  const name = pathBasename(path);
-  const dot = name.lastIndexOf(".");
-  if (dot <= 0 || dot === name.length - 1) return "FILE";
-  return name.slice(dot + 1).toUpperCase().slice(0, 6);
-}
 
 function fileDirectory(path: string, locale: UiLocale) {
   const normalized = path.replace(/[\\/]+$/, "");
@@ -32,7 +32,7 @@ function fileDirectory(path: string, locale: UiLocale) {
   return directory || t("deliverables.workspaceDir", locale);
 }
 
-export function DeliverablesPanel({ item, activeSession, collapsed, locale = "zh", onToggle, embedded = false, onOpenSessionPath, onOpenFile }: DeliverablesPanelProps) {
+export function DeliverablesPanel({ item, activeSession, collapsed, locale = "zh", onToggle, embedded = false, onOpenSessionPath, onOpenFile, onPresentedAction, presentedHost, presentedPhaseOf }: DeliverablesPanelProps) {
   const files = item.files ?? [];
   const fileDiffs = item.fileDiffs ?? {};
   const diffTotals = Object.values(fileDiffs).reduce(
@@ -74,17 +74,19 @@ export function DeliverablesPanel({ item, activeSession, collapsed, locale = "zh
       </div>
       <div className="deliverables-panel-files">
         <div className="deliverables-files">
-          {files.map((path) => {
-            const diff = fileDiffs[path];
-            return (
-              <button className="deliverable-file" type="button" key={`${item.key}-${path}`} onClick={() => void onOpenFile(path)} title={path} aria-label={diff ? t("deliverables.openFileAriaDetailed", locale, { path, added: diff.added, removed: diff.removed }) : t("deliverables.openFileAria", locale, { path })}>
-                <span className="deliverable-file-type" aria-hidden="true">{fileTypeLabel(path)}</span>
-                <span className="deliverable-file-copy"><strong>{pathBasename(path)}</strong><small>{fileDirectory(path, locale)}</small></span>
-                {diff && <span className="deliverable-file-diff" aria-label={t("deliverables.addedRemoved", locale, { added: diff.added, removed: diff.removed })}><b>+{diff.added}</b><b>−{diff.removed}</b></span>}
-                <span className="deliverable-file-open" aria-hidden="true"><ExternalLink /></span>
-              </button>
-            );
-          })}
+          {files.map((path) => (
+            <PresentedFileCard
+              key={`${item.key}-${path}`}
+              path={path}
+              detail={fileDirectory(path, locale)}
+              diff={fileDiffs[path]}
+              locale={locale}
+              phase={presentedPhaseOf(path)}
+              host={presentedHost}
+              onPreview={onOpenFile}
+              onAction={onPresentedAction}
+            />
+          ))}
         </div>
       </div>
       {activeSession?.cwd && (
