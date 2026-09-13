@@ -55,6 +55,13 @@ test("开发版比较上一个 Tag，正式版只比较上一个正式版", () =
     const stableNotes = generate(repository, "v0.1.2", "stable-notes.md");
     assert.match(stableNotes, /对比 `v0\.1\.1`/);
     assert.doesNotMatch(stableNotes, /对比 `v0\.1\.1-dev\.2`/);
+
+    // 正式版之后的首个开发版比较该正式版，而不是上一轮最后的开发版。
+    commit(repository, "fix(test): 新开发周期修复", "next-cycle");
+    git(repository, ["tag", "v0.1.2-dev.1"]);
+    const nextCycleNotes = generate(repository, "v0.1.2-dev.1", "next-cycle-notes.md");
+    assert.match(nextCycleNotes, /对比 `v0\.1\.2`/);
+    assert.doesNotMatch(nextCycleNotes, /对比 `v0\.1\.1-dev\.2`/);
   } finally {
     rmSync(repository, { recursive: true, force: true });
   }

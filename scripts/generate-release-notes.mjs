@@ -92,16 +92,16 @@ function currentReleaseTag(ref) {
 }
 
 function previousTag(ref, releaseTag) {
-  const allTags = git(['tag', '--sort=-version:refname'])
-    .split('\n')
-    .map((value) => value.trim())
-    .filter(isReleaseTag)
+  // 「上一个 Tag」取提交图上最近的可达 Tag：同一轮里的开发版相邻于上一个开发版，
+  // 紧随正式版之后的首个开发版相邻于该正式版；正式版只在正式版之间取最近的一个。
+  // 按版本号排序会跳过中间的正式版，按创建时间排序在同一秒创建的轻量 Tag 上会并列，
+  // 两者都可能选出比当前版本更新、或已经随正式版发布过的 Tag。
   const current = releaseTag ?? currentReleaseTag(ref)
-  const tags = isPrereleaseTag(current)
-    ? allTags
-    : allTags.filter((candidate) => !isPrereleaseTag(candidate))
-  const index = current ? tags.indexOf(current) : -1
-  return index >= 0 ? tags[index + 1] : undefined
+  const args = ['describe', '--tags', '--abbrev=0', '--match', 'v[0-9]*']
+  if (current !== undefined) args.push('--exclude', current)
+  if (current !== undefined && !isPrereleaseTag(current)) args.push('--exclude', '*-*')
+  const previous = readGit([...args, ref])
+  return previous !== undefined && isReleaseTag(previous) ? previous : undefined
 }
 
 function isReleaseTag(tag) {
@@ -140,6 +140,15 @@ function classify(commit) {
   if (commit.type === 'docs' || commit.type === 'test') return 'docs'
   if (commit.type === 'build' || commit.type === 'ci' || commit.type === 'chore') return 'release'
   return 'other'
+}
+
+function readGit(command) {
+  // `git describe` 在没有可达 Tag 时以非零退出，这里把它当作「没有上一个 Tag」。
+  try {
+    return git(command)
+  } catch {
+    return undefined
+  }
 }
 
 function git(command) {
