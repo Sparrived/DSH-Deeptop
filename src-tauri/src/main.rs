@@ -6493,6 +6493,7 @@ mod tests {
         TraySessionMenuItem, TraySessionMenuSnapshot, TraySessionStatus, MAX_LOG_ENTRIES,
         MAX_LOG_TEXT_BYTES, RUNTIME_CACHE_MARKER, WORKSPACE_FILE_SNIFF_BYTES,
     };
+    use std::collections::HashSet;
     use std::fs;
     use std::path::{Path, PathBuf};
 
@@ -6557,6 +6558,67 @@ mod tests {
                  启用 App ACL 后该命令将被默认拒绝"
             );
         }
+    }
+
+    /// capability 防漂移守卫：build.rs 声明的每条命令都必须在某个 capability 里被显式 allow。
+    /// 只校验「注册 + 声明」不够——AppManifest 下 Tauri 对应用命令默认拒绝，
+    /// 少了 capability 条目，运行时会直接报 `Command xxx not allowed by ACL`。
+    #[test]
+    fn every_acl_listed_command_is_granted_by_a_capability() {
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let build_rs =
+            std::fs::read_to_string(format!("{manifest_dir}/build.rs")).expect("read build.rs");
+        let anchor = build_rs
+            .find("const APP_COMMANDS: &[&str] = &[")
+            .expect("APP_COMMANDS declaration");
+        let list_start = anchor + build_rs[anchor..].find('[').expect("[") + 1;
+        let list_end = list_start
+            + build_rs[list_start..]
+                .find("];")
+                .expect("APP_COMMANDS terminator");
+        let commands: Vec<&str> = build_rs[list_start..list_end]
+            .lines()
+            .filter_map(|line| {
+                let entry = line
+                    .split_once("//")
+                    .map_or(line, |(code, _)| code)
+                    .trim()
+                    .trim_end_matches(',')
+                    .trim();
+                entry
+                    .strip_prefix('"')
+                    .and_then(|rest| rest.strip_suffix('"'))
+            })
+            .collect();
+        assert!(commands.len() > 100, "APP_COMMANDS 解析异常：{commands:?}");
+
+        let mut granted = HashSet::new();
+        for capability in ["capabilities/main.json", "capabilities/desktop-pet.json"] {
+            let raw = std::fs::read_to_string(format!("{manifest_dir}/{capability}"))
+                .unwrap_or_else(|error| panic!("read {capability}: {error}"));
+            let parsed: serde_json::Value = serde_json::from_str(&raw)
+                .unwrap_or_else(|error| panic!("parse {capability}: {error}"));
+            for permission in parsed["permissions"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+            {
+                if let Some(name) = permission.as_str() {
+                    granted.insert(name.to_string());
+                }
+            }
+        }
+
+        let missing: Vec<String> = commands
+            .iter()
+            .map(|command| format!("allow-{}", command.replace('_', "-")))
+            .filter(|permission| !granted.contains(permission))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "以下命令没有出现在任何 capability 里，运行时会以 ACL 拒绝：{}",
+            missing.join(", ")
+        );
     }
 
     #[test]
