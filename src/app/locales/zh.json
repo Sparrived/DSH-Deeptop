@@ -714,8 +714,6 @@
   "git.error.readDetailFailed": "读取提交详情失败：{error}",
   "git.error.readGraph": "读取提交图谱失败：{error}",
   "git.confirmSkip": "这类操作不再询问",
-  "git.stageHunk": "暂存这个块",
-  "git.unstageHunk": "取消暂存这个块",
   "gitGraph.branches": "分支",
   "gitGraph.branchesLoading": "查询中…",
   "gitGraph.branchesNone": "没有分支包含这条提交",

@@ -81,3 +81,30 @@ test("message placeholders stay in sync between locales", () => {
   }
   assert.deepEqual(mismatched, [], `中英文占位符不一致：\n${mismatched.join("\n")}`);
 });
+
+/** 同一份资源里重复出现的键名。JSON 解析只保留最后一条，被覆盖的那条会静默失效。 */
+function duplicateMessageKeys(text) {
+  const seen = new Set();
+  const duplicates = [];
+  // 每行一个 `"键": 值`；JSON 的值不能跨行，所以按行取名是安全的。
+  for (const line of text.split(/\r?\n/u)) {
+    const match = /^\s*"((?:[^"\\]|\\.)+)"\s*:/u.exec(line);
+    if (!match) continue;
+    const key = JSON.parse(`"${match[1]}"`);
+    if (seen.has(key)) duplicates.push(key);
+    else seen.add(key);
+  }
+  return duplicates;
+}
+
+test("no locale file defines the same message key twice", () => {
+  const localeDir = fileURLToPath(new URL("./locales", import.meta.url));
+  const duplicates = [];
+  for (const name of readdirSync(localeDir).filter((entry) => entry.endsWith(".json")).sort()) {
+    for (const key of duplicateMessageKeys(readFileSync(join(localeDir, name), "utf8"))) {
+      duplicates.push(`${name}: ${key}`);
+    }
+  }
+  // 重复键只会让最后一条生效，界面显示的是被覆盖的文案（打包器也只会打一条警告）。
+  assert.deepEqual(duplicates, [], `语言资源里重复定义的键（后一条覆盖前一条）：\n${duplicates.join("\n")}`);
+});

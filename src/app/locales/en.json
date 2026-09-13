@@ -714,8 +714,6 @@
   "git.error.readDetailFailed": "Failed to read commit details: {error}",
   "git.error.readGraph": "Failed to read the commit graph: {error}",
   "git.confirmSkip": "Don't ask again for this operation",
-  "git.stageHunk": "Stage this hunk",
-  "git.unstageHunk": "Unstage this hunk",
   "gitGraph.branches": "Branches",
   "gitGraph.branchesLoading": "Looking up…",
   "gitGraph.branchesNone": "No branch contains this commit",
