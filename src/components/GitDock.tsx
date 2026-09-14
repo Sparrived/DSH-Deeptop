@@ -218,9 +218,9 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   // 图谱里展开的提交（文件块显示在该行下方而不是面板底部）
   // 待二次确认的写操作：展示将要执行的 git 命令，确认后才真正执行
   const [copiedCommand, setCopiedCommand] = useState(false);
-  // 悬浮节点时查询"包含该提交的分支"，按哈希缓存
-  const [hoveredCommit, setHoveredCommit] = useState<string | null>(null);
-  const [commitBranches, setCommitBranches] = useState<Record<string, string[]>>({});
+  // 悬浮节点时查询"包含该提交的分支"：哈希与结果放在同一个状态里，
+  // 避免两个 state 拼装时错位导致卡片永远停在"查询中"。branches 为 null 表示查询中。
+  const [hoveredBranches, setHoveredBranches] = useState<{ hash: string; branches: string[] | null } | null>(null);
   const commitBranchesRef = useRef<Record<string, string[]>>({});
   const [gitConfirm, setGitConfirm] = useState<{
     reason: string;
@@ -739,19 +739,29 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
     }
   }
 
-  /** 悬浮提交节点：查询并缓存包含该提交的分支（没有分支包含时是空数组）。 */
+  /**
+   * 悬浮提交节点：查询并缓存包含该提交的分支（没有分支包含时是空数组）。
+   * 查询结果只在"仍悬浮着同一条提交"时回填，避免快速移动鼠标时错位。
+   */
   async function handleHoverCommit(hash: string | null) {
-    setHoveredCommit(hash);
-    if (!hash || !workspace || commitBranchesRef.current[hash]) return;
-    try {
-      const branches = await listGitBranchesContaining(workspace, hash);
-      commitBranchesRef.current = { ...commitBranchesRef.current, [hash]: branches };
-      setCommitBranches(commitBranchesRef.current);
-    } catch {
-      // 分支信息只是补充：查询失败就留空，不打扰用户
-      commitBranchesRef.current = { ...commitBranchesRef.current, [hash]: [] };
-      setCommitBranches(commitBranchesRef.current);
+    if (!hash) {
+      setHoveredBranches(null);
+      return;
     }
+    const cached = commitBranchesRef.current[hash];
+    setHoveredBranches({ hash, branches: cached ?? null });
+    if (cached || !workspace) return;
+    let branches: string[] = [];
+    try {
+      branches = await listGitBranchesContaining(workspace, hash);
+    } catch {
+      // 分支信息只是补充：查询失败就当作没有，不打扰用户
+      branches = [];
+    }
+    commitBranchesRef.current = { ...commitBranchesRef.current, [hash]: branches };
+    setHoveredBranches((current) =>
+      current && current.hash === hash ? { hash, branches } : current,
+    );
   }
 
   /** 弹出二次确认框（展示将要执行的 git 命令，可复制），返回用户是否确认。 */
@@ -1529,7 +1539,7 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
                     markers={graphMarkers}
                     onOpenRange={openRangeTab}
                     onHoverCommit={(hash) => void handleHoverCommit(hash)}
-                    hoveredBranches={hoveredCommit ? commitBranches[hoveredCommit] ?? null : null}
+                    hoveredBranches={hoveredBranches?.branches ?? null}
                     expandedHashes={expandedCommits}
                     renderRowChildren={renderCommitChildren}
                     rowChildrenHeight={commitChildrenHeight}
