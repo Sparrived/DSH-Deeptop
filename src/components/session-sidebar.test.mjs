@@ -91,10 +91,9 @@ test("keeps every shared action available while expanded", async () => {
   assert.match(html, /class="new-session-button-label">新建会话</);
   assert.match(html, /aria-label="打开设置"/);
   assert.match(html, /aria-label="添加工作目录"/);
-  assert.match(html, /class="sidebar-collapse-button"/);
-  assert.match(html, /aria-label="收起侧栏"/);
-  assert.match(html, /aria-expanded="true"/);
   assert.match(html, /class="search-box"/);
+  // 收起开关嵌在侧栏内部，收起前后都在同一个位置、同在 `</aside>` 之前。
+  assert.match(html, /<button class="sidebar-toggle-handle"[^>]*aria-label="收起侧栏"[^>]*>[\s\S]*<\/button><\/aside>$/);
 });
 
 test("keeps only the shared action glyphs while collapsed", async () => {
@@ -103,10 +102,10 @@ test("keeps only the shared action glyphs while collapsed", async () => {
   // 新建会话沿用原有 + 字形，只是交给 CSS 隐藏文字标签。
   assert.match(html, /class="new-session-button-glyph"/);
   assert.match(html, /class="new-session-button-label">新建会话</);
-  // 标题行退化成轨道上的「展开」图标；标题与视图按钮仍在 DOM 里，由 CSS 隐藏。
+  assert.match(html, /aria-label="打开设置"/);
+  assert.match(html, /aria-label="添加工作目录"/);
+  // 列表与标题行仍在 DOM 里，收起态只由 CSS 隐藏与淡出。
   assert.match(html, /class="sidebar-heading"/);
-  assert.match(html, /class="sidebar-collapse-button"/);
-  assert.match(html, /aria-label="展开侧栏"/);
-  assert.match(html, /aria-expanded="false"/);
-  assert.match(html, /aria-controls="session-sidebar"/);
+  assert.match(html, /class="session-list"/);
+  assert.match(html, /<button class="sidebar-toggle-handle"[^>]*aria-label="展开侧栏"[^>]*>[\s\S]*<\/button><\/aside>$/);
 });

@@ -1465,44 +1465,62 @@
  *
  * 收起只替换第一列的轨道宽度：--sidebar-width 保持不变，展开即回到用户拖动过
  * 的宽度。侧栏内部保留完整子树，只让通用动作按钮可见——新建会话（仅“+”）、
- * 设置、添加工作目录，以及标题行里退化成的「展开侧栏」图标。
+ * 设置、添加工作目录；搜索框、标题行、会话列表与工作区选择器整体淡出并退出
+ * 键盘焦点。
  *
- * 新建会话按钮默认已经占满动作行（320px 时 4 个 42px 按钮会挤掉它的文字），
- * 因此收起开关放在标题行：那一行在 300px 宽度下仍有富余，且收起后正好紧接在
- * 动作列下方，键盘顺序与视觉顺序一致。
- *
- * 面板宽度用 grid-template-columns 过渡（Chromium 可插值）。搜索框位于动作行
- * 和标题行之间，收起时必须退出布局，否则会把「展开」图标顶到轨道外面；列表
- * 在标题行之后，只淡出即可。
+ * 收起开关嵌在侧栏靠对话一侧的右内边距里，垂直居中，收起与展开时停在同一个
+ * 位置。它留在侧栏内部而不是挂在 .workspace-layout 上：这样它直接长在面板
+ * 表面上（同一块底色、只在靠内一侧收圆角、不跨过面板与对话栏之间的接缝），
+ * 也天然跟着侧栏这一列移动，不需要额外的同步过渡。
  * ============================================================ */
 
 .workspace-layout {
-  --sidebar-collapsed-width: 66px;
+  /* 收起后右内边距要同时容纳图标列与把手：12 + 41 + 20 = 73px 内边距盒，
+     加上 1px 右边框即 74px 的轨道宽度。 */
+  --sidebar-collapsed-width: 74px;
   /* 面板级过渡比 --motion-standard 略长，收起时才有“滑动”而不是“闪现”。 */
   --sidebar-toggle-duration: calc(var(--motion-standard) * 1.5);
   --sidebar-toggle-ease: cubic-bezier(.32, .72, 0, 1);
 }
 
-.sidebar-heading-actions .sidebar-collapse-button {
-  width: 28px;
-  min-width: 28px;
-  min-height: 26px;
+/* 把手贴在侧栏右内边距上，需要一个定位基准。侧栏内没有其他绝对定位元素依赖
+   .workspace-layout（工作区菜单自带定位上下文），因此这里不会改变既有布局。 */
+.session-sidebar {
+  position: relative;
+}
+
+.sidebar-toggle-handle {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  width: 16px;
+  height: 44px;
   display: grid;
   place-items: center;
-  font-size: 16px;
+  padding: 0;
+  border: 0;
+  /* 只在靠内的一侧收圆角：像从面板右边缘挖出来的一段，而不是浮在上面的按钮。 */
+  border-radius: 6px 0 0 6px;
+  background: var(--rail-inset);
+  color: var(--rail-muted);
+  font-size: 13px;
+  transform: translateY(-50%);
+}
+
+.sidebar-toggle-handle:hover {
+  background: var(--rail-surface);
+  color: var(--rail-text);
 }
 
 .session-sidebar.collapsed {
   --sidebar-inline-space: 12px;
   gap: 8px;
-  padding-right: 12px;
+  padding-right: 20px;
   padding-left: 12px;
 }
 
-.session-sidebar.collapsed > .search-box {
-  display: none;
-}
-
+.session-sidebar.collapsed > .search-box,
+.session-sidebar.collapsed > .sidebar-heading,
 .session-sidebar.collapsed > .session-list,
 .session-sidebar.collapsed > .sidebar-bottom {
   visibility: hidden;
@@ -1528,31 +1546,6 @@
   justify-content: center;
 }
 
-/* 标题行退化成轨道上的一个图标按钮。 */
-.session-sidebar.collapsed > .sidebar-heading {
-  min-height: 42px;
-  padding: 0;
-}
-
-.session-sidebar.collapsed > .sidebar-heading > :not(.sidebar-heading-actions),
-.session-sidebar.collapsed > .sidebar-heading .sidebar-heading-actions > :not(.sidebar-collapse-button) {
-  display: none;
-}
-
-/* 宽度跟着轨道内容盒（侧栏右边框会让它比 42px 少一点），否则第 4 个图标
-   会比动作列那三个宽出不到 1px，横向对不齐。 */
-.session-sidebar.collapsed > .sidebar-heading .sidebar-heading-actions {
-  width: 100%;
-  gap: 0;
-}
-
-.session-sidebar.collapsed > .sidebar-heading .sidebar-collapse-button {
-  width: 100%;
-  min-width: 0;
-  min-height: 42px;
-  font-size: 18px;
-}
-
 .session-sidebar.collapsed .new-session-button .new-session-button-label,
 .session-sidebar.collapsed .sidebar-settings-button .settings-button-label {
   display: none;
@@ -1574,12 +1567,16 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  .session-sidebar > .search-box,
+  .session-sidebar > .sidebar-heading,
   .session-sidebar > .session-list,
   .session-sidebar > .sidebar-bottom {
     /* 展开：先让面板变宽，内容再淡入。 */
     transition: opacity var(--motion-standard) ease 120ms, visibility 0s linear 0s;
   }
 
+  .session-sidebar.collapsed > .search-box,
+  .session-sidebar.collapsed > .sidebar-heading,
   .session-sidebar.collapsed > .session-list,
   .session-sidebar.collapsed > .sidebar-bottom {
     /* 收起：内容立即淡出，淡完再真正隐藏。 */
@@ -1596,7 +1593,7 @@
     transition: grid-template-columns var(--sidebar-toggle-duration) var(--sidebar-toggle-ease);
   }
 
-  /* 拖动分隔线时侧栏（或右栏）宽度逐帧跟随指针，任何过渡都会变成拖尾。 */
+  /* 拖动分隔线（或右栏）时宽度逐帧跟随指针，任何过渡都会变成拖尾。 */
   body.sidebar-resizing .workspace-layout,
   body.dock-rail-resizing .workspace-layout {
     transition: none;
