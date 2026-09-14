@@ -111,6 +111,8 @@
 
 .pet-notice-close,
 .popup-close,
+.message-lightbox-toolbar button,
+.message-lightbox-nav > button,
 .subagent-drawer-close,
 .trajectory-inspector-header button,
 .search-box > span,
@@ -994,7 +996,12 @@
 .message-lightbox-stage {
   min-height: 0;
   display: grid;
+  /* 轨道必须显式声明：隐式 auto 行下图片的 max-height: 100% 没有可解析的基准，
+     大图会溢出舞台，遮住工具栏的关闭按钮。overflow 兜住任何残余溢出。 */
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   place-items: center;
+  overflow: hidden;
   padding: 12px 24px;
 }
 .message-lightbox-image {
