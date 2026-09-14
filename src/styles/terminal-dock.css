@@ -197,8 +197,10 @@
 }
 
 .terminal-panel-restart {
+  display: grid;
   width: 34px;
   min-height: 34px;
+  place-items: center;
   padding: 0;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-control);
@@ -216,12 +218,11 @@
 
 .terminal-panel-select-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 34px 34px;
+  grid-template-columns: minmax(0, 1fr) 34px;
   gap: 6px;
 }
 
 .terminal-panel-select-row select,
-.terminal-panel-refresh,
 .terminal-panel-restart {
   min-height: 34px;
   border: 1px solid var(--line-strong);
@@ -232,19 +233,11 @@
 }
 
 .terminal-panel-select-row select { min-width: 0; padding: 0 8px; }
-.terminal-panel-refresh { padding: 0; color: var(--ink-muted); font-size: 16px; }
 
 .terminal-panel-select-row select:focus-visible,
-.terminal-panel-refresh:focus-visible,
 .terminal-panel-restart:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-}
-
-.terminal-panel-refresh:hover:not(:disabled),
-.terminal-panel-restart:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent-deep);
 }
 
 .terminal-panel-description,
@@ -255,7 +248,6 @@
   line-height: 1.45;
 }
 
-.terminal-panel-refresh:disabled,
 .terminal-panel-restart:disabled,
 .terminal-panel-select-row select:disabled {
   cursor: default;

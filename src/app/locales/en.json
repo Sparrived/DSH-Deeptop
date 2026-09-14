@@ -1894,7 +1894,6 @@
   "terminal.noEmbeddableShell": "No embeddable shell detected; install bash, zsh or PowerShell.",
   "terminal.noShell": "No shell detected",
   "terminal.noWorkspace": "No working directory selected",
-  "terminal.redetect": "Re-detect shell",
   "terminal.restart": "Restart terminal session",
   "terminal.running": "Running",
   "terminal.sessionEnded": "The terminal session has ended; click ↻ at the top right to restart.",

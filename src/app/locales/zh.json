@@ -1894,7 +1894,6 @@
   "terminal.noEmbeddableShell": "未检测到可内嵌 shell，请安装 bash、zsh 或 PowerShell。",
   "terminal.noShell": "未检测到 shell",
   "terminal.noWorkspace": "未选择工作目录",
-  "terminal.redetect": "重新检测 shell",
   "terminal.restart": "重启终端会话",
   "terminal.running": "运行中",
   "terminal.sessionEnded": "终端会话已结束，点击右上角 ↻ 重新启动。",

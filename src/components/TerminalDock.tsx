@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, Plus, RefreshCw, RotateCw, TerminalSquare, X } from "lucide-react";
+import { ChevronLeft, Plus, RotateCw, TerminalSquare, X } from "lucide-react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { errorText } from "../app/model";
@@ -436,7 +436,6 @@ export function TerminalDock({ workspace, collapsed, locale = "zh", onToggle, on
             {terminals.length === 0 && <option value="">{t("terminal.noShell", locale)}</option>}
             {terminals.map((terminal) => <option key={terminal.id} value={terminal.id}>{terminal.name}</option>)}
           </select>
-          <button type="button" className="terminal-panel-refresh" onClick={() => void refreshTerminals()} disabled={loading || launching} title={t("terminal.redetect", locale)}><RefreshCw aria-hidden="true" /></button>
           <button type="button" className="terminal-panel-restart" onClick={() => activeTab && void restartTab(activeTab.id)} disabled={!activeTab || loading || launching} title={t("terminal.restart", locale)}><RotateCw aria-hidden="true" /></button>
         </div>
         <span className="terminal-panel-path" title={workspace}>{workspace || t("terminal.noWorkspace", locale)}</span>
