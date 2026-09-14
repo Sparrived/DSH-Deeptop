@@ -1,5 +1,5 @@
 import type { DshHistoryEntry } from "../lib/desktop";
-import { diffSummaryFromHistoryEntry, eventToolCallId, eventToolResultError, recordValue } from "./message-model.ts";
+import { diffSummaryFromHistoryEntry, eventToolCallId, eventToolName, eventToolResultError, recordValue } from "./message-model.ts";
 import type { DeliverableFileDiff, TodoItem, TodoStatus, WorkflowView } from "./model-types";
 import { t, type UiLocale } from "./i18n.ts";
 
@@ -195,8 +195,83 @@ export function producedPathsFromView(value: unknown) {
   return locations.map((location) => recordValue(location)?.path).filter((path): path is string => typeof path === "string" && path.trim().length > 0);
 }
 
+/** A non-blank path keeps the exact spelling the tool was given. */
+function mutationPathValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+/** Validate the fields that an `edit` execution requires. */
+function validEditArgs(args: Record<string, unknown>): boolean {
+  return typeof args.old_string === "string"
+    && args.old_string.length > 0
+    && typeof args.new_string === "string"
+    && args.old_string !== args.new_string
+    && (args.replace_all === undefined || typeof args.replace_all === "boolean");
+}
+
+/** Extract a path only from a complete mutating editor command. */
+function editorMutationPath(args: Record<string, unknown>): string | null {
+  const path = mutationPathValue(args.path);
+  if (path === null) return null;
+  switch (args.command) {
+    case "create":
+      return typeof args.file_text === "string" ? path : null;
+    case "str_replace":
+      return typeof args.old_str === "string"
+        && args.old_str.length > 0
+        && (args.new_str === undefined || typeof args.new_str === "string")
+        ? path
+        : null;
+    case "insert":
+      return typeof args.insert_line === "number"
+        && Number.isInteger(args.insert_line)
+        && args.insert_line >= 0
+        && typeof args.new_str === "string"
+        ? path
+        : null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Extract the path a supported first-party mutation call writes, using Web's
+ * `turn-deliverables` vocabulary: successful `write`, `edit`, and mutating
+ * `str_replace_editor` calls produce a file; reads and failed calls do not.
+ *
+ * Upstream reads the call arguments rather than the result metadata because a
+ * newly created file has no previous content to compare, so `write` reports
+ * `meta.diffs` as an empty array and metadata alone can never list it.
+ * @param name - wire tool name.
+ * @param rawArgs - model-produced JSON arguments, or already-parsed arguments.
+ * @returns the mutation path, or null when the call is not a supported mutation.
+ */
+export function producedPathFromCall(name: string, rawArgs: unknown): string | null {
+  let args: unknown = rawArgs;
+  if (typeof rawArgs === "string") {
+    try {
+      args = JSON.parse(rawArgs);
+    } catch {
+      return null;
+    }
+  }
+  const record = recordValue(args);
+  if (!record) return null;
+  switch (name) {
+    case "write":
+      return typeof record.content === "string" ? mutationPathValue(record.file_path) : null;
+    case "edit":
+      return validEditArgs(record) ? mutationPathValue(record.file_path) : null;
+    case "str_replace_editor":
+      return editorMutationPath(record);
+    default:
+      return null;
+  }
+}
+
 export function deliverablesFromHistory(entries: DshHistoryEntry[]) {
   const callViews = new Map<string, unknown>();
+  const callProduced = new Map<string, string>();
   const closingAssistantByTurn = new Map<string, { seq: number; time: number }>();
   const pathsByTurn = new Map<string, { seq: number; time: number; paths: string[]; fileDiffs: Record<string, DeliverableFileDiff> }>();
   for (const { event, view } of entries) {
@@ -227,11 +302,21 @@ export function deliverablesFromHistory(entries: DshHistoryEntry[]) {
     const callId = eventToolCallId(event);
     if (event.type === "tool/call" && callId) {
       callViews.set(callId, view);
+      // Web records the path at the call and only lists it once the result settles.
+      const produced = producedPathFromCall(eventToolName(event), event.data.arguments);
+      if (produced !== null) callProduced.set(callId, produced);
       continue;
     }
     if (event.type !== "tool/result" || eventToolResultError(event) || !callId) continue;
     const diff = diffSummaryFromHistoryEntry({ event, view });
-    const paths = diff?.diffs.map((item) => item.path) ?? producedPathsFromView(callViews.get(callId));
+    // Web lists produced files from the call arguments alone; the diff and view
+    // sources stay as well so no previously listed file regresses.
+    const producedPath = callProduced.get(callId);
+    const paths = [...new Set([
+      ...(producedPath === undefined ? [] : [producedPath]),
+      ...(diff?.diffs.map((item) => item.path) ?? []),
+      ...producedPathsFromView(callViews.get(callId)),
+    ])];
     if (paths.length === 0) continue;
     const turnKey = turn ?? String(event.seq);
     const current = pathsByTurn.get(turnKey) ?? { seq: event.seq, time: event.time, paths: [], fileDiffs: {} };

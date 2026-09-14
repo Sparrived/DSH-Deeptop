@@ -515,7 +515,11 @@ export function eventToolImages(event: DshSessionEvent): TranscriptImage[] {
 export function eventToolResultError(event: DshSessionEvent) {
   if (event.type !== "tool/result") return false;
   const data = event.data ?? {};
-  const nested = [recordValue(data.result), recordValue(data.output), recordValue(data.value)].filter((value): value is Record<string, unknown> => Boolean(value));
+  // The durable failure flag rides the envelope: `message.content[0]` is the
+  // `tool-result` block, and Web and the trajectory view read `isError` there.
+  const message = recordValue(data.message);
+  const block = recordValue(Array.isArray(message?.content) ? message.content[0] : undefined);
+  const nested = [block, recordValue(data.result), recordValue(data.output), recordValue(data.value)].filter((value): value is Record<string, unknown> => Boolean(value));
   const candidates = [data, ...nested];
   return candidates.some((value) => {
     const status = String(value.status ?? value.state ?? "").toLowerCase();

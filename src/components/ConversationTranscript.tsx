@@ -38,7 +38,7 @@ import {
   type DiffSummary,
   type TranscriptItem,
 } from "../app/model";
-import type { MessageStats, TranscriptImage, WorkingIndicatorSettings } from "../app/model";
+import type { DeliverableFileDiff, MessageStats, TranscriptImage, WorkingIndicatorSettings } from "../app/model";
 import { normalizeWorkingIndicator, workingIndicatorEffectClass, workingIndicatorTextAt } from "../app/working-indicator";
 import { t, type UiLocale } from "../app/i18n";
 
@@ -389,6 +389,24 @@ function sameStats(left: MessageStats | undefined, right: MessageStats | undefin
     && left.tokensPerSecond === right.tokensPerSecond;
 }
 
+function sameDeliverableFiles(left: string[] | undefined, right: string[] | undefined) {
+  if (left === right) return true;
+  if (!left || !right || left.length !== right.length) return false;
+  return left.every((path, index) => path === right[index]);
+}
+
+function sameFileDiffs(left: Record<string, DeliverableFileDiff> | undefined, right: Record<string, DeliverableFileDiff> | undefined) {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  const keys = Object.keys(left);
+  if (keys.length !== Object.keys(right).length) return false;
+  return keys.every((key) => {
+    const a = left[key];
+    const b = right[key];
+    return a === b || (b !== undefined && a.added === b.added && a.removed === b.removed);
+  });
+}
+
 function sameDomainCard(left: ToolDomainCard | undefined, right: ToolDomainCard | undefined) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
@@ -455,6 +473,10 @@ function sameItemFields(left: TranscriptItem, right: TranscriptItem) {
     && sameImages(left.images, right.images)
     && sameStats(left.stats, right.stats)
     && sameProgram(left.program, right.program)
+    // 生成文件卡片是增量长出来的：present 与后续写入会往同一条目追文件。
+    // 不比较这两个字段就会让最新一次更新被 memo 吃掉，卡片停在旧内容上。
+    && sameDeliverableFiles(left.files, right.files)
+    && sameFileDiffs(left.fileDiffs, right.fileDiffs)
     && sameDomainCard(left.domainCard, right.domainCard);
 }
 

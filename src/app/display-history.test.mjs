@@ -450,6 +450,112 @@ test("lists files the present tool delivered through its durable event", () => {
   assert.deepEqual(deliverable.files, ["build/report.html", "build/plot.png"]);
 });
 
+test("lists a newly created file from the write call arguments", () => {
+  // Web 的产出词表读调用参数：新建文件没有旧内容，结果元数据里的 diffs 是空的。
+  const history = [
+    entry(1, "step/start", { turn: 1, step: 1 }),
+    entry(2, "tool/call", { turn: 1, step: 1, name: "write", callId: "call-1", arguments: JSON.stringify({ file_path: "notes.txt", content: "hello world" }) }),
+    entry(3, "tool/result", {
+      turn: 1,
+      step: 1,
+      meta: { diffs: [] },
+      message: { source: { callId: "call-1" }, content: [{ type: "tool-result", toolCallId: "call-1", content: [{ type: "text", text: "Created file" }], isError: false }] },
+    }),
+  ];
+
+  const deliverable = transcriptFromHistory(history).find(item => item.kind === "deliverables");
+
+  assert.deepEqual(deliverable.files, ["notes.txt"]);
+  // 新建文件没有可统计的旧内容，因此不写 diff 统计。
+  assert.deepEqual(deliverable.fileDiffs, {});
+});
+
+test("lists an edited file and keeps its applied diff statistics", () => {
+  const history = [
+    entry(1, "step/start", { turn: 1, step: 1 }),
+    entry(2, "tool/call", { turn: 1, step: 1, name: "edit", callId: "call-2", arguments: JSON.stringify({ file_path: "config.txt", old_string: "DEBUG", new_string: "RELEASE" }) }),
+    entry(3, "tool/result", {
+      turn: 1,
+      step: 1,
+      meta: { diffs: [{ path: "config.txt", oldText: "mode=DEBUG", newText: "mode=RELEASE" }] },
+      message: { source: { callId: "call-2" }, content: [{ type: "tool-result", toolCallId: "call-2", content: [{ type: "text", text: "Edited" }], isError: false }] },
+    }),
+  ];
+
+  const deliverable = transcriptFromHistory(history).find(item => item.kind === "deliverables");
+
+  assert.deepEqual(deliverable.files, ["config.txt"]);
+  assert.deepEqual(deliverable.fileDiffs, { "config.txt": { added: 1, removed: 1 } });
+});
+
+test("ignores mutation calls that never settled or settled with an error", () => {
+  const history = [
+    entry(1, "step/start", { turn: 1, step: 1 }),
+    entry(2, "tool/call", { turn: 1, step: 1, name: "write", callId: "call-pending", arguments: JSON.stringify({ file_path: "never.txt", content: "x" }) }),
+    entry(3, "tool/call", { turn: 1, step: 1, name: "write", callId: "call-failed", arguments: JSON.stringify({ file_path: "denied.txt", content: "x" }) }),
+    entry(4, "tool/result", {
+      turn: 1,
+      step: 1,
+      message: { source: { callId: "call-failed" }, content: [{ type: "tool-result", toolCallId: "call-failed", content: [{ type: "text", text: "denied" }], isError: true }] },
+    }),
+  ];
+
+  assert.equal(transcriptFromHistory(history).find(item => item.kind === "deliverables"), undefined);
+});
+
+test("ignores malformed mutation arguments and read-only editor commands", () => {
+  const history = [
+    entry(1, "step/start", { turn: 1, step: 1 }),
+    // write 缺 content / edit 新旧内容相同 / editor 是只读 view：都不算产出。
+    entry(2, "tool/call", { turn: 1, step: 1, name: "write", callId: "call-a", arguments: "{\"file_path\": \"a.txt\"}" }),
+    entry(3, "tool/result", { turn: 1, step: 1, message: { source: { callId: "call-a" }, content: [{ type: "tool-result", toolCallId: "call-a", content: [{ type: "text", text: "ok" }] }] } }),
+    entry(4, "tool/call", { turn: 1, step: 1, name: "edit", callId: "call-b", arguments: JSON.stringify({ file_path: "b.txt", old_string: "same", new_string: "same" }) }),
+    entry(5, "tool/result", { turn: 1, step: 1, message: { source: { callId: "call-b" }, content: [{ type: "tool-result", toolCallId: "call-b", content: [{ type: "text", text: "noop" }] }] } }),
+    entry(6, "tool/call", { turn: 1, step: 1, name: "str_replace_editor", callId: "call-c", arguments: JSON.stringify({ command: "view", path: "c.txt" }) }),
+    entry(7, "tool/result", { turn: 1, step: 1, message: { source: { callId: "call-c" }, content: [{ type: "tool-result", toolCallId: "call-c", content: [{ type: "text", text: "contents" }] }] } }),
+    entry(8, "tool/call", { turn: 1, step: 1, name: "write", callId: "call-d", arguments: "not json" }),
+    entry(9, "tool/result", { turn: 1, step: 1, message: { source: { callId: "call-d" }, content: [{ type: "tool-result", toolCallId: "call-d", content: [{ type: "text", text: "ok" }] }] } }),
+  ];
+
+  assert.equal(transcriptFromHistory(history).find(item => item.kind === "deliverables"), undefined);
+});
+
+test("lists a file the editor created with str_replace_editor", () => {
+  const history = [
+    entry(1, "step/start", { turn: 1, step: 1 }),
+    entry(2, "tool/call", { turn: 1, step: 1, name: "str_replace_editor", callId: "call-e", arguments: JSON.stringify({ command: "create", path: "draft.md", file_text: "# Draft" }) }),
+    entry(3, "tool/result", { turn: 1, step: 1, message: { source: { callId: "call-e" }, content: [{ type: "tool-result", toolCallId: "call-e", content: [{ type: "text", text: "Created" }] }] } }),
+  ];
+
+  const deliverable = transcriptFromHistory(history).find(item => item.kind === "deliverables");
+
+  assert.deepEqual(deliverable.files, ["draft.md"]);
+});
+
+test("does not list files written by PTC sub-dispatches on their own", () => {
+  // Web 的产出 Definition 只认根级 tool/call：Code Dispatch 子调用不独立进入。
+  // PTC 的交付由程序显式调用 present 完成（deliverables/presented）。
+  const history = [
+    entry(1, "step/start", { turn: 1, step: 1 }),
+    entry(2, "tool/call", { turn: 1, step: 1, name: "run_code", callId: "call-1", arguments: JSON.stringify({ code: "await tools.write({ file_path: 'out.md', content: 'hi' })", description: "写文件" }) }),
+    entry(3, "tool/ptc-dispatch-start", {
+      rootCallId: "call-1", parentCallId: "call-1", subCallId: "call-1:ptc:1",
+      name: "write", arguments: { file_path: "out.md", content: "hi" },
+    }),
+    entry(4, "tool/ptc-dispatch", {
+      rootCallId: "call-1", parentCallId: "call-1", subCallId: "call-1:ptc:1",
+      name: "write", arguments: { file_path: "out.md", content: "hi" }, isError: false, content: [{ type: "text", text: "Created" }],
+    }),
+    entry(5, "tool/result", {
+      turn: 1,
+      step: 1,
+      message: { source: { callId: "call-1" }, content: [{ type: "tool-result", toolCallId: "call-1", content: [{ type: "text", text: "done" }] }] },
+    }),
+  ];
+
+  assert.equal(transcriptFromHistory(history).find(item => item.kind === "deliverables"), undefined);
+});
+
 test("shows the v3 system prompt node in the trajectory but not in the transcript", () => {
   const history = [
     entry(1, "step/start", { turn: 1, step: 1 }),
