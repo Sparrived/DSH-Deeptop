@@ -881,6 +881,9 @@
 .git-graph-placeholder {
   display: block;
   pointer-events: none;
+  /* 必须与 .git-graph-row 的左内边距一致：否则占位泳道会比行内泳道左右错开，
+     加载更早历史时看起来就是"线与节点断连"。 */
+  padding-left: 4px;
   -webkit-mask-image: linear-gradient(black, transparent);
   mask-image: linear-gradient(black, transparent);
 }
