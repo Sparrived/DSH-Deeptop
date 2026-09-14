@@ -1769,7 +1769,9 @@ function AppContent() {
   const composerPermissions = permissionSelect ?? newSessionPermissionSelect;
   const defaultModelName = useMemo(() => {
     if (!defaultModelSelection) return t("modelPicker.defaultModel", locale);
-    return hostModels?.groups.find((group) => group.id === defaultModelSelection.provider)?.models.find((model) => model.id === defaultModelSelection.model)?.name ?? defaultModelSelection.model;
+    const provider = hostModels?.groups.find((group) => group.id === defaultModelSelection.provider);
+    const model = provider?.models.find((item) => item.id === defaultModelSelection.model)?.name ?? defaultModelSelection.model;
+    return `${provider?.name ?? defaultModelSelection.provider} / ${model}`;
   }, [defaultModelSelection, hostModels, locale]);
   const pendingModelSelection = draftModelSelection ?? defaultModelSelection;
   const composerModels = !activeSessionId && hostModels && pendingModelSelection
@@ -5707,7 +5709,7 @@ function AppContent() {
             modelMenuRef={modelMenuRef}
              composerRef={composerRef}
             selectedModelValue={selectedModelValue}
-            selectedModelName={selectedModel?.name}
+            selectedModelLabel={selectedModel?.label}
             selectedReasoning={selectedReasoning}
             selectedReasoningEffort={selectedReasoningEffort}
             selectedReasoningLabel={selectedReasoningLabel}

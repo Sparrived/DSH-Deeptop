@@ -12,7 +12,7 @@ type ModelPickerProps = {
   models: DshSessionModels;
   menuRef: RefObject<HTMLDivElement | null>;
   selectedModelValue: string;
-  selectedModelName?: string;
+  selectedModelLabel?: string;
   selectedReasoning?: NonNullable<DshModel["reasoning"]>;
   selectedReasoningEffort?: string;
   selectedReasoningLabel?: string;
@@ -30,7 +30,7 @@ export function ModelPicker({
   models,
   menuRef,
   selectedModelValue,
-  selectedModelName,
+  selectedModelLabel,
   selectedReasoning,
   selectedReasoningEffort,
   selectedReasoningLabel,
@@ -51,10 +51,10 @@ export function ModelPicker({
         aria-label={t("modelPicker.chooseAria", locale)}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
-        title={`${selectedModelName ?? t("modelPicker.chooseModel", locale)}${selectedReasoningLabel ? ` · ${selectedReasoningLabel}` : ""}`}
+        title={`${selectedModelLabel ?? t("modelPicker.chooseModel", locale)}${selectedReasoningLabel ? ` · ${selectedReasoningLabel}` : ""}`}
         onClick={onToggleMenu}
       >
-        <span className="model-picker-label">{selectedModelName ?? t("modelPicker.chooseModel", locale)}</span>
+        <span className="model-picker-label">{selectedModelLabel ?? t("modelPicker.chooseModel", locale)}</span>
         {selectedReasoningLabel && <span className="model-picker-effort">· {selectedReasoningLabel}</span>}
         <span className={`model-picker-chevron${menuOpen ? " open" : ""}`} aria-hidden="true"><ChevronDown /></span>
       </button>
@@ -62,7 +62,7 @@ export function ModelPicker({
         {menuPane === "root" && <>
           <button className="model-menu-cell" type="button" role="menuitem" onClick={() => onSetPane("model")}>
             <span>{t("modelPicker.model", locale)}</span>
-            <span className="model-menu-cell-value">{selectedModelName ?? t("modelPicker.chooseModel", locale)}</span>
+            <span className="model-menu-cell-value">{selectedModelLabel ?? t("modelPicker.chooseModel", locale)}</span>
             <span className="model-menu-arrow" aria-hidden="true"><ChevronRight /></span>
           </button>
           {/* 思考程度直接在一级菜单里滑选，不再进入二级菜单。模型尚未声明档位时

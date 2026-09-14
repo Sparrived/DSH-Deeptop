@@ -35,7 +35,7 @@ interface ComposerShellProps {
   modelMenuRef: RefObject<HTMLDivElement | null>;
   composerRef: RefObject<HTMLTextAreaElement | null>;
   selectedModelValue: string;
-  selectedModelName?: string;
+  selectedModelLabel?: string;
   selectedReasoning?: NonNullable<DshModel["reasoning"]>;
   selectedReasoningEffort?: string;
   selectedReasoningLabel?: string;
@@ -91,7 +91,7 @@ export function ComposerShell({
   modelMenuRef,
   composerRef,
   selectedModelValue,
-  selectedModelName,
+  selectedModelLabel,
   selectedReasoning,
   selectedReasoningEffort,
   selectedReasoningLabel,
@@ -271,7 +271,7 @@ export function ComposerShell({
             models={models}
             menuRef={modelMenuRef}
             selectedModelValue={selectedModelValue}
-            selectedModelName={selectedModelName}
+            selectedModelLabel={selectedModelLabel}
             selectedReasoning={selectedReasoning}
             selectedReasoningEffort={selectedReasoningEffort}
             selectedReasoningLabel={selectedReasoningLabel}
