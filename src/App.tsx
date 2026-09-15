@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { Bot, CheckSquare, ChevronDown, ListTodo, PackageOpen, X } from "lucide-react";
-import { type UnlistenFn } from "@tauri-apps/api/event";
+import { type UnlistenFn } from "./lib/desktop";
 import { StartupSplash } from "./components/StartupSplash";
 import { ConversationTranscript } from "./components/ConversationTranscript";
 import { ConversationHeader } from "./components/ConversationHeader";

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen, type UnlistenFn as TauriUnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import packageInfo from "../../package.json" with { type: "json" };
 import { parseExternalLaunchPayload, type ExternalLaunchRequest } from "./external-launch.ts";
 import type { NativeUpdateDownloadProgress, UpdateChannel } from "../app/update-model";
@@ -840,6 +841,40 @@ export interface DshJobOutput {
 
 export const isTauri = (): boolean =>
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+/**
+ * 由 `listen*` 系列返回的退订函数。
+ *
+ * 这里是 Tauri `UnlistenFn` 的别名，只为让调用方不必直接 import
+ * `@tauri-apps/*`。换掉外壳时只需重新定义这个别名和下方窗口原语，其余界面代码
+ * 不感知具体 IPC 实现。
+ */
+export type UnlistenFn = TauriUnlistenFn;
+
+/** 主窗口的原语操作，供自绘标题栏等界面使用。 */
+export type DesktopWindow = {
+  isMaximized(): Promise<boolean>;
+  toggleMaximize(): Promise<void>;
+  minimize(): Promise<void>;
+  hide(): Promise<void>;
+  startDragging(): Promise<void>;
+  onResized(handler: () => void): Promise<UnlistenFn>;
+  onFocusChanged(handler: (focused: boolean) => void): Promise<UnlistenFn>;
+};
+
+/** 当前窗口；非 Tauri 环境（如纯 Vite 预览）返回 null。 */
+export function currentWindow(): DesktopWindow | null {
+  if (!isTauri()) return null;
+  return {
+    isMaximized: () => getCurrentWindow().isMaximized(),
+    toggleMaximize: () => getCurrentWindow().toggleMaximize(),
+    minimize: () => getCurrentWindow().minimize(),
+    hide: () => getCurrentWindow().hide(),
+    startDragging: () => getCurrentWindow().startDragging(),
+    onResized: (handler) => getCurrentWindow().onResized(handler),
+    onFocusChanged: (handler) => getCurrentWindow().onFocusChanged(({ payload }) => handler(payload)),
+  };
+}
 
 export async function sendSystemNotification(title: string, body: string, sessionId?: string) {
   if (!isTauri()) return;

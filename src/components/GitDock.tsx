@@ -22,7 +22,6 @@ import {
   Undo2,
   X,
 } from "lucide-react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   amendGitCommit,
   applyGitPatch,
@@ -32,6 +31,7 @@ import {
   commitGit,
   createGitBranch,
   createGitTag,
+  currentWindow,
   deleteGitBranch,
   deleteGitTag,
   discardGitPaths,
@@ -668,11 +668,13 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   // 对应 VS Code 把 status 推迟到窗口聚焦、并用 debounce 合并后台变化的做法。
   useEffect(() => {
     if (collapsed || !workspace || !isTauri()) return;
+    const appWindow = currentWindow();
+    if (!appWindow) return;
     const cleanups: Array<() => void> = [];
     let disposed = false;
     let timer = 0;
-    trackAsyncCleanup(cleanups, getCurrentWindow()
-      .onFocusChanged(({ payload: focused }) => {
+    trackAsyncCleanup(cleanups, appWindow
+      .onFocusChanged((focused) => {
         if (disposed || !focused) return;
         window.clearTimeout(timer);
         timer = window.setTimeout(() => {

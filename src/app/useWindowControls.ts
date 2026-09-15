@@ -1,5 +1,5 @@
 import { useEffect, useState, type MouseEvent } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { currentWindow } from "../lib/desktop";
 import { isWindowChromeControl } from "./ui-model";
 import { errorText } from "./settings-model";
 import { trackAsyncCleanup } from "../lib/async-cleanup";
@@ -16,7 +16,8 @@ export function useWindowControls({ desktop, minimizeToTray, onCloseRequested, o
 
   useEffect(() => {
     if (!desktop) return;
-    const appWindow = getCurrentWindow();
+    const appWindow = currentWindow();
+    if (!appWindow) return;
     const cleanups: Array<() => void> = [];
     let disposed = false;
     void appWindow.isMaximized().then((maximized) => {
@@ -36,8 +37,10 @@ export function useWindowControls({ desktop, minimizeToTray, onCloseRequested, o
 
   async function startWindowDrag(event: MouseEvent<HTMLElement>) {
     if (!desktop || event.button !== 0 || isWindowChromeControl(event.target)) return;
+    const appWindow = currentWindow();
+    if (!appWindow) return;
     try {
-      await getCurrentWindow().startDragging();
+      await appWindow.startDragging();
     } catch (error) {
       onError(errorText(error));
     }
@@ -45,8 +48,9 @@ export function useWindowControls({ desktop, minimizeToTray, onCloseRequested, o
 
   async function toggleWindowMaximize() {
     if (!desktop) return;
+    const appWindow = currentWindow();
+    if (!appWindow) return;
     try {
-      const appWindow = getCurrentWindow();
       await appWindow.toggleMaximize();
       setWindowMaximized(await appWindow.isMaximized());
     } catch (error) {
@@ -56,11 +60,13 @@ export function useWindowControls({ desktop, minimizeToTray, onCloseRequested, o
 
   async function minimizeWindow() {
     if (!desktop) return;
+    const appWindow = currentWindow();
+    if (!appWindow) return;
     try {
       if (minimizeToTray) {
-        await getCurrentWindow().hide();
+        await appWindow.hide();
       } else {
-        await getCurrentWindow().minimize();
+        await appWindow.minimize();
       }
     } catch (error) {
       onError(errorText(error));
