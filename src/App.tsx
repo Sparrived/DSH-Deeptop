@@ -37,7 +37,7 @@ import { UtilityDockShelf, UtilityPanelEmptyState, type UtilityDockId } from "./
 import { WindowChrome } from "./components/WindowChrome";
 import { DockSettingsProvider, useDockSettings } from "./app/dock-settings";
 import { buildActiveSessionView } from "./app/active-session-view";
-import { DOCK_RAIL_DEFAULT_WIDTH, DOCK_RAIL_EMPTY_WIDTH, type DockTab } from "./app/dock-layout";
+import { DOCK_RAIL_DEFAULT_WIDTH, DOCK_RAIL_EMPTY_WIDTH, DOCK_RAIL_STRIP_WIDTH, type DockTab } from "./app/dock-layout";
 import { DockRail } from "./components/DockRail";
 import { DockTabBody } from "./components/DockTabBody";
 import { PopupDialog } from "./components/PopupDialog";
@@ -946,8 +946,6 @@ function AppContent() {
     updateSettings: updateDockSettings,
     layout: dockLayout,
     drag: dockDrag,
-    findTabByKey: findDockTabByKey,
-    activateTab: activateDockTab,
     closeTab: closeDockTab,
     openTab: openDockTab,
     resetLayout: resetDockLayout,
@@ -1872,22 +1870,14 @@ function AppContent() {
   });
   // 可停靠右栏：停靠状态由布局树权威决定，浮动卡片只负责未停靠时的位置。
   // 看板/轨迹页不显示右栏，但布局保留，回到对话页即恢复。
-  const dockedPanels: Record<string, DockTab | null> = {
-    "terminal-dock": findDockTabByKey("terminal-dock"),
-    "workspace-files-dock": findDockTabByKey("workspace-files-dock"),
-    "git-dock": findDockTabByKey("git-dock"),
-  };
   /**
-   * 左侧窄栏入口的点击语义：已停靠时把标签带到前台（关闭由右栏标签负责），
-   * 未停靠时沿用原来的展开/收起浮动卡片。
+   * 面板标签离开右栏（点关闭或拖出）后回到浮动卡片：把对应的卡片展开，
+   * 否则面板只剩图标条里一个收起状态的入口，正文看起来凭空消失。
    */
-  const toggleDockPanel = (kind: string, setFloatingOpen: (update: (open: boolean) => boolean) => void) => {
-    const docked = dockedPanels[kind];
-    if (docked) {
-      activateDockTab(docked.id);
-      return;
-    }
-    setFloatingOpen((open) => !open);
+  const undockDockPanel = (tab: DockTab) => {
+    if (tab.kind === "terminal-dock") setTerminalOpen(true);
+    else if (tab.kind === "workspace-files-dock") setFilesOpen(true);
+    else if (tab.kind === "git-dock") setGitOpen(true);
   };
   /**
    * 在右栏按行打开文件。标签按路径去重：重复点击是复用并定位到新的行，
@@ -5438,8 +5428,9 @@ function AppContent() {
         className={`workspace-layout${sidebarCollapsed ? " sidebar-collapsed" : ""}`}
         style={{
           "--sidebar-width": `${sidebarWidth}px`,
-          // 空栏平时不占位，只有在拖拽面板时才展开成可命中的落点条。
-          "--dock-rail-width": `${!conversationPageActive ? 0 : dockLayout.root ? (dockSettings.railWidth ?? DOCK_RAIL_DEFAULT_WIDTH) : (dockDrag ? DOCK_RAIL_EMPTY_WIDTH : 0)}px`,
+          // 图标条常驻右栏左缘，右栏宽度下限就是它；拖拽面板时再展开成更宽的落点条。
+          "--dock-rail-strip-width": `${DOCK_RAIL_STRIP_WIDTH}px`,
+          "--dock-rail-width": `${!conversationPageActive ? 0 : dockLayout.root ? (dockSettings.railWidth ?? DOCK_RAIL_DEFAULT_WIDTH) : (dockDrag ? DOCK_RAIL_STRIP_WIDTH + DOCK_RAIL_EMPTY_WIDTH : DOCK_RAIL_STRIP_WIDTH)}px`,
         } as CSSProperties}
       >
         <SessionSidebar
@@ -5607,31 +5598,6 @@ function AppContent() {
               onOpenPricingSource={openModelsDevPricing}
             />
 
-            <div className="left-dock-shelf" aria-label={t("layout.workspaceToolsAria", locale)}>
-              <TerminalDock
-                locale={locale}
-                workspace={workspace}
-                collapsed={!terminalOpen}
-                onToggle={() => toggleDockPanel("terminal-dock", setTerminalOpen)}
-                onError={setErrorNotice}
-              />
-              <WorkspaceFilesPanel
-                locale={locale}
-                workspace={workspace}
-                collapsed={filesCollapsed}
-                onToggle={() => toggleDockPanel("workspace-files-dock", setFilesOpen)}
-                 onAddPathToComposer={addPathToComposer}
-                onError={setErrorNotice}
-              />
-              <GitDock
-                locale={locale}
-                workspace={workspace}
-                collapsed={!gitOpen}
-                onToggle={() => toggleDockPanel("git-dock", setGitOpen)}
-                onError={setErrorNotice}
-              />
-            </div>
-
           </div>
 
           <InteractionPanel
@@ -5757,9 +5723,40 @@ function AppContent() {
           />
            </section>
 
+        {/* 面板入口：图标条常驻在右栏左缘，展开的卡片仍是浮动卡片（未停靠时才渲染），
+            因此它得留在右栏外层——右栏本身是 overflow:hidden 的圆角卡片。 */}
+        <div
+          className={`left-dock-shelf${conversationPageActive ? "" : " hidden-page"}${dockDrag?.target?.paneId === "" ? " drop-active" : ""}`}
+          aria-label={t("layout.workspaceToolsAria", locale)}
+        >
+          <TerminalDock
+            locale={locale}
+            workspace={workspace}
+            collapsed={!terminalOpen}
+            onToggle={() => setTerminalOpen((open) => !open)}
+            onError={setErrorNotice}
+          />
+          <WorkspaceFilesPanel
+            locale={locale}
+            workspace={workspace}
+            collapsed={filesCollapsed}
+            onToggle={() => setFilesOpen((open) => !open)}
+            onAddPathToComposer={addPathToComposer}
+            onError={setErrorNotice}
+          />
+          <GitDock
+            locale={locale}
+            workspace={workspace}
+            collapsed={!gitOpen}
+            onToggle={() => setGitOpen((open) => !open)}
+            onError={setErrorNotice}
+          />
+        </div>
+
         <DockRail
           locale={locale}
           visible={conversationPageActive}
+          onUndock={undockDockPanel}
           renderTabBody={(tab) => (
             <DockTabBody
               key={tab.id}

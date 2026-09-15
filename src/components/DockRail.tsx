@@ -39,6 +39,8 @@ type DockRailProps = {
    * 因此这里只返回非面板内容（文件预览），其余返回 null。
    */
   renderTabBody?: (tab: DockTab) => ReactNode;
+  /** 面板标签离开右栏（关闭或拖出）时通知外部：面板回到浮动卡片。 */
+  onUndock?: (tab: DockTab) => void;
 };
 
 /** 各标签类型的字形。内容类型是数据（`DockTab.kind`），这里只负责映射。 */
@@ -92,10 +94,13 @@ function tabTitle(tab: DockTab): string {
  * 可停靠右栏。
  *
  * 标题栏是拖拽手柄：在标签组内拖动可以换落点（并入标签组、或在上/下/左/右
- * 开分栏），拖出右栏则取消停靠、面板回到左侧浮动。落点解析与高亮由
+ * 开分栏），拖出右栏则取消停靠、面板回到浮动卡片。落点解析与高亮由
  * `dock-settings` 的拖拽会话统一提供。
+ *
+ * 面板入口（终端/文件/Git 的图标条）由各面板自己的 `DockFrame` 常驻在右栏左缘，
+ * 因此这里只负责标签组正文；空栏时右栏只剩那条图标条。
  */
-export function DockRail({ locale = "zh", visible = true, renderTabBody }: DockRailProps) {
+export function DockRail({ locale = "zh", visible = true, renderTabBody, onUndock }: DockRailProps) {
   const {
     layout,
     drag,
@@ -116,6 +121,16 @@ export function DockRail({ locale = "zh", visible = true, renderTabBody }: DockR
     endDockDrag,
     cancelDockDrag,
   } = useDockSettings();
+  /**
+   * 面板标签离开右栏（关闭按钮或拖出右栏）时先通知外部，让面板回到浮动卡片；
+   * 否则它只会剩一个收起状态的图标，正文看起来凭空消失。
+   */
+  const leaveRail = (tabIds: string[]) => {
+    for (const tabId of tabIds) {
+      const tab = layout.tabs[tabId];
+      if (tab) onUndock?.(tab);
+    }
+  };
   const tabRefCallbacks = useRef(new Map<string, (element: HTMLElement | null) => void>());
   const paneRefCallbacks = useRef(new Map<string, (element: HTMLElement | null) => void>());
   const splitRefs = useRef(new Map<string, HTMLDivElement>());
@@ -183,8 +198,11 @@ export function DockRail({ locale = "zh", visible = true, renderTabBody }: DockR
       const settled = endDockDrag(clientX, clientY);
       const target = settled?.target ?? null;
       if (target) moveTab(tabId, { zone: target.zone, targetPaneId: target.paneId });
-      // 拖出右栏即取消停靠：面板回到左侧浮动卡片。
-      else closeTab(tabId);
+      // 拖出右栏即取消停靠：面板回到浮动卡片。
+      else {
+        leaveRail([tabId]);
+        closeTab(tabId);
+      }
     };
 
     const handleUp = (upEvent: globalThis.PointerEvent) => {
@@ -365,7 +383,10 @@ export function DockRail({ locale = "zh", visible = true, renderTabBody }: DockR
                   type="button"
                   title={tab.detail ? t("dock.railUndockDetailed", locale, { label: tabTitle(tab), detail: tab.detail }) : t("dock.railUndock", locale, { label: tabTitle(tab) })}
                   aria-label={t("dock.railUndock", locale, { label: tabTitle(tab) })}
-                  onClick={() => closeTab(tabId)}
+                  onClick={() => {
+                    leaveRail([tabId]);
+                    closeTab(tabId);
+                  }}
                 >
                   <X aria-hidden="true" />
                 </button>
@@ -379,7 +400,10 @@ export function DockRail({ locale = "zh", visible = true, renderTabBody }: DockR
               type="button"
               title={t("dock.railPaneClose", locale)}
               aria-label={t("dock.railPaneClose", locale)}
-              onClick={() => closePane(pane.id)}
+              onClick={() => {
+                leaveRail(pane.tabIds);
+                closePane(pane.id);
+              }}
             >
               <X aria-hidden="true" />
             </button>
@@ -465,17 +489,9 @@ export function DockRail({ locale = "zh", visible = true, renderTabBody }: DockR
         onPointerDown={beginWidthResize}
         onDoubleClick={() => resetRailWidth()}
       />
-      {empty ? (
-        // 空栏只在拖拽期间被展开成落点条（宽度由 App 决定），因此这里只需
-        // 说明“松手就固定到这里”。
-        <div className={`dock-rail-empty${drag?.target?.paneId === "" ? " drop-active" : ""}`}>
-          <span className="dock-rail-empty-icon" aria-hidden="true"><PanelRight /></span>
-          <strong>{t("dock.railEmptyTitle", locale)}</strong>
-          <p>{t("dock.railEmptyHint", locale)}</p>
-        </div>
-      ) : (
-        <div className="dock-rail-tree">{layout.root && renderNode(layout.root)}</div>
-      )}
+      {/* 空栏只剩左缘那条常驻图标条（由各面板的 DockFrame 渲染），拖拽期间的
+          落点提示改为高亮图标条，右栏里不再放占位文案。 */}
+      {!empty && <div className="dock-rail-tree">{layout.root && renderNode(layout.root)}</div>}
       {drag && <div className="dock-rail-drag-hint">{t(DOCK_ZONE_LABEL_KEYS[drag.target?.zone ?? "center"], locale)}</div>}
     </aside>
   );

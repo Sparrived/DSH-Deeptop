@@ -107,12 +107,13 @@ function moveDockPosition(position: DockPosition, delta: DockPosition, startRect
 /**
  * Dock 卡片。
  *
- * 面板有两种归宿，切换全靠拖拽（没有单独的钉住按钮）：
+ * 面板有两种归宿，切换靠点击图标条或拖拽（没有单独的钉住按钮）：
  *
  * - **浮动**：卡片跟着标题栏拖拽移动，位置按面板记忆（Tauri 持久化）。
  *   把标题栏拖进右栏松手即固定为停靠标签。
  * - **停靠**：正文移进右栏对应标签的宿主元素，标签栏、分栏与关闭都交给
- *   右栏，卡片自身只保留左侧窄栏入口。把标签拖出右栏即取消停靠。
+ *   右栏，卡片自身只保留右栏左缘那条常驻图标条入口——点击图标即停靠。
+ *   把标签拖出右栏即取消停靠，回到浮动卡片。
  *
  * 卡片正文始终渲染进 `bodyRef` 这个 DockFrame 自己创建的正文节点，节点再被
  * 搬到当前宿主里。于是「浮动 ↔ 停靠」只是搬动一个 DOM 节点，正文组件
@@ -371,6 +372,18 @@ export function DockFrame({
     dockSessionRef.current = false;
   };
 
+  /**
+   * 图标条入口的点击语义：桌面下默认把面板停靠进右栏（`openTab` 对已存在的标签
+   * 只做复用并带到前台），窄屏没有右栏，退回展开/收起浮动卡片。
+   */
+  const handleRailToggle = () => {
+    if (!desktopLayout) {
+      onToggle();
+      return;
+    }
+    openTab({ kind: id, title, detail: kicker }, { zone: "center" });
+  };
+
   const handleResetPosition = () => {
     dragStateRef.current = null;
     setDragging(false);
@@ -482,11 +495,11 @@ export function DockFrame({
       <button
         className={joinClasses("dock-frame-rail", railClassName)}
         type="button"
-        onClick={onToggle}
+        onClick={handleRailToggle}
         aria-controls={contentId}
         aria-expanded={docked || !collapsed}
-        aria-label={docked ? t("dock.reveal", locale, { label }) : collapsed ? t("dock.expand", locale, { label }) : t("dock.collapse", locale, { label })}
-        title={docked ? t("dock.dockedToRail", locale, { label }) : collapsed ? t("dock.expand", locale, { label }) : t("dock.collapse", locale, { label })}
+        aria-label={docked ? t("dock.reveal", locale, { label }) : desktopLayout ? t("dock.dockToRail", locale, { label }) : collapsed ? t("dock.expand", locale, { label }) : t("dock.collapse", locale, { label })}
+        title={docked ? t("dock.dockedToRail", locale, { label }) : desktopLayout ? t("dock.dockToRail", locale, { label }) : collapsed ? t("dock.expand", locale, { label }) : t("dock.collapse", locale, { label })}
       >
         <span className={joinClasses("dock-frame-rail-mark", railMarkClassName ?? markClassName)} aria-hidden="true">{icon}</span>
         {railExtra}

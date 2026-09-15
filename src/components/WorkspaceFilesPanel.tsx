@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { ChevronLeft, ChevronRight, FileCode2, FileText, FileType2, Folder, FolderOpen, Image, Plus, RefreshCw } from "lucide-react";
+import { ChevronRight, FileCode2, FileText, FileType2, Folder, FolderOpen, Image, Plus, RefreshCw } from "lucide-react";
 import { createPortal } from "react-dom";
 import {
   createWorkspaceFolder,
@@ -436,14 +436,12 @@ export function WorkspaceFilesPanel({ workspace, collapsed, locale = "zh", onTog
   return (
     <DockFrame
       id="workspace-files-dock"
-      side="left"
       className="workspace-files-panel"
       collapsed={collapsed}
       label={t("files.label", locale)}
       title={t("files.title", locale)}
       kicker={t("files.kicker", locale)}
        icon={<FileText />}
-       toggleGlyph={<ChevronLeft />}
       onToggle={onToggle}
       railClassName="workspace-files-rail"
       railMarkClassName="workspace-files-rail-mark"

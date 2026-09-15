@@ -2,7 +2,6 @@
 /* 轨迹/看板是独立页面：对话专属 chrome（Goal、Dock、交互与输入区）不应泄漏到这里。 */
 .conversation-transcript-stage.page-non-conversation > .current-goal-bar,
 .conversation-transcript-stage.page-non-conversation > .session-repair-banner,
-.conversation-transcript-stage.page-non-conversation > .left-dock-shelf,
 .conversation-transcript-stage.page-non-conversation > .utility-panel-shelf,
 .conversation-transcript-stage.page-non-conversation > .subagent-layer,
 .conversation-panel.page-non-conversation > .interaction-panel,

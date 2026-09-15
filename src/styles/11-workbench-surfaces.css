@@ -121,7 +121,7 @@
 .dock-frame-toggle:hover,
 .dock-frame-reset:hover { border-color: var(--accent); color: var(--accent-deep); }
 
-/* 已停靠的面板：内容由右栏承载，窄栏入口只表示“已固定”。 */
+/* 已停靠的面板：内容由右栏承载，图标条入口只表示“已固定”。 */
 .dock-frame.docked-to-rail .dock-frame-rail { border-color: var(--accent); color: var(--accent-deep); }
 .dock-frame.docked-to-rail .dock-frame-rail-mark { border-color: var(--accent); }
 

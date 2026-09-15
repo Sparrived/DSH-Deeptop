@@ -10,7 +10,12 @@
  *   │                   ├─ .dock-rail-tabbar  标签栏（拖拽手柄 + 关闭）
  *   │                   └─ .dock-rail-pane-body
  *   │                        └─ .dock-rail-tab-host  单个标签的正文宿主
- *   └─ .dock-rail-empty          空栏提示，同时也是第一个面板的落点
+ *   └─ 空栏时右栏内什么都不渲染，宽度只留左缘那条常驻图标条
+ *
+ * 面板入口是各面板自己 `DockFrame` 的图标条，由 App 渲染成 `.dock-rail` 的兄弟
+ * 节点 `.left-dock-shelf`（样式见 terminal-dock.css），绝对定位压在右栏左缘：
+ * 图标条必须常驻，而右栏是 overflow:hidden 的圆角卡片，未停靠的浮动卡片要能越过
+ * 右栏左缘落到对话区上，所以这条竖栏不能放进 .dock-rail 内部。
  *
  * 面板类标签的正文由 DockFrame 把自己的正文节点挂进 .dock-rail-tab-host，
  * 其余内容类型由 DockTabBody 的注册表按 kind 渲染在同一个宿主里。
@@ -34,15 +39,20 @@
   border-left: 1px solid transparent;
 }
 
-.dock-rail.has-content { border-left-color: var(--chrome-line); }
+.dock-rail.has-content {
+  border-left-color: var(--chrome-line);
+  /* 正文给左缘那条常驻图标条让位：图标条宽度 + 右栏自身的内边距。 */
+  padding-left: calc(var(--dock-rail-strip-width, 64px) + 16px);
+}
 
 @media (max-width: 760px) {
   .dock-rail { display: none; }
 }
 
 /* 非会话页（看板/轨迹）不显示右栏，但布局与正文宿主保留，
-   停靠面板的内容因此不会被卸载。 */
-.dock-rail.hidden-page {
+   停靠面板的内容因此不会被卸载；图标条是右栏的兄弟节点，同样只隐藏不卸载。 */
+.dock-rail.hidden-page,
+.left-dock-shelf.hidden-page {
   visibility: hidden;
   pointer-events: none;
 }
@@ -88,31 +98,6 @@ body.dock-tab-dragging,
 body.dock-tab-dragging * {
   cursor: grabbing !important;
   user-select: none !important;
-}
-
-/* ── 空栏 ───────────────────────────────────────────────────────────────── */
-
-.dock-rail-empty {
-  display: flex;
-  flex: 1 1 auto;
-  min-width: 0;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 10px 8px;
-  color: var(--rail-muted);
-  text-align: center;
-}
-
-.dock-rail-empty-icon { display: grid; place-items: center; font-size: 20px; }
-.dock-rail-empty strong { font-size: 12px; letter-spacing: 0.02em; }
-.dock-rail-empty p { margin: 0; font-size: 9px; line-height: 1.5; }
-
-.dock-rail-empty.drop-active {
-  outline: 1px dashed var(--accent);
-  outline-offset: -4px;
-  color: var(--accent-deep);
 }
 
 /* ── 布局树 ─────────────────────────────────────────────────────────────── */

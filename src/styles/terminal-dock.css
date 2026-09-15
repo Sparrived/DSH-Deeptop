@@ -1,16 +1,28 @@
-/* 左侧工作区终端 dock；独立文件避免影响其他面板的层叠顺序。 */
+/* 工作区面板 dock（终端/文件/Git）；独立文件避免影响其他面板的层叠顺序。 */
 .left-dock-shelf {
   position: absolute;
-  /* 与上方会话标题栏保持一点间距，避免第一个 dock 贴死标题栏下沿（与窄屏布局一致）。 */
-  top: 10px;
-  bottom: 0;
-  left: var(--surface-scrollbar-gap, 16px);
+  /* 面板入口常驻在右栏左缘那一条竖栏里：right = 右栏宽度 − 图标条宽度，与
+     15-final-overrides 的网格模板同一表达式（拖拽预览宽度优先）。最左 8px 让给
+     右栏的宽度拖拽手柄，图标条本身再往右排。 */
+  top: 28px;
+  bottom: 24px;
+  right: calc(min(var(--dock-rail-drag-width, var(--dock-rail-width, var(--dock-rail-strip-width, 64px))), 45%) - var(--dock-rail-strip-width, 64px));
+  left: auto;
   z-index: 23;
+  width: var(--dock-rail-strip-width, 64px);
+  padding-left: 8px;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--right-surface-gap, 12px);
   pointer-events: none;
+}
+
+/* 右栏空着时整条竖栏就是落点，给一次拖拽反馈。 */
+.left-dock-shelf.drop-active {
+  outline: 1px dashed var(--accent);
+  outline-offset: -4px;
+  border-radius: var(--radius-panel);
 }
 
 .left-dock-shelf > .dock-frame,
@@ -22,12 +34,6 @@
   left: auto;
   flex: 0 0 auto;
   pointer-events: auto;
-}
-
-.left-dock-shelf > .dock-frame .dock-frame-card,
-.left-dock-shelf > .workspace-files-panel .workspace-files-card {
-  right: auto;
-  left: calc(100% + var(--right-surface-gap, 12px));
 }
 
 .terminal-panel {
@@ -254,31 +260,17 @@
   opacity: .5;
 }
 
-/* Desktop expanded cards use the transcript stage as their containing block. The
-   stage ends above the composer, so the terminal can consume that exact height
-   instead of extending underneath the composer and hiding its last rows. */
-@media (min-width: 761px) {
-  .left-dock-shelf > .terminal-panel {
-    position: static;
-  }
-
-  .left-dock-shelf > .terminal-panel .terminal-panel-card {
-    top: 0;
-    right: auto;
-    bottom: 10px;
-    left: calc(var(--dock-collapsed-width, 44px) + var(--right-surface-gap, 12px));
-    height: auto;
-    max-height: none;
-  }
-}
-
 @media (max-width: 760px) {
+  /* 窄屏没有右栏：图标条退回对话区左上角的固定入口，展开的卡片在流内铺开。 */
   .left-dock-shelf {
     position: fixed;
     top: calc(var(--window-bar-height) + var(--conversation-header-height) + 10px);
     right: auto;
     bottom: auto;
     left: 8px;
+    width: auto;
+    padding-left: 0;
+    align-items: flex-start;
     gap: 8px;
   }
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, Plus, RotateCw, TerminalSquare, X } from "lucide-react";
+import { Plus, RotateCw, TerminalSquare, X } from "lucide-react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { errorText } from "../app/model";
@@ -383,7 +383,6 @@ export function TerminalDock({ workspace, collapsed, locale = "zh", onToggle, on
   return (
     <DockFrame
       id="terminal-dock"
-      side="left"
       className="terminal-panel"
       collapsed={collapsed}
       keepBodyMounted
@@ -391,7 +390,6 @@ export function TerminalDock({ workspace, collapsed, locale = "zh", onToggle, on
       title={t("terminal.title", locale)}
       kicker={t("terminal.kicker", locale)}
        icon={<TerminalSquare />}
-       toggleGlyph={<ChevronLeft />}
       onToggle={onToggle}
       railClassName="terminal-panel-rail"
       railMarkClassName="terminal-panel-rail-mark"

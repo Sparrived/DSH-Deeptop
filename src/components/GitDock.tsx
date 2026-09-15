@@ -6,7 +6,6 @@ import {
   ArrowUpFromLine,
   Check,
   Cherry,
-  ChevronLeft,
   CloudDownload,
   Copy,
   GitBranch,
@@ -1266,7 +1265,6 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
   return (
     <DockFrame
       id="git-dock"
-      side="left"
       className="git-dock-panel"
       collapsed={collapsed}
       label={GIT_RAIL_LABEL}
@@ -1274,7 +1272,6 @@ export function GitDock({ workspace, collapsed, onToggle, onError, locale = "zh"
       title="Git"
       kicker={t("git.kicker", locale)}
        icon={<GitBranch />}
-       toggleGlyph={<ChevronLeft />}
       onToggle={onToggle}
       railClassName="git-dock-rail"
       railMarkClassName="git-dock-rail-mark"
