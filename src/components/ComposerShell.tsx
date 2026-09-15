@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
-import { Check, ChevronDown, Paperclip, Send, Square, X } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Paperclip, Send, Square, X } from "lucide-react";
 import { shortcutMatches, type SendShortcut } from "../app/keyboard-shortcut";
 import { resolveSubmitMode } from "../app/submit-mode";
 import { ComposerCandidates } from "./ComposerCandidates";
@@ -128,18 +128,25 @@ export function ComposerShell({
   const modeMenuRef = useRef<HTMLDivElement | null>(null);
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
 
-  // The picker records the preference; this is what the gesture actually
-  // delivers, resolved by the same rule the submission itself uses. The button
-  // only claims a Queue/Steer delivery when a plain message would really be
-  // delivered: a running turn, a deliverable draft, and no `/` command line.
+  // The upward picker records the preference; this is what the gesture actually
+  // delivers, resolved by the same rule the submission itself uses. While a turn
+  // is running the send button carries the resolved delivery as its visible
+  // state, except on a `/` command line: that gesture executes a command
+  // instead of queueing or inserting a message.
   const submitMode = resolveSubmitMode(promptMode, activeRunning);
-  const deliverableDraft = composer.trim().length > 0 || attachments.length > 0;
-  const sendLabel = activeRunning && deliverableDraft && !composer.trimStart().startsWith("/")
+  const showSendMode = activeRunning && !composer.trimStart().startsWith("/");
+  const sendLabel = showSendMode
     ? (submitMode === "steer" ? t("composer.steerLabel", locale) : t("composer.queueLabel", locale))
     : t("composer.send", locale);
 
   useEffect(() => {
     if (!modeMenuOpen) return;
+    // The picker only exists while a running turn can be queued or inserted
+    // into; the preference survives the turn, an open menu must not.
+    if (!showSendMode) {
+      setModeMenuOpen(false);
+      return;
+    }
     const handlePointerDown = (event: globalThis.PointerEvent) => {
       if (event.target instanceof Node && modeMenuRef.current?.contains(event.target)) return;
       setModeMenuOpen(false);
@@ -153,7 +160,7 @@ export function ComposerShell({
       document.removeEventListener("pointerdown", handlePointerDown);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [modeMenuOpen]);
+  }, [modeMenuOpen, showSendMode]);
 
   function handleDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
@@ -232,39 +239,6 @@ export function ComposerShell({
         <div className="composer-left">
           <button className="attachment-button" type="button" onClick={() => attachmentInputRef.current?.click()} title={t("composer.attach", locale)}><Paperclip aria-hidden="true" /> {t("composer.attachLabel", locale)}{attachments.length > 0 ? " " + attachments.length : ""}</button>
           {permissions && <PermissionPicker permissions={permissions} onSetPermission={onSetPermission} showLabel locale={locale} />}
-          <div className="mode-picker" ref={modeMenuRef}>
-            <button
-              className="mode-picker-trigger"
-              type="button"
-              aria-label={t("composer.pickSendModeAria", locale)}
-              aria-haspopup="menu"
-              aria-expanded={modeMenuOpen}
-              title={promptMode === "queue" ? t("composer.queueTitle", locale) : t("composer.steerTitle", locale)}
-              onClick={() => setModeMenuOpen((open) => !open)}
-            >
-              <span>{promptMode === "queue" ? t("composer.queueLabel", locale) : t("composer.steerLabel", locale)}</span>
-              <span className="mode-picker-chevron" aria-hidden="true"><ChevronDown /></span>
-            </button>
-            {modeMenuOpen && <div className="mode-menu" role="menu" aria-label={t("composer.modeMenuAria", locale)}>
-              {(["queue", "steer"] as PromptMode[]).map((mode) => {
-                const selected = promptMode === mode;
-                return <button
-                  className={`mode-menu-option${selected ? " selected" : ""}`}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={selected}
-                  key={mode}
-                  onClick={() => {
-                    onSetPromptMode(mode);
-                    setModeMenuOpen(false);
-                  }}
-                >
-                  <span className="mode-menu-option-label">{mode === "queue" ? t("composer.queueLabel", locale) : t("composer.steerLabel", locale)}</span>
-                  <span className="mode-menu-check" aria-hidden="true">{selected && <Check />}</span>
-                </button>;
-              })}
-            </div>}
-          </div>
         </div>
         <div className="composer-right">
           {models ? <ModelPicker
@@ -288,16 +262,51 @@ export function ComposerShell({
               <span className="model-picker-chevron" aria-hidden="true"><ChevronDown /></span>
             </button>
           </div>}
-          <button
-            className="send-button"
-            type="button"
-            onClick={onAction}
-            disabled={(!composer.trim() && attachments.length === 0) || loading || !runtimeAvailable}
-            aria-label={sendLabel}
-            title={`${sendLabel}（${sendShortcut}）`}
-          >
-            <Send aria-hidden="true" />
-          </button>
+          <div className={"send-group" + (showSendMode ? " send-group-mode" : "")}>
+            <button
+              className="send-button"
+              type="button"
+              onClick={onAction}
+              disabled={(!composer.trim() && attachments.length === 0) || loading || !runtimeAvailable}
+              aria-label={sendLabel}
+              title={`${sendLabel}（${sendShortcut}）`}
+            >
+              <Send aria-hidden="true" />
+              {showSendMode && <span className="send-button-mode-label">{sendLabel}</span>}
+            </button>
+            {showSendMode && <div className="mode-picker" ref={modeMenuRef}>
+              <button
+                className="mode-picker-trigger"
+                type="button"
+                aria-label={t("composer.pickSendModeAria", locale)}
+                aria-haspopup="menu"
+                aria-expanded={modeMenuOpen}
+                title={promptMode === "queue" ? t("composer.queueTitle", locale) : t("composer.steerTitle", locale)}
+                onClick={() => setModeMenuOpen((open) => !open)}
+              >
+                <ChevronUp aria-hidden="true" />
+              </button>
+              {modeMenuOpen && <div className="mode-menu" role="menu" aria-label={t("composer.modeMenuAria", locale)}>
+                {(["queue", "steer"] as PromptMode[]).map((mode) => {
+                  const selected = promptMode === mode;
+                  return <button
+                    className={`mode-menu-option${selected ? " selected" : ""}`}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={selected}
+                    key={mode}
+                    onClick={() => {
+                      onSetPromptMode(mode);
+                      setModeMenuOpen(false);
+                    }}
+                  >
+                    <span className="mode-menu-option-label">{mode === "queue" ? t("composer.queueLabel", locale) : t("composer.steerLabel", locale)}</span>
+                    <span className="mode-menu-check" aria-hidden="true">{selected && <Check />}</span>
+                  </button>;
+                })}
+              </div>}
+            </div>}
+          </div>
           {activeRunning && <button
             className="stop-button"
             type="button"

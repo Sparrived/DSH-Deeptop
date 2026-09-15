@@ -639,7 +639,7 @@
   .settings-navigation button small { display: none; }
   .composer-left { gap: 4px; }
   .attachment-button { padding: 0 7px; font-size: 12px; }
-  .mode-picker-trigger { width: 64px; min-width: 64px; padding: 0 7px; font-size: 12px; }
+  .mode-picker-trigger { width: 20px; min-width: 20px; padding: 0; }
   .model-picker,
   .model-picker-trigger { width: 136px; max-width: 136px; }
   .composer-stats { align-items: center; }

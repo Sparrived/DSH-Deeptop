@@ -48,7 +48,7 @@
 ### P1：输入和运行交互
 
 - [x] `/` 命令菜单、通用命令目录、Skill 快捷候选、`@` Subagent 候选和键盘导航：官方 `commands/list`、`commands/execute` 已接入运行台和输入候选。
-- [x] 队列：排队、Steer、编辑、删除和队列 dock 已完成。
+- [x] 队列：排队、Steer、编辑、删除和队列 dock 已完成（投递方式由运行中发送按钮右侧的上拉菜单选择，待处理消息按排队/插入分色标注）。
 - [x] Plan 模式、`/plan` 和运行台状态切换已接入；输入区 Plan chip（固定 Plan 标签 + 退出）与结构化 Plan Review（确认执行 / 拒绝 / 去聊天里说三动作决策卡，答案逐字回传官方选项 label）已完成。
 - [x] 用户问题：单选/多选、自定义文本、推荐标记和 Markdown detail 已完成；Plan Review intent 复用同一 question RPC 并以独立决策卡呈现。
 - [x] 当前会话 Permission preset、权限投影、`/permission` 与危险权限保留确认已接入，新会话默认权限（模型/权限/工作目录/Preset）也已具备；默认权限下拉由官方 permission 命名空间 Schema 枚举驱动（缺失回退本地三档），权限审计（approval/asked → decided）在轨迹中呈现逐工具审批状态。

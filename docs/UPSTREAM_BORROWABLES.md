@@ -44,7 +44,7 @@ Deeptop 已对齐：
 
 Deeptop 已对齐的行为：`src/app/submit-mode.ts` 提供同一判定的纯函数，`src/App.tsx` 用它决定 `session.prompt` 的 `mode`，`src/components/ComposerShell.tsx` 用它决定发送按钮的文案，因此空闲会话不会再以 `steer` 投递——`agent-loop/src/agent.ts:141` 的 `steer` 走 `send(input, 'next-step', true)`，空闲时不会报错，但会把消息归为 step 级插入而非一次正常 user 轮次。
 
-上游区分偏好与手势：模式选择器（`ComposerShell.tsx` 的 `mode-picker`）表示**偏好**，发送按钮的 title 与 `aria-label` 表示**本次点击的实际行为**，仅在会话运行中、草稿可投递、且不是 `/` 命令行时才显示 Queue/Steer，其余情况保持普通发送文案。
+上游区分偏好与手势：模式选择器表示**偏好**，发送按钮的 title 与 `aria-label` 表示**本次点击的实际行为**。Deeptop 把这个选择收到发送按钮右侧的上拉菜单里（`ComposerShell.tsx` 的 `mode-picker`）：只有会话运行中且草稿不是 `/` 命令行时，按钮才在图标旁显示本轮投递方式（排队/插入），箭头触发键挂在按钮右侧、菜单向上展开，空闲会话不渲染这一组，只留普通发送按钮。同一投递方式也标注在待处理消息上（`QueueDock.tsx` 按 `placement` 显示「排队」或「插入」徽标），因此队列里的消息不用点开就能看出是排队还是插入。
 
 ### 4. 统计改为图标胶囊 `[x]`
 

@@ -103,6 +103,13 @@
   place-items: center;
 }
 
+/* 运行中的发送按钮左侧是发送图标、右侧是当前投递方式文案，因此仍是横向
+   排列；上面的居中规则针对的是只有图标的按钮。 */
+.send-group-mode .send-button {
+  display: inline-flex;
+  align-items: center;
+}
+
 .attachment-button {
   display: inline-flex;
   align-items: center;

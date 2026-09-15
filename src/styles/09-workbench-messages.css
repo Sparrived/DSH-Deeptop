@@ -1608,6 +1608,25 @@
   white-space: nowrap;
 }
 
+/* 待处理消息的模式徽标：排队与插队用不同颜色区分。选择器与上面的
+   `.queue-dock-item > span` 同权重并排在后面，才能覆盖它的省略号裁剪。 */
+span.queue-dock-item-mode {
+  flex: 0 0 auto;
+  min-width: 34px;
+  padding: 1px 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  color: var(--ink-muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+span.queue-dock-item-mode.steering {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+}
+
 .queue-dock-item input {
   min-width: 0;
   flex: 1;

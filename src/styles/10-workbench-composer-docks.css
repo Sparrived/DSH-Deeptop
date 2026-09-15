@@ -1,52 +1,53 @@
 
+/* 发送按钮右侧的上拉选择：按钮显示本次投递方式（排队/插入），箭头在同组的
+   窄触发键上，菜单向上展开。空闲会话没有可投递的回合，整组只留发送按钮。 */
+.send-group {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: stretch;
+}
+
+.send-group-mode .send-button {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
 .mode-picker {
   position: relative;
   flex: 0 0 auto;
+  display: flex;
 }
 
 .mode-picker-trigger {
-  width: 64px;
-  min-width: 64px;
+  width: 22px;
+  min-width: 22px;
   min-height: 34px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  padding: 0 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--ink-muted);
-  font-size: 12px;
-  text-align: left;
-  white-space: nowrap;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--accent);
+  border-left-color: color-mix(in srgb, var(--on-accent) 34%, transparent);
+  border-top-right-radius: var(--radius-control);
+  border-bottom-right-radius: var(--radius-control);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 13px;
 }
 
 .mode-picker-trigger:hover,
 .mode-picker-trigger[aria-expanded="true"] {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent-deep);
+  background: var(--accent-deep);
 }
 
-.mode-picker-chevron {
-  color: var(--ink-faint);
-  font-size: 12px;
-  line-height: 1;
-  transition: transform 120ms ease, color 120ms ease;
-}
+.mode-picker-trigger svg { width: 13px; height: 13px; }
 
-.mode-picker-trigger[aria-expanded="true"] .mode-picker-chevron {
-  color: var(--accent-deep);
-  transform: rotate(180deg);
-}
-
+/* 菜单挂在发送组正上方、右对齐，因此不会盖住输入框里的草稿。 */
 .mode-menu {
   position: absolute;
-  left: calc(100% + 6px);
-  bottom: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
   z-index: 70;
-  width: min(112px, calc(100vw - 24px));
+  width: min(148px, calc(100vw - 24px));
   display: grid;
   gap: 2px;
   padding: 4px;
@@ -99,6 +100,22 @@
   font-size: 19px;
   font-weight: 700;
   line-height: 1;
+}
+
+/* 运行中的发送按钮同时承担状态显示，按文案撑宽。 */
+.send-group-mode .send-button {
+  width: auto;
+  min-width: 34px;
+  padding: 0 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.send-button-mode-label {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .send-button:hover:not(:disabled) { background: var(--accent-deep); }

@@ -45,6 +45,9 @@ export function QueueDock({
               </>
             ) : (
               <>
+                <span className={`queue-dock-item-mode ${item.placement}`}>
+                  {item.placement === "steering" ? t("composer.steerLabel", locale) : t("composer.queueLabel", locale)}
+                </span>
                 <span>{textFromContent(item.message.content, locale) || t("queue.unnamed", locale)}</span>
                 <div className="queue-dock-item-actions">
                   <button onClick={() => onBeginEdit(item)} title={t("queue.edit", locale)}><Pencil aria-hidden="true" /></button>
