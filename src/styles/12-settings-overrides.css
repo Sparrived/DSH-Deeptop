@@ -1461,3 +1461,40 @@
   .subagent-routing-actions { flex-wrap: wrap; }
   .subagent-routing-actions small { flex-basis: 100%; margin-right: 0; }
 }
+
+/* ── 全局提示词注入（设置 → 通用） ───────────────────────────── */
+
+.prompt-injection-field { display: grid; gap: 6px; margin-top: 14px; }
+.prompt-injection-field > span { color: var(--ink-muted); font-size: 12px; font-weight: 600; }
+.prompt-injection-field small { color: var(--ink-faint); font-size: 11px; }
+
+.prompt-injection-field textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.prompt-injection-field textarea:focus { outline: 0; border-color: var(--accent); }
+
+.prompt-injection-actions { display: flex; align-items: center; gap: 10px; margin-top: 14px; justify-content: flex-end; }
+.prompt-injection-actions button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.prompt-injection-actions button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-deep); }
+.prompt-injection-actions button:disabled { cursor: not-allowed; opacity: .5; }
+.prompt-injection-actions button.confirm { border-color: transparent; background: var(--accent); color: #fff; }
+.prompt-injection-actions button.confirm:hover:not(:disabled) { background: var(--accent-deep); color: #fff; }

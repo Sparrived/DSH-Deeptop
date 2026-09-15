@@ -5,6 +5,7 @@ import type { DshHostModelCatalog, ModelSelection } from "../app/model";
 import type { DshPermissionSelect } from "../lib/desktop";
 import { isSchemaEnvelope } from "../app/schema-model";
 import { hasTranslation, t, type UiLocale } from "../app/i18n";
+import { PromptInjectionPanel } from "./PromptInjectionPanel";
 
 function modelKey(selection: ModelSelection | null) {
   return selection ? `${selection.provider}\u0000${selection.model}` : "";
@@ -55,6 +56,12 @@ type SettingsGeneralPanelProps = {
   onAddWorkspace: () => void | Promise<void>;
   onResetSidebar: () => void;
   onOpenNamespace: (namespace: DshSettingsNamespace) => void;
+  /** 全局提示词注入：文本由 Deeptop 命名空间承载并注入每个 Session 的 system prompt。 */
+  promptInjection: {
+    current: string;
+    saving: boolean;
+    onSave: (next: string) => void | Promise<void>;
+  };
 };
 
 export function SettingsGeneralPanel({
@@ -88,6 +95,7 @@ export function SettingsGeneralPanel({
   onAddWorkspace,
   onResetSidebar,
   onOpenNamespace,
+  promptInjection,
 }: SettingsGeneralPanelProps) {
   const modelOptions = hostModels?.groups.flatMap((group) => group.models.map((model) => ({
     value: `${group.id}\u0000${model.id}`,
@@ -123,6 +131,14 @@ export function SettingsGeneralPanel({
           <label className="settings-preference-row"><span><strong>{t("settings.language", locale)}</strong><small>{t("settings.language.hint", locale)}</small></span><select value={locale} onChange={(event) => onLocaleChange(event.target.value as UiLocale)}><option value="zh">中文</option><option value="en">English</option></select></label>
         </div>
       </div>
+
+      <PromptInjectionPanel
+        current={promptInjection.current}
+        settings={settings}
+        saving={promptInjection.saving}
+        locale={locale}
+        onSave={promptInjection.onSave}
+      />
 
       <div className="settings-block">
         <div className="settings-block-heading"><div><h3>{t("settings.session", locale)}</h3><p>{t("settings.session.hint", locale)}</p></div></div>

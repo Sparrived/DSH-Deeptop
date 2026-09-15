@@ -44,6 +44,7 @@ import { PopupDialog } from "./components/PopupDialog";
 import { PluginInstallDialog, type PluginInstallDraft } from "./components/PluginInstallDialog";
 import { useProviderSettings } from "./app/useProviderSettings";
 import { readSubagentRouting, subagentRoutingOps, SUBAGENT_MODEL_SELECTION_NS, SUBAGENT_ROUTING_NS, type SubagentRoutingSave } from "./app/subagent-routing-model";
+import { PROMPT_INJECTION_NS, promptInjectionOps, readPromptInjection } from "./app/prompt-injection-model";
 import { useToolSettings } from "./app/useToolSettings";
 import { useWindowControls } from "./app/useWindowControls";
 import { normalizeWindowBehavior } from "./app/window-behavior";
@@ -1951,6 +1952,10 @@ function AppContent() {
     settings?.namespaces.find((namespace) => namespace.ns === SUBAGENT_MODEL_SELECTION_NS),
     settings?.namespaces.find((namespace) => namespace.ns === SUBAGENT_ROUTING_NS),
   ), [settings]);
+  const promptInjectionCurrent = useMemo(
+    () => readPromptInjection(settings?.namespaces.find((namespace) => namespace.ns === PROMPT_INJECTION_NS)),
+    [settings],
+  );
   const visiblePlugins = useMemo(() => {
     const query = pluginSearch.trim().toLocaleLowerCase();
     return (pluginInventory ?? []).filter((plugin) => plugin.compatibility?.supported !== false)
@@ -2616,6 +2621,27 @@ function AppContent() {
       }
       await refreshSettings();
       setNotice(t("subagentRouting.saved", locale));
+    } catch (error) {
+      setErrorNotice(errorText(error, locale));
+    } finally {
+      setSettingsSaving(false);
+    }
+  }
+
+  /** 保存全局提示词注入：文本写入 Deeptop 命名空间，由 Host 插件注入 system prompt。 */
+  async function savePromptInjection(next: string) {
+    const namespace = settings?.namespaces.find((item) => item.ns === PROMPT_INJECTION_NS);
+    if (!namespace) {
+      setErrorNotice(t("promptInjection.unavailable", locale));
+      return;
+    }
+    const ops = promptInjectionOps(readPromptInjection(namespace), next);
+    if (ops.length === 0) return;
+    setSettingsSaving(true);
+    try {
+      await desktopRequest("settings.mutate", { ns: PROMPT_INJECTION_NS, ops, expectedRevision: namespace.revision });
+      await refreshSettings();
+      setNotice(t("promptInjection.saved", locale));
     } catch (error) {
       setErrorNotice(errorText(error, locale));
     } finally {
@@ -5932,6 +5958,7 @@ function AppContent() {
                      windowBehaviorUpdating={windowBehaviorUpdating}
                      onSetContextMenuEnabled={setContextMenuEnabled}
                      onUpdateWindowBehavior={updateWindowBehavior}
+                     promptInjection={{ current: promptInjectionCurrent, saving: settingsSaving, onSave: savePromptInjection }}
                     onOpenDocument={() => desktopRequest("settings.openDocument").then(() => setNotice(t("notice.configOpened", locale))).catch((error) => setErrorNotice(errorText(error, locale)))}
                     onSetDefaultPreset={setDefaultPreset}
                     onSetDefaultModel={setDefaultModel}
