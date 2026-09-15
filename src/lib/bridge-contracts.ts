@@ -601,7 +601,7 @@ export const remoteContracts = {
     namespace: "commands",
     method: "execute",
     requires: "commands",
-    args: {} as { agentId: string; line: string; images: unknown[] },
+    args: {} as { agentId: string; line: string; submittedAttachments: unknown[] },
     value: {} as DshCommandExecution | undefined,
   },
 } as const satisfies Record<string, DshRemoteInvokeContract>;

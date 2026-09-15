@@ -430,10 +430,10 @@ const cliEntry = path.join(sourceRoot, "apps", "cli", "lib", "bin.js");
 // Host artifacts are rebuilt unconditionally: tsc emits lib/types and tsdown
 // emits the executable lib/*.js the runtime ships (regenerating the
 // typert.host.js wire descriptors from the same sources). A stale Host bundle
-// would desynchronize from those descriptors — commands/execute gained an
-// `images` parameter while its old lib/index.js kept the 3-argument shape,
-// silently shifting the AbortSignal argument and failing every /goal call with
-// "signal.addEventListener is not a function".
+// would desynchronize from those descriptors — commands/execute gained a
+// `submittedAttachments` parameter while its old lib/index.js kept the
+// 3-argument shape, silently shifting the AbortSignal argument and failing
+// every /goal call with "signal.addEventListener is not a function".
 // Match the upstream Host build's heap requirement for this aggregate.
 run(process.execPath, [
   "--max-old-space-size=4096",

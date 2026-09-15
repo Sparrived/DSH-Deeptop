@@ -3938,7 +3938,7 @@ function AppContent() {
     const execution = await desktopRemoteInvoke("commands/execute", {
       agentId: sessionId,
       line,
-      images: [],
+      submittedAttachments: [],
     });
     if (!execution) {
       setErrorNotice(t("notice.unknownCommand", locale, { line: line }));

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   bridgeContracts,
@@ -53,6 +54,17 @@ test("remote contracts keep the official namespace/method names", () => {
   assert.equal(remoteContracts["commands/execute"].method, "execute");
   assert.equal(capabilityRequiredBy("reference.files"), "references");
   assert.equal(capabilityRequiredBy("session.exportZip"), "sessionExport");
+});
+
+// Typert admits arguments by the descriptor's exact wire fields, so a renamed
+// Remote parameter must be mirrored at the call site or every invocation fails
+// with `gateway/arguments-invalid` before the command handler runs.
+test("the commands/execute call site sends the vendored Remote wire fields", async () => {
+  const app = await readFile(new URL("../App.tsx", import.meta.url), "utf8");
+  const call = /desktopRemoteInvoke\("commands\/execute",\s*\{([^}]*)\}/.exec(app)?.[1];
+  assert.ok(call, "commands/execute call site not found");
+  const fields = [...call.matchAll(/(?:^|,)\s*(\w+)\s*(?=[,:])/gu)].map((match) => match[1]).sort();
+  assert.deepEqual(fields, ["agentId", "line", "submittedAttachments"]);
 });
 
 test("error code helpers classify only the expected failures", () => {
