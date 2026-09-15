@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   DOCK_RAIL_MAX_WIDTH,
   DOCK_RAIL_MIN_WIDTH,
+  DOCK_RAIL_STRIP_WIDTH,
   activateDockTab,
   clampDockRailWidth,
   closeDockPane,
@@ -274,6 +275,12 @@ test("clamps the rail width into the allowed range", () => {
   assert.equal(clampDockRailWidth(99_999), DOCK_RAIL_MAX_WIDTH);
   assert.equal(clampDockRailWidth("420"), null);
   assert.equal(clampDockRailWidth(Number.NaN), null);
+});
+
+test("keeps the resident icon strip inside the narrowest rail", () => {
+  // 图标条常驻右栏左缘，右栏收到最小宽度也必须容得下它，否则入口会被裁掉。
+  assert.ok(DOCK_RAIL_STRIP_WIDTH > 0);
+  assert.ok(DOCK_RAIL_STRIP_WIDTH <= DOCK_RAIL_MIN_WIDTH);
 });
 
 test("normalizes persisted layouts by dropping unknown structure", () => {

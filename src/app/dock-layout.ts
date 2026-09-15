@@ -71,8 +71,13 @@ export type DockLayout = {
 export const DOCK_RAIL_MIN_WIDTH = 260;
 export const DOCK_RAIL_MAX_WIDTH = 960;
 export const DOCK_RAIL_DEFAULT_WIDTH = 420;
-/** 空栏宽度：只在拖拽期间展开成一条可命中的落点条，平时不占位。 */
+/** 空栏宽度：没有面板停靠时留给落点提示的宽度，与常驻图标条相加得到右栏宽度。 */
 export const DOCK_RAIL_EMPTY_WIDTH = 132;
+/**
+ * 图标条宽度：面板入口常驻在右栏最左侧一条竖栏里，左侧 8px 让给宽度拖拽手柄，
+ * 没有面板停靠时右栏就只占这一条，因此它是右栏的宽度下限而不是 0。
+ */
+export const DOCK_RAIL_STRIP_WIDTH = 64;
 
 /**
  * "面板类"标签：正文由 `DockFrame` 自己搬进标签宿主，不属于内容注册表。
