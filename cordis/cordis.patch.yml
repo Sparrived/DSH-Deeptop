@@ -39,6 +39,11 @@
     - id: theme-settings
       name: 'deeptop-bridge/theme-settings'
 
+    # 全局提示词注入：设置里的自由文本作为一个 system prompt section 注入每个
+    # Session（位于 deployment persona 之后、plan/team 政策之前）。
+    - id: prompt-injection
+      name: 'deeptop-bridge/prompt-injection'
+
     - id: workspace
       name: '@deepseek-ai/dsh-workspace'
 

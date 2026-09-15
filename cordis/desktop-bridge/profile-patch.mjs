@@ -9,6 +9,7 @@ const PROFILE_LOCK_STALE_MS = 2 * 60_000
 /** IDs already owned by the bundled desktop profile or its host services. */
 export const DEEPTOP_PROFILE_ENTRY_IDS = new Set([
   'system-prompt',
+  'prompt-injection',
   'tools',
   'agent',
   'session',
