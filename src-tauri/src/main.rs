@@ -1172,14 +1172,26 @@ fn lock_runtime_cache(cache_root: &Path) -> Result<fs::File, String> {
     Ok(lock)
 }
 
-fn cleanup_runtime_temporary_caches(cache_root: &Path, key: &str) {
-    let prefix = format!(".{key}.tmp-");
+/// 删除中断的物化留下的临时缓存目录。
+///
+/// 调用方必须持有缓存锁：物化期间只有持锁进程会创建 `.tmp-` 目录，因此这里看到的
+/// 残留都不属于任何正在进行的物化。旧实现只按当前缓存 key 前缀匹配，其他版本遗留的
+/// 临时目录既不会被这里删除，也会被下方 prune 的「跳过隐藏目录」规则漏掉而永久堆积。
+fn cleanup_runtime_temporary_caches(cache_root: &Path) {
     let Ok(entries) = fs::read_dir(cache_root) else {
         return;
     };
     for entry in entries.flatten() {
-        if entry.file_name().to_string_lossy().starts_with(&prefix) {
-            remove_runtime_path(&entry.path());
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        if entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.starts_with('.') && name.contains(".tmp-"))
+        {
+            remove_runtime_path(&path);
         }
     }
 }
@@ -1189,6 +1201,8 @@ fn cleanup_runtime_temporary_caches(cache_root: &Path, key: &str) {
 /// 与最近一个旧版本供回退）。被占用或加载中的目录删除失败会被忽略，
 /// 不影响启动。这同时缩小了安全软件每次启动的扫描面。
 fn prune_old_runtime_caches(cache_root: &Path, active_cache: &Path) {
+    // 缓存命中时不会走物化路径，残留的临时目录只能在这里回收。
+    cleanup_runtime_temporary_caches(cache_root);
     let Ok(entries) = fs::read_dir(cache_root) else {
         return;
     };
@@ -1542,7 +1556,7 @@ fn materialize_bundled_runtime(app: &AppHandle) -> Result<PathBuf, String> {
         return Ok(cache);
     }
     quarantine_invalid_runtime_cache(&cache);
-    cleanup_runtime_temporary_caches(&cache_root, &key);
+    cleanup_runtime_temporary_caches(&cache_root);
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
@@ -7373,6 +7387,43 @@ mod tests {
         );
         assert!(!old.exists());
         assert!(!mid.exists());
+        std::fs::remove_dir_all(&root).expect("remove prune test root");
+    }
+
+    #[test]
+    fn prunes_interrupted_materialization_temporaries() {
+        let root = std::env::temp_dir().join(format!(
+            "deeptop-prune-runtime-temp-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("create prune test root");
+        std::fs::write(root.join(".lock"), "ignored").expect("write lock file");
+
+        let active =
+            root.join("dddddddddddddddddddddddddddddddddddddddd-win32-x64-4444444444444444");
+        std::fs::create_dir_all(&active).expect("create active cache dir");
+        std::fs::write(active.join(".complete"), "key").expect("write marker");
+
+        // 另一个版本被强杀后留下的临时目录：既不是当前 key，也是隐藏目录。
+        let stale = root.join(
+            ".99f6f02fecdb7dff40c3fbc9470f5907c29f74ca-win32-x64-58bd765a2cb1f9e3.tmp-47184-1787034921584222100",
+        );
+        std::fs::create_dir_all(stale.join("node_modules")).expect("create stale temp dir");
+        std::fs::write(stale.join("node_modules/payload"), "x").expect("write stale payload");
+
+        prune_old_runtime_caches(&root, &active);
+
+        assert!(
+            !stale.exists(),
+            "interrupted temporaries must not accumulate"
+        );
+        assert!(active.exists(), "the active cache must survive");
+
         std::fs::remove_dir_all(&root).expect("remove prune test root");
     }
 
