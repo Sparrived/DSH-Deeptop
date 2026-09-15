@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject, type UIEvent } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject, type UIEvent } from "react";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { createPortal } from "react-dom";
 import { isFilePath, type DshHistoryEntry, type DshPreset, type DshSessionSummary } from "../lib/desktop";
@@ -650,22 +650,56 @@ export function streamingTextFrameDelay(visibleText: string, targetText: string)
     : STREAMING_TEXT_FRAME_MS;
 }
 
-/** Whether one reveal frame opened a line; that fresh line fades in instead of popping. */
-export function streamingFrameOpensLine(previousLines: number, visibleText: string) {
-  return newlineCount(visibleText) > previousLines;
+/** 停笔多久之后把落点处没写完的墨补满（渐显窗口收干）。 */
+const STREAMING_FADE_SETTLE_MS = 260;
+
+/** 最后一个非空白字符的下标；整段都是空白时返回 -1。 */
+export function lastInkIndex(value: string) {
+  for (let index = value.length - 1; index >= 0; index -= 1) {
+    if (!/\s/.test(value[index])) return index;
+  }
+  return -1;
+}
+
+type StreamFrontier = { x: number; y: number; radius: number };
+
+/**
+ * 量出书写落点：最后一个有内容的字符相对渐显遮罩块的位置。
+ * 落点跟着流式文字往前走，渐显窗口用它把落笔处压到最淡、越往前越实。
+ */
+function streamFrontier(container: HTMLElement): StreamFrontier | null {
+  const mask = container.lastElementChild;
+  if (mask === null) return null;
+  const ownerDocument = container.ownerDocument;
+  const walker = ownerDocument.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  let last: Text | null = null;
+  for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+    if (!/\S/.test((node as Text).data)) continue;
+    last = node as Text;
+  }
+  const index = last === null ? -1 : lastInkIndex(last.data);
+  // 落点必须落在被遮罩的那一块里，否则渐显会画到别的元素上。
+  if (last === null || index < 0 || !mask.contains(last)) return null;
+  const range = ownerDocument.createRange();
+  range.setStart(last, index);
+  range.setEnd(last, index + 1);
+  const rect = range.getBoundingClientRect();
+  if (!rect.height) return null;
+  const box = mask.getBoundingClientRect();
+  return { x: rect.right - box.left, y: rect.top + rect.height / 2 - box.top, radius: rect.height / 2 };
 }
 
 function useSmoothStreamingText(text: string) {
   const [visibleText, setVisibleText] = useState(text);
+  const [settled, setSettled] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const targetTextRef = useRef(text);
   targetTextRef.current = text;
-  const previousLinesRef = useRef(newlineCount(text));
-  const canAnimate = typeof window !== "undefined"
+  const canAnimate = typeof window !== "undefined" && typeof document !== "undefined"
     && !(typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   const isPrefix = text.startsWith(visibleText);
   const needsFrame = canAnimate && isPrefix && visibleText !== text;
   const visible = canAnimate && isPrefix ? visibleText : text;
-  const opensLine = streamingFrameOpensLine(previousLinesRef.current, visible);
 
   useEffect(() => {
     if (!canAnimate || !isPrefix) {
@@ -681,22 +715,48 @@ function useSmoothStreamingText(text: string) {
     // consume the latest burst instead of restarting the delay for every token.
   }, [canAnimate, isPrefix, needsFrame, visibleText]);
 
-  // The freshly revealed line is marked for one frame only: the quick fade that
-  // follows is the transition back to the resting ink level.
-  useEffect(() => {
-    previousLinesRef.current = newlineCount(visible);
-  }, [visible]);
+  // 落点每帧都在动，渐显窗口就跟着动：新落笔的字从最淡处写出来，写过去的字
+  // 随窗口前行变实，所以上一个字还没写满，下一个字已经开始落笔。
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (container === null) return;
+    // 量不到落点（没有正文、动效被关掉）就不挂遮罩，宁可整段实心也不淡错地方。
+    if (!canAnimate) {
+      container.removeAttribute("data-stream-ink");
+      return;
+    }
+    // 收笔期间不再挪窗口，让墨量自己过渡到实心。
+    if (settled) return;
+    const frontier = streamFrontier(container);
+    if (frontier === null) {
+      container.removeAttribute("data-stream-ink");
+      return;
+    }
+    container.setAttribute("data-stream-ink", "");
+    container.style.setProperty("--stream-x", `${frontier.x}px`);
+    container.style.setProperty("--stream-y", `${frontier.y}px`);
+    container.style.setProperty("--stream-fade-radius", `${frontier.radius}px`);
+  }, [visible, settled, canAnimate]);
 
-  return { visible, opensLine };
+  // 停笔后把剩下没写完的墨补满，避免一句话写完时最后几个字一直停在半透明。
+  // 重新落笔立刻取消收笔（同步补一次渲染），新字不会先实后淡地闪一下。
+  useLayoutEffect(() => {
+    if (!canAnimate) return;
+    setSettled(false);
+    const timer = window.setTimeout(() => setSettled(true), STREAMING_FADE_SETTLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [visible, canAnimate]);
+
+  return { visible, settled, containerRef };
 }
 
 // Pace bursty token batches into short, adaptive frames while continuing to
 // parse the visible prefix as Markdown. Large backlogs fast-forward so the UI
 // stays close to the model instead of replaying a long typewriter animation.
 export const StreamingAssistantText = memo(function StreamingAssistantText({ text, locale, onOpenPath, onCheckPath, onOpenUrl }: { text: string; locale: UiLocale } & MarkdownEntityActions) {
-  const { visible, opensLine } = useSmoothStreamingText(text);
-  const className = `message-text streaming-assistant-text${opensLine ? " streaming-ink-fresh" : ""}`;
-  return <MarkdownContent text={visible} className={className} locale={locale} onOpenPath={onOpenPath} onCheckPath={onCheckPath} onOpenUrl={onOpenUrl} />;
+  const { visible, settled, containerRef } = useSmoothStreamingText(text);
+  const className = `message-text streaming-assistant-text${settled ? " streaming-ink-settled" : ""}`;
+  return <MarkdownContent text={visible} className={className} containerRef={containerRef} locale={locale} onOpenPath={onOpenPath} onCheckPath={onCheckPath} onOpenUrl={onOpenUrl} />;
 }, (previous, next) => previous.text === next.text && previous.locale === next.locale);
 
 function reasoningSummary(text: string, streaming: boolean) {

@@ -13,9 +13,10 @@
   overflow-wrap: anywhere;
 }
 
-/* 多行文字流按整行推进：每开一行，最新一行先落到 --stream-ink 再淡回 1，
-   所以整行是快速渐显而不是整块弹出。遮罩挂在最后一个 Markdown 块上，这样
-   只影响最后一行——流式插入符占的是容器自己的行，不参与遮罩。 */
+/* 流式正文的渐显窗口挂在「书写落点」上：落笔处最淡，往前逐渐回到实心。
+   ConversationTranscript 每推进一帧就把落点写进 --stream-x/--stream-y，
+   于是新字从最淡处开始、旧字随落点前行变实——上一个字还没写满，下一个字
+   已经落笔，整段文字像一笔连续写出来。停笔后收干（见 .streaming-ink-settled）。 */
 @property --stream-ink {
   syntax: "<number>";
   inherits: true;
@@ -23,19 +24,20 @@
 }
 
 .streaming-assistant-text {
+  --stream-ink: var(--stream-fade-ink, .3);
+}
+
+/* 遮罩只在量到落点之后挂上（data-stream-ink 由渲染层写），量不到就整段实心。 */
+.streaming-assistant-text[data-stream-ink] > :last-child {
+  -webkit-mask-image: radial-gradient(ellipse var(--stream-fade-range, 8em) var(--stream-fade-radius, .8em) at var(--stream-x, 50%) var(--stream-y, 100%), rgb(0 0 0 / var(--stream-ink)) 0, #000 100%);
+  mask-image: radial-gradient(ellipse var(--stream-fade-range, 8em) var(--stream-fade-radius, .8em) at var(--stream-x, 50%) var(--stream-y, 100%), rgb(0 0 0 / var(--stream-ink)) 0, #000 100%);
+}
+
+/* 停笔后把没写完的墨补满：收笔是慢过渡，重新落笔则直接回到落笔墨量（无过渡），
+   否则刚写下的字会先实后淡地闪一下。 */
+.streaming-assistant-text.streaming-ink-settled {
   --stream-ink: 1;
-  transition: --stream-ink var(--motion-standard) var(--motion-ease-enter);
-}
-
-.streaming-assistant-text > :last-child {
-  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1.7em), rgb(0 0 0 / var(--stream-ink)) calc(100% - 1.45em));
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 1.7em), rgb(0 0 0 / var(--stream-ink)) calc(100% - 1.45em));
-}
-
-/* 新行出现的那一帧直接落到低墨量，随后一帧恢复，过渡把过程补成渐显。 */
-.streaming-assistant-text.streaming-ink-fresh {
-  --stream-ink: .3;
-  transition: none;
+  transition: --stream-ink 420ms var(--motion-ease-enter);
 }
 
 .streaming-assistant-text::after {
@@ -57,7 +59,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .streaming-assistant-text {
+  .streaming-assistant-text > :last-child {
     -webkit-mask-image: none;
     mask-image: none;
   }

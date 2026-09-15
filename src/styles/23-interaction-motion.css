@@ -8,7 +8,8 @@
 
 @media (prefers-reduced-motion: no-preference) {
   /* A message enters only after the active transcript was already painted.
-     The streaming text itself remains unanimated except for its existing caret. */
+     The streaming reveal (fade window + caret) lives in 04-message-content.css;
+     this layer only animates the row entrance. */
   .message-row.is-entering > .message-gutter,
   .message-row.is-entering > .message-content {
     animation: interaction-message-in var(--motion-standard) var(--motion-ease-enter) both;

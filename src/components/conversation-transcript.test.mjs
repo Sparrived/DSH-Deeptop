@@ -47,6 +47,9 @@ function createHookRenderer() {
       if (!previous || !dependenciesMatch(previous.dependencies, dependencies)) pendingEffects.push(effect);
       hooks[index] = { dependencies };
     },
+    useLayoutEffect(effect, dependencies) {
+      react.useEffect(effect, dependencies);
+    },
   };
 
   return {
@@ -217,19 +220,18 @@ test("streaming assistant keeps one Markdown surface when animation is unavailab
   assert.equal(tree.props.text, "first");
   assert.equal(tree.props.className, "message-text streaming-assistant-text");
   assert.equal(tree.props.locale, "en");
-  assert.equal(typeof tree.props.ref, "undefined");
   assert.equal(tree.props.children, undefined);
+  // 渐显窗口跟着书写落点走，渲染容器得把它接出去。
+  assert.equal(typeof tree.props.containerRef, "object");
 
   tree = renderer.render(StreamingAssistantText, { text: "first second", locale: "en" });
   assert.equal(tree.props.text, "first second");
+  // 没有动画时不做收笔，类名保持稳定。
   assert.equal(tree.props.className, "message-text streaming-assistant-text");
 
-  // A frame that opens a line marks it for the quick fade-in; the next frame
-  // drops the mark again so only the fresh line fades.
-  tree = renderer.render(StreamingAssistantText, { text: "first second\nthird", locale: "en" });
-  assert.equal(tree.props.className, "message-text streaming-assistant-text streaming-ink-fresh");
   renderer.flushEffects();
   tree = renderer.render(StreamingAssistantText, { text: "first second\nthird line", locale: "en" });
+  assert.equal(tree.props.text, "first second\nthird line");
   assert.equal(tree.props.className, "message-text streaming-assistant-text");
 
   // A reset frame must reach the same single Markdown surface.
@@ -269,7 +271,7 @@ test("streaming text frames reveal bursts adaptively and preserve Unicode pairs"
 
 test("a pending line break makes the stream grow whole lines", async () => {
   const renderer = createHookRenderer();
-  const { nextStreamingTextFrame, streamingTextFrameDelay, streamingFrameOpensLine } = await loadTranscriptExports(renderer.react);
+  const { nextStreamingTextFrame, streamingTextFrameDelay, lastInkIndex } = await loadTranscriptExports(renderer.react);
 
   // Four pending lines: paint two, keep two for the smooth reveal.
   assert.equal(nextStreamingTextFrame("", "one\ntwo\nthree\nfour\n"), "one\ntwo\n");
@@ -287,10 +289,12 @@ test("a pending line break makes the stream grow whole lines", async () => {
   assert.equal(streamingTextFrameDelay("", "aa\nbb\n"), singleLine);
   assert.ok(streamingTextFrameDelay("", "one\ntwo\nthree\nfour\n") < singleLine);
 
-  // The fade-in hangs off the frame that opened a line, not off every frame.
-  assert.equal(streamingFrameOpensLine(1, "one\ntwo\nthree"), true);
-  assert.equal(streamingFrameOpensLine(1, "one\ntwo more"), false);
-  assert.equal(streamingFrameOpensLine(0, "single line"), false);
+  // 渐显窗口的落点是最后一个有内容的字符：行尾空白不算，全空白时没有落点。
+  assert.equal(lastInkIndex("typing"), 5);
+  assert.equal(lastInkIndex("typing\n"), 5);
+  assert.equal(lastInkIndex("typing \n  "), 5);
+  assert.equal(lastInkIndex("\n\n  "), -1);
+  assert.equal(lastInkIndex(""), -1);
 });
 
 test("a live Think entry unfolds itself and folds back when the step ends", async () => {
