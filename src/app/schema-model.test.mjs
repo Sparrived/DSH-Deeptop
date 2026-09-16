@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isSchemaEnvelope, schemaEnumChoices, schemaNodeAtPath, schemaObjectHasKeys, schemaRootNode } from "./schema-model.ts";
+import { isMultilineTextField, isSchemaEnvelope, schemaEnumChoices, schemaNodeAtPath, schemaNodeRole, schemaObjectHasKeys, schemaRootNode } from "./schema-model.ts";
 
 /** Build the toJSON-style envelope of a small object schema, mirroring schemastery's shape. */
 function envelopeOf(rootNode) {
@@ -47,4 +47,22 @@ test("keeps node references resolvable only through refs", () => {
   const envelope = envelopeOf({ type: "array", inner: 7 });
   assert.equal(envelope.refs[7], undefined);
   assert.deepEqual(schemaEnumChoices(schemaNodeAtPath(envelope, []), envelope), []);
+});
+
+test("reads the registrant form-control role", () => {
+  assert.equal(schemaNodeRole({ type: "string", meta: { role: "textarea" } }), "textarea");
+  assert.equal(schemaNodeRole({ type: "string", meta: { role: "secret" } }), "secret");
+  assert.equal(schemaNodeRole({ type: "string", meta: {} }), undefined);
+  assert.equal(schemaNodeRole({ type: "string", meta: { role: "   " } }), undefined);
+  assert.equal(schemaNodeRole({ type: "string", meta: { role: 7 } }), undefined);
+  assert.equal(schemaNodeRole(undefined), undefined);
+});
+
+test("recognizes multiline text fields only for string nodes", () => {
+  assert.equal(isMultilineTextField({ type: "string", meta: { role: "textarea" } }), true);
+  // A role on a non-string node must not change the control the type selects.
+  assert.equal(isMultilineTextField({ type: "number", meta: { role: "textarea" } }), false);
+  assert.equal(isMultilineTextField({ type: "string", meta: { role: "secret" } }), false);
+  assert.equal(isMultilineTextField({ type: "string" }), false);
+  assert.equal(isMultilineTextField(undefined), false);
 });

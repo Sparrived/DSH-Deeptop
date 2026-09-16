@@ -1005,6 +1005,23 @@
 }
 .schema-field input:focus,
 .schema-field select:focus { border-color: var(--accent); outline: none; }
+/* A multi-line field needs the full row: the label sits above a textarea that
+   stays resizable, instead of the label|control two-column grid. */
+.schema-field-multiline { grid-template-columns: minmax(0, 1fr); align-items: start; }
+.schema-field textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-raised, var(--paper-deep));
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+.schema-field textarea:focus { border-color: var(--accent); outline: none; }
 .schema-field-toggle { display: inline-flex; }
 .schema-field-toggle input { position: absolute; opacity: 0; pointer-events: none; }
 .schema-field-toggle span {

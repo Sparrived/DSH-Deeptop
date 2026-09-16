@@ -14,7 +14,10 @@ export const inject = ['settings', 'systemPrompt']
 
 export function apply(ctx) {
   const scope = ctx.settings.register(PROMPT_NAMESPACE, Schema.object({
-    text: Schema.string().default(''),
+    // `role('textarea')` is the generic settings form's multi-line hint: the
+    // desktop renders this field as a textarea from the schema alone, so the
+    // plugin owns no panel component.
+    text: Schema.string().role('textarea').description('Injected into every Session system prompt').default(''),
   }))
 
   ctx.systemPrompt.section({

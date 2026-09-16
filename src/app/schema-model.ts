@@ -93,6 +93,23 @@ export function schemaEnumChoices(node: SchemaNode | undefined, envelope: { uid:
   return choices;
 }
 
+/**
+ * The form-control hint a registrant attached through `meta.role`, if any.
+ *
+ * Registrants mark fields such as `secret` (write-only input) or `textarea`
+ * (multi-line editor). An unknown role falls back to the plain control for the
+ * node's schema type, so adding a role never breaks rendering.
+ */
+export function schemaNodeRole(node: SchemaNode | undefined): string | undefined {
+  const role = node?.meta?.role;
+  return typeof role === "string" && role.trim() ? role : undefined;
+}
+
+/** True when the node asks for a multi-line text editor through `meta.role`. */
+export function isMultilineTextField(node: SchemaNode | undefined): boolean {
+  return node?.type === "string" && schemaNodeRole(node) === "textarea";
+}
+
 /** True when the node is an object whose dict includes every key in `keys`. */
 export function schemaObjectHasKeys(node: SchemaNode | undefined, keys: readonly string[]): boolean {
   if (!node || node.type !== "object" || !node.dict) return false;

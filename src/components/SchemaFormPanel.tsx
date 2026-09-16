@@ -2,9 +2,11 @@ import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { DshSettingsNamespace } from "../lib/desktop";
 import {
+  isMultilineTextField,
   isSchemaEnvelope,
   schemaEnumChoices,
   schemaNodeAtRef,
+  schemaNodeRole,
   type SchemaNode,
 } from "../app/schema-model";
 import { schemaDraftOps, type SchemaPathOp, type SchemaFieldValue } from "../app/schema-form-model";
@@ -49,7 +51,7 @@ function descriptionOf(node: SchemaNode | undefined): string | undefined {
 }
 
 function isSecret(node: SchemaNode | undefined): boolean {
-  return node?.meta?.role === "secret";
+  return schemaNodeRole(node) === "secret";
 }
 
 type FieldValue = SchemaFieldValue;
@@ -101,6 +103,20 @@ function PrimitiveField({ path, node, envelope, value, draft, locale, onChange }
     return <div className="schema-field" data-path={draftKey}>
       <span className="schema-field-label">{label}{description && <small>{description}</small>}</span>
       <label className="schema-field-toggle"><input type="checkbox" checked={checked} onChange={(event) => onChange(path, event.target.checked)} /><span aria-hidden="true" /></label>
+    </div>;
+  }
+
+  if (isMultilineTextField(node)) {
+    const current = primitiveValue(node, draft[draftKey] ?? value);
+    return <div className="schema-field schema-field-multiline" data-path={draftKey}>
+      <span className="schema-field-label">{label}{description && <small>{description}</small>}</span>
+      <textarea
+        value={current === null ? "" : String(current)}
+        placeholder={typeof meta.default === "string" ? meta.default : undefined}
+        rows={5}
+        aria-label={label}
+        onChange={(event) => onChange(path, event.target.value)}
+      />
     </div>;
   }
 
