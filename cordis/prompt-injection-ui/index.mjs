@@ -1,7 +1,7 @@
 // Host registration for the prompt-injection client module. The injection
 // domain stays in `deeptop-prompt-injection`: that plugin owns the namespace and
-// the system prompt section, while this adapter declares the settings panel and
-// the scoped settings ceiling the client module renders inside.
+// the pre-step context message, while this adapter declares the settings panel
+// and the scoped settings ceiling the client module renders inside.
 
 export const name = 'deeptop-prompt-injection-ui'
 

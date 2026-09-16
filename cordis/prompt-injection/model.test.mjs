@@ -1,44 +1,41 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { escapePromptBraces, renderInjection } from './model.mjs'
+import { CLEARED_INJECTION, nextInjection } from './model.mjs'
 
-test('renders nothing for an absent or blank value, so clearing the box disables injection', () => {
-  assert.equal(renderInjection(undefined), '')
-  assert.equal(renderInjection(''), '')
-  assert.equal(renderInjection('   \n\t '), '')
-  assert.equal(renderInjection(7), '')
+test('injects nothing on the first step when the setting is absent or blank', () => {
+  assert.equal(nextInjection(null, undefined), undefined)
+  assert.equal(nextInjection(null, ''), undefined)
+  assert.equal(nextInjection(null, '   \n\t '), undefined)
+  assert.equal(nextInjection(null, 7), undefined)
 })
 
-test('trims the injected text', () => {
-  assert.equal(renderInjection('  总是先跑测试  '), '总是先跑测试')
+test('injects the trimmed text of a fresh setting', () => {
+  assert.equal(nextInjection(null, '  总是先跑测试  '), '总是先跑测试')
 })
 
-test('neutralizes a variable opener so user text cannot break prompt assembly', () => {
-  // `renderPrompt` throws on an unknown or malformed `{{name}}` reference, so a
-  // user typing braces must not reach assembly as a complete group.
-  assert.equal(escapePromptBraces('use {{model}} here'), 'use {\u200b{model}} here')
-  assert.equal(escapePromptBraces('{{'), '{\u200b{')
-  assert.equal(escapePromptBraces('a {{ b {{c}}'), 'a {\u200b{ b {\u200b{c}}')
-  assert.equal(escapePromptBraces('plain text'), 'plain text')
-  assert.equal(escapePromptBraces('single { brace } stays'), 'single { brace } stays')
+test('keeps the user text verbatim, including prompt-variable-looking braces', () => {
+  // 注入内容直接成为 user/message，不参与 system prompt 的模板插值，
+  // 所以 `{{name}}` 必须原样保留，不能被改写也不能被替换。
+  assert.equal(nextInjection(null, '请始终以 {{model}} 的风格回答'), '请始终以 {{model}} 的风格回答')
+  assert.equal(nextInjection(null, '用 {{{ 和 }}} 与 {{}} 的写法'), '用 {{{ 和 }}} 与 {{}} 的写法')
 })
 
-test('neutralizes runs of three or more braces too', () => {
-  // Splitting on `{{` would leave `{{` behind in `{{{{x}}}}`, so the rule rewrites
-  // every brace that opens a pair rather than the pair itself.
-  assert.equal(escapePromptBraces('{{{{x}}}}'), '{\u200b{\u200b{\u200b{x}}}}')
+test('re-injects only when the text actually changes', () => {
+  assert.equal(nextInjection('旧的注入', '旧的注入'), undefined)
+  // 只有首尾空白不同不算变化，否则每个 step 都会白白追加一行。
+  assert.equal(nextInjection('旧的注入', '  旧的注入\n'), undefined)
+  assert.equal(nextInjection('旧的注入', '新的注入'), '新的注入')
 })
 
-test('leaves no complete group in rendered text and stays readable without the marker', () => {
-  for (const text of ['{{cwd}}', '{{ model }}', '{{{{nested}}}}', 'x{{{y}}}', '{{{', '}}}}', '{{}}']) {
-    const rendered = escapePromptBraces(text)
-    assert.equal(/\{\{[^{}]*\}\}/.test(rendered), false, `still a group: ${JSON.stringify(rendered)}`)
-    // Only an invisible character is added, so the model still reads the braces.
-    assert.equal(rendered.replace(/\u200b/g, ''), text)
-  }
+test('clearing the setting tells the model the earlier injection is void', () => {
+  assert.equal(nextInjection('旧的注入', ''), CLEARED_INJECTION)
+  // 已经声明过失效后不再重复追加。
+  assert.equal(nextInjection(CLEARED_INJECTION, ''), undefined)
+  assert.equal(nextInjection(CLEARED_INJECTION, '   '), undefined)
 })
 
-test('keeps a lone opener literal, matching renderPrompt', () => {
-  // A `{{` with no later `}}` is already literal prose; the marker is harmless.
-  assert.equal(escapePromptBraces('{{unclosed').replace(/\u200b/g, ''), '{{unclosed')
+test('a new text after clearing is injected again, and so is the same text later', () => {
+  assert.equal(nextInjection(CLEARED_INJECTION, '重新启用'), '重新启用')
+  // 清空后重新写回原文，需要重新注入，而不是被当成"没变"。
+  assert.equal(nextInjection(CLEARED_INJECTION, '旧的注入'), '旧的注入')
 })

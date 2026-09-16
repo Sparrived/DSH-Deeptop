@@ -2,7 +2,7 @@
  * 全局提示词注入设置的纯投影。
  *
  * 文本由 Deeptop 自己的 `deeptop-prompt-injection` 命名空间承载：`cordis/prompt-injection`
- * 把它作为一个 system prompt section 注入每个 Session。这里只做纯数据换算——
+ * 把它作为一条独立的上下文注入行追加到每个 Session 的下一步请求前。这里只做纯数据换算——
  * 把命名空间读成草稿，再把编辑结果换算成最小 `settings.mutate` 路径操作，不调用
  * React、Tauri 或 Bridge。
  */

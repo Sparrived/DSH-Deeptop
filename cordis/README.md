@@ -7,7 +7,7 @@ This directory is the source of the embedded `deeptop-bridge` runtime package. T
 | `desktop-bridge/` | `deeptop/1` JSONL transport, desktop API allowlist, native boundary adapters and repair helpers |
 | `message-annotations/` | Durable message-annotation Cordis service |
 | `message-annotations-ui/` | Host registration for the built-in message-annotation Client Plugin |
-| `prompt-injection/` | Global prompt injection: registers the `deeptop-prompt-injection` settings namespace and injects that text into every session as one system-prompt section, placed after the deployment persona and before tool and policy guidance; user text cannot be read as a prompt variable, and blank text renders an empty section, so clearing the field disables injection |
+| `prompt-injection/` | Global prompt injection: registers the `deeptop-prompt-injection` settings namespace and appends that text to every session as its own plugin-sourced context row before the next step, so it stays out of the system prompt and shows separately in the trajectory; only changed text is appended, and clearing the field appends one notice that the earlier injection no longer applies |
 | `prompt-injection-ui/` | Host registration for the built-in prompt-injection Client Plugin: declares the `settings.sections` panel and the scoped settings namespace the client module reads and writes |
 | `session-pins/` | Durable workspace session-pin service and its pure model |
 | `skill-installer/` | Skill installer plugin (approval-gated; the prompt is skipped under a user-chosen never-approval policy such as the full-access preset) and shared installer implementation |
