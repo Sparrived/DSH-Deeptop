@@ -12,7 +12,7 @@ This directory is the source of the embedded `deeptop-bridge` runtime package. T
 | `skill-installer/` | Skill installer plugin (approval-gated; the prompt is skipped under a user-chosen never-approval policy such as the full-access preset) and shared installer implementation |
 | `subagent-routing/` | Subagent delegation routing: registers the `deeptop-subagent-routing` settings namespace, injects its guidance as a system-prompt section, and mirrors per-route notes into provider catalog model descriptions |
 | `theme-settings/` | Host registration for desktop theme and locale settings |
-| `ui-registry/` | UI Plugin registry, manifest validation, scoped routes and storage |
+| `ui-registry/` | UI Plugin registry, manifest validation, scoped routes (storage and settings) |
 
 ## 嵌入式桌面 Bridge 辅助模块
 

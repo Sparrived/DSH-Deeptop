@@ -554,8 +554,14 @@ interface SlotContextMap {
     activeSessionId: string | null;
   };
   "settings.sections": {
-    settingsVersion: string;
+    settings: SettingsSectionContext;
   };
+}
+
+/** 设置分区只用于 settings.sections：贡献自己既是导航项也是内容面板。 */
+interface SettingsSectionContext {
+  activeSectionId: string | null;
+  selectSection: (id: string) => void;
 }
 ```
 
@@ -582,37 +588,26 @@ Slot 应有稳定的语义和渲染位置，不应把任意 CSS selector 或 DOM
 ### 7.5 Contribution 类型
 
 ```ts
-export type UiContribution =
-  | {
-      kind: "action";
-      id: string;
-      order?: number;
-      label: string;
-      icon?: string;
-      disabled?: (context: unknown) => boolean;
-      render: React.ComponentType<any>;
-    }
-  | {
-      kind: "badge";
-      id: string;
-      order?: number;
-      render: React.ComponentType<any>;
-    }
-  | {
-      kind: "panel";
-      id: string;
-      order?: number;
-      title: string;
-      render: React.ComponentType<any>;
-    };
+export interface UiContribution {
+  kind: "action" | "badge" | "panel";
+  id: string;
+  order?: number;
+  /** 展示名。settings.sections 的 panel 用它作为导航项标题。 */
+  label?: string;
+  /** 面板标题；settings.sections 已改用 label，此处保留给其他面板类 Slot。 */
+  title?: string;
+  render: React.ComponentType<any>;
+}
 ```
 
 第一版应限制 contribution kind，避免插件任意替换主应用布局。推荐优先实现：
 
 1. `action`；
 2. `badge`；
-3. `panel`；
+3. `panel`（当前唯一消费者是 `settings.sections`，由客户端模块注册）；
 4. 后续再考虑 `form`、`command` 和 `route`。
+
+Host 侧声明式贡献仍只支持 `action` 和 `badge`：Host 插件不能渲染 React，`panel` 必须来自客户端模块。
 
 ### 7.6 Slot 注册
 
@@ -740,6 +735,25 @@ interface ScopedStorage {
 - 值限制为 JSON；
 - 设置大小和单值大小需要上限。
 
+### 7.10 Scoped Settings
+
+插件要自带设置界面，不需要主程序为它写任何代码：Host 插件用 `ctx.settings.register(ns, Schema)` 注册命名空间，客户端模块用 `ctx.settings` 读写自己的命名空间，再用通用 `SchemaFormPanel` 渲染。
+
+```ts
+interface ScopedSettings {
+  readonly namespaces: readonly string[];
+  describe(namespace: string): Promise<DshSettingsNamespace>;
+  mutate(namespace: string, ops: SchemaPathOp[], expectedRevision?: number): Promise<DshSettingsNamespace>;
+}
+```
+
+授权按 manifest 收窄，分两层执行：
+
+- manifest 声明 `capabilities.settings: string[]`，只允许匹配 `^[a-z][a-z0-9-]*$`（与 settings 服务自身的命名空间语法一致）；
+- 每次调用都要显式给出 `ns`，Host 路由 `ui.plugin.settings.describe` / `ui.plugin.settings.mutate` 在未注册、未启用、未声明或声明的不是该 `ns` 时直接拒绝并返回 `ui-capability-denied`，绝不落到 settings 服务。
+
+客户端 facade 在发请求前先用同一份声明做本地拒绝，因此误声明的插件不会产生任何 wire traffic。`describe` 走的是 `redactSecrets` 读取，`role('secret')` 字段只报告 `set`，值不进入 WebView。写入复用官方 settings controller 的 `mutate`，语义（按存储值解析 path op、`expectedRevision` 过期报 `settings/conflict`）不重新实现。
+
 ---
 
 ## 8. Bridge 协议与路由
@@ -756,6 +770,8 @@ ui.plugin.event.subscribe     # 如果采用显式订阅协议
 ui.plugin.storage.get
 ui.plugin.storage.set
 ui.plugin.storage.delete
+ui.plugin.settings.describe       # 按 manifest 声明的命名空间读取（已脱敏）
+ui.plugin.settings.mutate         # 按 manifest 声明的命名空间写入 path op
 ```
 
 第一版可以将事件复用已有 `host` event stream，减少协议变化；但仍应对 UI Plugin event 做明确过滤和类型定义。
@@ -1031,7 +1047,7 @@ function SafeContribution({ contribution, context }: Props) {
 | `conversation.header.actions` | `ConversationHeader` | 会话级操作 |
 | `conversation.message.actions` | 消息行组件 | 标注、导出、外部处理 |
 | `inspector.tabs` | Inspector | 插件诊断和领域面板 |
-| `settings.sections` | Settings | 插件设置 |
+| `settings.sections` | `SettingsPluginSectionNav` / `SettingsPluginSectionPanel` | 插件设置：一个 `panel` 贡献同时成为导航项和内容面板 |
 | `composer.actions` | Composer | 输入区辅助能力 |
 
 不要一开始为每个 DOM 细节开放 Slot。Slot 一旦发布，后续需要长期维护兼容性。
@@ -1830,10 +1846,10 @@ export function apply(ctx) {
 
 ## 20. 建议的实际起步顺序
 
-当前实现已经完成 Slot Registry、`SessionSidebar` context menu、`conversation.message.actions`、`deeptop-ui-registry`、受限 `ui.plugin.invoke`、消息注记组件/冲突测试、真实 desktop Host 的 Session switching/DSH restart 验收，以及受控资源协议。后续按以下顺序扩展：
+当前实现已经完成 Slot Registry、`SessionSidebar` context menu、`conversation.message.actions`、`settings.sections`、`deeptop-ui-registry`、受限 `ui.plugin.invoke`/`ui.plugin.settings.*`、消息注记组件/冲突测试、真实 desktop Host 的 Session switching/DSH restart 验收，以及受控资源协议。后续按以下顺序扩展：
 
 1. 接入 `conversation.header.actions`，先迁移 Session Stats 和 Plan 的只读入口；
-2. 接入 `settings.sections`，迁移 Provider、Agent Preset 和 Skill 的独立设置入口；
+2. 继续把内置设置入口（Provider、Agent Preset、Skill）迁到 `settings.sections` 的插件贡献路径，逐步删除主程序里的手写面板；
 3. 接入 `composer.actions`，迁移 Commands、Skill 和引用候选的辅助入口；
 4. 接入 `inspector.tabs`，迁移 Goal、Subagent 和 Runtime diagnostics 的可选面板；
 5. 外部第三方 Bundle 继续使用受控资源协议；不信任插件仍需 iframe/独立 WebView 隔离，不扩大主 WebView 权限。

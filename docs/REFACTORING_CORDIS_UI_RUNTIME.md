@@ -2,9 +2,9 @@
 
 ## 当前基线
 
-`master` 已合并 `feature/desktop-ui-runtime`，合并提交为 `a9177bd53a`。当前运行时由一个 DSH Host/Cordis 进程、`deeptop-bridge`、Tauri Bridge Manager 和 React 桌面 UI 组成。UI Runtime 已提供 `deeptop-ui-registry`、受限 `ui.plugin.*` 路由、Scoped Remote/Storage、Client Module 生命周期、错误隔离和受控 `deeptop-plugin://` Bundle 加载。
+`master` 已合并 `feature/desktop-ui-runtime`，合并提交为 `a9177bd53a`。当前运行时由一个 DSH Host/Cordis 进程、`deeptop-bridge`、Tauri Bridge Manager 和 React 桌面 UI 组成。UI Runtime 已提供 `deeptop-ui-registry`、受限 `ui.plugin.*` 路由、Scoped Remote/Storage/Settings、Client Module 生命周期、错误隔离和受控 `deeptop-plugin://` Bundle 加载。
 
-当前真正挂载到主界面的 Slot 包括 `session.context-menu` 和 `conversation.message.actions`；后者已由内置消息注记 Client Plugin 使用。其它 Slot 仍需要宿主组件逐步接入。没有 UI Plugin 时，核心会话流程必须保持不变。
+当前真正挂载到主界面的 Slot 包括 `session.context-menu`、`conversation.message.actions` 和 `settings.sections`；后者由 `SettingsPluginSectionNav`/`SettingsPluginSectionPanel` 承载，一个 `panel` 贡献同时成为设置导航项和内容面板，主程序不再需要为每个插件设置面板写代码。其它 Slot 仍需要宿主组件逐步接入。没有 UI Plugin 时，核心会话流程必须保持不变。
 
 ## 重构目标
 
@@ -62,7 +62,7 @@ Host Service `message-annotations.mjs` 保持注记的 compare-and-set、Session
 | --- | --- | --- |
 | `conversation.message.actions` | Message Feedback、Message Annotations | `messageFeedback`、`messageAnnotations` Remote |
 | `conversation.header.actions` | Plan、Session Stats、Goal | Projection、Plan/Goal Remote |
-| `settings.sections` | Provider、Agent Preset、Skill、插件设置 | Settings、Credentials、LLM、Preset、Skill |
+| `settings.sections` | Provider、Agent Preset、Skill、插件设置 | Settings、Credentials、LLM、Preset、Skill；已挂载 |
 | `inspector.tabs` | Permission、Goal、Subagent、Runtime diagnostics | Projection、Remote、事件 |
 | `composer.actions` | Commands、Plan、Skill、引用候选 | Commands、Session、Skill、Reference Remote |
 
