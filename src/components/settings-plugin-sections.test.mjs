@@ -71,12 +71,32 @@ test("names the nav entry from the contribution and marks the selected section",
   const html = renderToStaticMarkup(createElement(SettingsPluginSectionNav, {
     runtime,
     activeSectionId: "plugin:vendor.prompt-injection:settings",
+    locale: "zh",
     onSelectSection() {},
   }));
   assert.match(html, /提示词注入/);
   // The section id is the nav's own data attribute, so selection is observable.
   assert.match(html, /data-plugin-section="plugin:vendor\.prompt-injection:settings"/);
   assert.match(html, /class="selected"/);
+});
+
+test("resolves a function label against the live locale instead of the activation locale", async () => {
+  const { SettingsPluginSectionNav, SlotRegistry } = await loadComponents();
+  const { renderToStaticMarkup } = require("react-dom/server");
+  // A translated label is a function because activate() runs only once; the nav
+  // must therefore re-read the locale on every render or the section name
+  // freezes in whichever language was active when the plugin loaded.
+  const runtime = { slots: registryWith(SlotRegistry, [
+    panelContribution("vendor.a", "settings", (locale) => locale === "en" ? "Injection" : "提示词注入", () => null),
+  ]) };
+  const render = (locale) => renderToStaticMarkup(createElement(SettingsPluginSectionNav, {
+    runtime,
+    activeSectionId: "general",
+    locale,
+    onSelectSection() {},
+  }));
+  assert.match(render("zh"), /提示词注入/);
+  assert.match(render("en"), /Injection/);
 });
 
 test("renders no nav at all while no plugin contributes a settings panel", async () => {
@@ -93,6 +113,7 @@ test("renders no nav at all while no plugin contributes a settings panel", async
   const html = renderToStaticMarkup(createElement(SettingsPluginSectionNav, {
     runtime,
     activeSectionId: "general",
+    locale: "zh",
     onSelectSection() {},
   }));
   assert.equal(html, "");

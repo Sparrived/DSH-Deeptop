@@ -1479,7 +1479,7 @@
   .subagent-routing-actions small { flex-basis: 100%; margin-right: 0; }
 }
 
-/* ── 全局提示词注入（设置 → 通用） ───────────────────────────── */
+/* ── 全局提示词注入（插件自带设置分区，见 settings.sections） ────── */
 
 .prompt-injection-field { display: grid; gap: 6px; margin-top: 14px; }
 .prompt-injection-field > span { color: var(--ink-muted); font-size: 12px; font-weight: 600; }

@@ -114,6 +114,11 @@
     - id: message-annotations-ui
       name: 'deeptop-bridge/message-annotations-ui'
 
+    # 提示词注入的设置面板：客户端模块通过 scoped settings 读写上面那个命名空间，
+    # 因此主程序不再手写这张卡片。
+    - id: prompt-injection-ui
+      name: 'deeptop-bridge/prompt-injection-ui'
+
     - id: desktop-bridge
       name: 'deeptop-bridge/desktop-bridge'
 

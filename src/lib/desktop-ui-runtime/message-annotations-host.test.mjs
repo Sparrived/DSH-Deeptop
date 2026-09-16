@@ -330,9 +330,9 @@ async function seedSession(dshHome, sessionId, messageId, createdAt) {
   await writeFile(path.join(directory, "session.v2.jsonl.zstd"), Buffer.concat([headerFrame, eventsFrame]));
 }
 
-async function loadMessageAnnotationsClient() {
+async function loadClientModule(file) {
   const compiled = await build({
-    entryPoints: [path.join(root, "src", "lib", "desktop-ui-runtime", "message-annotations-client.tsx")],
+    entryPoints: [path.join(root, "src", "lib", "desktop-ui-runtime", file)],
     bundle: true,
     format: "cjs",
     platform: "node",
@@ -343,6 +343,14 @@ async function loadMessageAnnotationsClient() {
   const requireFromTest = createRequire(import.meta.url);
   new Function("require", "module", "exports", compiled.outputFiles[0].text)(requireFromTest, module, module.exports);
   return module.exports;
+}
+
+function loadMessageAnnotationsClient() {
+  return loadClientModule("message-annotations-client.tsx");
+}
+
+function loadPromptInjectionClient() {
+  return loadClientModule("prompt-injection-client.tsx");
 }
 
 async function invokeAnnotation(host, method, args) {
@@ -408,11 +416,14 @@ test("current desktop Host preserves message annotations across Session switches
     const firstHost = await startHost(runtimeRoot, dshHome);
     hosts.push(firstHost);
     const catalog = await firstHost.request("ui.plugin.list", {});
-    assert.deepEqual(catalog.items.map((item) => item.pluginId), [annotationPluginId]);
+    // 两个自带的客户端插件：消息标注（远程调用）与提示词注入（scoped settings）。
+    // 顺序由注册顺序决定，二者都属于 Deeptop 内嵌的 bridge 包。
+    assert.deepEqual(catalog.items.map((item) => item.pluginId), [annotationPluginId, "deeptop.prompt-injection"]);
     assert.deepEqual(catalog.items[0].capabilities.remotes, [{
       namespace: annotationNamespace,
       methods: ["list", "put", "delete"],
     }]);
+    assert.deepEqual(catalog.items[1].capabilities.settings, ["deeptop-prompt-injection"]);
 
     const putA = await invokeAnnotation(firstHost, "put", {
       sessionId: sessionA.sessionId,
@@ -436,6 +447,7 @@ test("current desktop Host preserves message annotations across Session switches
     const delayedDelivery = new Promise((resolve) => { resolveDelayedDelivery = resolve; });
     const calls = [];
     const clientModule = await loadMessageAnnotationsClient();
+    const injectionModule = await loadPromptInjectionClient();
     runtime = new DesktopUiRuntime({
       request: async (method, payload) => {
         calls.push({ method, payload });
@@ -450,7 +462,7 @@ test("current desktop Host preserves message annotations across Session switches
         return response;
       },
       listen: () => () => undefined,
-      bundledModules: { [annotationEntryId]: async () => clientModule },
+      bundledModules: { [annotationEntryId]: async () => clientModule, "deeptop.prompt-injection/client": async () => injectionModule },
       locale: "en",
       hostActions: { prompt: async () => null, notify: () => undefined },
     });
@@ -521,8 +533,10 @@ test("current desktop Host preserves message annotations across Session switches
     await runtime.handleHostRestart();
     await runtime.refresh();
     assert.equal(runtime.status, "ready", "a missing optional UI plugin must not fail the core runtime");
-    assert.deepEqual(runtime.pluginViews, []);
+    // 只有 message-annotations-ui 被禁用；提示词注入插件不受影响，仍在目录里。
+    assert.deepEqual(runtime.pluginViews.map((view) => view.pluginId), ["deeptop.prompt-injection"]);
     assert.equal(runtime.slots.snapshot("conversation.message.actions").length, 0);
+    assert.equal(runtime.slots.snapshot("settings.sections").length, 1, "the unrelated plugin keeps its settings panel");
     assert.equal(runtime.sessionContext?.sessionId, sessionA.sessionId);
     await assert.rejects(
       invokeAnnotation(thirdHost, "list", { sessionId: sessionA.sessionId }),

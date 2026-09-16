@@ -77,12 +77,22 @@ export interface SlotRenderContext {
   host: UiHostActions;
 }
 
+/**
+ * A contribution label: either a fixed string or a function of the live locale.
+ *
+ * `activate()` runs once, so a label captured from `context.locale` at that
+ * moment freezes across language switches and the nav keeps the old language.
+ * A plugin whose label is translated therefore supplies a function and the host
+ * resolves it while rendering.
+ */
+export type ContributionLabel = string | ((locale: UiLocale) => string);
+
 /** Component-based contribution registered by an activated client module. */
 export interface UiContribution {
   kind: "action" | "badge" | "panel";
   id: string;
   order?: number;
-  label?: string;
+  label?: ContributionLabel;
   title?: string;
   render: ComponentType<SlotRenderContext>;
 }
@@ -94,8 +104,8 @@ export interface RegisteredContribution {
   contributionId: string;
   kind?: UiContribution["kind"];
   order?: number;
-  /** Registrant-supplied label; the settings nav renders it as the section name. */
-  label?: string;
+  /** Registrant-supplied nav label, resolved against the live locale by the settings nav. */
+  label?: ContributionLabel;
   title?: string;
   declarative: DshDeclarativeContribution | null;
   render?: ComponentType<SlotRenderContext>;

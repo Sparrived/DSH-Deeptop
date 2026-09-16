@@ -1,6 +1,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 import type { DesktopUiRuntime } from "../lib/desktop-ui-runtime/client-runtime";
 import type { RegisteredContribution, SlotRenderContext } from "../lib/desktop-ui-runtime/types";
+import type { UiLocale } from "../app/i18n";
 import { contributionSectionId, pluginSectionId, type PluginSectionId } from "../app/settings-section-model";
 import { SlotOutlet } from "./SlotOutlet";
 
@@ -33,12 +34,14 @@ function usePanelContributions(runtime: DesktopUiRuntime): readonly RegisteredCo
 export interface SettingsPluginSectionNavProps {
   runtime: DesktopUiRuntime;
   activeSectionId: string;
+  /** Live locale; a translated plugin label is resolved here, not at activation. */
+  locale: UiLocale;
   /** Only plugin sections are selectable here, so the id is narrowed accordingly. */
   onSelectSection: (sectionId: PluginSectionId) => void;
 }
 
 /** Nav entries contributed by plugins; renders nothing when no plugin ships a panel. */
-export function SettingsPluginSectionNav({ runtime, activeSectionId, onSelectSection }: SettingsPluginSectionNavProps) {
+export function SettingsPluginSectionNav({ runtime, activeSectionId, locale, onSelectSection }: SettingsPluginSectionNavProps) {
   const panels = usePanelContributions(runtime);
   if (panels.length === 0) return null;
   return (
@@ -46,8 +49,11 @@ export function SettingsPluginSectionNav({ runtime, activeSectionId, onSelectSec
       {panels.map((contribution) => {
         const sectionId = contributionSectionId(contribution);
         // `title` names a panel that also renders elsewhere; a settings section
-        // is only ever a nav entry, so `label` is the expected source.
-        const label = contribution.label ?? contribution.title ?? contribution.contributionId;
+        // is only ever a nav entry, so `label` is the expected source. A
+        // function label re-reads the locale on every render, so switching
+        // language retranslates the nav without re-activating the plugin.
+        const written = typeof contribution.label === "function" ? contribution.label(locale) : contribution.label;
+        const label = written ?? contribution.title ?? contribution.contributionId;
         return <button
           key={sectionId}
           type="button"
