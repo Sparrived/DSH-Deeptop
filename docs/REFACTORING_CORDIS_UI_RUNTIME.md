@@ -62,7 +62,7 @@ Host Service `message-annotations.mjs` 保持注记的 compare-and-set、Session
 | --- | --- | --- |
 | `conversation.message.actions` | Message Feedback、Message Annotations | `messageFeedback`、`messageAnnotations` Remote |
 | `conversation.header.actions` | Plan、Session Stats、Goal | Projection、Plan/Goal Remote |
-| `settings.sections` | Provider、Agent Preset、Skill、插件设置 | Settings、Credentials、LLM、Preset、Skill；已挂载 |
+| `settings.sections` | 插件设置（全局提示词注入已迁入）、Provider、Agent Preset、Skill | Settings、Credentials、LLM、Preset、Skill；已挂载；只有 schema 形态的命名空间适合迁移 |
 | `inspector.tabs` | Permission、Goal、Subagent、Runtime diagnostics | Projection、Remote、事件 |
 | `composer.actions` | Commands、Plan、Skill、引用候选 | Commands、Session、Skill、Reference Remote |
 

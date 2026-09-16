@@ -88,7 +88,7 @@
 
 - [x] 输入区 GoalBar 与常驻 Goal 摘要条（`CurrentGoalBar`）。
 - [x] Agent Preset 完整管理：新建、复制、删除、查看/打开、新会话 chip 与缺失 Preset 迁移。
-- [x] 全局提示词注入：`cordis/prompt-injection`（`deeptop-prompt-injection`）注册设置命名空间与一个 system prompt 段落，「设置 → 通用」新增「全局提示词注入」卡片（`PromptInjectionPanel` + `prompt-injection-model`）。该能力由桌面端 Profile 自带，WebUI 无对应项，不计入对齐结果。
+- [x] 全局提示词注入：`cordis/prompt-injection`（`deeptop-prompt-injection`）注册设置命名空间与一个 system prompt 段落；`cordis/prompt-injection-ui` + `prompt-injection-client` 自带本地化设置分区，经 `settings.sections` 呈现并复用 `prompt-injection-model` 做路径操作。该能力由桌面端 Profile 自带，WebUI 无对应项，不计入对齐结果。
 - [x] 可持久化右栏 Dock：队列、终端（原生 PTY）、子 Agent 书签与 Git 提交图谱。
 - [x] 每消息统计条（TTFT/Decode 速度）与 Token/上下文仪表盘，`sessionStats` 完整字段接入（turns/steps/llmMs/toolMs/ttft/decode）。
 - [x] 消息内路径/连接识别卡片、Diff 统计卡片与文件看板；当前会话权限弹窗与新会话默认权限。

@@ -149,7 +149,7 @@ Host function plugin 使用命名导出 `name`、`inject`、`apply`，不要添�
 ### P1：按 Slot 扩展官方领域 UI
 
 1. `conversation.header.actions`：先迁移 Session Stats 和 Plan 的只读状态入口；Remote 写操作仍通过官方命令/Projection。
-2. ✅ `settings.sections` 已挂载：`panel` 贡献同时成为设置导航项和内容面板，`capabilities.settings` 声明的命名空间通过 `ui.plugin.settings.describe`/`ui.plugin.settings.mutate` 提供脱敏读与 path-op 写。后续继续把 Provider、Agent Preset、Skill 的内置入口迁到该路径；凭据继续由 Host 保管，React 不读取密钥。
+2. ✅ `settings.sections` 已挂载：`panel` 贡献同时成为设置导航项和内容面板，`capabilities.settings` 声明的命名空间通过 `ui.plugin.settings.describe`/`ui.plugin.settings.mutate` 提供脱敏读与 path-op 写。全局提示词注入已迁到该路径（`deeptop.prompt-injection` 自带本地化面板），主程序不再手写该卡片。Provider、Agent Preset、Skill 的界面不是 schema 形态且依赖专用选择器与 bridge 调用，继续留在主程序，不强行搬迁；凭据继续由 Host 保管，React 不读取密钥。
 3. `composer.actions`：迁移 Commands、Skill 和引用候选辅助入口；输入文本、附件和发送模式仍由 Composer 核心拥有。
 4. `inspector.tabs`：迁移 Goal、Subagent 和 Runtime diagnostics 的可选面板；危险操作、取消和失败反馈必须使用主应用语义动作。
 5. `session.row.trailing`：在置顶、标签和统计等确有独立演化需求时，再迁移会话行 Badge；不要让插件接管主列表排序和拖拽算法。

@@ -754,6 +754,10 @@ interface ScopedSettings {
 
 客户端 facade 在发请求前先用同一份声明做本地拒绝，因此误声明的插件不会产生任何 wire traffic。`describe` 走的是 `redactSecrets` 读取，`role('secret')` 字段只报告 `set`，值不进入 WebView。写入复用官方 settings controller 的 `mutate`，语义（按存储值解析 path op、`expectedRevision` 过期报 `settings/conflict`）不重新实现。
 
+插件要用自己的界面（而不是通用 schema 表单）承载设置时，客户端模块在 `settings.sections` 注册 `kind: 'panel'` 贡献即可：该贡献同时成为设置导航项和选中后的内容列，主程序不需要出现插件名字。`label` 可以是字符串或 `(locale) => string` 函数；因为 `activate()` 只在插件加载时跑一次，而 Slot 快照在语言切换时不会重建，需要翻译的标签必须用函数形式，由导航在每次渲染时用当前 locale 求值。
+
+完整例子是全局提示词注入：`cordis/prompt-injection` 拥有 `deeptop-prompt-injection` 命名空间并把它注入每个 Session 的 system prompt，`cordis/prompt-injection-ui` 声明 `settings.sections` 与 `capabilities.settings`，`prompt-injection-client.tsx` 渲染本地化卡片并通过 `ctx.settings` 读写。主程序不引用该命名空间，也不再手写对应面板。
+
 ---
 
 ## 8. Bridge 协议与路由
@@ -1849,7 +1853,7 @@ export function apply(ctx) {
 当前实现已经完成 Slot Registry、`SessionSidebar` context menu、`conversation.message.actions`、`settings.sections`、`deeptop-ui-registry`、受限 `ui.plugin.invoke`/`ui.plugin.settings.*`、消息注记组件/冲突测试、真实 desktop Host 的 Session switching/DSH restart 验收，以及受控资源协议。后续按以下顺序扩展：
 
 1. 接入 `conversation.header.actions`，先迁移 Session Stats 和 Plan 的只读入口；
-2. 继续把内置设置入口（Provider、Agent Preset、Skill）迁到 `settings.sections` 的插件贡献路径，逐步删除主程序里的手写面板；
+2. 把剩余的内置设置入口逐个迁到 `settings.sections`：只有 schema 形态的命名空间适合（全局提示词注入已完成，由 `deeptop.prompt-injection` 插件自带面板承载）；Provider、Agent Preset、Skill 的设置界面不是 schema 形态，依赖专用 bridge 调用或选择器，继续由主程序手写，不强行搬迁；
 3. 接入 `composer.actions`，迁移 Commands、Skill 和引用候选的辅助入口；
 4. 接入 `inspector.tabs`，迁移 Goal、Subagent 和 Runtime diagnostics 的可选面板；
 5. 外部第三方 Bundle 继续使用受控资源协议；不信任插件仍需 iframe/独立 WebView 隔离，不扩大主 WebView 权限。
