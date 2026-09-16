@@ -42,6 +42,20 @@ export type DeactivateReason =
   | "incompatible"
   | "manual";
 
+/**
+ * Settings-section facts supplied only to `settings.sections` contributions.
+ *
+ * One contribution renders twice — as a nav entry and, when selected, as the
+ * content panel — so the section id is the shared identity between the two
+ * render sites.
+ */
+export interface SettingsSectionContext {
+  /** Section id currently shown in the content column; null when none has been selected. */
+  activeSectionId: string | null;
+  /** Select one settings section, whether built-in or plugin-contributed. */
+  selectSection: (id: string) => void;
+}
+
 /** Slot data and the narrow host UI facade passed to every contribution. */
 export interface SlotRenderContext {
   /** Target session of the row / menu / header the outlet lives in; null on global slots. */
@@ -52,6 +66,8 @@ export interface SlotRenderContext {
   sessionGeneration: number;
   /** Message target for conversation.message.actions; absent on other slots. */
   message?: MessageUiContext;
+  /** Settings-section selection; absent on every slot but `settings.sections`. */
+  settings?: SettingsSectionContext;
   /** Locale and native prompt/notice operations supplied by the host surface. */
   locale: UiLocale;
   host: UiHostActions;
@@ -74,6 +90,9 @@ export interface RegisteredContribution {
   contributionId: string;
   kind?: UiContribution["kind"];
   order?: number;
+  /** Registrant-supplied label; the settings nav renders it as the section name. */
+  label?: string;
+  title?: string;
   declarative: DshDeclarativeContribution | null;
   render?: ComponentType<SlotRenderContext>;
 }

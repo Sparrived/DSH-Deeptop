@@ -1217,6 +1217,38 @@ test('a disabled Runtime can re-enable and discover a fresh plugin catalog', asy
   assert.equal(runtime.slots.snapshot('session.context-menu').length, 0)
 })
 
+test('a settings panel contribution carries its label to the settings slot', async () => {
+  const { runtime } = fakeRuntime({
+    items: [descriptor({
+      slots: ['settings.sections'],
+      client: { entryId: 'example.session-pins/client', format: 'esm', sdkVersion: '^1.0.0' },
+    })],
+    modules: {
+      'example.session-pins/client': async () => ({
+        activate(context) {
+          context.ui.register('settings.sections', {
+            kind: 'panel',
+            id: 'settings',
+            label: '提示词注入',
+            order: 10,
+            render: () => null,
+          })
+        },
+      }),
+    },
+  })
+  await runtime.start()
+  const panels = runtime.slots.snapshot('settings.sections')
+  assert.equal(panels.length, 1)
+  // The settings nav names the section from the contribution itself, so the
+  // app never hardcodes a plugin's display text.
+  assert.equal(panels[0].kind, 'panel')
+  assert.equal(panels[0].label, '提示词注入')
+  assert.equal(panels[0].pluginId, 'example.session-pins')
+  assert.equal(panels[0].contributionId, 'settings')
+  assert.equal(typeof panels[0].render, 'function')
+})
+
 test('catalog failures keep the host app functional and report diagnostics', async () => {
   const runtime = new DesktopUiRuntime({
     request: async () => { throw new Error('bridge down') },

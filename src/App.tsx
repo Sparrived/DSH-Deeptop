@@ -45,6 +45,7 @@ import { PluginInstallDialog, type PluginInstallDraft } from "./components/Plugi
 import { useProviderSettings } from "./app/useProviderSettings";
 import { readSubagentRouting, subagentRoutingOps, SUBAGENT_MODEL_SELECTION_NS, SUBAGENT_ROUTING_NS, type SubagentRoutingSave } from "./app/subagent-routing-model";
 import { PROMPT_INJECTION_NS, promptInjectionOps, readPromptInjection } from "./app/prompt-injection-model";
+import { acceptedSettingsSectionId, isPluginSectionId } from "./app/settings-section-model";
 import { useToolSettings } from "./app/useToolSettings";
 import { useWindowControls } from "./app/useWindowControls";
 import { normalizeWindowBehavior } from "./app/window-behavior";
@@ -181,6 +182,7 @@ import { capabilityNotice, capabilityStatus } from "./app/capability-model";
 import { useDesktopUiRuntime } from "./app/use-ui-runtime";
 import { toSessionUiContext } from "./app/ui-plugin-model";
 import { SlotOutlet } from "./components/SlotOutlet";
+import { SettingsPluginSectionNav, SettingsPluginSectionPanel } from "./components/SettingsPluginSections";
 import {
   composerReferenceText,
   subagentDisplayName,
@@ -5339,6 +5341,16 @@ function AppContent() {
     void openConnectionUrl(modelPricingSourceUrl).catch((error) => setErrorNotice(errorText(error, locale)));
   }
 
+  /**
+   * Select a settings section on behalf of plugin code. A plugin may name a
+   * built-in section or another panel's id; anything else is ignored so the
+   * content column never ends up with no matching section.
+   */
+  function selectPluginSection(id: string) {
+    const accepted = acceptedSettingsSectionId(id);
+    if (accepted) setSettingsSection(accepted);
+  }
+
   function openSettings() {
     if (showInspector) {
       closeSettings();
@@ -5859,6 +5871,8 @@ function AppContent() {
                    <button className={settingsSection === "plugins" ? "selected" : ""} onClick={() => setSettingsSection("plugins")}>
                     <strong>{t("settings.plugins", locale)}</strong><small>{t("settings.plugins.hint", locale)}</small>
                   </button>
+                  {/* 插件贡献的设置分区：导航项与内容面板同源，均由 deeptop-ui-registry 声明。 */}
+                  <SettingsPluginSectionNav runtime={uiRuntime} activeSectionId={settingsSection} onSelectSection={setSettingsSection} />
                 <button className={settingsSection === "about" ? "selected" : ""} onClick={() => setSettingsSection("about")}>
                      <strong>{t("settings.about", locale)}</strong><small>{t("settings.about.hint", locale)}</small>
                    </button>
@@ -6056,6 +6070,13 @@ function AppContent() {
                      onRestart={() => void restartRuntime()}
                     onTogglePlugin={(entryId) => setExpandedPlugin((current) => current === entryId ? null : entryId)}
                     onOpenNamespace={openSettingsNamespace}
+                  />}
+
+                  {isPluginSectionId(settingsSection) && <SettingsPluginSectionPanel
+                    runtime={uiRuntime}
+                    activeSectionId={settingsSection}
+                    context={{ session: null, activeSessionId, sessionGeneration: uiRuntime.sessionGeneration, settings: { activeSectionId: settingsSection, selectSection: selectPluginSection }, locale, host: uiHostActions }}
+                    onActionError={setErrorNotice}
                   />}
                 </section>
                 {/* settings JSON popup is rendered below the settings sheet */}

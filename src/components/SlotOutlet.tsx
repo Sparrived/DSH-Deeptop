@@ -16,6 +16,11 @@ export interface SlotOutletProps {
    * "message-badge": badge contributions render beside a message.
    */
   variant?: "menu-item" | "inline" | "message-actions" | "message-badge";
+  /**
+   * Render only the contributions this predicate accepts. Settings sections
+   * use it to mount just the selected panel from a slot that declares many.
+   */
+  filter?: (contribution: RegisteredContribution) => boolean;
   onActionError?: (message: string) => void;
 }
 
@@ -25,12 +30,13 @@ export interface SlotOutletProps {
  * host-declared contributions render through native generic controls so their
  * invocations stay on the restricted ui.plugin.invoke route.
  */
-export function SlotOutlet({ runtime, slot, context, variant = "menu-item", onActionError }: SlotOutletProps) {
-  const contributions = useSyncExternalStore(
+export function SlotOutlet({ runtime, slot, context, variant = "menu-item", filter, onActionError }: SlotOutletProps) {
+  const snapshot = useSyncExternalStore(
     (listener) => runtime.slots.subscribe(listener),
     () => runtime.slots.snapshot(slot),
     () => runtime.slots.snapshot(slot),
   );
+  const contributions = filter ? snapshot.filter(filter) : snapshot;
   if (contributions.length === 0) return null;
 
   return (

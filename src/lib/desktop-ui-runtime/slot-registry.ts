@@ -70,6 +70,8 @@ export class SlotRegistry {
       contributionId: contribution.id,
       kind: contribution.kind,
       ...(contribution.order !== undefined ? { order: contribution.order } : {}),
+      ...(contribution.label !== undefined ? { label: contribution.label } : {}),
+      ...(contribution.title !== undefined ? { title: contribution.title } : {}),
       declarative: null,
       render: contribution.render,
     };

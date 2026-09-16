@@ -311,7 +311,14 @@ export type TodoItem = {
 
 export type SurfaceTab = "runtime" | "presets" | "skills" | "subagents" | "goal" | "settings";
 export type AppearanceSection = "theme" | "background" | "typography" | "css";
-export type SettingsSection = "appearance" | "dock" | "general" | "keyboard" | "models" | "plugins" | "presets" | "tools" | "logs" | "about";
+/** Built-in settings sections owned by the desktop app. */
+export type BuiltinSettingsSection = "appearance" | "dock" | "general" | "keyboard" | "models" | "plugins" | "presets" | "tools" | "logs" | "about";
+/**
+ * The selected settings section. A plugin panel is addressed by its own
+ * composite id (`plugin:<pluginId>:<contributionId>`), which always carries the
+ * prefix so it can never collide with a built-in section name.
+ */
+export type SettingsSection = BuiltinSettingsSection | `plugin:${string}`;
 
 export type SettingsDraft = {
   ns: string;
