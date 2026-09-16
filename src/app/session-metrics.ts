@@ -43,6 +43,19 @@ export function formatTokensPerSecond(value: number): string {
   return speed >= 10 ? String(Math.round(speed)) : (Math.round(speed * 10) / 10).toFixed(1);
 }
 
+/**
+ * 文本体积：把工具结果/历史内容的 UTF-16 长度折算成易读的 K/M 记法。
+ *
+ * 这是上下文注入量的代理指标（字符数），不是精确字节数——一条结果里双语
+ * 与代码混排时字节数会偏离，但用于「哪个工具把上下文撑大了」的排序足够。
+ */
+export function formatMetricVolume(chars: number | undefined): string {
+  if (chars === undefined || !Number.isFinite(chars) || chars <= 0) return "—";
+  if (chars >= 1_000_000) return `${(chars / 1_000_000).toFixed(1)}M`;
+  if (chars >= 1_000) return `${Math.round(chars / 1_000)}K`;
+  return String(Math.round(chars));
+}
+
 /** 仪表盘胶囊：会话运行时间与速度。 */
 export function timingMetricRows(stats: SessionStats, runningMs: number): SessionMetricRow[] {
   const decodeSpeed = stats.decodeMs && stats.decodeTokens

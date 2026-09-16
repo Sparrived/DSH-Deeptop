@@ -210,6 +210,72 @@ export type SessionDashboardData = {
   token: TokenUsageDashboardData;
 };
 
+/** 轮次的最终结局；`open` 表示历史里还没有对应的 `turn/end`。 */
+export type SessionTurnOutcome =
+  | "completed"
+  | "error"
+  | "cancelled"
+  | "max-tokens"
+  | "blocked"
+  | "interrupted"
+  | "open";
+
+/** 单个工具的成本画像：调用数、失败数与注入上下文的体积。 */
+export type SessionCostToolRow = {
+  name: string;
+  calls: number;
+  errors: number;
+  /** 失败率百分比（0–100）；`calls` 为 0 时是 0。 */
+  errorRate: number;
+  /** 该工具结果文本的 UTF-16 长度总和，用于估算上下文注入量。 */
+  resultChars: number;
+  /** 调用到结果之间的累计耗时；缺少配对时为 0。 */
+  durationMs: number;
+};
+
+/** 单轮的结局与实际工作量，用于定位「做完却被丢弃」的轮次。 */
+export type SessionCostTurnRow = {
+  key: string;
+  turn?: number;
+  steps: number;
+  toolCalls: number;
+  toolFailures: number;
+  retries: number;
+  outcome: SessionTurnOutcome;
+  durationMs?: number;
+};
+
+/** 被重复执行的同一条 shell 命令。 */
+export type SessionCostCommandRow = {
+  command: string;
+  calls: number;
+};
+
+/** 会话成本计量投影。 */
+export type SessionCostData = {
+  tools: SessionCostToolRow[];
+  turns: SessionCostTurnRow[];
+  toolCalls: number;
+  toolFailures: number;
+  toolErrorRate: number;
+  /** `llm/retry` 与 `llm/retry-started` 事件总数。 */
+  retries: number;
+  /** 至少发生过一次重试的 `turn/step` 坐标数，即被重试拖慢的步数。 */
+  retriedSteps: number;
+  /** 全部工具结果文本的 UTF-16 长度总和。 */
+  resultChars: number;
+  /** 以 error 结束的轮次数、其中的步数与工具调用数。 */
+  wastedTurns: number;
+  wastedSteps: number;
+  wastedToolCalls: number;
+  distinctCommands: number;
+  repeatedCommands: SessionCostCommandRow[];
+  /** 重复命令的调用总数（含首次）。 */
+  repeatedCommandCalls: number;
+  /** 重复调用在这些命令中占的比例（0–100）。 */
+  repeatedCommandRate: number;
+};
+
 export type SubagentSession = {
   address: DshSubagentAddress;
   history: DshHistoryEntry[];

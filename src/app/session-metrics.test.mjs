@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   formatMetricDuration,
   formatMetricTokens,
+  formatMetricVolume,
   formatTokensPerSecond,
   timingMetricRows,
   usageMetricRows,
@@ -40,6 +41,11 @@ test("formats durations without inventing a value", () => {
   assert.equal(formatMetricDuration(125_000), "2m 05s");
   assert.equal(formatMetricTokens(undefined), "—");
   assert.equal(formatMetricTokens(2_400), "2.4K");
+  assert.equal(formatMetricVolume(undefined), "—");
+  assert.equal(formatMetricVolume(0), "—");
+  assert.equal(formatMetricVolume(820), "820");
+  assert.equal(formatMetricVolume(18_200), "18K");
+  assert.equal(formatMetricVolume(2_450_000), "2.5M");
 });
 
 test("keeps one decimal below 10 tok/s and rounds above", () => {

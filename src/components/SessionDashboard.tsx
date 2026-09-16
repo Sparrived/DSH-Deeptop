@@ -1,16 +1,20 @@
 import { useMemo, useState, type CSSProperties } from "react";
 import type {
   SessionActivitySignal,
+  SessionCostData,
+  SessionCostTurnRow,
   SessionDashboardData,
   SessionStats,
+  SessionTurnOutcome,
   SessionTurnPoint,
   TokenUsageDashboardData,
   TokenUsagePoint,
 } from "../app/model-types";
 import { displayTitle, formatTokens } from "../app/model";
+import { sessionCost } from "../app/session-cost";
 import { sessionDashboard } from "../app/session-dashboard";
 import { formatSessionElapsed } from "../app/session-events";
-import { formatMetricDuration, formatMetricTokens, formatTokensPerSecond } from "../app/session-metrics";
+import { formatMetricDuration, formatMetricTokens, formatMetricVolume, formatTokensPerSecond } from "../app/session-metrics";
 import { tokenUsagePercent, tokenUsageTotals } from "../app/token-usage";
 import { estimateTokenCost, formatUsd, modelPricing, modelPricingSnapshot } from "../app/model-pricing";
 import type { DshHistoryEntry, DshSessionSummary } from "../lib/desktop";
@@ -195,6 +199,148 @@ function EmptyTokenChart({ locale }: { locale: UiLocale }) {
   return <div className="token-empty-chart"><span className="token-empty-grid" /><strong>{t("token.emptyTitle", locale)}</strong><p>{t("token.emptyHint", locale)}</p></div>;
 }
 
+/** 轮次结局对应的文案键：与 sidebar 的 indicator 语义保持一致。 */
+const OUTCOME_LABELS: Record<SessionTurnOutcome, string> = {
+  completed: "sessionDashboard.cost.outcome.completed",
+  error: "sessionDashboard.cost.outcome.error",
+  cancelled: "sessionDashboard.cost.outcome.cancelled",
+  "max-tokens": "sessionDashboard.cost.outcome.maxTokens",
+  blocked: "sessionDashboard.cost.outcome.blocked",
+  interrupted: "sessionDashboard.cost.outcome.interrupted",
+  open: "sessionDashboard.cost.outcome.open",
+};
+
+/** 工具成本表最多显示的行数；其余折叠为一行合计，避免长会话撑爆面板。 */
+const COST_TOOL_ROWS = 8;
+/** 重复命令清单最多显示的行数。 */
+const COST_COMMAND_ROWS = 6;
+
+function ToolCostTable({ cost, locale }: { cost: SessionCostData; locale: UiLocale }) {
+  const rows = cost.tools.slice(0, COST_TOOL_ROWS);
+  const hidden = cost.tools.length - rows.length;
+  if (cost.toolCalls === 0) {
+    return <div className="session-empty-activity"><strong>{t("sessionDashboard.cost.toolsEmptyTitle", locale)}</strong><p>{t("sessionDashboard.cost.toolsEmptyHint", locale)}</p></div>;
+  }
+  const maxChars = Math.max(1, ...rows.map((row) => row.resultChars));
+  return <>
+    <div className="session-cost-table session-cost-tool-table" role="table" aria-label={t("sessionDashboard.cost.toolsAria", locale)}>
+      <div className="session-cost-row session-cost-head" role="row">
+        <span role="columnheader">{t("sessionDashboard.cost.column.tool", locale)}</span>
+        <span role="columnheader">{t("sessionDashboard.cost.column.calls", locale)}</span>
+        <span role="columnheader">{t("sessionDashboard.cost.column.time", locale)}</span>
+        <span role="columnheader">{t("sessionDashboard.cost.column.errors", locale)}</span>
+        <span role="columnheader">{t("sessionDashboard.cost.column.payload", locale)}</span>
+      </div>
+      {rows.map((row) => <div className="session-cost-row" role="row" key={row.name}>
+        <span className="session-cost-name" role="cell" title={row.name}>{row.name}</span>
+        <span role="cell">{formatTokens(row.calls)}</span>
+        <span role="cell" className="session-cost-time">{formatMetricDuration(row.durationMs)}</span>
+        <span role="cell" className={row.errors > 0 ? "session-cost-error" : undefined}>
+          {row.errors > 0 ? `${formatTokens(row.errors)} · ${Math.round(row.errorRate)}%` : "0"}
+        </span>
+        <span className="session-cost-volume" role="cell">
+          <i style={{ width: `${tokenUsagePercent(row.resultChars, maxChars)}%` }} />
+          <b>{formatMetricVolume(row.resultChars)}</b>
+        </span>
+      </div>)}
+    </div>
+    {hidden > 0 && <small className="session-cost-more">{t("sessionDashboard.cost.moreTools", locale, { count: hidden, calls: formatTokens(cost.tools.slice(COST_TOOL_ROWS).reduce((n, row) => n + row.calls, 0)) })}</small>}
+  </>;
+}
+
+function RepeatedCommands({ cost, locale }: { cost: SessionCostData; locale: UiLocale }) {
+  if (cost.repeatedCommands.length === 0) {
+    return <div className="session-cost-note"><strong>{t("sessionDashboard.cost.commandsEmptyTitle", locale)}</strong><p>{t("sessionDashboard.cost.commandsEmptyHint", locale, { count: formatTokens(cost.distinctCommands) })}</p></div>;
+  }
+  const rows = cost.repeatedCommands.slice(0, COST_COMMAND_ROWS);
+  const hidden = cost.repeatedCommands.length - rows.length;
+  return <>
+    <ul className="session-cost-commands">
+      {rows.map((row) => <li key={row.command} title={row.command}>
+        <b>{row.calls}×</b>
+        <code>{row.command}</code>
+      </li>)}
+    </ul>
+    {hidden > 0 && <small className="session-cost-more">{t("sessionDashboard.cost.moreCommands", locale, { count: hidden })}</small>}
+  </>;
+}
+
+/** 轮次结局条最多渲染的格数：超出时只保留最近的一段，避免长会话堆出上千个节点。 */
+const OUTCOME_STRIP_CELLS = 80;
+
+function TurnOutcomeStrip({ cost, locale }: { cost: SessionCostData; locale: UiLocale }) {
+  const closed = cost.turns.filter((turn) => turn.outcome !== "open");
+  if (closed.length === 0) return null;
+  const cells = closed.length > OUTCOME_STRIP_CELLS ? closed.slice(-OUTCOME_STRIP_CELLS) : closed;
+  return <div className="session-cost-outcomes" role="img" aria-label={t("sessionDashboard.cost.outcomeAria", locale, {
+    wasted: cost.wastedTurns,
+    total: closed.length,
+  })}>
+    {closed.length > cells.length && <i className="session-cost-outcomes-more" title={t("sessionDashboard.cost.outcomeTruncated", locale, { count: closed.length - cells.length })} />}
+    {cells.map((turn: SessionCostTurnRow) => <i
+      key={turn.key}
+      className={turn.outcome}
+      title={t("sessionDashboard.cost.turnTitle", locale, {
+        turn: turn.turn ?? 0,
+        outcome: t(OUTCOME_LABELS[turn.outcome], locale),
+        steps: turn.steps,
+        calls: turn.toolCalls,
+      })}
+    />)}
+  </div>;
+}
+
+/**
+ * 会话成本计量面板：回答「这次会话贵在哪、浪费在哪」。
+ *
+ * 概览面板给出总量，这里给出归因：工具失败集中在哪、重试拖慢了多少步、
+ * 哪些命令被重复执行、哪些轮次以 error 结束（其中的工作全部作废）。
+ */
+function CostPanel({ cost, locale }: { cost: SessionCostData; locale: UiLocale }) {
+  const toolSuccess = cost.toolCalls > 0 ? Math.max(0, 100 - cost.toolErrorRate) : undefined;
+  // 只有已结束的轮次才有结局可言；全部仍在进行时没有可比较的分母。
+  const closedTurns = cost.turns.filter((turn) => turn.outcome !== "open").length;
+  const wastedShare = closedTurns > 0 ? (cost.wastedTurns / closedTurns) * 100 : 0;
+  return <div className="session-panel session-cost-panel">
+    <div className="session-panel-heading">
+      <div><span>{t("sessionDashboard.cost.kicker", locale)}</span><h3>{t("sessionDashboard.cost.title", locale)}</h3></div>
+      <b>{t("sessionDashboard.cost.headline", locale, { calls: formatTokens(cost.toolCalls), tools: cost.tools.length })}</b>
+    </div>
+
+    <div className="session-cost-metrics">
+      <Metric label={t("sessionDashboard.cost.metric.toolErrors", locale)} value={cost.toolCalls > 0 ? `${Math.round(cost.toolErrorRate)}%` : "—"} detail={t("sessionDashboard.cost.metric.toolErrorsDetail", locale, { errors: formatTokens(cost.toolFailures), calls: formatTokens(cost.toolCalls), success: toolSuccess === undefined ? "—" : Math.round(toolSuccess) })} tone={cost.toolFailures > 0 ? COLORS.output : COLORS.cacheRead} />
+      <Metric label={t("sessionDashboard.cost.metric.retries", locale)} value={formatTokens(cost.retries)} detail={t("sessionDashboard.cost.metric.retriesDetail", locale, { steps: formatTokens(cost.retriedSteps) })} tone={COLORS.reasoning} />
+      <Metric label={t("sessionDashboard.cost.metric.wastedTurns", locale)} value={formatTokens(cost.wastedTurns)} detail={t("sessionDashboard.cost.metric.wastedTurnsDetail", locale, { steps: formatTokens(cost.wastedSteps), calls: formatTokens(cost.wastedToolCalls) })} tone={COLORS.output} />
+      <Metric label={t("sessionDashboard.cost.metric.rework", locale)} value={cost.repeatedCommandCalls > 0 ? `${Math.round(cost.repeatedCommandRate)}%` : "—"} detail={t("sessionDashboard.cost.metric.reworkDetail", locale, { repeats: formatTokens(cost.repeatedCommandCalls), commands: formatTokens(cost.distinctCommands) })} tone={COLORS.cacheWrite} />
+    </div>
+
+    <div className="session-cost-outcome-block">
+      <div className="session-cost-outcome-head">
+        <span className="session-section-label">{t("sessionDashboard.cost.outcomeLabel", locale)}</span>
+        <small>{t("sessionDashboard.cost.outcomeDetail", locale, { share: Math.round(wastedShare) })}</small>
+      </div>
+      <TurnOutcomeStrip cost={cost} locale={locale} />
+      <div className="session-time-legend session-cost-outcome-legend">
+        <span><i className="completed" />{t("sessionDashboard.cost.outcome.completed", locale)}</span>
+        <span><i className="error" />{t("sessionDashboard.cost.outcome.error", locale)}</span>
+        <span><i className="cancelled" />{t("sessionDashboard.cost.outcome.cancelled", locale)}</span>
+        <span><i className="interrupted" />{t("sessionDashboard.cost.outcome.interrupted", locale)}</span>
+      </div>
+    </div>
+
+    <div className="session-cost-columns">
+      <div className="session-cost-column">
+        <span className="session-section-label">{t("sessionDashboard.cost.toolsLabel", locale)}</span>
+        <ToolCostTable cost={cost} locale={locale} />
+      </div>
+      <div className="session-cost-column">
+        <span className="session-section-label">{t("sessionDashboard.cost.commandsLabel", locale)}</span>
+        <RepeatedCommands cost={cost} locale={locale} />
+      </div>
+    </div>
+  </div>;
+}
+
 export function SessionDashboard({
   entries,
   sessionStats,
@@ -220,6 +366,7 @@ export function SessionDashboard({
     const recentPoints = data.token.points.slice(-8);
     return { ...data.token, points: recentPoints, totals: tokenUsageTotals(recentPoints) };
   }, [data.token, range]);
+  const cost = useMemo(() => sessionCost(entries), [entries]);
   const points = visibleTokenData.points;
   const max = Math.max(1, ...points.map((point) => point.totalTokens));
   const totals = visibleTokenData.totals;
@@ -253,6 +400,12 @@ export function SessionDashboard({
       <div className="session-panel session-activity-panel"><div className="session-panel-heading"><div><span>{t("sessionDashboard.activity.kicker", locale)}</span><h3>{t("sessionDashboard.activity.title", locale)}</h3></div><b>{t("sessionDashboard.activity.recent", locale, { count: Math.min(8, data.turns.length) })}</b></div><div className="session-signal-legend"><span><i className="user" />{t("sessionDashboard.signal.user", locale)}</span><span><i className="assistant" />{t("sessionDashboard.signal.assistant", locale)}</span><span><i className="tool" />{t("sessionDashboard.signal.tool", locale)}</span><span><i className="error" />{t("sessionDashboard.signal.error", locale)}</span></div><TurnActivity turns={data.turns} locale={locale} /></div>
       <TimingPanel data={data} sessionStats={sessionStats} locale={locale} />
     </div>
+
+    <div className="session-section-head">
+      <div><span>{t("sessionDashboard.cost.sectionKicker", locale)}</span><h3>{t("sessionDashboard.cost.sectionTitle", locale)}</h3><p>{t("sessionDashboard.cost.sectionSubtitle", locale)}</p></div>
+    </div>
+
+    <CostPanel cost={cost} locale={locale} />
 
     <div className="session-section-head">
       <div><span>{t("sessionDashboard.tokens.kicker", locale)}</span><h3>{t("sessionDashboard.tokens.title", locale)}</h3><p>{t("sessionDashboard.tokens.subtitle", locale)}</p></div>

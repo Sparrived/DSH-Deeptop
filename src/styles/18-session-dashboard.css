@@ -1028,6 +1028,227 @@
   white-space: nowrap;
 }
 
+/* ── 会话成本计量面板 ─────────────────────────────────────────────────────── */
+
+.session-cost-panel {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+}
+
+.session-cost-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--paper) 86%, transparent);
+}
+
+.session-cost-metrics .session-metric + .session-metric {
+  border-left: 1px solid var(--line);
+}
+
+.session-cost-outcome-block {
+  display: grid;
+  gap: 9px;
+}
+
+.session-cost-outcome-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.session-cost-outcome-head small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.session-cost-outcomes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.session-cost-outcomes i {
+  display: block;
+  width: 10px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--line-strong);
+}
+
+.session-cost-outcomes i.completed {
+  background: color-mix(in srgb, var(--accent) 55%, var(--line));
+}
+
+.session-cost-outcomes i.error {
+  background: var(--danger, var(--accent));
+}
+
+.session-cost-outcomes i.cancelled {
+  background: var(--warning);
+}
+
+.session-cost-outcomes i.interrupted,
+.session-cost-outcomes i.blocked {
+  background: color-mix(in srgb, var(--warning) 55%, var(--line));
+}
+
+.session-cost-outcomes i.max-tokens {
+  background: color-mix(in srgb, var(--accent) 30%, var(--line));
+}
+
+.session-cost-outcomes i.session-cost-outcomes-more {
+  width: 5px;
+  background: repeating-linear-gradient(180deg, var(--line-strong) 0 3px, transparent 3px 6px);
+}
+
+.session-cost-outcome-legend i.completed {
+  background: color-mix(in srgb, var(--accent) 55%, var(--line));
+}
+
+.session-cost-outcome-legend i.error {
+  background: var(--danger, var(--accent));
+}
+
+.session-cost-outcome-legend i.cancelled {
+  background: var(--warning);
+}
+
+.session-cost-outcome-legend i.interrupted {
+  background: color-mix(in srgb, var(--warning) 55%, var(--line));
+}
+
+.session-cost-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.session-cost-column {
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  min-width: 0;
+}
+
+.session-cost-table {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.session-cost-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) 44px 58px 74px minmax(60px, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 5px 7px;
+  border-radius: 5px;
+  font: 500 10px var(--mono);
+  color: var(--ink);
+}
+
+.session-cost-row:nth-child(odd):not(.session-cost-head) {
+  background: color-mix(in srgb, var(--line) 22%, transparent);
+}
+
+.session-cost-head {
+  color: var(--muted);
+  font: 600 8px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.session-cost-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-cost-error {
+  color: var(--danger, var(--accent));
+  font-weight: 600;
+}
+
+.session-cost-volume {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.session-cost-volume i {
+  display: block;
+  height: 5px;
+  min-width: 2px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+
+.session-cost-volume b {
+  color: var(--muted);
+  font: 500 9px var(--mono);
+  white-space: nowrap;
+}
+
+.session-cost-more {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.session-cost-commands {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.session-cost-commands li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 7px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--line) 22%, transparent);
+}
+
+.session-cost-commands b {
+  flex: none;
+  color: var(--accent);
+  font: 650 10px var(--mono);
+}
+
+.session-cost-commands code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font: 500 10px var(--mono);
+}
+
+.session-cost-note strong {
+  display: block;
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.session-cost-note p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
 @media (max-width: 1080px) {
   .session-dashboard-main {
     grid-template-columns: 1fr;
@@ -1035,6 +1256,22 @@
 
   .session-timing-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .session-cost-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .session-cost-metrics .session-metric:nth-child(odd) {
+    border-left: 0;
+  }
+
+  .session-cost-metrics .session-metric:nth-child(n + 3) {
+    border-top: 1px solid var(--line);
+  }
+
+  .session-cost-columns {
+    grid-template-columns: 1fr;
   }
 }
 
