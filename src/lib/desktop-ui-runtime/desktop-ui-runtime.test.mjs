@@ -9,6 +9,7 @@ import {
   CapabilityDeniedError,
   PluginEventScope,
   createScopedRemote,
+  createScopedSettings,
   createScopedStorage,
 } from './capability-client.ts'
 
@@ -1339,4 +1340,61 @@ test('scoped storage passes through the restricted routes', async () => {
   assert.equal(await storage.get('last'), null)
   const methods = requests.filter(item => item.method.startsWith('ui.plugin.storage.')).map(item => item.method)
   assert.deepEqual(methods, ['ui.plugin.storage.set', 'ui.plugin.storage.get', 'ui.plugin.storage.delete', 'ui.plugin.storage.get'])
+})
+
+test('scoped settings narrows to the declared namespaces over the restricted routes', async () => {
+  const calls = []
+  const view = ns => ({ ns, schema: { uid: ns, refs: {} }, value: { enabled: true }, applies: 'live', secrets: [], revision: 3 })
+  const { request } = fakeRuntime({
+    responses: new Map([
+      ['ui.plugin.settings.describe', async payload => { calls.push(payload); return { value: view(payload.ns) } }],
+      ['ui.plugin.settings.mutate', async payload => { calls.push(payload); return { value: { ...view(payload.ns), revision: 4 } } }],
+    ]),
+  })
+  const settings = createScopedSettings(
+    'example.session-pins',
+    { remotes: [], settings: ['session-pins-config'] },
+    { request },
+  )
+  assert.deepEqual([...settings.namespaces], ['session-pins-config'])
+  assert.equal((await settings.describe('session-pins-config')).revision, 3)
+  const written = await settings.mutate('session-pins-config', [{ op: 'set', path: ['enabled'], value: false }], 3)
+  assert.equal(written.revision, 4)
+  assert.deepEqual(calls.map(call => call.ns), ['session-pins-config', 'session-pins-config'])
+  assert.deepEqual(calls[1].ops, [{ op: 'set', path: ['enabled'], value: false }])
+  assert.equal(calls[1].expectedRevision, 3)
+  assert.equal(calls.every(call => call.pluginId === 'example.session-pins'), true)
+})
+
+test('scoped settings refuses an undeclared namespace before any wire traffic', async () => {
+  const calls = []
+  const { request } = fakeRuntime({
+    responses: new Map([['ui.plugin.settings.describe', async payload => { calls.push(payload); return { value: {} } }]]),
+  })
+  const settings = createScopedSettings('example.session-pins', { remotes: [], settings: ['mine'] }, { request })
+  // Another plugin's namespace, a host-owned one, and the empty-capability case
+  // all fail locally, so a misdeclared plugin never even reaches the bridge.
+  for (const namespace of ['ui-theme', 'locale', 'deeptop-prompt-injection']) {
+    await assert.rejects(settings.describe(namespace), CapabilityDeniedError)
+    await assert.rejects(settings.mutate(namespace, []), CapabilityDeniedError)
+  }
+  const none = createScopedSettings('example.session-pins', { remotes: [] }, { request })
+  assert.deepEqual([...none.namespaces], [])
+  await assert.rejects(none.describe('anything'), CapabilityDeniedError)
+  assert.deepEqual(calls, [])
+})
+
+test('scoped settings stops after disposal even when a call is in flight', async () => {
+  const gate = deferred()
+  const { request } = fakeRuntime({
+    responses: new Map([['ui.plugin.settings.describe', async () => gate.promise]]),
+  })
+  const controller = new AbortController()
+  const settings = createScopedSettings('example.session-pins', { remotes: [], settings: ['mine'] }, { request }, controller.signal)
+  const pending = settings.describe('mine')
+  await flushMicrotasks()
+  controller.abort(new Error('plugin context is disposed'))
+  gate.resolve({ value: { ns: 'mine', revision: 1 } })
+  // A late host answer must not reach a disposed plugin.
+  await assert.rejects(pending, /plugin context is disposed/)
 })

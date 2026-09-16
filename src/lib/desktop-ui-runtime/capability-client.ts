@@ -4,7 +4,9 @@
 
 import { UiPluginErrorCode } from "../../app/ui-plugin-model.ts";
 import type { DshUiPluginCapabilities } from "../../app/ui-plugin-model.ts";
-import type { ScopedRemoteClient, ScopedStorage } from "./types.ts";
+import type { ScopedRemoteClient, ScopedSettings, ScopedStorage } from "./types.ts";
+import type { DshSettingsNamespace } from "../desktop.ts";
+import type { SchemaPathOp } from "../../app/schema-form-model.ts";
 
 export interface RuntimeRequestSender {
   request<T>(method: string, payload: Record<string, unknown>, signal?: AbortSignal): Promise<T>;
@@ -120,6 +122,66 @@ export function createScopedStorage(
       assertContextActive(signal);
       await withAbort(send.request("ui.plugin.storage.delete", { pluginId, key }, signal), signal);
       assertContextActive(signal);
+    },
+  };
+}
+
+/**
+ * Build the plugin-scoped settings facade over `ui.plugin.settings.*`.
+ *
+ * A plugin ships its own settings panel by rendering `SchemaFormPanel` against
+ * what `describe` returns and writing through `mutate`. Enforcement is
+ * host-side: the bridge rejects any namespace the manifest did not declare, so
+ * this facade can only narrow the plugin's own reach, never widen it.
+ */
+export function createScopedSettings(
+  pluginId: string,
+  capabilities: DshUiPluginCapabilities,
+  send: RuntimeRequestSender,
+  signal?: AbortSignal,
+): ScopedSettings {
+  const declared = capabilities.settings ?? [];
+  const requireDeclared = (namespace: string): void => {
+    if (!declared.includes(namespace)) {
+      throw new CapabilityDeniedError(
+        declared.length === 0
+          ? `plugin ${pluginId} declares no scoped settings namespaces`
+          : `plugin ${pluginId} does not declare settings namespace "${namespace}"`,
+      );
+    }
+  };
+  return {
+    get namespaces() {
+      return [...declared];
+    },
+    async describe(namespace: string): Promise<DshSettingsNamespace> {
+      assertContextActive(signal);
+      requireDeclared(namespace);
+      const response = await withAbort(
+        send.request<{ value: DshSettingsNamespace }>("ui.plugin.settings.describe", { pluginId, ns: namespace }, signal),
+        signal,
+      );
+      assertContextActive(signal);
+      return response.value;
+    },
+    async mutate(
+      namespace: string,
+      ops: SchemaPathOp[],
+      expectedRevision?: number,
+    ): Promise<DshSettingsNamespace> {
+      assertContextActive(signal);
+      requireDeclared(namespace);
+      const response = await withAbort(
+        send.request<{ value: DshSettingsNamespace }>("ui.plugin.settings.mutate", {
+          pluginId,
+          ns: namespace,
+          ops,
+          ...(expectedRevision === undefined ? {} : { expectedRevision }),
+        }, signal),
+        signal,
+      );
+      assertContextActive(signal);
+      return response.value;
     },
   };
 }

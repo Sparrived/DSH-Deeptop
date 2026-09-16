@@ -45,6 +45,7 @@ export const UiPluginErrorCode = {
   moduleUnavailable: "ui-module-unavailable",
   storageLimitExceeded: "ui-storage-limit-exceeded",
   storageInvalidKey: "ui-storage-invalid-key",
+  settingsInvalidRequest: "ui-settings-invalid-request",
 } as const;
 
 export type UiPluginErrorCodeValue = (typeof UiPluginErrorCode)[keyof typeof UiPluginErrorCode];
@@ -58,6 +59,13 @@ export interface DshUiPluginCapabilities {
   remotes: DshUiPluginRemoteCapability[];
   events?: string[];
   storage?: string;
+  /**
+   * Settings namespaces this plugin may read and write through the scoped
+   * settings routes. Declaring one is the ceiling, not a grant: the plugin
+   * still has to name the namespace on every call, and the host refuses any
+   * namespace missing from this list.
+   */
+  settings?: string[];
 }
 
 /** Declarative contribution registered by a host-only Cordis plugin; rendered by native generic renderers. */
@@ -165,10 +173,14 @@ function readCapabilities(raw: unknown): DshUiPluginCapabilities {
           }];
         })
     : [];
+  const settings = Array.isArray(record.settings)
+    ? record.settings.filter((ns): ns is string => typeof ns === "string" && ns.trim() !== "")
+    : [];
   return {
     remotes,
     ...(Array.isArray(record.events) ? { events: record.events.filter((event): event is string => typeof event === "string") } : {}),
     ...(typeof record.storage === "string" ? { storage: record.storage } : {}),
+    ...(settings.length > 0 ? { settings } : {}),
   };
 }
 

@@ -11,6 +11,10 @@ import type {
   UiRuntimeSlot,
 } from "../../app/ui-plugin-model.ts";
 import type { UiLocale } from "../../app/i18n.ts";
+import type { SchemaPathOp } from "../../app/schema-form-model.ts";
+// Wire shape of one settings namespace; a type-only import so the UI runtime
+// still carries no transport code.
+import type { DshSettingsNamespace } from "../desktop.ts";
 
 /** Data for one message-level UI contribution. */
 export interface MessageUiContext {
@@ -117,6 +121,21 @@ export interface ScopedStorage {
   delete(key: string): Promise<void>;
 }
 
+/**
+ * Settings access limited to the namespaces the manifest declared.
+ *
+ * A plugin that ships a settings panel describes one of its own namespaces,
+ * renders the returned schema, and writes path-addressed ops back — the same
+ * generic form path the desktop app uses for built-in namespaces. Secrets
+ * never arrive: the host route reads under `redactSecrets`.
+ */
+export interface ScopedSettings {
+  /** Namespaces this plugin declared; empty when it declared none. */
+  readonly namespaces: readonly string[];
+  describe(namespace: string): Promise<DshSettingsNamespace>;
+  mutate(namespace: string, ops: SchemaPathOp[], expectedRevision?: number): Promise<DshSettingsNamespace>;
+}
+
 /** Session view exposed imperatively to activated plugins. */
 export interface PluginSessionClient {
   readonly current: SessionUiContext | null;
@@ -148,6 +167,8 @@ export interface DeeptopClientContext {
   remote: ScopedRemoteClient;
   events: ScopedEventClient;
   storage: ScopedStorage;
+  /** Settings namespaces this plugin declared; calling with any other is denied. */
+  settings: ScopedSettings;
   session: PluginSessionClient;
   logger: PluginLogger;
   signal: AbortSignal;

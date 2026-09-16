@@ -351,6 +351,155 @@ test('unknown ui routes stay rejected like any other desktop method', async () =
   await assert.rejects(routeDesktopRequest(ctxWith(undefined), 'ui.plugin.admin', {}), /does not expose/)
 })
 
+// ── scoped settings ─────────────────────────────────────────────────────────
+
+const settingsManifest = {
+  ...sessionPinsManifest,
+  ui: { slots: ['settings.sections'] },
+  capabilities: { ...sessionPinsManifest.capabilities, settings: ['session-pins-config'] },
+}
+
+/** Stand-in for the official settings controller: records calls, echoes views. */
+function fakeSettingsController(namespaces = ['session-pins-config', 'ui-theme']) {
+  const calls = []
+  return {
+    calls,
+    describe() {
+      return {
+        writable: true,
+        hasDocument: false,
+        namespaces: namespaces.map(ns => ({
+          ns,
+          schema: { uid: ns, refs: {} },
+          value: { enabled: true },
+          applies: 'live',
+          // A host-side secret is reported as set-but-unreadable, never by value.
+          secrets: [{ path: ['token'], set: true }],
+          revision: 7,
+        })),
+      }
+    },
+    async mutate(ns, ops, expectedRevision) {
+      calls.push({ ns, ops, expectedRevision })
+      if (expectedRevision !== undefined && expectedRevision !== 7) {
+        throw Object.assign(new Error('stale revision'), { code: 'settings/conflict', expected: expectedRevision, actual: 7 })
+      }
+      return { ns, schema: { uid: ns, refs: {} }, value: { enabled: false }, applies: 'live', secrets: [], revision: 8 }
+    },
+  }
+}
+
+test('declares scoped settings namespaces in the manifest and the list descriptor', () => {
+  const record = normalizeUiPluginRegistration(settingsManifest)
+  assert.deepEqual(record.capabilities.settings, ['session-pins-config'])
+  const descriptor = toListDescriptor(record)
+  assert.deepEqual(descriptor.capabilities.settings, ['session-pins-config'])
+
+  // A namespace the settings service could never have registered is refused.
+  for (const settings of [[], 'session-pins-config', ['Bad_NS'], ['ok', 3]]) {
+    assert.throws(
+      () => normalizeUiPluginRegistration({ ...settingsManifest, capabilities: { ...settingsManifest.capabilities, settings } }),
+      error => error.code === UI_PLUGIN_ERROR_CODES.manifestInvalid,
+      `settings capability ${JSON.stringify(settings)} must be rejected`,
+    )
+  }
+})
+
+test('settings routes describe only a declared namespace', async () => {
+  const ctx = ctxWith(registryWith(normalizeUiPluginRegistration(settingsManifest)), {
+    settingsController: fakeSettingsController(),
+  })
+  const described = await routeDesktopRequest(ctx, 'ui.plugin.settings.describe', {
+    pluginId: 'example.session-pins',
+    ns: 'session-pins-config',
+  })
+  assert.equal(described.value.ns, 'session-pins-config')
+  assert.equal(described.value.revision, 7)
+  // A secret stays reported as set without exposing a value.
+  assert.deepEqual(described.value.secrets, [{ path: ['token'], set: true }])
+  assert.equal(JSON.stringify(described).includes('secret-value'), false)
+})
+
+test('settings routes refuse a namespace the plugin did not declare', async () => {
+  const registry = registryWith(normalizeUiPluginRegistration(settingsManifest))
+  const ctx = ctxWith(registry, { settingsController: fakeSettingsController() })
+  // The plugin only declared its own namespace; a host-owned one is off limits.
+  await assert.rejects(
+    routeDesktopRequest(ctx, 'ui.plugin.settings.describe', { pluginId: 'example.session-pins', ns: 'ui-theme' }),
+    error => error.code === UI_PLUGIN_ERROR_CODES.capabilityDenied,
+  )
+  await assert.rejects(
+    routeDesktopRequest(ctx, 'ui.plugin.settings.mutate', {
+      pluginId: 'example.session-pins',
+      ns: 'ui-theme',
+      ops: [{ op: 'set', path: ['theme'], value: 'dark' }],
+    }),
+    error => error.code === UI_PLUGIN_ERROR_CODES.capabilityDenied,
+  )
+})
+
+test('settings routes refuse plugins without the capability, unknown plugins and bad requests', async () => {
+  const ctx = ctxWith(registryWith(normalizeUiPluginRegistration(sessionPinsManifest)), {
+    settingsController: fakeSettingsController(),
+  })
+  await assert.rejects(
+    routeDesktopRequest(ctx, 'ui.plugin.settings.describe', { pluginId: 'example.session-pins', ns: 'session-pins-config' }),
+    error => error.code === UI_PLUGIN_ERROR_CODES.capabilityDenied,
+  )
+  await assert.rejects(
+    routeDesktopRequest(ctx, 'ui.plugin.settings.describe', { pluginId: 'vendor.unknown', ns: 'x' }),
+    error => error.code === UI_PLUGIN_ERROR_CODES.pluginNotFound,
+  )
+  const declared = ctxWith(registryWith(normalizeUiPluginRegistration(settingsManifest)), {
+    settingsController: fakeSettingsController(),
+  })
+  await assert.rejects(
+    routeDesktopRequest(declared, 'ui.plugin.settings.describe', { pluginId: 'example.session-pins' }),
+    error => error.code === UI_PLUGIN_ERROR_CODES.settingsInvalidRequest,
+  )
+  await assert.rejects(
+    routeDesktopRequest(declared, 'ui.plugin.settings.mutate', {
+      pluginId: 'example.session-pins',
+      ns: 'session-pins-config',
+    }),
+    error => error.code === UI_PLUGIN_ERROR_CODES.settingsInvalidRequest,
+  )
+})
+
+test('settings mutate forwards ops and revision, and reports host unavailability', async () => {
+  const controller = fakeSettingsController()
+  const ctx = ctxWith(registryWith(normalizeUiPluginRegistration(settingsManifest)), { settingsController: controller })
+  const ops = [{ op: 'set', path: ['enabled'], value: false }]
+  const written = await routeDesktopRequest(ctx, 'ui.plugin.settings.mutate', {
+    pluginId: 'example.session-pins',
+    ns: 'session-pins-config',
+    ops,
+    expectedRevision: 7,
+  })
+  assert.equal(written.value.revision, 8)
+  assert.deepEqual(controller.calls, [{ ns: 'session-pins-config', ops, expectedRevision: 7 }])
+
+  // Without the official controller the route fails closed instead of writing.
+  const noController = ctxWith(registryWith(normalizeUiPluginRegistration(settingsManifest)))
+  await assert.rejects(
+    routeDesktopRequest(noController, 'ui.plugin.settings.mutate', {
+      pluginId: 'example.session-pins',
+      ns: 'session-pins-config',
+      ops,
+    }),
+    error => error.code === UI_PLUGIN_ERROR_CODES.hostUnavailable,
+  )
+})
+
+test('a disabled plugin loses scoped settings access', async () => {
+  const record = { ...normalizeUiPluginRegistration(settingsManifest), status: 'disabled' }
+  const ctx = ctxWith(registryWith(record), { settingsController: fakeSettingsController() })
+  await assert.rejects(
+    routeDesktopRequest(ctx, 'ui.plugin.settings.describe', { pluginId: 'example.session-pins', ns: 'session-pins-config' }),
+    error => error.code === UI_PLUGIN_ERROR_CODES.pluginDisabled,
+  )
+})
+
 test('coded errors survive the pure error helper round trip', () => {
   const error = uiPluginError(UI_PLUGIN_ERROR_CODES.hostUnavailable, 'down')
   assert.equal(error.code, 'ui-host-unavailable')

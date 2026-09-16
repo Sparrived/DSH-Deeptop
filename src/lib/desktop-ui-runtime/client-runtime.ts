@@ -17,6 +17,7 @@ import {
   CapabilityDeniedError,
   PluginEventScope,
   createScopedRemote,
+  createScopedSettings,
   createScopedStorage,
   type RuntimeRequestSender,
 } from "./capability-client.ts";
@@ -692,6 +693,7 @@ export class DesktopUiRuntime {
         },
       },
       storage: createScopedStorage(descriptor.pluginId, send, controller.signal),
+      settings: createScopedSettings(descriptor.pluginId, descriptor.capabilities, send, controller.signal),
       session: {
         get current() {
           return scope.isDisposed ? null : runtimeRef.sessionContext;

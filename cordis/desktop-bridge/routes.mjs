@@ -12,11 +12,13 @@ import {
 } from './tool-config.mjs'
 import {
   deleteUiPluginStorage,
+  describeUiPluginSettings,
   getUiPluginBundle,
   getUiPluginModule,
   getUiPluginStorage,
   invokeUiPluginRemote,
   listUiPlugins,
+  mutateUiPluginSettings,
   setUiPluginStorage,
 } from '../ui-registry/routes.mjs'
 import { loadProxySetting, resolveEffectiveProxy, setProxySetting } from './network-proxy.mjs'
@@ -508,6 +510,8 @@ export async function routeDesktopRequest(ctx, method, payload, signal) {
     case 'ui.plugin.storage.get': return getUiPluginStorage(ctx, payload)
     case 'ui.plugin.storage.set': return setUiPluginStorage(ctx, payload)
     case 'ui.plugin.storage.delete': return deleteUiPluginStorage(ctx, payload)
+    case 'ui.plugin.settings.describe': return describeUiPluginSettings(ctx, payload)
+    case 'ui.plugin.settings.mutate': return mutateUiPluginSettings(ctx, payload)
     case 'plugin.list': return filterInventory(await ctx.pluginInventory.list())
     case 'plugin.config.describe': return describePluginConfig(ctx)
     case 'plugin.config.mutate': return mutatePluginConfig(ctx, payload, signal)

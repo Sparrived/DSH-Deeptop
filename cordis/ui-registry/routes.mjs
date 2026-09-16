@@ -138,3 +138,86 @@ export async function deleteUiPluginStorage(ctx, payload) {
   await registry.storageDelete(namespace, payload.key)
   return { deleted: true }
 }
+
+// ── scoped settings ─────────────────────────────────────────────────────────
+
+/**
+ * Resolve the settings namespace one `ui.plugin.settings.*` request may touch.
+ *
+ * The plugin has to be registered and enabled, has to declare the namespace in
+ * `capabilities.settings`, and the request has to name it explicitly. Anything
+ * else is denied before the settings service is reached, so a plugin can never
+ * read or write a namespace outside its own declaration — including the
+ * host-owned namespaces that other plugins registered.
+ */
+function scopedSettingsNamespace(registry, payload) {
+  const pluginId = isRecord(payload) ? payload.pluginId : undefined
+  if (typeof pluginId !== 'string' || pluginId.trim() === '') {
+    throw uiPluginError(UI_PLUGIN_ERROR_CODES.settingsInvalidRequest, 'ui plugin settings routes require pluginId')
+  }
+  const record = typeof registry.require === 'function' ? registry.require(pluginId) : undefined
+  if (!record) throw uiPluginError(UI_PLUGIN_ERROR_CODES.pluginNotFound, `ui plugin ${JSON.stringify(pluginId)} is not registered`)
+  if (record.status !== 'available') throw uiPluginError(UI_PLUGIN_ERROR_CODES.pluginDisabled, `ui plugin ${pluginId} is not enabled`)
+  const declared = record.capabilities?.settings
+  if (!Array.isArray(declared) || declared.length === 0) {
+    throw uiPluginError(UI_PLUGIN_ERROR_CODES.capabilityDenied, `ui plugin ${pluginId} does not declare scoped settings`)
+  }
+  const namespace = isRecord(payload) ? payload.ns : undefined
+  if (typeof namespace !== 'string' || namespace.trim() === '') {
+    throw uiPluginError(UI_PLUGIN_ERROR_CODES.settingsInvalidRequest, 'ui plugin settings routes require ns')
+  }
+  if (!declared.includes(namespace)) {
+    throw uiPluginError(
+      UI_PLUGIN_ERROR_CODES.capabilityDenied,
+      `ui plugin ${pluginId} does not declare settings namespace ${JSON.stringify(namespace)}`,
+    )
+  }
+  return namespace
+}
+
+/** The official settings controller; the scoped routes never re-implement its semantics. */
+function settingsController(ctx) {
+  const controller = ctx.get?.('settingsController')
+  if (!controller || typeof controller.describe !== 'function' || typeof controller.mutate !== 'function') {
+    throw uiPluginError(UI_PLUGIN_ERROR_CODES.hostUnavailable, 'ui plugin settings routes require @deepseek-ai/dsh-api-settings-controller')
+  }
+  return controller
+}
+
+/** Project one namespace out of the redacted describe result; undefined when it is not registered. */
+function namespaceViewOf(controller, namespace) {
+  const described = controller.describe()
+  const view = Array.isArray(described?.namespaces)
+    ? described.namespaces.find(item => item?.ns === namespace)
+    : undefined
+  if (!view) {
+    throw uiPluginError(UI_PLUGIN_ERROR_CODES.pluginNotFound, `settings namespace ${JSON.stringify(namespace)} is not registered`)
+  }
+  return view
+}
+
+/** ui.plugin.settings.describe: redacted schema and value for one declared namespace. */
+export async function describeUiPluginSettings(ctx, payload) {
+  const registry = optionalRegistry(ctx)
+  if (!registry) throw uiPluginError(UI_PLUGIN_ERROR_CODES.hostUnavailable, 'the desktop profile does not provide deeptop-ui-registry')
+  const namespace = scopedSettingsNamespace(registry, payload)
+  // describe() already redacts secrets, so a role('secret') field never crosses the wire.
+  return { value: namespaceViewOf(settingsController(ctx), namespace) }
+}
+
+/** ui.plugin.settings.mutate: path-addressed writes fenced by expectedRevision. */
+export async function mutateUiPluginSettings(ctx, payload) {
+  const registry = optionalRegistry(ctx)
+  if (!registry) throw uiPluginError(UI_PLUGIN_ERROR_CODES.hostUnavailable, 'the desktop profile does not provide deeptop-ui-registry')
+  const namespace = scopedSettingsNamespace(registry, payload)
+  const ops = isRecord(payload) ? payload.ops : undefined
+  if (!Array.isArray(ops)) {
+    throw uiPluginError(UI_PLUGIN_ERROR_CODES.settingsInvalidRequest, 'ui.plugin.settings.mutate requires an ops array')
+  }
+  const expectedRevision = isRecord(payload) ? payload.expectedRevision : undefined
+  const controller = settingsController(ctx)
+  // Reuse the official mutate, which resolves ops against the stored section
+  // and reports a stale expectedRevision as settings/conflict.
+  const view = await controller.mutate(namespace, ops, expectedRevision ?? undefined)
+  return { value: view }
+}

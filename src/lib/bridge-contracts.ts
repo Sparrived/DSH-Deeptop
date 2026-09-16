@@ -18,6 +18,7 @@ import type {
   DshSessionRepairResult,
   DshSessionSummary,
   DshSettingsDescription,
+  DshSettingsNamespace,
   DshNetworkProxy,
   DshNetworkProxyResult,
   DshNetworkProxySnapshot,
@@ -35,6 +36,7 @@ import type {
 } from "./desktop";
 import type { DiscoveredModel, DshHostModelCatalog } from "../app/model-types";
 import type { DshUiPluginDescriptor } from "../app/ui-plugin-model";
+import type { SchemaPathOp } from "../app/schema-form-model";
 
 /** 每个契约条目：载荷/返回值形状 + 依赖的能力键。 */
 export interface BridgeMethodContract {
@@ -560,6 +562,16 @@ const ui = {
     requires: "uiPlugins",
     payload: {} as { pluginId: string; key: string },
     value: {} as { deleted: boolean },
+  },
+  "ui.plugin.settings.describe": {
+    requires: "uiPlugins",
+    payload: {} as { pluginId: string; ns: string },
+    value: {} as { value: DshSettingsNamespace },
+  },
+  "ui.plugin.settings.mutate": {
+    requires: "uiPlugins",
+    payload: {} as { pluginId: string; ns: string; ops: SchemaPathOp[]; expectedRevision?: number },
+    value: {} as { value: DshSettingsNamespace },
   },
 } as const satisfies Record<string, BridgeMethodContract>;
 

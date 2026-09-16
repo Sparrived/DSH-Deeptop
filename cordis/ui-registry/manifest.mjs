@@ -38,6 +38,7 @@ export const UI_PLUGIN_ERROR_CODES = Object.freeze({
   moduleUnavailable: 'ui-module-unavailable',
   storageLimitExceeded: 'ui-storage-limit-exceeded',
   storageInvalidKey: 'ui-storage-invalid-key',
+  settingsInvalidRequest: 'ui-settings-invalid-request',
 })
 
 /** Create an Error carrying a stable wire error code; the bridge forwards the code alongside the message. */
@@ -53,6 +54,10 @@ const EVENT_NAME_RE = /^[A-Za-z][A-Za-z0-9_.-]*(?:\/[A-Za-z][A-Za-z0-9_.-]*)?$/
 const SEMVERISH_RE = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/
 const SDK_RANGE_RE = /^(?:\^|~)?\d+\.\d+\.\d+$/
 const STORAGE_NAMESPACE_RE = /^[a-z][a-z0-9_-]{2,63}$/
+// Mirrors the settings service's own namespace grammar (vendor/dsh
+// packages/settings): a declared settings namespace must be one the host
+// plugin could actually have registered.
+const SETTINGS_NAMESPACE_RE = /^[a-z][a-z0-9-]*$/
 
 export const STORAGE_LIMITS = Object.freeze({
   maxKeyLength: 128,
@@ -179,6 +184,17 @@ export function normalizeUiPluginRegistration(input) {
     fail(pluginId, `capabilities.storage must match ${STORAGE_NAMESPACE_RE} when declared`)
   }
 
+  // Scoped settings access: the plugin names the namespaces it may read and
+  // write, and the routes refuse every other one. Declaring a namespace is not
+  // a grant — it is the ceiling the host enforces against.
+  const settings = source.capabilities?.settings
+  if (settings !== undefined) {
+    if (!Array.isArray(settings) || settings.length === 0
+      || !settings.every(ns => typeof ns === 'string' && SETTINGS_NAMESPACE_RE.test(ns))) {
+      fail(pluginId, `capabilities.settings must be a non-empty array of namespace keys matching ${SETTINGS_NAMESPACE_RE}`)
+    }
+  }
+
   let client
   const rawClient = isRecord(source.client) ? source.client : {}
   if (rawClient.entryId !== undefined || rawClient.format !== undefined || rawClient.sdkVersion !== undefined) {
@@ -238,6 +254,7 @@ export function normalizeUiPluginRegistration(input) {
       remotes,
       ...(events !== undefined ? { events: [...new Set(events)] } : {}),
       ...(storage !== undefined ? { storage } : {}),
+      ...(settings !== undefined ? { settings: [...new Set(settings)] } : {}),
     },
     contributions,
   }
@@ -256,6 +273,7 @@ export function toListDescriptor(record) {
       remotes: record.capabilities.remotes.map(remote => ({ namespace: remote.namespace, methods: [...remote.methods] })),
       ...(record.capabilities.events ? { events: [...record.capabilities.events] } : {}),
       ...(record.capabilities.storage ? { storage: record.capabilities.storage } : {}),
+      ...(record.capabilities.settings ? { settings: [...record.capabilities.settings] } : {}),
     },
     contributions: record.contributions.map(contribution => ({ ...contribution })),
   }
