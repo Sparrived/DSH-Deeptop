@@ -64,7 +64,7 @@
 - [~] Light/Dark/System 主题及持久化：桌面端本地主题及外部 CSS/背景/文字自定义已完成；与 Host `ui-theme` 设置命名空间双向同步（bridge 注册官方同名 ns，mutate 写回 / document-updated 采纳）。
 - [x] 中英文语言切换和本地化资源：zh/en 全量文案本地化（资源维护于 `src/app/locales/{zh,en}.json` 约 1700 个 key，组件与模型层统一经 `t()`/`locale` 参数取值，`npm run i18n:check` 校验），本地持久化 + 官方 `locale` 命名空间双向同步（bridge 注册官方同名 ns，mutate 写回 / document-updated 采纳）；Host/Rust 侧错误文案与诊断日志保持原文。
 - [~] 插件设置：原生安装流程（来源/名称/Entry 校验、安装与取消）、启停配置、运行时清单与 Schema 表单编辑均已具备，原始 JSON 编辑作为诊断后备。
-- [x] 全局提示词注入（桌面端自有能力，不是 WebUI 对齐项）：`deeptop-prompt-injection` Host 插件注册同名设置命名空间，把「设置 → 通用」中的自由文本作为一个 system prompt 段落注入每个 Session，位置在部署人设之后、工具与政策说明之前；清空文本即关闭注入，无需单独开关，用户文本中的 `{{` 模板也不会破坏 prompt 组装。
+- [x] 全局提示词注入（桌面端自有能力，不是 WebUI 对齐项）：`deeptop-prompt-injection` Host 插件注册同名设置命名空间，把「设置 → 通用」中的自由文本作为一条独立的上下文注入行追加到每个 Session 的下一步请求前——它不并入 system prompt，因此在会话轨迹里单独成行；清空文本即关闭注入，无需单独开关，只有内容变化才追加，清空后追加一条说明声明旧注入失效。
 - [x] Agent Preset：选择、默认值、新建、复制、删除、查看和打开文件，以及新会话 chip 与缺失 Preset 迁移。
 - [-] 消息 Like/Dislike 及反馈备注：会话级 `/feedback` 已可用（官方 `command-feedback` 位于 base bundle，桌面端经已接入的 `commands/list`、`commands/execute` 调用，它也是 OTel 在 `FEEDBACK_ONLY` 模式下释放会话日志前缀的唯一触发点）。逐消息评分界面明确不做：Host 侧 `message-feedback` 插件已装载（`cordis/cordis.patch.yml`），但该界面只产生写入会话日志的本地评分，桌面端使用价值有限。
 - [~] 会话日志导出、ZIP 下载和完整会话统计：复用 RC8 的 `session-log-download` Host endpoint 与 `session-stats` projection；完整 token 统计（输入/输出/缓存/上下文窗口）、每消息 TTFT/Decode 速度、会话墙钟耗时（LLM/工具/首 Token/解码）与 turns/steps 已展示；ZIP 下载改为 Bridge 流式写临时文件 + Tauri 原生另存为转移，不再经 Base64 缓冲；取消与 Session 切换有可见状态。
@@ -88,7 +88,7 @@
 
 - [x] 输入区 GoalBar 与常驻 Goal 摘要条（`CurrentGoalBar`）。
 - [x] Agent Preset 完整管理：新建、复制、删除、查看/打开、新会话 chip 与缺失 Preset 迁移。
-- [x] 全局提示词注入：`cordis/prompt-injection`（`deeptop-prompt-injection`）注册设置命名空间与一个 system prompt 段落；`cordis/prompt-injection-ui` + `prompt-injection-client` 自带本地化设置分区，经 `settings.sections` 呈现并复用 `prompt-injection-model` 做路径操作。该能力由桌面端 Profile 自带，WebUI 无对应项，不计入对齐结果。
+- [x] 全局提示词注入：`cordis/prompt-injection`（`deeptop-prompt-injection`）注册设置命名空间，并在 `agent/pre-step` 追加一条自带来源的上下文消息，在轨迹里单独可见；`cordis/prompt-injection-ui` + `prompt-injection-client` 自带本地化设置分区，经 `settings.sections` 呈现并复用 `prompt-injection-model` 做路径操作。该能力由桌面端 Profile 自带，WebUI 无对应项，不计入对齐结果。
 - [x] 可持久化右栏 Dock：队列、终端（原生 PTY）、子 Agent 书签与 Git 提交图谱。
 - [x] 每消息统计条（TTFT/Decode 速度）与 Token/上下文仪表盘，`sessionStats` 完整字段接入（turns/steps/llmMs/toolMs/ttft/decode）。
 - [x] 消息内路径/连接识别卡片、Diff 统计卡片与文件看板；当前会话权限弹窗与新会话默认权限。

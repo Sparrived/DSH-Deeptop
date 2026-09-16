@@ -756,7 +756,7 @@ interface ScopedSettings {
 
 插件要用自己的界面（而不是通用 schema 表单）承载设置时，客户端模块在 `settings.sections` 注册 `kind: 'panel'` 贡献即可：该贡献同时成为设置导航项和选中后的内容列，主程序不需要出现插件名字。`label` 可以是字符串或 `(locale) => string` 函数；因为 `activate()` 只在插件加载时跑一次，而 Slot 快照在语言切换时不会重建，需要翻译的标签必须用函数形式，由导航在每次渲染时用当前 locale 求值。
 
-完整例子是全局提示词注入：`cordis/prompt-injection` 拥有 `deeptop-prompt-injection` 命名空间并把它注入每个 Session 的 system prompt，`cordis/prompt-injection-ui` 声明 `settings.sections` 与 `capabilities.settings`，`prompt-injection-client.tsx` 渲染本地化卡片并通过 `ctx.settings` 读写。主程序不引用该命名空间，也不再手写对应面板。
+完整例子是全局提示词注入：`cordis/prompt-injection` 拥有 `deeptop-prompt-injection` 命名空间，并在 `agent/pre-step` 把它作为一条自带来源的上下文消息追加到每个 Session，因此在会话轨迹里单独成行；`cordis/prompt-injection-ui` 声明 `settings.sections` 与 `capabilities.settings`，`prompt-injection-client.tsx` 渲染本地化卡片并通过 `ctx.settings` 读写。主程序不引用该命名空间，也不再手写对应面板。
 
 ---
 
