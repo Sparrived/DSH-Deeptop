@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject, type UIEvent } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject, type UIEvent } from "react";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut } from "lucide-react";
 import { createPortal } from "react-dom";
 import { isFilePath, type DshHistoryEntry, type DshPreset, type DshSessionSummary } from "../lib/desktop";
@@ -8,6 +8,7 @@ import { SlotOutlet } from "./SlotOutlet";
 import { TurnRail } from "./TurnRail";
 import type { TurnRailItem } from "../app/turn-rail-model";
 import { MarkdownContent } from "../lib/markdown";
+import type { StreamInk, StreamInkChunk } from "../lib/stream-ink";
 
 type MarkdownEntityActions = {
   onOpenPath?: (path: string, location?: { line?: number }) => void | Promise<void>;
@@ -652,52 +653,17 @@ export function streamingTextFrameDelay(visibleText: string, targetText: string)
     : STREAMING_TEXT_FRAME_MS;
 }
 
-/** 停笔多久之后把落点处没写完的墨补满（渐显窗口收干）。 */
-const STREAMING_FADE_SETTLE_MS = 260;
-
-/** 最后一个非空白字符的下标；整段都是空白时返回 -1。 */
-export function lastInkIndex(value: string) {
-  for (let index = value.length - 1; index >= 0; index -= 1) {
-    if (!/\s/.test(value[index])) return index;
-  }
-  return -1;
-}
-
-type StreamFrontier = { x: number; y: number; radius: number };
-
-/**
- * 量出书写落点：最后一个有内容的字符相对渐显遮罩块的位置。
- * 落点跟着流式文字往前走，渐显窗口用它把落笔处压到最淡、越往前越实。
- */
-function streamFrontier(container: HTMLElement): StreamFrontier | null {
-  const mask = container.lastElementChild;
-  if (mask === null) return null;
-  const ownerDocument = container.ownerDocument;
-  const walker = ownerDocument.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-  let last: Text | null = null;
-  for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
-    if (!/\S/.test((node as Text).data)) continue;
-    last = node as Text;
-  }
-  const index = last === null ? -1 : lastInkIndex(last.data);
-  // 落点必须落在被遮罩的那一块里，否则渐显会画到别的元素上。
-  if (last === null || index < 0 || !mask.contains(last)) return null;
-  const range = ownerDocument.createRange();
-  range.setStart(last, index);
-  range.setEnd(last, index + 1);
-  const rect = range.getBoundingClientRect();
-  if (!rect.height) return null;
-  const box = mask.getBoundingClientRect();
-  return { x: rect.right - box.left, y: rect.top + rect.height / 2 - box.top, radius: rect.height / 2 };
-}
+/** 渐显窗口保留多久：比设置里能调的最长时长略长，够动画自己收尾。 */
+const STREAM_INK_MAX_AGE = 1600;
 
 function useSmoothStreamingText(text: string) {
   const [visibleText, setVisibleText] = useState(text);
-  const [settled, setSettled] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
   const targetTextRef = useRef(text);
   targetTextRef.current = text;
-  const canAnimate = typeof window !== "undefined" && typeof document !== "undefined"
+  const visibleTextRef = useRef(visibleText);
+  visibleTextRef.current = visibleText;
+  const chunksRef = useRef<StreamInkChunk[]>([]);
+  const canAnimate = typeof window !== "undefined"
     && !(typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   const isPrefix = text.startsWith(visibleText);
   const needsFrame = canAnimate && isPrefix && visibleText !== text;
@@ -705,60 +671,43 @@ function useSmoothStreamingText(text: string) {
 
   useEffect(() => {
     if (!canAnimate || !isPrefix) {
+      // 正文被改写时旧区间不再对应任何文字，直接丢掉。
+      chunksRef.current = [];
       setVisibleText(targetTextRef.current);
       return;
     }
     if (!needsFrame) return;
     const timer = window.setTimeout(() => {
-      setVisibleText((current) => nextStreamingTextFrame(current, targetTextRef.current));
+      const current = visibleTextRef.current;
+      const next = nextStreamingTextFrame(current, targetTextRef.current);
+      if (next.length > current.length) {
+        const at = performance.now();
+        const chunks = chunksRef.current;
+        chunks.push({ from: current.length, to: next.length, at });
+        // 淡完的段落留在语法树里只会白白撑大每帧的解析开销。
+        while (chunks.length > 0 && at - chunks[0].at > STREAM_INK_MAX_AGE) chunks.shift();
+      }
+      setVisibleText(next);
     }, streamingTextFrameDelay(visibleText, text));
     return () => window.clearTimeout(timer);
     // Target-only updates intentionally keep the pending frame; the ref lets it
     // consume the latest burst instead of restarting the delay for every token.
   }, [canAnimate, isPrefix, needsFrame, visibleText]);
 
-  // 落点每帧都在动，渐显窗口就跟着动：新落笔的字从最淡处写出来，写过去的字
-  // 随窗口前行变实，所以上一个字还没写满，下一个字已经开始落笔。
-  useLayoutEffect(() => {
-    const container = containerRef.current;
-    if (container === null) return;
-    // 量不到落点（没有正文、动效被关掉）就不挂遮罩，宁可整段实心也不淡错地方。
-    if (!canAnimate) {
-      container.removeAttribute("data-stream-ink");
-      return;
-    }
-    // 收笔期间不再挪窗口，让墨量自己过渡到实心。
-    if (settled) return;
-    const frontier = streamFrontier(container);
-    if (frontier === null) {
-      container.removeAttribute("data-stream-ink");
-      return;
-    }
-    container.setAttribute("data-stream-ink", "");
-    container.style.setProperty("--stream-x", `${frontier.x}px`);
-    container.style.setProperty("--stream-y", `${frontier.y}px`);
-    container.style.setProperty("--stream-fade-radius", `${frontier.radius}px`);
-  }, [visible, settled, canAnimate]);
+  // 这一帧新写下的那段文字带着自己的时刻进语法树，由 CSS 按年龄渐显。
+  const ink: StreamInk | null = canAnimate && chunksRef.current.length > 0
+    ? { now: performance.now(), chunks: chunksRef.current }
+    : null;
 
-  // 停笔后把剩下没写完的墨补满，避免一句话写完时最后几个字一直停在半透明。
-  // 重新落笔立刻取消收笔（同步补一次渲染），新字不会先实后淡地闪一下。
-  useLayoutEffect(() => {
-    if (!canAnimate) return;
-    setSettled(false);
-    const timer = window.setTimeout(() => setSettled(true), STREAMING_FADE_SETTLE_MS);
-    return () => window.clearTimeout(timer);
-  }, [visible, canAnimate]);
-
-  return { visible, settled, containerRef };
+  return { visible, ink };
 }
 
 // Pace bursty token batches into short, adaptive frames while continuing to
 // parse the visible prefix as Markdown. Large backlogs fast-forward so the UI
 // stays close to the model instead of replaying a long typewriter animation.
 export const StreamingAssistantText = memo(function StreamingAssistantText({ text, locale, onOpenPath, onCheckPath, onOpenUrl }: { text: string; locale: UiLocale } & MarkdownEntityActions) {
-  const { visible, settled, containerRef } = useSmoothStreamingText(text);
-  const className = `message-text streaming-assistant-text${settled ? " streaming-ink-settled" : ""}`;
-  return <MarkdownContent text={visible} className={className} containerRef={containerRef} locale={locale} onOpenPath={onOpenPath} onCheckPath={onCheckPath} onOpenUrl={onOpenUrl} />;
+  const { visible, ink } = useSmoothStreamingText(text);
+  return <MarkdownContent text={visible} className="message-text streaming-assistant-text" streamInk={ink} locale={locale} onOpenPath={onOpenPath} onCheckPath={onCheckPath} onOpenUrl={onOpenUrl} />;
 }, (previous, next) => previous.text === next.text && previous.locale === next.locale);
 
 function reasoningSummary(text: string, streaming: boolean) {

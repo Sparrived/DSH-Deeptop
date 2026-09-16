@@ -1,6 +1,6 @@
 import { ExternalLink, FileText } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
-import { memo, useEffect, useState, type ImgHTMLAttributes, type ReactNode, type Ref } from "react";
+import { memo, useEffect, useState, type ImgHTMLAttributes, type ReactNode } from "react";
 import { SKIP, visit } from "unist-util-visit";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
@@ -9,6 +9,7 @@ import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import { decodeFileLink, entityHost, FILE_LINK_PREFIX, pathLabel, splitMessageEntities } from "./message-entities";
 import { MarkdownCodeBlock } from "./markdown-code-block";
+import { rehypeStreamInk, type StreamInk } from "./stream-ink";
 import { t, type UiLocale } from "../app/i18n";
 
 function remarkMessageEntities() {
@@ -137,14 +138,14 @@ function createMarkdownComponents(actions: MarkdownEntityActions, locale: UiLoca
 // Memoized: while a stream advances, the transcript re-renders on every frame
 // but only the actively streaming message's `text` changes. Skipping the
 // others avoids re-parsing every previous message's markdown on each token.
-export const MarkdownContent = memo(function MarkdownContent({ text, className = "message-text", reveal = false, locale = "zh", containerRef, onOpenPath, onCheckPath, onOpenUrl }: { text: string; className?: string; reveal?: boolean; locale?: UiLocale; /** 渲染容器引用：流式正文需要量出「书写落点」来驱动渐显窗口。 */ containerRef?: Ref<HTMLDivElement> } & MarkdownEntityActions) {
+export const MarkdownContent = memo(function MarkdownContent({ text, className = "message-text", reveal = false, locale = "zh", streamInk, onOpenPath, onCheckPath, onOpenUrl }: { text: string; className?: string; reveal?: boolean; locale?: UiLocale; /** 流式正文的逐段渐显：刚写下的字按自己的年龄淡入。 */ streamInk?: StreamInk | null } & MarkdownEntityActions) {
   const contentClassName = reveal ? `${className} model-text-reveal` : className;
   const components = createMarkdownComponents({ onOpenPath, onCheckPath, onOpenUrl }, locale);
   return (
-    <div className={contentClassName} ref={containerRef}>
+    <div className={contentClassName}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath, remarkBreaks, remarkMessageEntities]}
-        rehypePlugins={[rehypeKatex]}
+        rehypePlugins={streamInk && streamInk.chunks.length > 0 ? [[rehypeStreamInk, streamInk], rehypeKatex] : [rehypeKatex]}
         components={components}
         urlTransform={(url) => url}
         skipHtml

@@ -982,7 +982,7 @@ function AppContent() {
 
   function exportAppearanceConfig() {
     const section = appearanceSection;
-    const data = section === "theme" ? { themeMode, appTheme, themeCssPath: appearance.themeCssPath } : section === "background" ? { backgrounds: appearance.backgrounds } : section === "typography" ? { fontFamily: appearance.fontFamily, codeFontFamily: appearance.codeFontFamily, messageFontSize: appearance.messageFontSize, messageLineHeight: appearance.messageLineHeight, streamingFadeRange: appearance.streamingFadeRange, streamingFadeInk: appearance.streamingFadeInk, workingIndicator: appearance.workingIndicator } : { customCss: appearance.customCss, customCssName: appearance.customCssName, customCssEnabled: appearance.customCssEnabled };
+    const data = section === "theme" ? { themeMode, appTheme, themeCssPath: appearance.themeCssPath } : section === "background" ? { backgrounds: appearance.backgrounds } : section === "typography" ? { fontFamily: appearance.fontFamily, codeFontFamily: appearance.codeFontFamily, messageFontSize: appearance.messageFontSize, messageLineHeight: appearance.messageLineHeight, streamingFadeDuration: appearance.streamingFadeDuration, streamingFadeInk: appearance.streamingFadeInk, workingIndicator: appearance.workingIndicator } : { customCss: appearance.customCss, customCssName: appearance.customCssName, customCssEnabled: appearance.customCssEnabled };
     downloadAppearanceConfig(section, data);
   }
 
@@ -1025,9 +1025,9 @@ function AppContent() {
         const codeFontFamily = typeof data.codeFontFamily === "string" && data.codeFontFamily.trim() ? data.codeFontFamily.slice(0, 500) : defaultAppearance.codeFontFamily;
         const messageFontSize = Number(data.messageFontSize);
         const messageLineHeight = Number(data.messageLineHeight);
-        const streamingFadeRange = Number(data.streamingFadeRange);
+        const streamingFadeDuration = Number(data.streamingFadeDuration);
         const streamingFadeInk = Number(data.streamingFadeInk);
-        updateAppearance({ fontFamily, codeFontFamily, messageFontSize: Number.isFinite(messageFontSize) ? Math.min(18, Math.max(14, messageFontSize)) : defaultAppearance.messageFontSize, messageLineHeight: Number.isFinite(messageLineHeight) ? Math.min(2.2, Math.max(1.35, messageLineHeight)) : defaultAppearance.messageLineHeight, streamingFadeRange: Number.isFinite(streamingFadeRange) ? Math.min(20, Math.max(2, streamingFadeRange)) : defaultAppearance.streamingFadeRange, streamingFadeInk: Number.isFinite(streamingFadeInk) ? Math.min(1, Math.max(0.05, streamingFadeInk)) : defaultAppearance.streamingFadeInk, workingIndicator: normalizeWorkingIndicator(data.workingIndicator) });
+        updateAppearance({ fontFamily, codeFontFamily, messageFontSize: Number.isFinite(messageFontSize) ? Math.min(18, Math.max(14, messageFontSize)) : defaultAppearance.messageFontSize, messageLineHeight: Number.isFinite(messageLineHeight) ? Math.min(2.2, Math.max(1.35, messageLineHeight)) : defaultAppearance.messageLineHeight, streamingFadeDuration: Number.isFinite(streamingFadeDuration) ? Math.min(1500, Math.max(150, streamingFadeDuration)) : defaultAppearance.streamingFadeDuration, streamingFadeInk: Number.isFinite(streamingFadeInk) ? Math.min(1, Math.max(0.05, streamingFadeInk)) : defaultAppearance.streamingFadeInk, workingIndicator: normalizeWorkingIndicator(data.workingIndicator) });
       } else {
         const customCss = typeof data.customCss === "string" && data.customCss.length <= 500_000 ? data.customCss : "";
         updateAppearance({ customCss, customCssName: typeof data.customCssName === "string" ? data.customCssName.slice(0, 200) : "", customCssEnabled: data.customCssEnabled === true && Boolean(customCss) });
@@ -1047,7 +1047,7 @@ function AppContent() {
     } else if (appearanceSection === "background") {
       updateAppearance({ backgrounds: defaultBackgrounds() });
     } else if (appearanceSection === "typography") {
-      updateAppearance({ fontFamily: defaultAppearance.fontFamily, codeFontFamily: defaultAppearance.codeFontFamily, messageFontSize: defaultAppearance.messageFontSize, messageLineHeight: defaultAppearance.messageLineHeight, streamingFadeRange: defaultAppearance.streamingFadeRange, streamingFadeInk: defaultAppearance.streamingFadeInk, workingIndicator: { ...defaultWorkingIndicator, texts: [...defaultWorkingIndicator.texts] } });
+      updateAppearance({ fontFamily: defaultAppearance.fontFamily, codeFontFamily: defaultAppearance.codeFontFamily, messageFontSize: defaultAppearance.messageFontSize, messageLineHeight: defaultAppearance.messageLineHeight, streamingFadeDuration: defaultAppearance.streamingFadeDuration, streamingFadeInk: defaultAppearance.streamingFadeInk, workingIndicator: { ...defaultWorkingIndicator, texts: [...defaultWorkingIndicator.texts] } });
     } else {
       updateAppearance({ customCss: "", customCssName: "", customCssEnabled: false });
     }

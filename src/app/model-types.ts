@@ -58,9 +58,9 @@ export type AppearanceSettings = {
   codeFontFamily: string;
   messageFontSize: number;
   messageLineHeight: number;
-  /** 流式正文的渐显窗口长度（em）：书写落点往前多长的文字参与渐显。 */
-  streamingFadeRange: number;
-  /** 书写落点处的墨量（0–1）：1 表示落笔即实心，等于关闭渐显。 */
+  /** 流式正文的渐显时长（ms）：每段落笔后多久淡到实心。 */
+  streamingFadeDuration: number;
+  /** 落笔墨量（0–1）：刚落笔时的起始浓度，1 等于关闭渐显。 */
   streamingFadeInk: number;
   workingIndicator: WorkingIndicatorSettings;
   backgrounds: BackgroundSettings;

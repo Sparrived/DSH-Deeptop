@@ -221,12 +221,11 @@ test("streaming assistant keeps one Markdown surface when animation is unavailab
   assert.equal(tree.props.className, "message-text streaming-assistant-text");
   assert.equal(tree.props.locale, "en");
   assert.equal(tree.props.children, undefined);
-  // 渐显窗口跟着书写落点走，渲染容器得把它接出去。
-  assert.equal(typeof tree.props.containerRef, "object");
+  // 没有动画时不做逐段渐显，交给普通 Markdown 渲染。
+  assert.equal(tree.props.streamInk, null);
 
   tree = renderer.render(StreamingAssistantText, { text: "first second", locale: "en" });
   assert.equal(tree.props.text, "first second");
-  // 没有动画时不做收笔，类名保持稳定。
   assert.equal(tree.props.className, "message-text streaming-assistant-text");
 
   renderer.flushEffects();
@@ -271,7 +270,7 @@ test("streaming text frames reveal bursts adaptively and preserve Unicode pairs"
 
 test("a pending line break makes the stream grow whole lines", async () => {
   const renderer = createHookRenderer();
-  const { nextStreamingTextFrame, streamingTextFrameDelay, lastInkIndex } = await loadTranscriptExports(renderer.react);
+  const { nextStreamingTextFrame, streamingTextFrameDelay } = await loadTranscriptExports(renderer.react);
 
   // Four pending lines: paint two, keep two for the smooth reveal.
   assert.equal(nextStreamingTextFrame("", "one\ntwo\nthree\nfour\n"), "one\ntwo\n");
@@ -288,13 +287,6 @@ test("a pending line break makes the stream grow whole lines", async () => {
   const singleLine = streamingTextFrameDelay("", "still typing one line");
   assert.equal(streamingTextFrameDelay("", "aa\nbb\n"), singleLine);
   assert.ok(streamingTextFrameDelay("", "one\ntwo\nthree\nfour\n") < singleLine);
-
-  // 渐显窗口的落点是最后一个有内容的字符：行尾空白不算，全空白时没有落点。
-  assert.equal(lastInkIndex("typing"), 5);
-  assert.equal(lastInkIndex("typing\n"), 5);
-  assert.equal(lastInkIndex("typing \n  "), 5);
-  assert.equal(lastInkIndex("\n\n  "), -1);
-  assert.equal(lastInkIndex(""), -1);
 });
 
 test("a live Think entry unfolds itself and folds back when the step ends", async () => {

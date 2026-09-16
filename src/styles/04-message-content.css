@@ -13,31 +13,20 @@
   overflow-wrap: anywhere;
 }
 
-/* 流式正文的渐显窗口挂在「书写落点」上：落笔处最淡，往前逐渐回到实心。
-   ConversationTranscript 每推进一帧就把落点写进 --stream-x/--stream-y，
-   于是新字从最淡处开始、旧字随落点前行变实——上一个字还没写满，下一个字
-   已经落笔，整段文字像一笔连续写出来。停笔后收干（见 .streaming-ink-settled）。 */
-@property --stream-ink {
-  syntax: "<number>";
-  inherits: true;
-  initial-value: 1;
+/* 流式正文的逐段渐显：渲染层每推进一帧就把那一帧写下的字包进 .stream-ink，
+   并写上 `animation-delay: -<这段文字已经存在的时间>`（见 src/lib/stream-ink.ts）。
+   于是同一帧写下的字一起淡入，下一帧的字在上一帧还没淡完时就开始淡入——整段
+   文字是连续渐显，而不是整块弹出。负延迟让动画接在正确的进度上，语法树每帧
+   重解析、span 被重建也不会跳帧；动画不加 fill 模式，淡完自动回到实心文本。 */
+.streaming-assistant-text .stream-ink {
+  animation-name: stream-ink-in;
+  animation-duration: var(--stream-fade-duration, 520ms);
+  animation-timing-function: var(--motion-ease-enter);
 }
 
-.streaming-assistant-text {
-  --stream-ink: var(--stream-fade-ink, .3);
-}
-
-/* 遮罩只在量到落点之后挂上（data-stream-ink 由渲染层写），量不到就整段实心。 */
-.streaming-assistant-text[data-stream-ink] > :last-child {
-  -webkit-mask-image: radial-gradient(ellipse var(--stream-fade-range, 8em) var(--stream-fade-radius, .8em) at var(--stream-x, 50%) var(--stream-y, 100%), rgb(0 0 0 / var(--stream-ink)) 0, #000 100%);
-  mask-image: radial-gradient(ellipse var(--stream-fade-range, 8em) var(--stream-fade-radius, .8em) at var(--stream-x, 50%) var(--stream-y, 100%), rgb(0 0 0 / var(--stream-ink)) 0, #000 100%);
-}
-
-/* 停笔后把没写完的墨补满：收笔是慢过渡，重新落笔则直接回到落笔墨量（无过渡），
-   否则刚写下的字会先实后淡地闪一下。 */
-.streaming-assistant-text.streaming-ink-settled {
-  --stream-ink: 1;
-  transition: --stream-ink 420ms var(--motion-ease-enter);
+@keyframes stream-ink-in {
+  from { opacity: var(--stream-fade-ink, .3); }
+  to { opacity: 1; }
 }
 
 .streaming-assistant-text::after {
@@ -59,9 +48,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .streaming-assistant-text > :last-child {
-    -webkit-mask-image: none;
-    mask-image: none;
+  .streaming-assistant-text .stream-ink {
+    animation: none;
   }
 
   .streaming-assistant-text::after {
