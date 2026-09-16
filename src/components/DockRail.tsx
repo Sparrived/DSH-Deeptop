@@ -39,8 +39,11 @@ type DockRailProps = {
    * 因此这里只返回非面板内容（文件预览），其余返回 null。
    */
   renderTabBody?: (tab: DockTab) => ReactNode;
-  /** 面板标签离开右栏（关闭或拖出）时通知外部：面板回到浮动卡片。 */
-  onUndock?: (tab: DockTab) => void;
+  /**
+   * 面板标签离开右栏时通知外部。`reason` 区分两种归宿：拖出右栏是取消停靠（面板
+   * 回到浮动卡片），关闭（标签叉或关闭整组）则连浮动卡片一起收起，只留图标条入口。
+   */
+  onTabLeaveRail?: (tabs: DockTab[], reason: "undock" | "close") => void;
 };
 
 /** 各标签类型的字形。内容类型是数据（`DockTab.kind`），这里只负责映射。 */
@@ -100,7 +103,7 @@ function tabTitle(tab: DockTab): string {
  * 面板入口（终端/文件/Git 的图标条）由各面板自己的 `DockFrame` 常驻在右栏左缘，
  * 因此这里只负责标签组正文；空栏时右栏只剩那条图标条。
  */
-export function DockRail({ locale = "zh", visible = true, renderTabBody, onUndock }: DockRailProps) {
+export function DockRail({ locale = "zh", visible = true, renderTabBody, onTabLeaveRail }: DockRailProps) {
   const {
     layout,
     drag,
@@ -122,14 +125,16 @@ export function DockRail({ locale = "zh", visible = true, renderTabBody, onUndoc
     cancelDockDrag,
   } = useDockSettings();
   /**
-   * 面板标签离开右栏（关闭按钮或拖出右栏）时先通知外部，让面板回到浮动卡片；
-   * 否则它只会剩一个收起状态的图标，正文看起来凭空消失。
+   * 标签离开右栏前先通知外部：拖出右栏要把面板展开成浮动卡片，关闭要把面板的
+   * 浮动卡片一并收起。少了这一步，两种操作在面板那侧看起来会完全一样。
    */
-  const leaveRail = (tabIds: string[]) => {
+  const leaveRail = (tabIds: string[], reason: "undock" | "close") => {
+    const tabs: DockTab[] = [];
     for (const tabId of tabIds) {
       const tab = layout.tabs[tabId];
-      if (tab) onUndock?.(tab);
+      if (tab) tabs.push(tab);
     }
+    if (tabs.length > 0) onTabLeaveRail?.(tabs, reason);
   };
   const tabRefCallbacks = useRef(new Map<string, (element: HTMLElement | null) => void>());
   const paneRefCallbacks = useRef(new Map<string, (element: HTMLElement | null) => void>());
@@ -200,7 +205,7 @@ export function DockRail({ locale = "zh", visible = true, renderTabBody, onUndoc
       if (target) moveTab(tabId, { zone: target.zone, targetPaneId: target.paneId });
       // 拖出右栏即取消停靠：面板回到浮动卡片。
       else {
-        leaveRail([tabId]);
+        leaveRail([tabId], "undock");
         closeTab(tabId);
       }
     };
@@ -381,10 +386,10 @@ export function DockRail({ locale = "zh", visible = true, renderTabBody, onUndoc
                 <button
                   className="dock-rail-tab-close"
                   type="button"
-                  title={tab.detail ? t("dock.railUndockDetailed", locale, { label: tabTitle(tab), detail: tab.detail }) : t("dock.railUndock", locale, { label: tabTitle(tab) })}
-                  aria-label={t("dock.railUndock", locale, { label: tabTitle(tab) })}
+                  title={tab.detail ? t("dock.railCloseDetailed", locale, { label: tabTitle(tab), detail: tab.detail }) : t("dock.railClose", locale, { label: tabTitle(tab) })}
+                  aria-label={t("dock.railClose", locale, { label: tabTitle(tab) })}
                   onClick={() => {
-                    leaveRail([tabId]);
+                    leaveRail([tabId], "close");
                     closeTab(tabId);
                   }}
                 >
@@ -401,7 +406,7 @@ export function DockRail({ locale = "zh", visible = true, renderTabBody, onUndoc
               title={t("dock.railPaneClose", locale)}
               aria-label={t("dock.railPaneClose", locale)}
               onClick={() => {
-                leaveRail(pane.tabIds);
+                leaveRail(pane.tabIds, "close");
                 closePane(pane.id);
               }}
             >

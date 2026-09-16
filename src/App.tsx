@@ -1875,13 +1875,18 @@ function AppContent() {
   // 可停靠右栏：停靠状态由布局树权威决定，浮动卡片只负责未停靠时的位置。
   // 看板/轨迹页不显示右栏，但布局保留，回到对话页即恢复。
   /**
-   * 面板标签离开右栏（点关闭或拖出）后回到浮动卡片：把对应的卡片展开，
-   * 否则面板只剩图标条里一个收起状态的入口，正文看起来凭空消失。
+   * 面板标签离开右栏的两种归宿：拖出右栏是取消停靠，面板回到浮动卡片；关闭（标签叉
+   * 或关闭整组）要连它的浮动卡片一起收起，只留图标条入口——否则“关掉”的面板会又飘
+   * 出来，两种操作在面板这侧就分不开了。
    */
-  const undockDockPanel = (tab: DockTab) => {
-    if (tab.kind === "terminal-dock") setTerminalOpen(true);
-    else if (tab.kind === "workspace-files-dock") setFilesOpen(true);
-    else if (tab.kind === "git-dock") setGitOpen(true);
+  const dockPanelOpenSetters: Record<string, (open: boolean) => void> = {
+    "terminal-dock": setTerminalOpen,
+    "workspace-files-dock": setFilesOpen,
+    "git-dock": setGitOpen,
+  };
+  const handleDockTabsLeaveRail = (tabs: DockTab[], reason: "undock" | "close") => {
+    const open = reason === "undock";
+    for (const tab of tabs) dockPanelOpenSetters[tab.kind]?.(open);
   };
   /**
    * 在右栏按行打开文件。标签按路径去重：重复点击是复用并定位到新的行，
@@ -5772,7 +5777,7 @@ function AppContent() {
         <DockRail
           locale={locale}
           visible={conversationPageActive}
-          onUndock={undockDockPanel}
+          onTabLeaveRail={handleDockTabsLeaveRail}
           renderTabBody={(tab) => (
             <DockTabBody
               key={tab.id}
