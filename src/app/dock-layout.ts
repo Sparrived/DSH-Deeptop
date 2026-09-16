@@ -78,6 +78,11 @@ export const DOCK_RAIL_EMPTY_WIDTH = 132;
  * 没有面板停靠时右栏就只占这一条，因此它是右栏的宽度下限而不是 0。
  */
 export const DOCK_RAIL_STRIP_WIDTH = 64;
+/**
+ * 右栏与窗口右缘的间距：右栏是三面留边的卡片（上、右、下），列宽要把这段间距一起
+ * 算进去，否则没有面板停靠时卡片会被这 10px 挤窄、图标条也会顶到窗口边上。
+ */
+export const DOCK_RAIL_EDGE_GAP = 10;
 
 /**
  * "面板类"标签：正文由 `DockFrame` 自己搬进标签宿主，不属于内容注册表。
