@@ -241,6 +241,8 @@
   "composer.planExitAria": "退出 Plan 模式",
   "composer.planExitTitle": "退出 Plan 模式（/plan off）",
   "composer.planPlaceholder": "描述你的任务以生成计划",
+  "composer.previewAttachment": "预览图片",
+  "composer.previewAttachmentAria": "预览 {name}",
   "composer.queueLabel": "排队",
   "composer.queueOrInsertPlaceholder": "输入要排队或插入当前回合的内容",
   "composer.queueTitle": "将消息排入当前会话",

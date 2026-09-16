@@ -1706,31 +1706,65 @@ span.queue-dock-item-mode.steering {
 .composer-shell textarea::placeholder { color: var(--ink-faint); }
 .composer-file-input { display: none; }
 
+/* 待发送图片排在输入框上方（工作台第一行，横跨工具列），用胶囊承载：
+   缩略图 + 文件名 + 移除；点胶囊主体打开快速预览。 */
 .composer-attachments {
+  /* 占满工作台整行：强制自己成为首行，输入框落到下一行，胶囊因此位于发送框之上。 */
+  grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  /* 05 层的旧样式按「框内附件条」留了内边距，这里清零。 */
+  padding: 0;
   gap: 8px;
-  padding: 0 12px 10px;
 }
 
 .composer-attachment {
   min-width: 0;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 5px 7px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--surface-soft);
+  /* 内部按钮自带的圆角已对齐胶囊两端；这里不裁剪，避免吃掉键盘焦点圈。 */
+  gap: 0;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-soft);
   color: var(--ink-muted);
   font-size: 12px;
 }
 
+.composer-attachment-previewing {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent), var(--shadow-soft);
+}
+
+/* 两条规则都要压过 05 里的 `.composer-attachment button`（0,1,1）：
+   胶囊主体是「缩略图 + 文件名」，不能继承图标按钮的固定尺寸。 */
+.composer-attachment .composer-attachment-open {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: auto;
+  height: auto;
+  padding: 3px 6px 3px 3px;
+  border-radius: 999px 0 0 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+}
+
+.composer-attachment .composer-attachment-open:hover {
+  background: var(--surface-soft);
+  color: var(--ink);
+}
+
 .composer-attachment img {
-  width: 34px;
-  height: 34px;
+  width: 26px;
+  height: 26px;
   object-fit: cover;
-  border-radius: 4px;
+  border-radius: 999px;
 }
 
 .composer-attachment span {
@@ -1740,16 +1774,76 @@ span.queue-dock-item-mode.steering {
   white-space: nowrap;
 }
 
-.composer-attachment button {
-  width: 24px;
-  height: 24px;
+.composer-attachment .composer-attachment-remove {
+  width: 22px;
+  height: 22px;
+  margin-right: 3px;
   padding: 0;
+  border-radius: 999px;
   background: transparent;
   color: var(--ink-muted);
-  font-size: 17px;
+  font-size: 15px;
 }
 
-.composer-attachment button:hover { color: var(--danger); }
+.composer-attachment .composer-attachment-remove:hover {
+  background: var(--surface-soft);
+  color: var(--danger);
+}
+
+/* 快速预览：与统计胶囊同款浮动座位（锚在胶囊上、钳在视口内）。 */
+.attachment-preview {
+  position: fixed;
+  z-index: 1000;
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-panel);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-panel);
+  color: var(--ink);
+}
+
+.attachment-preview img {
+  display: block;
+  max-width: min(420px, 60vw);
+  max-height: min(420px, 50vh);
+  object-fit: contain;
+  border-radius: 6px;
+  background: var(--surface-soft);
+}
+
+.attachment-preview-caption {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.attachment-preview-name {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.attachment-preview .attachment-preview-close {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 15px;
+}
+
+.attachment-preview .attachment-preview-close:hover {
+  background: var(--surface-soft);
+  color: var(--danger);
+}
 
 .composer-controls {
   min-height: 48px;

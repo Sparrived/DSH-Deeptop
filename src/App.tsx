@@ -1301,8 +1301,9 @@ function AppContent() {
     if (!desktop) return;
     const cleanups: Array<UnlistenFn> = [];
     let disposed = false;
+    // 附件胶囊已移到发送框上方：两者同属落点区域，否则拖到胶囊行会被判为未命中。
     const overComposer = (x: number, y: number) =>
-      document.elementFromPoint(x, y)?.closest(".composer-shell") != null;
+      document.elementFromPoint(x, y)?.closest(".composer-shell, .composer-attachments") != null;
     trackAsyncCleanup(cleanups, listenToWebviewFileDrop((event) => {
       if (disposed) return;
       if (event.type === "leave") {

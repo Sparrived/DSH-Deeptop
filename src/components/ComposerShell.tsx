@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { Check, ChevronDown, ChevronUp, Paperclip, Send, Square, X } from "lucide-react";
+import { imageDataUrl } from "../app/image-preview-model";
 import { shortcutMatches, type SendShortcut } from "../app/keyboard-shortcut";
 import { resolveSubmitMode } from "../app/submit-mode";
+import { useFloatingMenuPosition } from "../app/useFloatingMenuPosition";
 import { ComposerCandidates } from "./ComposerCandidates";
 import { ModelPicker } from "./ModelPicker";
 import { PermissionPicker } from "./PermissionPicker";
@@ -127,6 +130,12 @@ export function ComposerShell({
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const modeMenuRef = useRef<HTMLDivElement | null>(null);
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
+  // 待发送图片的快速预览：与统计胶囊共用「锚点 + 视口钳制」的浮动弹窗座位。
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [previewAnchor, setPreviewAnchor] = useState<{ x: number; y: number } | null>(null);
+  const attachmentsRef = useRef<HTMLDivElement | null>(null);
+  const { menuRef: previewRef, menuAt: previewAt } = useFloatingMenuPosition(previewAnchor);
+  const previewAttachment = attachments.find((attachment) => attachment.id === previewId) ?? null;
 
   // The upward picker records the preference; this is what the gesture actually
   // delivers, resolved by the same rule the submission itself uses. While a turn
@@ -161,6 +170,29 @@ export function ComposerShell({
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [modeMenuOpen, showSendMode]);
+
+  // 预览跟随附件：移除或发送后附件消失，弹窗不能留在原地。
+  useEffect(() => {
+    if (previewId === null) return;
+    if (!attachments.some((attachment) => attachment.id === previewId)) setPreviewId(null);
+  }, [attachments, previewId]);
+
+  useEffect(() => {
+    if (previewId === null) return;
+    const handlePointerDown = (event: globalThis.PointerEvent) => {
+      if (event.target instanceof Node && (attachmentsRef.current?.contains(event.target) || previewRef.current?.contains(event.target))) return;
+      setPreviewId(null);
+    };
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setPreviewId(null);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [previewId, previewRef]);
 
   function handleDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
@@ -199,6 +231,30 @@ export function ComposerShell({
 
   return <footer className="composer-area">
     <div className="composer-workbench">
+      {attachments.length > 0 && <div className="composer-attachments" role="group" aria-label={t("composer.attachmentsAria", locale)} ref={attachmentsRef} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
+        {attachments.map((attachment) => {
+          const active = previewId === attachment.id;
+          return <div className={"composer-attachment" + (active ? " composer-attachment-previewing" : "")} key={attachment.id}>
+            <button
+              className="composer-attachment-open"
+              type="button"
+              aria-haspopup="dialog"
+              aria-expanded={active}
+              title={t("composer.previewAttachment", locale)}
+              aria-label={t("composer.previewAttachmentAria", locale, { name: attachment.name })}
+              onClick={(event) => {
+                const rect = event.currentTarget.getBoundingClientRect();
+                setPreviewAnchor({ x: rect.left, y: rect.top });
+                setPreviewId(active ? null : attachment.id);
+              }}
+            >
+              <img src={imageDataUrl(attachment.mediaType, attachment.data)} alt={attachment.name} />
+              <span title={attachment.name}>{attachment.name}</span>
+            </button>
+            <button className="composer-attachment-remove" type="button" onClick={() => onRemoveAttachment(attachment.id)} title={t("composer.removeAttachment", locale)} aria-label={t("composer.removeAttachmentAria", locale, { name: attachment.name })}><X aria-hidden="true" /></button>
+          </div>;
+        })}
+      </div>}
       <div className={"composer-shell" + (dropActive ? " composer-drop-active" : "")} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
       <input ref={attachmentInputRef} className="composer-file-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple onChange={(event) => { void onAddFiles(event.target.files ?? []); event.currentTarget.value = ""; }} />
       <textarea
@@ -213,15 +269,6 @@ export function ComposerShell({
         aria-controls={candidates.length > 0 && !candidatesDismissed ? "composer-candidates" : undefined}
         aria-activedescendant={candidates.length > 0 && !candidatesDismissed ? "composer-candidate-" + activeCandidateIndex : undefined}
       />
-      {attachments.length > 0 && <div className="composer-attachments" aria-label={t("composer.attachmentsAria", locale)}>
-        {attachments.map((attachment) => (
-          <div className="composer-attachment" key={attachment.id}>
-            <img src={"data:" + attachment.mediaType + ";base64," + attachment.data} alt={attachment.name} />
-            <span title={attachment.name}>{attachment.name}</span>
-            <button type="button" onClick={() => onRemoveAttachment(attachment.id)} title={t("composer.removeAttachment", locale)} aria-label={t("composer.removeAttachmentAria", locale, { name: attachment.name })}><X aria-hidden="true" /></button>
-          </div>
-        ))}
-      </div>}
       {planEffectiveTarget(plan) && <div className="composer-plan-chip" role="status" aria-label={t("composer.planActiveAria", locale)}>
         <span className="composer-plan-chip-label">Plan</span>
         <span className="composer-plan-chip-note">{t("composer.planChipNote", locale)}</span>
@@ -323,5 +370,22 @@ export function ComposerShell({
       {utilityPanel}
     </div>
     <StatsPills sessionStats={sessionStats} sessionRunningMs={sessionRunningMs} locale={locale} onOpenDashboard={onOpenSessionDashboard} />
+    {previewAttachment && previewAnchor && createPortal(
+      <div
+        ref={previewRef}
+        className="attachment-preview"
+        role="dialog"
+        aria-label={t("composer.previewAttachmentAria", locale, { name: previewAttachment.name })}
+        style={{ left: previewAt?.left ?? previewAnchor.x, top: previewAt?.top ?? previewAnchor.y }}
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        <img src={imageDataUrl(previewAttachment.mediaType, previewAttachment.data)} alt={previewAttachment.name} />
+        <div className="attachment-preview-caption">
+          <span className="attachment-preview-name" title={previewAttachment.name}>{previewAttachment.name}</span>
+          <button type="button" className="attachment-preview-close" onClick={() => setPreviewId(null)} title={t("common.close", locale)} aria-label={t("common.close", locale)}><X aria-hidden="true" /></button>
+        </div>
+      </div>,
+      document.body,
+    )}
   </footer>;
 }

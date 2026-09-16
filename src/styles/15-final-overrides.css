@@ -83,8 +83,9 @@
 .current-goal-create svg { width: 14px; height: 14px; stroke-width: 2; }
 .current-goal-create:hover { border-style: solid; border-color: var(--accent); background: var(--accent-soft); color: var(--accent-deep); }
 
-/* SVG controls retain the centered geometry of the glyph buttons they replace. */
-.composer-attachment button,
+/* SVG controls retain the centered geometry of the glyph buttons they replace.
+   待发送图片胶囊的主体是「缩略图 + 文件名」，不算图标按钮，不在此列。 */
+.composer-attachment .composer-attachment-remove,
 .composer-plan-chip-exit,
 .send-button,
 .stop-button,
@@ -118,6 +119,7 @@
 
 .pet-notice-close,
 .popup-close,
+.attachment-preview-close,
 .message-lightbox-toolbar button,
 .message-lightbox-nav > button,
 .subagent-drawer-close,

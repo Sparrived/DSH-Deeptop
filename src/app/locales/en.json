@@ -241,6 +241,8 @@
   "composer.planExitAria": "Exit Plan mode",
   "composer.planExitTitle": "Exit Plan mode (/plan off)",
   "composer.planPlaceholder": "Describe your task to generate a plan",
+  "composer.previewAttachment": "Preview image",
+  "composer.previewAttachmentAria": "Preview {name}",
   "composer.queueLabel": "Queue",
   "composer.queueOrInsertPlaceholder": "Type content to queue or insert into the current turn",
   "composer.queueTitle": "Enqueue the message in the current session",
