@@ -106,7 +106,7 @@ function MessageEntityLink({ href, children, locale, onOpenPath, onCheckPath, on
   );
 }
 
-function createMarkdownComponents(actions: MarkdownEntityActions, locale: UiLocale): Components {
+function createMarkdownComponents(actions: MarkdownEntityActions, locale: UiLocale, streamInk?: StreamInk | null): Components {
   return {
   a: ({ children, href, node, ...props }) => {
     if (!href) return <span className="markdown-link-disabled">{children}</span>;
@@ -123,7 +123,9 @@ function createMarkdownComponents(actions: MarkdownEntityActions, locale: UiLoca
       </code>
     );
   },
-  pre: ({ children, node, ...props }) => <MarkdownCodeBlock {...props} locale={locale}>{children}</MarkdownCodeBlock>,
+  // `node.position.end` 就是这段代码在正文里的结束位置，用它判断代码块是不是
+  // 正写在书写前沿上（见 MarkdownCodeBlock）。
+  pre: ({ children, node, ...props }) => <MarkdownCodeBlock {...props} locale={locale} streamInk={streamInk} sourceEnd={node?.position?.end?.offset}>{children}</MarkdownCodeBlock>,
   img: ({ src, alt, node, ...props }) => (
     <MarkdownImage {...props} src={typeof src === "string" ? src : undefined} alt={typeof alt === "string" ? alt : undefined} />
   ),
@@ -140,7 +142,7 @@ function createMarkdownComponents(actions: MarkdownEntityActions, locale: UiLoca
 // others avoids re-parsing every previous message's markdown on each token.
 export const MarkdownContent = memo(function MarkdownContent({ text, className = "message-text", reveal = false, locale = "zh", streamInk, onOpenPath, onCheckPath, onOpenUrl }: { text: string; className?: string; reveal?: boolean; locale?: UiLocale; /** 流式正文的逐段渐显：刚写下的字按自己的年龄淡入。 */ streamInk?: StreamInk | null } & MarkdownEntityActions) {
   const contentClassName = reveal ? `${className} model-text-reveal` : className;
-  const components = createMarkdownComponents({ onOpenPath, onCheckPath, onOpenUrl }, locale);
+  const components = createMarkdownComponents({ onOpenPath, onCheckPath, onOpenUrl }, locale, streamInk);
   return (
     <div className={contentClassName}>
       <ReactMarkdown

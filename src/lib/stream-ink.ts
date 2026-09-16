@@ -33,9 +33,12 @@ const STREAM_INK_STAGGER_MS = 14;
 /** 一段内递延的上限：长爆发也不能扫得太久。 */
 const STREAM_INK_STAGGER_MAX_MS = 360;
 
-/** 不参与渐显的标签：代码块自己有行结构，数学公式不能被切碎。 */
-const STREAM_INK_SKIP_TAGS = new Set(["pre", "code", "style", "script"]);
+/** 不参与渐显的标签：样式和脚本不该被切碎。 */
+const STREAM_INK_SKIP_TAGS = new Set(["style", "script"]);
 const STREAM_INK_SKIP_CLASSES = new Set(["katex", "math-inline", "math-display"]);
+
+/** 源码位置离书写前沿多近才算「正在这里落笔」。 */
+const STREAM_INK_HEAD_SLACK = 2;
 
 type InkTextNode = { type: "text"; value: string; position?: { start?: { offset?: number } } };
 type InkElementNode = { type: "element"; tagName: string; properties?: Record<string, unknown>; children?: unknown[] };
@@ -104,6 +107,43 @@ function splitStreamInk(children: InkChild[], ink: StreamInk) {
     children.splice(index, 1, ...pieces);
     index += pieces.length - 1;
   }
+}
+
+/** 源码位置是否就压在书写前沿上——正文刚好写到这里。 */
+export function streamInkHead(ink: StreamInk, sourceEnd: number): boolean {
+  const newest = ink.chunks[ink.chunks.length - 1];
+  if (newest === undefined) return false;
+  const delta = newest.to - sourceEnd;
+  return delta >= 0 && delta <= STREAM_INK_HEAD_SLACK;
+}
+
+/** 某个源码偏移处文字的动画延迟（年龄）；不在任何还留着的区间里时返回 `null`。 */
+export function streamInkAge(chunks: readonly StreamInkChunk[], offset: number, now: number): number | null {
+  for (let index = chunks.length - 1; index >= 0; index -= 1) {
+    const chunk = chunks[index];
+    // 从这个偏移往新处已经没有别的人了：它落在两段之间（Markdown 语法字符）。
+    if (offset >= chunk.to) return null;
+    if (offset >= chunk.from) return Math.max(0, now - chunk.at);
+  }
+  return null;
+}
+
+/**
+ * 代码块逐行的渐显延迟。
+ *
+ * 围栏代码块的 `<pre>`/`<code>` 位置就是正文位置，所以只要它压在书写前沿上，
+ * 就能按「这一行后面还有多少字符」从结尾倒推出每行的源码偏移，用和正文同一套
+ * 年龄规则。缩进式代码块的源码里每行还带着行首缩进，倒推出来的偏移会略偏小，
+ * 只影响渐显起点，不影响这一行到底渐不渐显。
+ */
+export function codeLineDelays(lines: readonly string[], contentEnd: number, ink: StreamInk): Array<number | null> {
+  const delays: Array<number | null> = [];
+  let after = 0;
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    delays[index] = streamInkAge(ink.chunks, contentEnd - 1 - after, ink.now);
+    after += lines[index].length + 1;
+  }
+  return delays;
 }
 
 /** 把语法树里刚写下的那些字换成带动画延迟的 span；没有内容可渐显时原样返回。 */

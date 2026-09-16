@@ -59,12 +59,36 @@ test("一次爆发写出的多行按分组带递延，整段而不是最后一�
   }
 });
 
-test("代码块与公式不进渐显，避免打散它们自己的排版", async () => {
-  const html = await render("text\n\n```js\nconst a = 1;\n```\n\n$x+1$", { now: 0, chunks: [{ from: 0, to: 40, at: 0 }] });
+test("正在写出来的代码块逐行渐显，公式保持原样", async () => {
+  // 代码块是正文的最后一段：它压在书写前沿上，所以每一行都按自己的年龄淡入。
+  const streaming = "text\n\n```js\nconst a = 1;\nlet b = 2;";
+  const codeHtml = await render(streaming, { now: 500, chunks: [{ from: 0, to: 10, at: 0 }, { from: 10, to: streaming.length, at: 400 }] });
+
+  assert.match(codeHtml, /class="md-code-line stream-ink"/u);
+  // 第一行写得早（年龄 500ms），最后一行刚写下（年龄 100ms）。
+  assert.match(codeHtml, /animation-delay:-500ms/u);
+  assert.match(codeHtml, /animation-delay:-100ms/u);
+});
+
+test("公式不进渐显，避免打散它自己的排版", async () => {
+  const text = "before $x+1$ after";
+  const html = await render(text, { now: 0, chunks: [{ from: 0, to: text.length, at: 0 }] });
+
+  assert.match(html, /class="katex"/u);
+  assert.doesNotMatch(html, /<span class="katex"><span class="stream-ink"/u);
+  // 公式前后的正文照常渐显。
+  assert.match(html, /class="stream-ink"/u);
+});
+
+test("写完的代码块不再跟着后面的文字重新淡一遍", async () => {
+  // 围栏已闭合、后面还有正文：代码块离书写前沿已经很远，不该渐显。
+  const text = "```js\nconst a = 1;\n```\n\nafter";
+  const html = await render(text, { now: 0, chunks: [{ from: 0, to: text.length, at: 0 }] });
 
   assert.match(html, /class="md-code-line"/u);
-  assert.doesNotMatch(html, /<code[^>]*><span class="stream-ink"/u);
-  assert.match(html, /class="katex"/u);
+  assert.doesNotMatch(html, /class="md-code-line stream-ink"/u);
+  // 但同一帧写下的正文照常渐显。
+  assert.match(html, /<span class="stream-ink"[^>]*>after<\/span>/u);
 });
 
 test("没有渐显区间时渲染结果与普通 Markdown 一致", async () => {

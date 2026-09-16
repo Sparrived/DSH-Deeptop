@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyStreamInk, streamInkPieces } from "./stream-ink.ts";
+import { applyStreamInk, codeLineDelays, streamInkAge, streamInkHead, streamInkPieces } from "./stream-ink.ts";
 
 const ink = (chunks, now = 0) => ({ now, chunks });
 
@@ -61,14 +61,13 @@ test("区间只覆盖一部分时按交叉部分切，不重复也不漏字", ()
   assert.deepEqual(streamInkPieces("hi", 0, ink([{ from: 0, to: 2, at: 0 }], 0)).length, 1);
 });
 
-test("语法树里只有带源码位置的文本会被切，代码块与公式保持原样", () => {
+test("语法树里只有带源码位置的文本会被切，公式保持原样", () => {
   const inkValue = ink([{ from: 0, to: 4, at: 0 }], 0);
   const tree = {
     children: [
       { type: "element", tagName: "p", children: [text("abcd", 0)] },
       // remark-breaks 造出来的换行没有 position，不能碰。
       { type: "text", value: "\n" },
-      { type: "element", tagName: "pre", children: [{ type: "element", tagName: "code", children: [text("abcd", 0)] }] },
       { type: "element", tagName: "span", properties: { className: ["math", "math-inline"] }, children: [text("abcd", 0)] },
     ],
   };
@@ -79,12 +78,56 @@ test("语法树里只有带源码位置的文本会被切，代码块与公式�
   assert.deepEqual(paragraph.map((piece) => piece.type), ["element"]);
   assert.equal(paragraph[0].properties.className[0], "stream-ink");
   assert.equal(tree.children[1].value, "\n");
-  assert.equal(tree.children[2].children[0].children[0].value, "abcd");
-  assert.equal(tree.children[3].children[0].value, "abcd");
+  assert.equal(tree.children[2].children[0].value, "abcd");
 });
 
 test("没有可渐显的区间时不动语法树", () => {
   const tree = { children: [{ type: "element", tagName: "p", children: [text("abcd", 0)] }] };
   applyStreamInk(tree, ink([]));
   assert.deepEqual(tree.children[0].children.map((piece) => piece.type), ["text"]);
+});
+
+test("行内代码也逐字渐显，围栏代码块的文本照样能还原", () => {
+  const inkValue = ink([{ from: 0, to: 8, at: 0 }], 0);
+  const tree = {
+    children: [
+      { type: "element", tagName: "p", children: [{ type: "element", tagName: "code", children: [text("abcdefgh", 0)] }] },
+      {
+        type: "element",
+        tagName: "pre",
+        children: [{ type: "element", tagName: "code", children: [text("abcdefgh", 0)] }],
+      },
+    ],
+  };
+
+  applyStreamInk(tree, inkValue);
+
+  assert.equal(tree.children[0].children[0].children[0].type, "element");
+  assert.equal(tree.children[0].children[0].children[0].properties.className[0], "stream-ink");
+  assert.equal(tree.children[1].children[0].children[0].type, "element");
+});
+
+test("只有压在书写前沿上的位置才算正在落笔", () => {
+  const chunks = [{ from: 0, to: 40, at: 0 }];
+  assert.equal(streamInkHead(ink(chunks, 0), 40), true);
+  assert.equal(streamInkHead(ink(chunks, 0), 38), true);
+  // 更早写完的块不该被后来的文字带着重新淡一遍。
+  assert.equal(streamInkHead(ink(chunks, 0), 20), false);
+  // 还没写到的地方不算。
+  assert.equal(streamInkHead(ink(chunks, 0), 41), false);
+  assert.equal(streamInkHead(ink([], 0), 0), false);
+});
+
+test("代码行按倒推的源码偏移取年龄", () => {
+  // 源码：第 0 行 [0,6)，换行 6，第 1 行 [7,13)，代码块结束在 13。
+  const chunks = [{ from: 0, to: 6, at: 0 }, { from: 7, to: 13, at: 400 }];
+  const delays = codeLineDelays(["abcdef", "ghijkl"], 13, ink(chunks, 500));
+  assert.deepEqual(delays, [500, 100]);
+
+  // 区间已经淡完（被裁掉）时该行不渐显。
+  assert.deepEqual(codeLineDelays(["abcdef", "ghijkl"], 13, ink([{ from: 0, to: 6, at: 0 }], 500)), [500, null]);
+  assert.equal(streamInkAge([{ from: 0, to: 6, at: 0 }], 9, 500), null);
+  assert.equal(streamInkAge([{ from: 0, to: 6, at: 0 }, { from: 7, to: 13, at: 400 }], 9, 500), 100);
+  // 落在两段之间的语法字符没有年龄。
+  assert.equal(streamInkAge([{ from: 0, to: 6, at: 0 }, { from: 7, to: 13, at: 400 }], 6, 500), null);
 });
