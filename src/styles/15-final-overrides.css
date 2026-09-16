@@ -4,6 +4,9 @@
 .conversation-panel:not(.page-non-conversation) { grid-template-rows: minmax(64px, auto) minmax(0, 1fr) auto; }
 .conversation-header { padding-top: 6px; padding-bottom: 6px; }
 .conversation-heading { flex: 1 1 auto; gap: 2px; }
+/* 只有标题区让宽度：Goal 条展开时靠标题与目标文本收缩，右侧操作区不可被挤窄，
+   否则「轨迹 / 会话看板」会被推出头部内边距并裁掉。 */
+.conversation-actions { flex: 0 0 auto; }
 .conversation-title-row { min-width: 0; display: flex; align-items: baseline; gap: 10px; }
 /* 标题只占内容宽度，副标题紧跟其后；标题行剩余的空白留在两者之后，不把副标题推到
    右端。窗口收窄时两者按比例收缩，各自出省略号。 */
@@ -982,6 +985,7 @@
   font: 12px/1.4 var(--mono);
 }
 .message-lightbox-toolbar span {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1002,7 +1006,23 @@
   border-color: rgba(232, 230, 223, 0.8);
   background: rgba(232, 230, 223, 0.12);
 }
+.message-lightbox-toolbar button:disabled {
+  opacity: 0.35;
+}
+.message-lightbox-zoom {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+.message-lightbox-zoom-value {
+  width: auto !important;
+  padding: 0 8px !important;
+  border-radius: 16px !important;
+  font-size: 11px !important;
+}
 .message-lightbox-stage {
+  position: relative;
   min-height: 0;
   display: grid;
   /* 轨道必须显式声明：隐式 auto 行下图片的 max-height: 100% 没有可解析的基准，
@@ -1013,14 +1033,30 @@
   overflow: hidden;
   padding: 12px 24px;
 }
+/* 拖拽平移只改 transform，舞台始终不滚动：滚动条会改变可测尺寸，而尺寸又决定
+   显示尺寸，两者互相牵动会来回震荡。 */
+.message-lightbox-stage.is-pannable {
+  cursor: grab;
+}
+.message-lightbox-stage.is-panning {
+  cursor: grabbing;
+}
+.message-lightbox-stage.is-panning .message-lightbox-image {
+  user-select: none;
+}
 .message-lightbox-image {
   display: block;
+  /* 尺寸未知（还没加载完）时回落到 CSS 的 contain，与 JS 给出的适应尺寸一致。 */
   max-width: 100%;
   max-height: 100%;
   width: auto;
   height: auto;
   object-fit: contain;
-  cursor: zoom-out;
+}
+/* 尺寸由 JS 按「适应舞台 × 缩放」给出；max-* 必须让开，否则长图/宽图永远被压回舞台。 */
+.message-lightbox-image.is-sized {
+  max-width: none;
+  max-height: none;
 }
 .message-lightbox-nav {
   display: flex;

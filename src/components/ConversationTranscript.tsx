@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject, type UIEvent } from "react";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut } from "lucide-react";
 import { createPortal } from "react-dom";
 import { isFilePath, type DshHistoryEntry, type DshPreset, type DshSessionSummary } from "../lib/desktop";
 import type { DesktopUiRuntime } from "../lib/desktop-ui-runtime/client-runtime";
@@ -27,6 +27,8 @@ import { entityHost } from "../lib/message-entities";
 import { DisclosureEntry } from "./DisclosureEntry";
 import { isWithinSelector, TRANSCRIPT_CONTEXT_MENU_SELECTOR, TRANSCRIPT_TEXT_SELECTOR } from "../app/context-menu";
 import { useFloatingMenuPosition } from "../app/useFloatingMenuPosition";
+import { useImagePanZoom } from "../app/useImagePanZoom";
+import { IMAGE_ZOOM_BUTTON_FACTOR, IMAGE_ZOOM_MAX, IMAGE_ZOOM_MIN } from "../app/image-preview-model";
 import { applyStepToggle, groupTranscriptTurns, stepKindCounts, type TranscriptTurnGroup } from "../app/turn-group-model";
 import {
   formatClock,
@@ -922,8 +924,8 @@ const MessageImages = memo(function MessageImages({
   </div>;
 }, (prev, next) => sameImages(prev.images, next.images) && prev.locale === next.locale);
 
-/** Attachment gallery: current image with lazy load, prev/next, keyboard. */
-function MessageLightbox({
+/** Attachment gallery: current image with lazy load, prev/next, keyboard, zoom and pan. */
+export function MessageLightbox({
   gallery,
   locale,
   onLoadAttachment,
@@ -941,10 +943,24 @@ function MessageLightbox({
   const [src, setSrc] = useState<string | null>(() => current ? imageSource(current) || null : null);
   const [state, setState] = useState<"loading" | "ready" | "error">(() => src ? "ready" : "loading");
   const [attempt, setAttempt] = useState(0);
+  const [natural, setNatural] = useState<{ width: number; height: number } | null>(null);
   const alt = current?.name || t("conversation.image.alt", locale, { index: index + 1 });
+  // 长图/宽图在画廊里必须能缩放和拖拽：手势与停靠标签预览共用同一套实现。
+  const {
+    stageRef,
+    view,
+    display,
+    pannable,
+    panning,
+    zoomPercent,
+    zoomStep,
+    resetView,
+    stageHandlers,
+  } = useImagePanZoom(natural, `${index}#${attempt}`);
 
   useEffect(() => {
     let active = true;
+    setNatural(null);
     if (!current) {
       setSrc(null);
       setState("error");
@@ -986,12 +1002,52 @@ function MessageLightbox({
   return <div className="message-lightbox" role="dialog" aria-modal="true" aria-label={t("conversation.image.gallery", locale)} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <div className="message-lightbox-toolbar">
       <span>{index + 1} / {images.length} · {alt}</span>
+      <div className="message-lightbox-zoom" role="group" aria-label={t("dockImage.zoomGroup", locale)}>
+        <button
+          type="button"
+          disabled={view.zoom <= IMAGE_ZOOM_MIN}
+          onClick={() => zoomStep(1 / IMAGE_ZOOM_BUTTON_FACTOR, null)}
+          aria-label={t("dockImage.zoomOut", locale)}
+          title={t("dockImage.zoomOut", locale)}
+        ><ZoomOut aria-hidden="true" /></button>
+        <button
+          type="button"
+          className="message-lightbox-zoom-value"
+          onClick={resetView}
+          aria-label={t("dockImage.zoomResetTo", locale, { percent: zoomPercent })}
+          title={t("dockImage.zoomResetTo", locale, { percent: zoomPercent })}
+        >{zoomPercent}%</button>
+        <button
+          type="button"
+          disabled={view.zoom >= IMAGE_ZOOM_MAX}
+          onClick={() => zoomStep(IMAGE_ZOOM_BUTTON_FACTOR, null)}
+          aria-label={t("dockImage.zoomIn", locale)}
+          title={t("dockImage.zoomIn", locale)}
+        ><ZoomIn aria-hidden="true" /></button>
+      </div>
       <button type="button" onClick={onClose} aria-label={t("conversation.image.closeGallery", locale)} title={t("conversation.image.closeEsc", locale)}><X aria-hidden="true" /></button>
     </div>
-    <div className="message-lightbox-stage">
+    <div
+      className={`message-lightbox-stage${pannable ? " is-pannable" : ""}${panning ? " is-panning" : ""}`}
+      ref={stageRef}
+      {...stageHandlers}
+      // 图片本身已经用于拖拽，不能再兼任关闭；点舞台空白处仍然关得掉。
+      onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
+    >
       {state === "loading" && <span className="message-image-placeholder" role="status">{t("conversation.image.loading", locale)}…</span>}
       {state === "error" && <button className="message-image-placeholder error" type="button" onClick={() => setAttempt((value) => value + 1)} title={t("conversation.image.reload", locale)}>{t("conversation.image.loadError", locale)}</button>}
-      {state === "ready" && src !== null && <img className="message-lightbox-image" src={src} alt={alt} onClick={onClose} />}
+      {state === "ready" && src !== null && <img
+        className={`message-lightbox-image${display ? " is-sized" : ""}`}
+        src={src}
+        alt={alt}
+        draggable={false}
+        style={display ? {
+          width: `${display.width}px`,
+          height: `${display.height}px`,
+          transform: `translate(${view.pan.x}px, ${view.pan.y}px)`,
+        } : undefined}
+        onLoad={(event) => setNatural({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })}
+      />}
     </div>
     {images.length > 1 && <div className="message-lightbox-nav">
       <button type="button" disabled={index === 0} onClick={() => onNavigate(index - 1)} aria-label={t("conversation.image.previous", locale)}><ChevronLeft aria-hidden="true" /></button>

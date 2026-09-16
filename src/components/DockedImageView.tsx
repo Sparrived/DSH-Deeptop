@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { AlertTriangle, ChevronLeft, ChevronRight, RefreshCw, Rows3, ZoomIn, ZoomOut } from "lucide-react";
 import { errorText } from "../app/model";
 import { fileTabDetail, pathBasename, sessionPath } from "../app/ui-model";
@@ -8,17 +8,12 @@ import {
   IMAGE_ZOOM_BUTTON_FACTOR,
   IMAGE_ZOOM_MAX,
   IMAGE_ZOOM_MIN,
-  IMAGE_ZOOM_WHEEL_FACTOR,
-  clampImagePan,
   imageDataUrl,
-  imageDisplaySize,
   imageGallery,
   imageGalleryIndex,
-  imagePanAfterZoom,
-  imageZoomPercent,
   neighbourImageIndex,
-  zoomImageBy,
 } from "../app/image-preview-model";
+import { useImagePanZoom } from "../app/useImagePanZoom";
 import { listWorkspaceFiles, openInVscode, readWorkspaceImage } from "../lib/desktop";
 
 type DockedImageViewProps = {
@@ -37,22 +32,13 @@ type LoadState =
   | { status: "ready"; src: string }
   | { status: "error"; message: string };
 
-type Point = { x: number; y: number };
 type Size = { width: number; height: number };
-/** 面板内的查看状态：缩放比例（1 = 适应面板）与相对居中位置的平移量。 */
-type ImageView = { zoom: number; pan: Point };
-
-const FIT_VIEW: ImageView = { zoom: 1, pan: { x: 0, y: 0 } };
-
-type PanSession = { pointerId: number; x: number; y: number };
 
 /**
  * 停靠标签里的图片预览：按「适应面板」显示，并支持缩放与同目录翻页。
  *
  * - 读取走原生桥接（按魔数确认格式、限制字节数），不自己读文件、也不交给外部程序；
- * - 缩放比例 1 表示适应该面板。滚轮以光标为锚点缩放；放大后用指针拖拽平移，
- *   平移只改 transform，不改布局，因此舞台量到的尺寸始终稳定（用滚动容器时，
- *   滚动条会改变可测尺寸，而尺寸又决定显示尺寸，两者会来回震荡）；
+ * - 缩放与拖拽由 `useImagePanZoom` 提供（会话图片画廊共用同一套手势）；
  * - 翻页交给 `onNavigatePath`，由右栏把标签改指到兄弟图片——标签身份是路径，
  *   面板内换图必须让标签跟着换，否则标签会顶着另一个文件的名字。
  */
@@ -60,50 +46,23 @@ export function DockedImageView({ path, cwd, locale = "zh", onError, onNavigateP
   const absolutePath = useMemo(() => sessionPath(cwd, path), [cwd, path]);
   const directory = useMemo(() => fileTabDetail(absolutePath), [absolutePath]);
 
-  const stageRef = useRef<HTMLDivElement | null>(null);
-  const panSessionRef = useRef<PanSession | null>(null);
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [natural, setNatural] = useState<Size | null>(null);
-  const [stageSize, setStageSize] = useState<Size>({ width: 0, height: 0 });
-  const [view, setView] = useState<ImageView>(FIT_VIEW);
   const [directoryImages, setDirectoryImages] = useState<readonly string[] | null>(null);
-  const [panning, setPanning] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
-  // 事件回调要读最新值，但不必因为它们重新挂监听：因此用 ref 镜像状态。
-  const viewRef = useRef<ImageView>(FIT_VIEW);
-  const naturalRef = useRef<Size | null>(null);
-  const applyView = useCallback((next: ImageView) => {
-    viewRef.current = next;
-    setView(next);
-  }, []);
-
-  const liveDisplay = useCallback((): { display: Size | null; stage: Size } => {
-    const stage = stageRef.current;
-    const size = { width: stage?.clientWidth ?? 0, height: stage?.clientHeight ?? 0 };
-    const current = naturalRef.current;
-    return { display: current ? imageDisplaySize(current, size, viewRef.current.zoom) : null, stage: size };
-  }, []);
-
-  /** 按倍率缩放；给出光标位置时以它为锚点，否则把当前平移夹回新尺寸允许的范围。 */
-  const zoomStep = useCallback((factor: number, pointer: Point | null) => {
-    const current = viewRef.current;
-    const zoom = zoomImageBy(current.zoom, factor);
-    if (zoom === current.zoom) return;
-    const { display, stage } = liveDisplay();
-    if (!display) {
-      applyView({ zoom, pan: current.pan });
-      return;
-    }
-    applyView({
-      zoom,
-      pan: pointer
-        ? imagePanAfterZoom(current.pan, pointer, { x: stage.width / 2, y: stage.height / 2 }, zoom / current.zoom, display, stage)
-        : { x: clampImagePan(current.pan.x, display.width, stage.width), y: clampImagePan(current.pan.y, display.height, stage.height) },
-    });
-  }, [applyView, liveDisplay]);
-
-  const resetView = useCallback(() => applyView(FIT_VIEW), [applyView]);
+  // 换图或重试都回到适应面板：上一张的缩放和平移不该留给下一张。
+  const {
+    stageRef,
+    view,
+    display,
+    pannable,
+    panning,
+    zoomPercent,
+    zoomStep,
+    resetView,
+    stageHandlers,
+  } = useImagePanZoom(natural, `${absolutePath}#${attempt}`);
 
   // 目录里的兄弟图片：只在目录变化时列一次，翻页本身不重复扫目录。
   useEffect(() => {
@@ -126,8 +85,6 @@ export function DockedImageView({ path, cwd, locale = "zh", onError, onNavigateP
     let active = true;
     setState({ status: "loading" });
     setNatural(null);
-    naturalRef.current = null;
-    applyView(FIT_VIEW);
     void readWorkspaceImage(absolutePath, IMAGE_PREVIEW_MAX_BYTES)
       .then((payload) => {
         if (!active) return;
@@ -142,47 +99,18 @@ export function DockedImageView({ path, cwd, locale = "zh", onError, onNavigateP
     return () => {
       active = false;
     };
-  }, [absolutePath, attempt, locale, onError, applyView]);
-
-  // 舞台尺寸：显示尺寸要先适应面板再乘以缩放，所以面板一变就要重算。
-  useEffect(() => {
-    const stage = stageRef.current;
-    if (!stage) return;
-    const measure = () => setStageSize({ width: stage.clientWidth, height: stage.clientHeight });
-    measure();
-    if (typeof ResizeObserver !== "function") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(stage);
-    return () => observer.disconnect();
-  }, []);
-
-  // 滚轮缩放：React 的 onWheel 是被动监听，改不了默认行为，因此挂原生非被动监听。
-  useEffect(() => {
-    const stage = stageRef.current;
-    if (!stage) return;
-    const handleWheel = (event: WheelEvent) => {
-      const rect = stage.getBoundingClientRect();
-      // 触控板捏合也是「Ctrl+滚轮」，方向一致，因此不区分两者。
-      zoomStep(event.deltaY < 0 ? IMAGE_ZOOM_WHEEL_FACTOR : 1 / IMAGE_ZOOM_WHEEL_FACTOR, {
-        x: event.clientX - rect.left,
-        y: event.clientY - rect.top,
-      });
-      event.preventDefault();
-    };
-    stage.addEventListener("wheel", handleWheel, { passive: false });
-    return () => stage.removeEventListener("wheel", handleWheel);
-  }, [zoomStep]);
+  }, [absolutePath, attempt, locale, onError]);
 
   const gallery = useMemo(() => imageGallery(directoryImages ?? [], absolutePath), [directoryImages, absolutePath]);
   const index = imageGalleryIndex(gallery, absolutePath);
   const total = gallery.length;
 
-  const navigate = useCallback((offset: number) => {
+  const navigate = (offset: number) => {
     if (!onNavigatePath || gallery.length <= 1) return;
     const next = neighbourImageIndex(index, gallery.length, offset);
     if (next === index) return;
     onNavigatePath(gallery[next]);
-  }, [gallery, index, onNavigatePath]);
+  };
 
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
     // 带修饰键的组合留给应用级快捷键（Ctrl+0 等），这里只处理裸键。
@@ -218,56 +146,6 @@ export function DockedImageView({ path, cwd, locale = "zh", onError, onNavigateP
     });
   };
 
-  const finishPan = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const session = panSessionRef.current;
-    if (!session || session.pointerId !== event.pointerId) return;
-    panSessionRef.current = null;
-    setPanning(false);
-    try {
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    } catch {
-      // 窗口失焦时 WebView 可能已经收回指针捕获。
-    }
-  };
-
-  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    // 拖拽会话以 ref 为准：pointerup 之后紧接着的 pointerdown 不该被上一帧的状态挡掉。
-    if (event.button !== 0 || panSessionRef.current) return;
-    if (event.target instanceof Element && event.target.closest("button")) return;
-    // 适应面板时没有可平移的余量，不开手势，避免把点击误读成拖拽。
-    const { display, stage } = liveDisplay();
-    if (!display || (display.width <= stage.width && display.height <= stage.height)) return;
-    panSessionRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
-    try {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    } catch {
-      // 捕获不可用时仍按指针位置平移。
-    }
-    setPanning(true);
-    event.preventDefault();
-  };
-
-  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const session = panSessionRef.current;
-    if (!session || session.pointerId !== event.pointerId) return;
-    const delta = { x: event.clientX - session.x, y: event.clientY - session.y };
-    session.x = event.clientX;
-    session.y = event.clientY;
-    const { display, stage } = liveDisplay();
-    if (!display) return;
-    const current = viewRef.current;
-    applyView({
-      zoom: current.zoom,
-      pan: {
-        x: clampImagePan(current.pan.x + delta.x, display.width, stage.width),
-        y: clampImagePan(current.pan.y + delta.y, display.height, stage.height),
-      },
-    });
-  };
-
-  const display = natural ? imageDisplaySize(natural, stageSize, view.zoom) : null;
-  const pannable = display !== null && (display.width > stageSize.width || display.height > stageSize.height);
-  const zoomPercent = imageZoomPercent(view.zoom);
   const subtitle = [
     total > 1 ? t("dockImage.position", locale, { index: index + 1, total }) : null,
     natural ? `${natural.width}×${natural.height}` : null,
@@ -298,11 +176,7 @@ export function DockedImageView({ path, cwd, locale = "zh", onError, onNavigateP
         className={`dock-image-stage${pannable ? " is-pannable" : ""}${panning ? " is-panning" : ""}`}
         ref={stageRef}
         tabIndex={0}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={finishPan}
-        onPointerCancel={finishPan}
-        onLostPointerCapture={finishPan}
+        {...stageHandlers}
       >
         {state.status === "loading" && <p className="dock-image-note" role="status">{t("dockImage.loading", locale)}</p>}
         {state.status === "error" && (
@@ -325,7 +199,6 @@ export function DockedImageView({ path, cwd, locale = "zh", onError, onNavigateP
             draggable={false}
             onLoad={(event) => {
               const size = { width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight };
-              naturalRef.current = size;
               setNatural(size);
             }}
           />

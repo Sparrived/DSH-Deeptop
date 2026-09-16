@@ -591,3 +591,77 @@ function collectByProp(node, key, value, out = []) {
   collectByProp(node.props?.children, key, value, out);
   return out;
 }
+
+function textOf(node) {
+  if (Array.isArray(node)) return node.map(textOf).join("");
+  if (node === null || node === undefined || typeof node !== "object") return String(node ?? "");
+  return textOf(node.props?.children);
+}
+
+const LIGHTBOX_IMAGES = [
+  { mediaType: "image/png", data: "AAAA", name: "long.png" },
+  { mediaType: "image/png", data: "BBBB", name: "wide.png" },
+];
+
+const lightboxProps = (index = 0, overrides = {}) => ({
+  gallery: { images: LIGHTBOX_IMAGES, index },
+  locale: "zh",
+  onClose: () => {},
+  onNavigate: () => {},
+  ...overrides,
+});
+
+const lightboxZoomButtons = (tree) => collectByType(collectByClass(tree, "message-lightbox-zoom")[0], "button");
+const lightboxZoomText = (tree) => textOf(collectByClass(tree, "message-lightbox-zoom-value")[0]);
+
+test("the gallery zooms a long image and stages it for dragging", async () => {
+  const renderer = createHookRenderer();
+  const { MessageLightbox } = await loadTranscriptExports(renderer.react);
+
+  let tree = renderer.render(MessageLightbox, lightboxProps());
+
+  // 适应舞台（100%）时没有可拖拽的余量，但指针手势必须已经挂在舞台上。
+  const stage = collectByClass(tree, "message-lightbox-stage")[0];
+  assert.equal(stage.props.className, "message-lightbox-stage");
+  for (const handler of ["onPointerDown", "onPointerMove", "onPointerUp", "onPointerCancel", "onLostPointerCapture"]) {
+    assert.equal(typeof stage.props[handler], "function", `舞台缺少 ${handler}`);
+  }
+  assert.equal(lightboxZoomText(tree), "100%");
+  const [zoomOut, , zoomIn] = lightboxZoomButtons(tree);
+  assert.equal(zoomOut.props.disabled, false);
+  assert.equal(zoomIn.props.disabled, false);
+
+  // 放大后百分比跟着按钮倍率走；点击百分比回到适应舞台。
+  zoomIn.props.onClick();
+  tree = renderer.render(MessageLightbox, lightboxProps());
+  assert.equal(lightboxZoomText(tree), "160%");
+
+  collectByClass(tree, "message-lightbox-zoom-value")[0].props.onClick();
+  tree = renderer.render(MessageLightbox, lightboxProps());
+  assert.equal(lightboxZoomText(tree), "100%");
+});
+
+test("the gallery clamps zoom at both ends and resets when the shown image changes", async () => {
+  const renderer = createHookRenderer();
+  const { MessageLightbox } = await loadTranscriptExports(renderer.react);
+  let tree = renderer.render(MessageLightbox, lightboxProps());
+
+  while (!lightboxZoomButtons(tree)[2].props.disabled) {
+    lightboxZoomButtons(tree)[2].props.onClick();
+    tree = renderer.render(MessageLightbox, lightboxProps());
+  }
+  assert.equal(lightboxZoomText(tree), "800%");
+
+  // 翻到下一张：上一张的缩放不该留给下一张。驱动 effect 需要文档座位（键盘监听）。
+  const added = [];
+  const previousDocument = globalThis.document;
+  globalThis.document = { addEventListener: (...args) => added.push(args), removeEventListener: () => {} };
+  try {
+    renderer.render(MessageLightbox, lightboxProps(1));
+    renderer.flushEffects();
+  } finally {
+    globalThis.document = previousDocument;
+  }
+  tree = renderer.render(MessageLightbox, lightboxProps(1));
+  assert.equal(lightboxZoomText(tree), "100%");
+});
