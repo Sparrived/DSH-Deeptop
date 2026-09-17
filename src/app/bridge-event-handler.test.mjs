@@ -24,6 +24,7 @@ function emptyStats() {
 function fixture() {
   let stats = emptyStats();
   let history = [];
+  let sessionQueues = {};
   const historyRef = { current: history };
   const apply = (current, update) => typeof update === "function" ? update(current) : update;
   const context = {
@@ -38,7 +39,7 @@ function fixture() {
     setModels() {},
     setSessions() {},
     setSubagentSession() {},
-    setQueue() {},
+    setSessionQueues(update) { sessionQueues = apply(sessionQueues, update); },
     setSessionJobs() {},
     setPermissionSelect() {},
     setPlan() {},
@@ -63,7 +64,7 @@ function fixture() {
     onSessionRemoved() {},
     promoteSessionOnMessage() {},
   };
-  return { context, stats: () => stats, history: () => history };
+  return { context, stats: () => stats, history: () => history, sessionQueues: () => sessionQueues };
 }
 
 function projection(seq, value) {
@@ -125,6 +126,39 @@ test("rejects stale projections and preserves an explicit reasoning zero", async
   assert.equal(state.stats().inputTokens, 100);
   assert.equal(state.stats().outputTokens, 20);
   assert.equal(state.stats().reasoningTokens, 0);
+  clearQueuedSessionEvents();
+  sessionProjectionCache.clear();
+});
+
+function queueFrame(sessionId, items) {
+  return { channel: "mux", frame: { payload: { type: "session/queue", sessionId, items } } };
+}
+
+test("retains a queue frame for a session that is not active so switching back still shows it", () => {
+  sessionProjectionCache.clear();
+  clearQueuedSessionEvents();
+  const state = fixture();
+  const items = [{ id: "m2", placement: "queued", message: { content: [{ type: "text", text: "pending" }] } }];
+
+  routeBridgeEvent(queueFrame("session-2", items), state.context);
+
+  assert.deepEqual(state.sessionQueues()["session-2"], items);
+  clearQueuedSessionEvents();
+  sessionProjectionCache.clear();
+});
+
+test("keeps each session's queue independently and clears one when it drains", () => {
+  sessionProjectionCache.clear();
+  clearQueuedSessionEvents();
+  const state = fixture();
+  const active = [{ id: "m1", placement: "queued", message: { content: [{ type: "text", text: "a" }] } }];
+  const inactive = [{ id: "m2", placement: "steering", message: { content: [{ type: "text", text: "b" }] } }];
+
+  routeBridgeEvent(queueFrame("session-1", active), state.context);
+  routeBridgeEvent(queueFrame("session-2", inactive), state.context);
+  routeBridgeEvent(queueFrame("session-1", []), state.context);
+
+  assert.deepEqual(state.sessionQueues(), { "session-1": [], "session-2": inactive });
   clearQueuedSessionEvents();
   sessionProjectionCache.clear();
 });

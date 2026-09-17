@@ -657,7 +657,9 @@ function AppContent() {
   const updateDownloadReleaseRef = useRef<string | null>(null);
   const [renameTarget, setRenameTarget] = useState<DshSessionSummary | null>(null);
   const [renameValue, setRenameValue] = useState("");
-  const [queue, setQueue] = useState<DshQueueItem[]>([]);
+  // 待处理消息按会话保存：Host 只在队列发生变化时推送替换帧，切换会话不会重发，
+  // 所以必须像 sessionJobs 一样保留各会话的最新队列，切换回来才有内容可显示。
+  const [sessionQueues, setSessionQueues] = useState<Record<string, DshQueueItem[]>>({});
   const [queueEditingId, setQueueEditingId] = useState<string | null>(null);
   const [queueEditingText, setQueueEditingText] = useState("");
   const [sessionJobs, setSessionJobs] = useState<Record<string, DshJob[]>>({});
@@ -1123,6 +1125,7 @@ function AppContent() {
   }, [uiRuntime, activeSession]);
 
   const activeJobs = activeSessionId ? sessionJobs[activeSessionId] ?? [] : [];
+  const queue = activeSessionId ? sessionQueues[activeSessionId] ?? [] : [];
   const approval = activeSessionId ? pendingApprovals[activeSessionId] ?? null : null;
   const question = activeSessionId ? pendingQuestions[activeSessionId] ?? null : null;
   // @deeptop-pets:start app-activity-projection
@@ -2673,7 +2676,7 @@ function AppContent() {
     setTodos(null);
     setTrajectoryOpen(false);
     setSessionDashboardOpen(false);
-    setQueue([]);
+    // 队列由 sessionQueues 按会话派生，切换时不能清空目标会话已保留的待处理消息。
     setQueueEditingId(null);
     setQueueEditingText("");
     setAttachments([]);
@@ -3384,7 +3387,7 @@ function AppContent() {
     setModels,
     setSessions,
     setSubagentSession,
-    setQueue,
+    setSessionQueues,
     setSessionJobs,
     setPermissionSelect,
     setPlan,
@@ -3460,6 +3463,8 @@ function AppContent() {
         // Its durable history and projection watermarks may have changed before recovery.
         historyPageCache.clear();
         sessionProjectionCache.clear();
+        // 队列基线只推送非空项，重启前的待处理消息不会再有帧来纠正，必须在此丢弃。
+        setSessionQueues({});
         // Remember we must recover, and snapshot the active session so it can be
         // reopened once DSH returns.
         runtimeDownRef.current = true;
@@ -3841,7 +3846,6 @@ function AppContent() {
     setCommands([]);
     setPermissionSelect(null);
     setPlan(null);
-    setQueue([]);
     setQueueEditingId(null);
     setQueueEditingText("");
     setGoal(undefined);

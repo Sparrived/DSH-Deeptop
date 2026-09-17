@@ -51,7 +51,7 @@ type BridgeEventHandlerContext = {
   setModels: Dispatch<SetStateAction<DshSessionModels | null>>;
   setSessions: Dispatch<SetStateAction<DshSessionSummary[]>>;
   setSubagentSession: Dispatch<SetStateAction<SubagentSession | null>>;
-  setQueue: Dispatch<SetStateAction<DshQueueItem[]>>;
+  setSessionQueues: Dispatch<SetStateAction<Record<string, DshQueueItem[]>>>;
   setSessionJobs: Dispatch<SetStateAction<Record<string, DshJob[]>>>;
   setPermissionSelect: Dispatch<SetStateAction<DshPermissionSelect | null>>;
   setPlan: Dispatch<SetStateAction<DshPlanProjection | null>>;
@@ -181,7 +181,7 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
     setSessions,
     setSessionIndicators,
     setSubagentSession,
-    setQueue,
+    setSessionQueues,
     setSessionJobs,
     setPermissionSelect,
     setPlan,
@@ -315,7 +315,10 @@ function routeMuxEvent(event: DshBridgeEvent, context: BridgeEventHandlerContext
   }
 
   if (type === "session/queue") {
-    if (String(payload.sessionId) === activeSessionRef.current) setQueue((payload.items as DshQueueItem[]) ?? []);
+    // 队列替换帧只在变化时推送，切换会话不会重发；按会话保留最新一份，
+    // 否则离开会话后该帧被丢弃，切回来就再也看不到待处理消息。
+    const sessionId = String(payload.sessionId ?? "");
+    if (sessionId) setSessionQueues((current) => ({ ...current, [sessionId]: (payload.items as DshQueueItem[]) ?? [] }));
     return;
   }
   if (type === "session/jobs") {
@@ -397,6 +400,7 @@ function routeHostEvent(event: DshBridgeEvent, context: BridgeEventHandlerContex
     subagentRequestRef,
     setSessions,
     setSessionIndicators,
+    setSessionQueues,
     setSessionJobs,
     setLoading,
     setSubagents,
@@ -465,6 +469,7 @@ function routeHostEvent(event: DshBridgeEvent, context: BridgeEventHandlerContex
     setSessions((current) => current.filter((session) => session.sessionId !== sessionId));
     setSessionIndicators((current) => removeSessionRecordEntry(current, sessionId));
     setSessionJobs((current) => removeSessionRecordEntry(current, sessionId));
+    setSessionQueues((current) => removeSessionRecordEntry(current, sessionId));
     setPendingApprovals((current) => removeSessionRecordEntry(current, sessionId));
     setPendingQuestions((current) => removeSessionRecordEntry(current, sessionId));
     setQuestionAnswersBySession((current) => removeSessionRecordEntry(current, sessionId));
