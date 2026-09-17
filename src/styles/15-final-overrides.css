@@ -1535,11 +1535,15 @@
 }
 
 .sidebar-toggle-handle {
+  /* 垂直居中用 top + 固定偏移，不用 transform 位移：全局的
+     `button:active:not(:disabled) { transform: translateY(1px) }` 会顶掉
+     transform，按下时按钮会往下掉半个高度。 */
+  --sidebar-toggle-handle-height: 44px;
   position: absolute;
-  top: 50%;
+  top: calc(50% - (var(--sidebar-toggle-handle-height) / 2));
   right: 0;
   width: 16px;
-  height: 44px;
+  height: var(--sidebar-toggle-handle-height);
   display: grid;
   place-items: center;
   padding: 0;
@@ -1549,7 +1553,6 @@
   background: var(--rail-inset);
   color: var(--rail-muted);
   font-size: 13px;
-  transform: translateY(-50%);
 }
 
 .sidebar-toggle-handle:hover {
