@@ -37,7 +37,7 @@ import { UtilityDockShelf, UtilityPanelEmptyState, type UtilityDockId } from "./
 import { WindowChrome } from "./components/WindowChrome";
 import { DockSettingsProvider, useDockSettings } from "./app/dock-settings";
 import { buildActiveSessionView } from "./app/active-session-view";
-import { DOCK_RAIL_DEFAULT_WIDTH, DOCK_RAIL_EDGE_GAP, DOCK_RAIL_EMPTY_WIDTH, DOCK_RAIL_STRIP_WIDTH, type DockTab } from "./app/dock-layout";
+import { DOCK_RAIL_DEFAULT_WIDTH, DOCK_RAIL_EMPTY_WIDTH, DOCK_RAIL_STRIP_WIDTH, type DockTab } from "./app/dock-layout";
 import { DockRail } from "./components/DockRail";
 import { DockTabBody } from "./components/DockTabBody";
 import { PopupDialog } from "./components/PopupDialog";
@@ -5448,10 +5448,9 @@ function AppContent() {
         className={`workspace-layout${sidebarCollapsed ? " sidebar-collapsed" : ""}`}
         style={{
           "--sidebar-width": `${sidebarWidth}px`,
-          // 图标条常驻右栏左缘：空栏时列宽 = 图标条 + 右缘间距，拖拽面板时再展开成更宽的落点条。
+          // 图标条常驻右栏左缘，右栏宽度下限就是它；拖拽面板时再展开成更宽的落点条。
           "--dock-rail-strip-width": `${DOCK_RAIL_STRIP_WIDTH}px`,
-          "--dock-rail-edge-gap": `${DOCK_RAIL_EDGE_GAP}px`,
-          "--dock-rail-width": `${!conversationPageActive ? 0 : dockLayout.root ? (dockSettings.railWidth ?? DOCK_RAIL_DEFAULT_WIDTH) : (dockDrag ? DOCK_RAIL_STRIP_WIDTH + DOCK_RAIL_EMPTY_WIDTH + DOCK_RAIL_EDGE_GAP : DOCK_RAIL_STRIP_WIDTH + DOCK_RAIL_EDGE_GAP)}px`,
+          "--dock-rail-width": `${!conversationPageActive ? 0 : dockLayout.root ? (dockSettings.railWidth ?? DOCK_RAIL_DEFAULT_WIDTH) : (dockDrag ? DOCK_RAIL_STRIP_WIDTH + DOCK_RAIL_EMPTY_WIDTH : DOCK_RAIL_STRIP_WIDTH)}px`,
         } as CSSProperties}
       >
         <SessionSidebar

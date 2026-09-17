@@ -28,12 +28,12 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  /* 与左侧会话侧栏同一套 rail 底色与文字色、内边距一致。右栏是三面留边的卡片：
-     上、下 10px，右缘再留出 --dock-rail-edge-gap（这段间距由 App 算进列宽里），
-     只把靠对话列的一边贴平，四角都收圆。 */
-  margin: 10px var(--dock-rail-edge-gap, 10px) 10px 0;
+  /* 与左侧会话侧栏镜像：同一套 rail 底色与文字色、竖向留 10px 边距、内边距一致。
+     圆角只做靠对话列的内侧两角（侧栏是右侧圆角，这里是左侧圆角），靠窗的一边贴平，
+     一直延到窗口右缘。 */
+  margin: 10px 0;
   padding: 18px 16px 14px;
-  border-radius: var(--radius-panel);
+  border-radius: var(--radius-panel) 0 0 var(--radius-panel);
   background: var(--rail);
   color: var(--rail-text);
   /* 分隔线只在右栏真的承载内容时出现：宽度为 0 的轨道不该留下 1px 边框。 */

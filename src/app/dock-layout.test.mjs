@@ -4,7 +4,6 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  DOCK_RAIL_EDGE_GAP,
   DOCK_RAIL_MAX_WIDTH,
   DOCK_RAIL_MIN_WIDTH,
   DOCK_RAIL_STRIP_WIDTH,
@@ -279,11 +278,9 @@ test("clamps the rail width into the allowed range", () => {
 });
 
 test("keeps the resident icon strip inside the narrowest rail", () => {
-  // 图标条常驻右栏左缘：右栏卡片宽度 = 列宽 − 右缘间距，收到最小列宽时也必须
-  // 容得下图标条，否则入口会被裁掉。
-  assert.ok(DOCK_RAIL_EDGE_GAP > 0);
+  // 图标条常驻右栏左缘，右栏收到最小宽度也必须容得下它，否则入口会被裁掉。
   assert.ok(DOCK_RAIL_STRIP_WIDTH > 0);
-  assert.ok(DOCK_RAIL_STRIP_WIDTH + DOCK_RAIL_EDGE_GAP <= DOCK_RAIL_MIN_WIDTH);
+  assert.ok(DOCK_RAIL_STRIP_WIDTH <= DOCK_RAIL_MIN_WIDTH);
 });
 
 test("normalizes persisted layouts by dropping unknown structure", () => {

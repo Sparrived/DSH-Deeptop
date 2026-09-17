@@ -18,6 +18,20 @@
   pointer-events: none;
 }
 
+/* 右栏展开/收起时，这条竖栏跟着同一段过渡滑到新位置：上面的 right 与
+   15-final-overrides 的网格列模板是同一表达式，两端点结构一致，可以逐帧插值，
+   所以图标条不会在网格列动画时跳到目标位置。 */
+@media (min-width: 761px) and (prefers-reduced-motion: no-preference) {
+  .left-dock-shelf {
+    transition: right var(--sidebar-toggle-duration) var(--sidebar-toggle-ease);
+  }
+
+  /* 拖动右栏宽度时逐帧跟随指针，任何过渡都会变成拖尾。 */
+  body.dock-rail-resizing .left-dock-shelf {
+    transition: none;
+  }
+}
+
 /* 右栏空着时整条竖栏就是落点，给一次拖拽反馈。 */
 .left-dock-shelf.drop-active {
   outline: 1px dashed var(--accent);
