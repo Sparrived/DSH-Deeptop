@@ -13,12 +13,14 @@
   overflow-wrap: anywhere;
 }
 
-/* 流式正文的逐段渐显：渲染层每推进一帧就把那一帧写下的字包进 .stream-ink，
-   并写上 `animation-delay: -<这段文字已经存在的时间>`（见 src/lib/stream-ink.ts）。
+/* 流式正文的逐段渐显：渲染层把刚写下的那段文字包进 .stream-ink，并写上
+   `animation-delay: -<这段文字已经存在的时间>`（见 src/lib/stream-ink.ts）。
    于是同一帧写下的字一起淡入，下一帧的字在上一帧还没淡完时就开始淡入——整段
    文字是连续渐显，而不是整块弹出。负延迟让动画接在正确的进度上，语法树每帧
-   重解析、span 被重建也不会跳帧；动画不加 fill 模式，淡完自动回到实心文本。 */
-.streaming-assistant-text .stream-ink {
+   重解析、span 被重建也不会跳帧；动画不加 fill 模式，淡完自动回到实心文本。
+   Think 正文（.reasoning-body 里的纯文本 pre）用的是同一套动画。 */
+.streaming-assistant-text .stream-ink,
+.reasoning-body .stream-ink {
   animation-name: stream-ink-in;
   animation-duration: var(--stream-fade-duration, 520ms);
   animation-timing-function: var(--motion-ease-enter);
@@ -48,7 +50,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .streaming-assistant-text .stream-ink {
+  .streaming-assistant-text .stream-ink,
+  .reasoning-body .stream-ink {
     animation: none;
   }
 

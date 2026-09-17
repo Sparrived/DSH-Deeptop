@@ -8,7 +8,7 @@ import { SlotOutlet } from "./SlotOutlet";
 import { TurnRail } from "./TurnRail";
 import type { TurnRailItem } from "../app/turn-rail-model";
 import { MarkdownContent } from "../lib/markdown";
-import type { StreamInk, StreamInkChunk } from "../lib/stream-ink";
+import { appendInkRun, clearInkRuns, STREAM_INK_MAX_AGE, streamInkRuns, type InkSpan, type StreamInk, type StreamInkChunk } from "../lib/stream-ink";
 
 type MarkdownEntityActions = {
   onOpenPath?: (path: string, location?: { line?: number }) => void | Promise<void>;
@@ -559,15 +559,25 @@ function MessageStatsLine({ stats, locale }: { stats?: MessageStats; locale: UiL
   return values.length > 0 ? <div className="message-stats" aria-label={t("conversation.stats.aria", locale)}>{values}</div> : null;
 }
 
+/** 动效可用性：系统要求减少动效时，流式文字直接坐实，不做任何渐显。 */
+function streamMotionEnabled() {
+  return typeof window !== "undefined" && typeof document !== "undefined"
+    && !(typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+}
+
 // Keeps one text node per body and appends the streamed suffix into it, so a
 // long reasoning block never re-parses or re-creates its DOM while it grows.
+// 开着动效时，新写下的后缀先挂成正在淡入的 span，淡完再并回那个文本节点
+// （见 stream-ink.ts 的 appendInkRun），于是正文仍然只有一个文本节点。
 function useIncrementalText(text: string) {
   const textNodeRef = useRef<Text | null>(null);
-  const renderedLengthRef = useRef(0);
+  const renderedRef = useRef("");
+  const pendingRef = useRef<InkSpan[]>([]);
   const setBodyRef = useCallback((pre: HTMLPreElement | null) => {
     if (!pre) {
       textNodeRef.current = null;
-      renderedLengthRef.current = 0;
+      renderedRef.current = "";
+      pendingRef.current = [];
       return;
     }
     const currentText = pre.textContent ?? "";
@@ -578,21 +588,34 @@ function useIncrementalText(text: string) {
       pre.appendChild(textNode);
     }
     textNodeRef.current = textNode;
-    renderedLengthRef.current = textNode.data.length;
+    renderedRef.current = currentText;
+    pendingRef.current = [];
   }, []);
 
   useEffect(() => {
     const textNode = textNodeRef.current;
     if (!textNode) return;
-    const renderedLength = renderedLengthRef.current;
-    const overlap = Math.min(32, renderedLength, text.length);
+    const rendered = renderedRef.current;
+    const overlap = Math.min(32, rendered.length, text.length);
     const diverged = overlap > 0 && (
-      text.slice(0, overlap) !== textNode.data.slice(0, overlap)
-      || text.slice(renderedLength - overlap, renderedLength) !== textNode.data.slice(renderedLength - overlap, renderedLength)
+      text.slice(0, overlap) !== rendered.slice(0, overlap)
+      || text.slice(rendered.length - overlap, rendered.length) !== rendered.slice(rendered.length - overlap, rendered.length)
     );
-    if (text.length < renderedLength || diverged) textNode.data = text;
-    else if (text.length > renderedLength) textNode.appendData(text.slice(renderedLength));
-    renderedLengthRef.current = text.length;
+    if (text.length < rendered.length || diverged) {
+      // 整段被改写：正在淡入的片段已经对不上号，丢掉它们重画。
+      clearInkRuns(pendingRef.current);
+      textNode.data = text;
+    } else if (text.length > rendered.length) {
+      const suffix = text.slice(rendered.length);
+      if (streamMotionEnabled()) {
+        const now = performance.now();
+        const runs = streamInkRuns(suffix, 0, { now, chunks: [{ from: 0, to: suffix.length, at: now }] });
+        if (runs !== null) for (const run of runs) appendInkRun(textNode, run, pendingRef.current, now);
+      } else {
+        textNode.appendData(suffix);
+      }
+    }
+    renderedRef.current = text;
   }, [text]);
   return setBodyRef;
 }
@@ -653,9 +676,6 @@ export function streamingTextFrameDelay(visibleText: string, targetText: string)
     : STREAMING_TEXT_FRAME_MS;
 }
 
-/** 渐显窗口保留多久：比设置里能调的最长时长略长，够动画自己收尾。 */
-const STREAM_INK_MAX_AGE = 1600;
-
 function useSmoothStreamingText(text: string) {
   const [visibleText, setVisibleText] = useState(text);
   const targetTextRef = useRef(text);
@@ -663,8 +683,7 @@ function useSmoothStreamingText(text: string) {
   const visibleTextRef = useRef(visibleText);
   visibleTextRef.current = visibleText;
   const chunksRef = useRef<StreamInkChunk[]>([]);
-  const canAnimate = typeof window !== "undefined"
-    && !(typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  const canAnimate = streamMotionEnabled();
   const isPrefix = text.startsWith(visibleText);
   const needsFrame = canAnimate && isPrefix && visibleText !== text;
   const visible = canAnimate && isPrefix ? visibleText : text;

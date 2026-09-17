@@ -1,15 +1,20 @@
 /**
  * 流式正文的逐段渐显。
  *
- * 渲染层每推进一帧就记下一段「刚写下的源码区间」和它的时刻；这里把 Markdown
- * 语法树里落在这些区间上的文本切成 `span.stream-ink`，并写入
- * `animation-delay: -<年龄>`。于是同一帧写下的字一起淡入，下一帧的字在上一帧
- * 还没淡完时就开始淡入——整段文字是连续渐显，而不是整块弹出。
+ * 渲染层每推进一帧就记下一段「刚写下的源码区间」和它的时刻；这里把落在这些区间
+ * 上的文本切成 `span.stream-ink`，并写入 `animation-delay: -<年龄>`。于是同一帧
+ * 写下的字一起淡入，下一帧的字在上一帧还没淡完时就开始淡入——整段文字是连续
+ * 渐显，而不是整块弹出。
  *
  * 用负延迟而不是正延迟，是为了让动画的进度由「这段文字多老」决定，而不是由
  * span 什么时候被创建决定：语法树每帧重解析、span 可能被重新创建，负延迟会让
  * 它接在正确的进度上，不会跳帧。动画只做 `from` 到 `to` 的淡入，结束后自然回到
  * 实心文本（不用 fill 模式兜底），所以淡完的字不会一直挂着动画层。
+ *
+ * 两种正文共用这套规则：
+ * - Markdown 正文/代码块：`streamInkRuns` 切出来的片段直接进语法树；
+ * - Think 正文（纯文本 `<pre>`）：`appendInkRun` 把新写下的片段挂成 span，淡完
+ *   再并回正文那个文本节点，于是长思考也不会堆出一地节点。
  */
 
 export type StreamInkChunk = {
@@ -40,6 +45,9 @@ const STREAM_INK_SKIP_CLASSES = new Set(["katex", "math-inline", "math-display"]
 /** 源码位置离书写前沿多近才算「正在这里落笔」。 */
 const STREAM_INK_HEAD_SLACK = 2;
 
+/** 区间保留多久：比设置里能调的最长渐显时长（1500ms）略长，够动画自己收尾。 */
+export const STREAM_INK_MAX_AGE = 1600;
+
 type InkTextNode = { type: "text"; value: string; position?: { start?: { offset?: number } } };
 type InkElementNode = { type: "element"; tagName: string; properties?: Record<string, unknown>; children?: unknown[] };
 type InkChild = InkTextNode | InkElementNode | { type: string };
@@ -60,13 +68,16 @@ function inkSpan(value: string, delay: number): InkElementNode {
   };
 }
 
+/** 一段切好的文字：`delay` 为 `null` 表示这段已经坐实，不用动画。 */
+export type InkRun = { text: string; delay: number | null };
+
 /**
- * 按渐显区间切开一个文本节点；没有任何一段落在里面时返回 `null`（调用方保持原样）。
+ * 按渐显区间切开一段文本；没有任何区间落在里面时返回 `null`（调用方保持原样）。
  * `start` 是这段文本在源码里的起始偏移（hast 的 `position.start.offset`）。
  */
-export function streamInkPieces(value: string, start: number, ink: StreamInk): InkChild[] | null {
+export function streamInkRuns(value: string, start: number, ink: StreamInk): InkRun[] | null {
   const end = start + value.length;
-  const pieces: InkChild[] = [];
+  const runs: InkRun[] = [];
   let cursor = 0;
   let painted = false;
   for (const chunk of ink.chunks) {
@@ -74,18 +85,27 @@ export function streamInkPieces(value: string, start: number, ink: StreamInk): I
     const to = Math.min(chunk.to, end) - start;
     const from = Math.max(chunk.from, start + cursor) - start;
     if (to <= from) continue;
-    if (from > cursor) pieces.push({ type: "text", value: value.slice(cursor, from) });
+    if (from > cursor) runs.push({ text: value.slice(cursor, from), delay: null });
     const age = Math.max(0, ink.now - chunk.at);
     for (let index = from; index < to; index += STREAM_INK_GROUP) {
       const spread = Math.min(((index - from) / STREAM_INK_GROUP) * STREAM_INK_STAGGER_MS, STREAM_INK_STAGGER_MAX_MS);
-      pieces.push(inkSpan(value.slice(index, Math.min(index + STREAM_INK_GROUP, to)), age + spread));
+      runs.push({ text: value.slice(index, Math.min(index + STREAM_INK_GROUP, to)), delay: age + spread });
     }
     cursor = to;
     painted = true;
   }
   if (!painted) return null;
-  if (cursor < value.length) pieces.push({ type: "text", value: value.slice(cursor) });
-  return pieces;
+  if (cursor < value.length) runs.push({ text: value.slice(cursor), delay: null });
+  return runs;
+}
+
+/** 把切好的片段变成语法树节点，交给 react-markdown。 */
+export function streamInkPieces(value: string, start: number, ink: StreamInk): InkChild[] | null {
+  const runs = streamInkRuns(value, start, ink);
+  if (runs === null) return null;
+  return runs.map((run) => run.delay === null
+    ? { type: "text", value: run.text } as InkChild
+    : inkSpan(run.text, run.delay));
 }
 
 function splitStreamInk(children: InkChild[], ink: StreamInk) {
@@ -144,6 +164,36 @@ export function codeLineDelays(lines: readonly string[], contentEnd: number, ink
     after += lines[index].length + 1;
   }
   return delays;
+}
+
+/** 一段还挂在正文后面淡入的片段。 */
+export type InkSpan = { span: HTMLSpanElement; at: number };
+
+/**
+ * 把一段刚写下的文字挂到正文后面渐显，并顺手把已经淡完的片段并回文本节点。
+ * 只按写入顺序并（`pending` 是先进先出），所以正文的文字顺序永远不会错。
+ */
+export function appendInkRun(textNode: Text, run: InkRun, pending: InkSpan[], now: number) {
+  while (pending.length > 0 && now - pending[0].at >= STREAM_INK_MAX_AGE) {
+    const settled = pending.shift();
+    if (settled === undefined) break;
+    textNode.appendData(settled.span.textContent ?? "");
+    settled.span.remove();
+  }
+  const span = textNode.ownerDocument.createElement("span");
+  span.textContent = run.text;
+  if (run.delay !== null) {
+    span.className = "stream-ink";
+    span.style.animationDelay = `-${Math.round(run.delay)}ms`;
+  }
+  textNode.parentNode?.appendChild(span);
+  pending.push({ span, at: now });
+}
+
+/** 丢掉还没淡完的片段（正文被整段改写时用）。 */
+export function clearInkRuns(pending: InkSpan[]) {
+  for (const { span } of pending) span.remove();
+  pending.length = 0;
 }
 
 /** 把语法树里刚写下的那些字换成带动画延迟的 span；没有内容可渐显时原样返回。 */

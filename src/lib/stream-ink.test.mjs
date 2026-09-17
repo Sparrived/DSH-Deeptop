@@ -1,9 +1,9 @@
-// 流式渐显的语法树切分：只有「刚写下的源码区间」被换成带负延迟动画的 span，
-// 而且延迟要按每段文字的年龄算——这正是「上一个字还没淡完，下一个字就落笔」的来源。
+// 流式渐显的切分：只有「刚写下的源码区间」被换成带负延迟动画的 span，而且延迟
+// 要按每段文字的年龄算——这正是「上一个字还没淡完，下一个字就落笔」的来源。
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyStreamInk, codeLineDelays, streamInkAge, streamInkHead, streamInkPieces } from "./stream-ink.ts";
+import { appendInkRun, applyStreamInk, clearInkRuns, codeLineDelays, streamInkAge, streamInkHead, streamInkPieces, streamInkRuns } from "./stream-ink.ts";
 
 const ink = (chunks, now = 0) => ({ now, chunks });
 
@@ -130,4 +130,89 @@ test("代码行按倒推的源码偏移取年龄", () => {
   assert.equal(streamInkAge([{ from: 0, to: 6, at: 0 }, { from: 7, to: 13, at: 400 }], 9, 500), 100);
   // 落在两段之间的语法字符没有年龄。
   assert.equal(streamInkAge([{ from: 0, to: 6, at: 0 }, { from: 7, to: 13, at: 400 }], 6, 500), null);
+});
+
+test("一次推进切出的片段直接可以喂给纯文本正文", () => {
+  const runs = streamInkRuns("x".repeat(8), 0, ink([{ from: 0, to: 8, at: 0 }], 0));
+  assert.deepEqual(runs, [
+    { text: "x".repeat(6), delay: 0 },
+    { text: "xx", delay: 14 },
+  ]);
+  // 区间之外的部分是实心的。
+  assert.deepEqual(streamInkRuns("abc", 0, ink([{ from: 1, to: 2, at: 0 }], 0)), [
+    { text: "a", delay: null },
+    { text: "b", delay: 0 },
+    { text: "c", delay: null },
+  ]);
+  assert.equal(streamInkRuns("abc", 0, ink([])), null);
+});
+
+// Think 正文是纯文本 <pre>：新写下的片段挂成 span，淡完按写入顺序并回文本节点。
+// 这里用一个最小的假 DOM 盯住「顺序」——并错顺序会直接把正文写乱。
+function fakeBody() {
+  const nodes = [];
+  const pre = {
+    get firstChild() { return nodes[0] ?? null; },
+    get childNodes() { return nodes; },
+    get textContent() { return nodes.map((node) => (node.nodeType === 3 ? node.data : node.textContent)).join(""); },
+    appendChild(node) { nodes.push(node); node.parentNode = pre; return node; },
+    replaceChildren(...children) { nodes.splice(0, nodes.length, ...children); for (const child of children) child.parentNode = pre; },
+  };
+  const textNode = {
+    nodeType: 3,
+    data: "",
+    parentNode: pre,
+    ownerDocument: {
+      createElement() {
+        return {
+          nodeType: 1,
+          className: "",
+          textContent: "",
+          style: {},
+          parentNode: null,
+          remove() { const at = nodes.indexOf(this); if (at >= 0) nodes.splice(at, 1); },
+        };
+      },
+    },
+    appendData(value) { this.data += value; },
+  };
+  nodes.push(textNode);
+  return { pre, textNode };
+}
+
+test("Think 正文的渐显片段按写入顺序并回文本节点", () => {
+  const { pre, textNode } = fakeBody();
+  const pending = [];
+  const inkOf = (value, at) => streamInkRuns(value, 0, ink([{ from: 0, to: value.length, at }], at)) ?? [];
+
+  for (const run of inkOf("abc", 0)) appendInkRun(textNode, run, pending, 0);
+  for (const run of inkOf("def", 100)) appendInkRun(textNode, run, pending, 100);
+  for (const run of inkOf("ghi", 200)) appendInkRun(textNode, run, pending, 200);
+
+  // 还没到收笔时间：三段都挂在正文后面淡入，正文那个文本节点还是空的。
+  assert.equal(textNode.data, "");
+  assert.equal(pre.childNodes.length, 4);
+  assert.equal(pre.textContent, "abcdefghi");
+  assert.equal(pending.length, 3);
+  assert.equal(pre.childNodes[1].style.animationDelay, "-0ms");
+  assert.equal(pre.childNodes[3].style.animationDelay, "-0ms");
+
+  // 到了收笔时间：先写下的两段并回正文，最后一段继续淡。
+  for (const run of inkOf("jkl", 1700)) appendInkRun(textNode, run, pending, 1700);
+  assert.equal(textNode.data, "abcdef");
+  assert.equal(pre.textContent, "abcdefghijkl");
+  assert.equal(pending.length, 2);
+});
+
+test("整段改写时丢掉正在淡入的片段，正文只留一份文字", () => {
+  const { pre, textNode } = fakeBody();
+  const pending = [];
+  for (const run of streamInkRuns("abc", 0, ink([{ from: 0, to: 3, at: 0 }], 0)) ?? []) appendInkRun(textNode, run, pending, 0);
+
+  clearInkRuns(pending);
+  textNode.data = "reset";
+
+  assert.equal(pending.length, 0);
+  assert.equal(pre.childNodes.length, 1);
+  assert.equal(pre.textContent, "reset");
 });
