@@ -54,6 +54,8 @@ test("remote contracts keep the official namespace/method names", () => {
   assert.equal(remoteContracts["commands/execute"].method, "execute");
   assert.equal(capabilityRequiredBy("reference.files"), "references");
   assert.equal(capabilityRequiredBy("session.exportZip"), "sessionExport");
+  // 永久删除依赖存储后端的销毁语义，不能只依赖工作区服务可用。
+  assert.equal(capabilityRequiredBy("workspace.deleteArchivedSession"), "sessionDelete");
 });
 
 // Typert admits arguments by the descriptor's exact wire fields, so a renamed

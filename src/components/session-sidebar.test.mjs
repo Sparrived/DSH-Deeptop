@@ -46,6 +46,7 @@ async function renderSidebar(overrides = {}) {
       onRestoreSession() {},
       onArchiveSessions() {},
       onDeleteArchivedSessions() {},
+      sessionDeleteAvailable: true,
       selectedWorkspaceGroup: { workspace: null, workspaceId: "", sessions: [] },
       pinnedWorkspaceIds: [],
       onTogglePinWorkspace() {},

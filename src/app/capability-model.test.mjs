@@ -22,6 +22,7 @@ function capabilities(services) {
       plugins: true,
       tools: true,
       sessionExport: true,
+      sessionDelete: true,
       commands: true,
       fileAttachments: true,
       ...services,
@@ -67,6 +68,15 @@ test("a runtime without file staging degrades only non-image attachments", () =>
   // 图片附件走的是既有的原生图片管线，不受文件附件能力影响。
   assert.equal(status.features.references, true);
   assert.match(capabilityNotice(capabilities({ fileAttachments: false })), /文件附件/);
+});
+
+test("a runtime without session disposal degrades only permanent deletion", () => {
+  const status = capabilityStatus(capabilities({ sessionDelete: false }));
+  assert.deepEqual(status.missing, ["sessionDelete"]);
+  assert.equal(status.features.sessionDelete, false);
+  // 归档与恢复仍然可用：只有销毁入口需要存储后端支持。
+  assert.equal(status.features.workspace, true);
+  assert.match(capabilityNotice(capabilities({ sessionDelete: false })), /会话永久删除/);
 });
 
 test("unprobed capabilities never disable file attachments", () => {

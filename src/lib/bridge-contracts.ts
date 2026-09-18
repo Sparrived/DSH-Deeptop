@@ -219,7 +219,7 @@ const workspace = {
     value: {} as { archivedSessionIds: string[] },
   },
   "workspace.deleteArchivedSession": {
-    requires: "workspace",
+    requires: "sessionDelete",
     payload: {} as { sessionId: string },
     value: {} as { deleted: boolean; archivedSessionIds: string[] },
   },

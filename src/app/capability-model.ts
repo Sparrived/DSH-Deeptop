@@ -14,6 +14,7 @@ export const DEGRADABLE_CAPABILITIES: readonly DshCapabilityKey[] = [
   "annotations",
   "commands",
   "sessionExport",
+  "sessionDelete",
   "skills",
   "subagents",
   "tasks",
@@ -30,6 +31,11 @@ export interface CapabilityFeatures {
   annotations: boolean;
   commands: boolean;
   sessionExport: boolean;
+  /**
+   * 已归档会话的永久删除。缺失时删除入口保持禁用：只有拥有完整产物集合的
+   * 存储后端才能保证销毁，缺失时应显式拒绝而不是伪造成功。
+   */
+  sessionDelete: boolean;
   skills: boolean;
   subagents: boolean;
   tasks: boolean;
@@ -87,6 +93,7 @@ export const CAPABILITY_LABELS: Record<DshCapabilityKey, string> = {
   plugins: "capability.plugins",
   tools: "capability.tools",
   sessionExport: "capability.sessionExport",
+  sessionDelete: "capability.sessionDelete",
   commands: "capability.commands",
   fileAttachments: "capability.fileAttachments",
   uiPlugins: "capability.uiPlugins",

@@ -705,6 +705,7 @@ export type DshCapabilityKey =
   | "plugins"
   | "tools"
   | "sessionExport"
+  | "sessionDelete"
   | "commands"
   | "fileAttachments"
   | "uiPlugins";

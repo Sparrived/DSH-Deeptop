@@ -83,6 +83,8 @@ type SessionSidebarProps = {
   onRestoreSession: (session: DshSessionSummary) => void | Promise<unknown>;
   onArchiveSessions: (sessions: DshSessionSummary[]) => void;
   onDeleteArchivedSessions: (sessions: DshSessionSummary[]) => void;
+  /** 归档会话的永久删除是否可用（存储后端必须支持销毁）。 */
+  sessionDeleteAvailable: boolean;
   selectedWorkspaceGroup: WorkspaceGroup;
   pinnedWorkspaceIds: string[];
   onTogglePinWorkspace: (workspace: DshWorkspace) => void;
@@ -136,6 +138,7 @@ export function SessionSidebar({
   onRestoreSession,
   onArchiveSessions,
   onDeleteArchivedSessions,
+  sessionDeleteAvailable,
   selectedWorkspaceGroup,
   pinnedWorkspaceIds,
   onTogglePinWorkspace,
@@ -322,7 +325,7 @@ export function SessionSidebar({
       <div className="archived-session-actions">
         {selectionMode ? <label className="archived-session-select"><input type="checkbox" checked={selectedSessionIds.has(session.sessionId)} onChange={() => toggleSelectedSession(session)} aria-label={t("session.selectAria", locale, { session: displayTitle(session, locale) })} /><span>{t("sidebar.select", locale)}</span></label> : <>
           <button type="button" onClick={() => void onRestoreSession(session)}>{t("session.restore", locale)}</button>
-          <button className="danger" type="button" onClick={() => onDeleteArchivedSessions([session])}>{t("common.delete", locale)}</button>
+          <button className="danger" type="button" disabled={!sessionDeleteAvailable} title={sessionDeleteAvailable ? undefined : t("sidebar.deleteUnavailable", locale)} onClick={() => onDeleteArchivedSessions([session])}>{t("common.delete", locale)}</button>
         </>}
       </div>
     </div>
@@ -378,7 +381,7 @@ export function SessionSidebar({
         {selectionMode && <div className="sidebar-bulk-actions" role="toolbar" aria-label={t("sidebar.bulkActions", locale)}>
           <span>{t("sidebar.selectedCount", locale, { count: selectedSessionItems.length })}</span>
           <button type="button" onClick={toggleAllSessions}>{t(allSessionsSelected ? "sidebar.clearSelection" : "sidebar.selectAll", locale)}</button>
-          <button className="danger" type="button" disabled={selectedSessionItems.length === 0} onClick={() => {
+          <button className="danger" type="button" disabled={selectedSessionItems.length === 0 || (archiveOpen && !sessionDeleteAvailable)} title={archiveOpen && !sessionDeleteAvailable ? t("sidebar.deleteUnavailable", locale) : undefined} onClick={() => {
             if (archiveOpen) onDeleteArchivedSessions(selectedSessionItems);
             else onArchiveSessions(selectedSessionItems);
           }}>{t(archiveOpen ? "sidebar.deleteSelected" : "sidebar.archiveSelected", locale)}</button>

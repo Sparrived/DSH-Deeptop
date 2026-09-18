@@ -4383,14 +4383,21 @@ function AppContent() {
   async function deleteArchivedSessions(targets: readonly DshSessionSummary[]) {
     const sessionsToDelete = [...new Map(targets.map((session) => [session.sessionId, session])).values()];
     if (sessionsToDelete.length === 0 || archiveMutationPendingRef.current) return;
+    if (!capabilityFeatures.sessionDelete) {
+      setDeleteArchivedTargets(null);
+      setErrorNotice(t("notice.sessionDeleteUnavailable", locale));
+      return;
+    }
     archiveMutationPendingRef.current = true;
     setArchiveMutationPending(true);
     try {
       const results = await Promise.allSettled(sessionsToDelete.map((session) => desktopRequest("workspace.deleteArchivedSession", { sessionId: session.sessionId })));
       const deleted = results.flatMap((result, index) => result.status === "fulfilled" && result.value.deleted ? [sessionsToDelete[index]] : []);
+      // 已成功受理的 id 一定不再属于归档集合：要么日志被销毁，要么日志本就
+      // 消失、桥侧顺带清理了陈旧条目。按受理结果过滤与请求顺序无关。
+      const settledIds = new Set(results.flatMap((result, index) => result.status === "fulfilled" ? [sessionsToDelete[index].sessionId] : []));
       if (deleted.length > 0) {
         const deletedIds = new Set(deleted.map((session) => session.sessionId));
-        setArchivedSessionIds((current) => new Set([...current].filter((sessionId) => !deletedIds.has(sessionId))));
         setSessions((current) => current.filter((session) => !deletedIds.has(session.sessionId)));
         for (const { sessionId } of deleted) {
           sessionProjectionCache.removeSession(sessionId);
@@ -4398,6 +4405,7 @@ function AppContent() {
         }
         if (deleted.some((session) => session.sessionId === activeSessionRef.current)) startNewSession();
       }
+      setArchivedSessionIds((current) => new Set([...current].filter((sessionId) => !settledIds.has(sessionId))));
       setDeleteArchivedTargets(null);
       const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
       if (failed || deleted.length !== sessionsToDelete.length) {
@@ -4405,7 +4413,7 @@ function AppContent() {
       } else {
         setNotice(t(sessionsToDelete.length === 1 ? "notice.archivedDeleted" : "notice.archivedDeletedMultiple", locale, { count: deleted.length }));
       }
-      if (deleted.length > 0) void loadSessions().catch((error) => {
+      if (settledIds.size > 0) void loadSessions().catch((error) => {
         setErrorNotice(t("notice.archiveRefreshFailed", locale, { error: errorText(error, locale) }));
       });
     } catch (error) {
@@ -5595,6 +5603,7 @@ function AppContent() {
           onRestoreSession={restoreSession}
           onArchiveSessions={setArchiveTargets}
           onDeleteArchivedSessions={setDeleteArchivedTargets}
+          sessionDeleteAvailable={capabilityFeatures.sessionDelete}
           selectedWorkspaceGroup={selectedWorkspaceGroup}
           pinnedWorkspaceIds={pinnedWorkspaceIds}
           onTogglePinWorkspace={togglePinWorkspace}
