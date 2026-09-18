@@ -125,8 +125,7 @@
 }
 
 .context-dot,
-.runtime-state i,
-.tool-state {
+.runtime-state i {
   width: 6px;
   height: 6px;
   flex: 0 0 auto;

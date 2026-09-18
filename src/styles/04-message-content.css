@@ -422,10 +422,6 @@
   color: #a34838;
 }
 
-.tool-entry.tool-error .tool-state {
-  background: #c65a46;
-}
-
 .tool-entry.tool-error .tool-entry-summary em {
   color: #b64a36;
 }
@@ -816,10 +812,6 @@
 .diff-line-added {
   background: var(--diff-added-bg);
   color: var(--diff-added-ink);
-}
-
-.tool-state {
-  background: #929f8d;
 }
 
 .agent-working {

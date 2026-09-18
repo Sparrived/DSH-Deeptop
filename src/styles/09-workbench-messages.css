@@ -689,15 +689,19 @@
 .tool-entry[data-open="true"] > .tool-entry-summary::after,
 .workflow-entry[data-open="true"] > .workflow-entry-summary::after { content: "-"; }
 
+/* 调用状态由左侧图标的颜色表达（字形见 ToolGlyph）；状态色契约在
+   23-interaction-motion.css，这里只给图标定默认色与尺寸。 */
 .tool-state {
-  width: 8px;
-  height: 8px;
-  background: var(--good);
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  color: var(--good);
+  font-size: 13px;
+  line-height: 1;
 }
 
 .tool-error .tool-state,
 .tool-result-error .tool-part-label { color: var(--danger); }
-.tool-error .tool-state { background: var(--danger); }
 
 /* 调用参数在上、执行结果在下：两栏并排会把两侧都压成窄列。 */
 .tool-parts {

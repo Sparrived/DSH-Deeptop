@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -139,6 +140,10 @@ async function loadModuleExports(react, entry) {
 
 function loadTranscriptExports(react) {
   return loadModuleExports(react, "./ConversationTranscript.tsx");
+}
+
+function loadToolGlyphExports(react) {
+  return loadModuleExports(react, "./ToolGlyph.tsx");
 }
 
 test("the disclosure shell keeps its body mounted and animates by state", async () => {
@@ -605,6 +610,60 @@ const lightboxProps = (index = 0, overrides = {}) => ({
 
 const lightboxZoomButtons = (tree) => collectByType(collectByClass(tree, "message-lightbox-zoom")[0], "button");
 const lightboxZoomText = (tree) => textOf(collectByClass(tree, "message-lightbox-zoom-value")[0]);
+
+const ICON_STATE_CSS = fileURLToPath(new URL("../styles/23-interaction-motion.css", import.meta.url));
+const ICON_ROW_CSS = fileURLToPath(new URL("../styles/09-workbench-messages.css", import.meta.url));
+
+test("the tool row draws a tool-meaning glyph that only changes colour by status", async () => {
+  const renderer = createHookRenderer();
+  const { ToolGlyph } = await loadToolGlyphExports(renderer.react);
+
+  // 工具行把工具名交给字形组件；字形只认工具名，不认状态。
+  const { ToolEntryView } = await loadTranscriptExports(renderer.react);
+  const row = renderer.render(ToolEntryView, readImageRowProps({ item: { ...readImageRowProps().item, toolName: "grep" } }));
+  // 图标在 DisclosureEntry 的 summary 槽里，不在 children 里。
+  const state = collectByClass(row.props.summary, "tool-state")[0];
+  assert.equal(state.props.children.type.name, "ToolGlyph");
+  assert.equal(state.props.children.props.toolName, "grep");
+
+  // 不同工具画不同字形；认不出的工具也要有字形，不能留下空白。
+  // lucide 把图标名放进 displayName，跨 bundle 也能比。
+  const glyphFor = (toolName) => {
+    const element = renderer.render(ToolGlyph, { toolName });
+    return element.type.displayName ?? element.type.name;
+  };
+  assert.equal(glyphFor("read"), "FileText");
+  assert.equal(glyphFor("pwsh"), "SquareTerminal");
+  assert.equal(glyphFor("grep"), "Search");
+  // MCP 只改传输层命名，内层工具认得出来就沿用它的字形。
+  assert.equal(glyphFor("mcp__vendor__read"), "FileText");
+  assert.notEqual(glyphFor("read"), glyphFor("write"));
+  assert.equal(glyphFor("brand_new_tool"), glyphFor("another_new_tool"));
+
+  // 状态色契约：三个状态改的是 color，不再有三态各自的小圆点底色。
+  // 同一选择器在 @media 里还出现一次（脉冲动画），所以收集全部匹配再断言。
+  const declarationsFor = (css, selector) => {
+    const stripped = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    const bodies = [];
+    for (const block of stripped.split("}")) {
+      const [header, body = ""] = block.split("{");
+      const selectors = header.split(",").map((part) => part.trim());
+      if (selectors.includes(selector)) bodies.push(body);
+    }
+    return bodies;
+  };
+  const stateCss = readFileSync(ICON_STATE_CSS, "utf8");
+  for (const [status, token] of [["running", "--warning"], ["returned", "--good"], ["error", "--danger"]]) {
+    const bodies = declarationsFor(stateCss, `.tool-entry[data-tool-status="${status}"] .tool-state`);
+    assert.ok(bodies.length > 0, `${status} 状态缺少工具行图标规则`);
+    assert.match(bodies.join("\n"), new RegExp(`color:\\s*var\\(${token}\\)`), `${status} 状态没有把图标颜色接到 ${token}`);
+    for (const body of bodies) assert.doesNotMatch(body, /background/, `${status} 状态仍在给图标画底色`);
+  }
+  const rowCss = readFileSync(ICON_ROW_CSS, "utf8");
+  const dot = declarationsFor(rowCss, ".tool-state");
+  assert.ok(dot.length > 0, "工具行缺少 .tool-state 规则");
+  for (const body of dot) assert.doesNotMatch(body, /border-radius|background/, "工具行仍按圆点绘制左侧标记");
+});
 
 test("the gallery zooms a long image and stages it for dragging", async () => {
   const renderer = createHookRenderer();

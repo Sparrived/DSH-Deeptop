@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { displayToolName, hasVisibleToolArguments, isPrimaryToolArgument, orderedToolArguments, parseToolArgs, toolArgsLayout, toolCallDescription, toolCallEditDiff, toolCallOpenLine, toolCallSummary, toolQuestionItems, toolTodoItems, visibleToolArguments } from "./tool-call-display.ts";
+import { displayToolName, hasVisibleToolArguments, isPrimaryToolArgument, orderedToolArguments, parseToolArgs, toolArgsLayout, toolCallDescription, toolCallEditDiff, toolCallOpenLine, toolCallSummary, toolGlyphKind, toolQuestionItems, toolTodoItems, visibleToolArguments } from "./tool-call-display.ts";
 
 test("formats MCP tool names without the internal prefix", () => {
   assert.equal(displayToolName("mcp__vendor__read"), "vendor · read");
@@ -168,6 +168,31 @@ test("promotes only declared primary arguments for stable tool profiles", () => 
   assert.equal(isPrimaryToolArgument("read", "limit"), false);
   assert.equal(isPrimaryToolArgument("pwsh", "command"), true);
   assert.equal(isPrimaryToolArgument("mcp__vendor__unknown", "value"), false);
+});
+
+test("maps tool names to the glyph drawn beside the call", () => {
+  // 字形说明"在做什么"，与结果无关：同一个工具在运行/成功/失败时字形不变。
+  assert.equal(toolGlyphKind("bash"), "terminal");
+  assert.equal(toolGlyphKind(" read "), "read");
+  assert.equal(toolGlyphKind("READ_IMAGE"), "image");
+  assert.equal(toolGlyphKind("grep"), "search");
+  assert.equal(toolGlyphKind("glob"), "find");
+  assert.equal(toolGlyphKind("web_fetch"), "fetch");
+  assert.equal(toolGlyphKind("subagent"), "delegate");
+  // 开放家族按前缀归族，未知工具落到通用字形而不是空白。
+  assert.equal(toolGlyphKind("terminal_open"), "terminal");
+  assert.equal(toolGlyphKind("job_output"), "job");
+  assert.equal(toolGlyphKind("cordis_define"), "plugin");
+  assert.equal(toolGlyphKind("brand_new_tool"), "generic");
+  assert.equal(toolGlyphKind(""), "generic");
+  assert.equal(toolGlyphKind(undefined), "generic");
+});
+
+test("keeps MCP tools recognizable instead of generic", () => {
+  // MCP 只改传输层命名：内层工具认得出来就沿用它的字形，认不出来才是扩展工具。
+  assert.equal(toolGlyphKind("mcp__vendor__read"), "read");
+  assert.equal(toolGlyphKind("mcp__vendor__web_search"), "web");
+  assert.equal(toolGlyphKind("mcp__vendor__custom"), "plugin");
 });
 
 test("falls back safely when description is missing or blank", () => {

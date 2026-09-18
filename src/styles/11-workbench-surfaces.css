@@ -561,8 +561,6 @@
 
 .subagent-tool-entry-summary::after { margin-left: auto; content: "+"; color: var(--ink-faint); }
 .subagent-tool-entry[data-open="true"] > .subagent-tool-entry-summary::after { content: "-"; }
-.subagent-tool-state { width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
-.subagent-tool-entry.error .subagent-tool-state { background: var(--danger); }
 .subagent-tool-entry-summary strong { font-size: 13px; }
 .subagent-tool-entry-summary em { margin-left: auto; color: var(--ink-faint); font-size: 12px; font-style: normal; }
 .subagent-tool-entry-summary em + * { margin-left: 0; }

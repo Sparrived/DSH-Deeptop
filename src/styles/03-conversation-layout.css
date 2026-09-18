@@ -607,14 +607,13 @@
 .subagent-tool-entry[data-open="true"] > .subagent-tool-entry-summary::after { content: "-"; }
 
 .subagent-tool-state {
-  width: 6px;
-  height: 6px;
+  display: flex;
+  align-items: center;
   flex: 0 0 auto;
-  border-radius: 50%;
-  background: var(--good);
+  color: var(--good);
+  font-size: 12px;
+  line-height: 1;
 }
-
-.subagent-tool-entry.error .subagent-tool-state { background: var(--accent); }
 
 .subagent-tool-entry-summary strong {
   min-width: 0;

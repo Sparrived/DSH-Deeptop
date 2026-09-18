@@ -3,6 +3,33 @@ export type ToolArgsObject = Record<string, unknown>;
 
 export type ToolArgsLayout = "terminal" | "file" | "web" | "delegation" | "generic";
 
+/** 工具行左侧图标表达的语义；颜色仍由调用状态决定，与字形无关。 */
+export type ToolGlyphKind =
+  | "terminal"
+  | "read"
+  | "image"
+  | "write"
+  | "edit"
+  | "search"
+  | "find"
+  | "web"
+  | "fetch"
+  | "delegate"
+  | "workflow"
+  | "repeat"
+  | "goal"
+  | "todo"
+  | "question"
+  | "skill"
+  | "job"
+  | "deliver"
+  | "message"
+  | "agent"
+  | "session"
+  | "code"
+  | "plugin"
+  | "generic";
+
 /** Minimal call-side diff rendered for an edit before its result metadata arrives. */
 export type ToolCallEditDiff = {
   path: string;
@@ -269,6 +296,84 @@ export function toolArgsLayout(toolName: string | undefined, args: ToolArgsObjec
   if (typeof args.command === "string" || typeof args.shellCommand === "string") return "terminal";
   if (typeof args.file_path === "string" || typeof args.filePath === "string") return "file";
   if (typeof args.url === "string" && normalized.startsWith("web")) return "web";
+  return "generic";
+}
+
+/**
+ * 稳定工具名到字形语义的映射。
+ *
+ * 字形只说明“这次调用在做什么”，与结果无关：同一次 read 在运行、成功、失败时
+ * 保持同一个字形，只有颜色随状态变化。未列出的工具按前缀归族，最后落到通用扳手，
+ * 因此新增 DSH 工具不会画出空白图标。
+ */
+const TOOL_GLYPH_BY_NAME: Record<string, ToolGlyphKind> = {
+  bash: "terminal",
+  pwsh: "terminal",
+  shell: "terminal",
+  powershell: "terminal",
+  read: "read",
+  read_file: "read",
+  readfile: "read",
+  view: "read",
+  read_image: "image",
+  write: "write",
+  edit: "edit",
+  str_replace_editor: "edit",
+  glob: "find",
+  grep: "search",
+  web_search: "web",
+  websearch: "web",
+  web_fetch: "fetch",
+  webfetch: "fetch",
+  subagent: "delegate",
+  subagent_fork: "delegate",
+  spawn_teammate: "delegate",
+  workflow: "workflow",
+  ralph: "repeat",
+  get_goal: "goal",
+  create_goal: "goal",
+  update_goal: "goal",
+  todo_write: "todo",
+  write_todo: "todo",
+  team_task_create: "todo",
+  team_task_list: "todo",
+  team_task_get: "todo",
+  team_task_update: "todo",
+  ask_user_question: "question",
+  skill: "skill",
+  skill_install: "skill",
+  present: "deliver",
+  send_message: "message",
+  list_agents: "agent",
+  wait_agent: "agent",
+  interrupt_agent: "agent",
+  lsp: "code",
+};
+
+/** 前缀归族：这些家族的名字是开放的（terminal_open、job_kill、cordis_define…）。 */
+const TOOL_GLYPH_BY_PREFIX: Array<[string, ToolGlyphKind]> = [
+  ["terminal_", "terminal"],
+  ["job_", "job"],
+  ["session_", "session"],
+  ["cordis_", "plugin"],
+];
+
+/**
+ * Resolve the semantic glyph for one tool name.
+ *
+ * MCP 工具先看内层工具名（`mcp__vendor__read` 仍画读取字形），认不出来才按扩展
+ * 工具画插头，这样远程工具不会一律退化成通用图标。
+ */
+export function toolGlyphKind(toolName: string | undefined): ToolGlyphKind {
+  const normalized = normalizedToolName(toolName);
+  if (!normalized) return "generic";
+  const known = TOOL_GLYPH_BY_NAME[normalized];
+  if (known) return known;
+  const mcpMatch = MCP_TOOL_NAME_PATTERN.exec(normalized);
+  if (mcpMatch) return TOOL_GLYPH_BY_NAME[mcpMatch[2]] ?? "plugin";
+  for (const [prefix, kind] of TOOL_GLYPH_BY_PREFIX) {
+    if (normalized.startsWith(prefix)) return kind;
+  }
   return "generic";
 }
 

@@ -12,6 +12,7 @@ import { displayToolName } from "../app/tool-call-display";
 import { t, type UiLocale } from "../app/i18n";
 import type { DshSubagentAddress } from "../lib/desktop";
 import { DisclosureEntry } from "./DisclosureEntry";
+import { ToolGlyph } from "./ToolGlyph";
 
 /** 子代理抽屉里的一条工具横条：与对话流里的工具卡片同款折叠动画。 */
 function SubagentToolEntry({ item, locale }: { item: TranscriptItem; locale: UiLocale }) {
@@ -31,7 +32,7 @@ function SubagentToolEntry({ item, locale }: { item: TranscriptItem; locale: UiL
       data-tool-status={item.toolResultError ? "error" : resultReady ? "returned" : "running"}
       open={open}
       onToggle={() => setOpen((value) => !value)}
-      summary={<><span className="subagent-tool-state" /><strong>{displayToolName(item.toolName)}</strong><em>{item.toolResultError ? t("subagent.toolError", locale) : resultReady ? t("subagent.toolReturned", locale) : t("subagent.toolRunning", locale)}</em></>}
+      summary={<><span className="subagent-tool-state" aria-hidden="true"><ToolGlyph toolName={item.toolName} /></span><strong>{displayToolName(item.toolName)}</strong><em>{item.toolResultError ? t("subagent.toolError", locale) : resultReady ? t("subagent.toolReturned", locale) : t("subagent.toolRunning", locale)}</em></>}
     >
       <div className="subagent-tool-content"><pre>{item.text}</pre>{resultReady && <div className="subagent-tool-result"><span>{t("subagent.toolResult", locale)}</span><pre>{item.toolResultText}</pre></div>}</div>
     </DisclosureEntry>

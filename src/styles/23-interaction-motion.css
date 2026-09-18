@@ -22,8 +22,9 @@
     to { opacity: 1; transform: translateY(0); }
   }
 
-  /* Tool/workflow/subagent activity uses one quiet status point. Terminal
-     states deliberately do not loop: their colour and result content persist. */
+  /* Tool/workflow/subagent activity uses one quiet status mark: the tool glyph
+     breathes while running. Terminal states deliberately do not loop: their
+     colour and result content persist. */
   .tool-entry[data-tool-status="running"] .tool-state,
   .tool-entry[data-tool-status="running"] .tool-status-dot,
   .workflow-entry[data-workflow-status="running"] .workflow-status,
@@ -132,15 +133,16 @@
   }
 }
 
-/* Running should never read as successful before a result arrives. */
+/* 工具行左侧图标：字形来自工具名（ToolGlyph），颜色来自调用状态。运行中绝不能
+   在结果到达前读成成功，所以状态只改 currentColor，字形始终不变。 */
 .tool-entry[data-tool-status="running"] .tool-state,
-.subagent-tool-entry[data-tool-status="running"] .subagent-tool-state { background: var(--warning); }
+.subagent-tool-entry[data-tool-status="running"] .subagent-tool-state { color: var(--warning); }
 
 .tool-entry[data-tool-status="returned"] .tool-state,
-.subagent-tool-entry[data-tool-status="returned"] .subagent-tool-state { background: var(--good); }
+.subagent-tool-entry[data-tool-status="returned"] .subagent-tool-state { color: var(--good); }
 
 .tool-entry[data-tool-status="error"] .tool-state,
-.subagent-tool-entry[data-tool-status="error"] .subagent-tool-state { background: var(--danger); }
+.subagent-tool-entry[data-tool-status="error"] .subagent-tool-state { color: var(--danger); }
 
 /* Stop residual continuous effects if the app is inactive or unfocused. */
 body:not(.deeptop-activity-live) .tool-entry[data-tool-status="running"] .tool-state,

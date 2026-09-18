@@ -26,6 +26,7 @@ import { ToolResultView } from "../app/tool-result-render";
 import { imageResultEnvelope } from "../app/image-result-model";
 import { entityHost } from "../lib/message-entities";
 import { DisclosureEntry } from "./DisclosureEntry";
+import { ToolGlyph } from "./ToolGlyph";
 import { isWithinSelector, TRANSCRIPT_CONTEXT_MENU_SELECTOR, TRANSCRIPT_TEXT_SELECTOR } from "../app/context-menu";
 import { useFloatingMenuPosition } from "../app/useFloatingMenuPosition";
 import { useImagePanZoom } from "../app/useImagePanZoom";
@@ -234,7 +235,7 @@ export function ToolEntryView({
       open={open}
       onToggle={() => setOpen((value) => !value)}
       summary={<>
-        <span className="tool-summary-main"><span className="tool-state" aria-hidden="true" /><span className="tool-name">{displayName}</span></span>
+        <span className="tool-summary-main"><span className="tool-state" aria-hidden="true"><ToolGlyph toolName={item.toolName} /></span><span className="tool-name">{displayName}</span></span>
         {description && <span className="tool-description">{description}</span>}
         {diff && <span className="tool-diff-badge" key={`${item.key}-diff-${diff.added}-${diff.removed}`} aria-label={t("conversation.tool.diffAria", locale, { added: diff.added, removed: diff.removed })}><b>+{diff.added}</b><b>-{diff.removed}</b></span>}
         <span className={`tool-status ${toolStatus}`}><span className="tool-status-dot" aria-hidden="true" />{item.toolResultError ? t("conversation.tool.error", locale) : hasToolResult ? t("conversation.tool.returned", locale) : t("conversation.tool.running", locale)}{program && <span className={`ptc-stats${program.active ? " live" : ""}`}>{program.active && <span className="ptc-ticker-dot" aria-hidden="true" />}{program.active ? programTickerText(program, locale) : programStatsText(program, locale)}</span>}</span>
