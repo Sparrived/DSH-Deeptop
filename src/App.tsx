@@ -38,6 +38,15 @@ import { WindowChrome } from "./components/WindowChrome";
 import { DockSettingsProvider, useDockSettings } from "./app/dock-settings";
 import { buildActiveSessionView } from "./app/active-session-view";
 import { DOCK_RAIL_DEFAULT_WIDTH, DOCK_RAIL_EMPTY_WIDTH, DOCK_RAIL_STRIP_WIDTH, type DockTab } from "./app/dock-layout";
+import {
+  clampSidebarWidth,
+  SIDEBAR_DRAG_WIDTH_VAR,
+  SIDEBAR_WIDTH_DEFAULT,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_MIN,
+  SIDEBAR_WIDTH_STORAGE_KEY,
+  sidebarWidthFromDrag,
+} from "./app/sidebar-resize";
 import { DockRail } from "./components/DockRail";
 import { DockTabBody } from "./components/DockTabBody";
 import { PopupDialog } from "./components/PopupDialog";
@@ -418,7 +427,7 @@ function applyFrontendVisualResetOnce() {
     if (localStorage.getItem("deeptop.frontend-visual-reset") === FRONTEND_VISUAL_RESET_VERSION) return;
     localStorage.setItem("deeptop.frontend-visual-reset", FRONTEND_VISUAL_RESET_VERSION);
     localStorage.setItem("deeptop.theme", "light");
-    localStorage.setItem("deeptop.sidebar-width", "320");
+    localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(SIDEBAR_WIDTH_DEFAULT));
   } catch {
     // The native webview may disable storage in a restricted preview.
   }
@@ -570,10 +579,9 @@ function AppContent() {
   const [workspaces, setWorkspaces] = useState<DshWorkspace[]>([]);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     try {
-      const saved = Number(localStorage.getItem("deeptop.sidebar-width"));
-      return Number.isFinite(saved) ? Math.min(440, Math.max(300, saved)) : 320;
+      return clampSidebarWidth(Number(localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY)));
     } catch {
-      return 320;
+      return SIDEBAR_WIDTH_DEFAULT;
     }
   });
   // 侧栏收起状态与宽度分开保存：收起只改变呈现，展开仍回到用户拖动过的宽度。
@@ -694,7 +702,15 @@ function AppContent() {
   const transcriptEnd = useRef<HTMLDivElement | null>(null);
   const transcriptScroll = useRef<HTMLDivElement | null>(null);
   const draggedSessionRef = useRef<string | null>(null);
-  const sidebarResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  // 拖拽中的侧栏宽度：preview 是当前实时宽度，只在松手时提交给 React 状态。
+  const sidebarResizeRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startWidth: number;
+    preview: number;
+    grid: HTMLElement | null;
+    resizer: HTMLElement | null;
+  } | null>(null);
   const historyLoadingOlderRef = useRef(false);
   const dashboardHistoryRequestRef = useRef(0);
   const dashboardHistoryAbortRef = useRef<AbortController | null>(null);
@@ -2053,7 +2069,7 @@ function AppContent() {
 
   useEffect(() => {
     try {
-      localStorage.setItem("deeptop.sidebar-width", String(sidebarWidth));
+      localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
     } catch {
       // The native webview may disable storage in a restricted preview.
     }
@@ -2082,20 +2098,53 @@ function AppContent() {
   }, [themeMode]);
 
   useEffect(() => {
-    const handlePointerMove = (event: globalThis.PointerEvent) => {
+    // 拖拽期间把实时宽度写进 --sidebar-drag-width，松手才提交一次 React 状态。
+    // 逐帧 setState 会重渲染整棵对话树，展开中的思考块随之重新排版，拖分隔线
+    // 就会卡顿；只改网格轨道变量则只有命中那一列需要重排。
+    const settle = (commit: boolean) => {
       const resize = sidebarResizeRef.current;
       if (!resize) return;
-      setSidebarWidth(Math.min(440, Math.max(300, resize.startWidth + event.clientX - resize.startX)));
-    };
-    const handlePointerUp = () => {
       sidebarResizeRef.current = null;
       document.body.classList.remove("sidebar-resizing");
+      resize.grid?.style.removeProperty(SIDEBAR_DRAG_WIDTH_VAR);
+      // 取消（pointercancel / 窗口失焦）时什么都不提交：轨道变量去掉即回到
+      // --sidebar-width 上的原宽度，不会留下半途的尺寸。
+      if (commit) setSidebarWidth(resize.preview);
+      // aria-valuenow 是拖拽期间直接改上去的，取消时 React 不会重渲染，
+      // 必须显式还原，否则辅助技术读到的仍是半途宽度。
+      resize.resizer?.setAttribute("aria-valuenow", String(commit ? resize.preview : resize.startWidth));
     };
+    const handlePointerMove = (event: globalThis.PointerEvent) => {
+      const resize = sidebarResizeRef.current;
+      if (!resize || event.pointerId !== resize.pointerId) return;
+      const width = sidebarWidthFromDrag(resize.startWidth, resize.startX, event.clientX);
+      if (width === resize.preview) return;
+      resize.preview = width;
+      resize.grid?.style.setProperty(SIDEBAR_DRAG_WIDTH_VAR, `${width}px`);
+      // 分隔线自身既不在侧栏列内、也不在网格轨道上，实时宽度同样只能写在属性上，
+      // 否则键盘/读屏读到的仍是松手前的旧值。
+      resize.resizer?.setAttribute("aria-valuenow", String(width));
+    };
+    const handlePointerUp = (event: globalThis.PointerEvent) => {
+      const resize = sidebarResizeRef.current;
+      if (!resize || event.pointerId !== resize.pointerId) return;
+      settle(true);
+    };
+    const handlePointerCancel = (event: globalThis.PointerEvent) => {
+      const resize = sidebarResizeRef.current;
+      if (!resize || event.pointerId !== resize.pointerId) return;
+      settle(false);
+    };
+    const handleBlur = () => settle(false);
     document.addEventListener("pointermove", handlePointerMove);
     document.addEventListener("pointerup", handlePointerUp);
+    document.addEventListener("pointercancel", handlePointerCancel);
+    window.addEventListener("blur", handleBlur);
     return () => {
       document.removeEventListener("pointermove", handlePointerMove);
       document.removeEventListener("pointerup", handlePointerUp);
+      document.removeEventListener("pointercancel", handlePointerCancel);
+      window.removeEventListener("blur", handleBlur);
     };
   }, []);
 
@@ -5582,14 +5631,24 @@ function AppContent() {
           className="sidebar-resizer"
           role="separator"
           aria-label={t("layout.resizeSidebarAria", locale)}
-          aria-valuemin={300}
-          aria-valuemax={440}
+          aria-valuemin={SIDEBAR_WIDTH_MIN}
+          aria-valuemax={SIDEBAR_WIDTH_MAX}
           aria-valuenow={sidebarWidth}
           // 收起时侧栏没有可拖动宽度，分隔线也不再是一个可用的辅助功能节点。
           aria-hidden={sidebarCollapsed || undefined}
           onPointerDown={(event) => {
+            if (event.button !== 0) return;
             event.preventDefault();
-            sidebarResizeRef.current = { startX: event.clientX, startWidth: sidebarWidth };
+            // 只记录起始状态；实时宽度在 pointermove 里写进网格的 CSS 变量，
+            // 松手才提交 React 状态（见上面的拖拽 effect）。
+            sidebarResizeRef.current = {
+              pointerId: event.pointerId,
+              startX: event.clientX,
+              startWidth: sidebarWidth,
+              preview: sidebarWidth,
+              grid: event.currentTarget.closest(".workspace-layout") as HTMLElement | null,
+              resizer: event.currentTarget,
+            };
             document.body.classList.add("sidebar-resizing");
           }}
         />
@@ -6028,7 +6087,7 @@ function AppContent() {
                     onSetDefaultModel={setDefaultModel}
                     onSetDefaultPermission={setDefaultPermission}
                     onAddWorkspace={addWorkspace}
-                    onResetSidebar={() => setSidebarWidth(320)}
+                    onResetSidebar={() => setSidebarWidth(SIDEBAR_WIDTH_DEFAULT)}
                     onOpenNamespace={openSettingsNamespace}
                     networkProxy={networkProxy}
                     networkEffective={networkEffective}

@@ -1495,9 +1495,15 @@
   .workspace-layout {
     /* 右栏再宽也不超过窗口的 45%：窄窗口下不能让对话列被挤到不可用。 */
     grid-template-columns:
-      var(--sidebar-width, 320px)
+      var(--sidebar-drag-width, var(--sidebar-width, 320px))
       minmax(0, 1fr)
       minmax(0, min(var(--dock-rail-drag-width, var(--dock-rail-width, 0px)), 45%));
+  }
+
+  /* 拖动侧栏时实时宽度只写在网格变量上，分隔线本身不在该列内，必须一起跟随；
+     否则手柄会停在松手前的位置，指针已经跑到别处。 */
+  .sidebar-resizer {
+    left: calc(var(--sidebar-drag-width, var(--sidebar-width, 320px)) - 3px);
   }
 
   .workspace-layout > .session-sidebar { grid-column: 1; }
