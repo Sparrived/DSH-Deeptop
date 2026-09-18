@@ -3,10 +3,16 @@
 // 轻量 hooks 渲染器与 stats-pills.test.mjs 相同：直接调用组件函数，
 // 在没有 DOM 的环境里检查返回的元素树。
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { build } from "esbuild";
+
+const COMPOSER_DOCK_CSS = readFileSync(
+  fileURLToPath(new URL("../styles/10-workbench-composer-docks.css", import.meta.url)),
+  "utf8",
+);
 
 // 组件只在 effect/回调里访问 DOM，测试不驱动它们；这里只需一个占位目标。
 globalThis.document = { body: {} };
@@ -261,4 +267,33 @@ test("marks each pending message as queued or inserted", async () => {
   const badges = collectElements(tree, (node) => hasClass(node, "queue-dock-item-mode"));
   assert.deepEqual(badges.map((badge) => badge.props.className), ["queue-dock-item-mode queued", "queue-dock-item-mode steering"]);
   assert.deepEqual(badges.map(textOf), ["排队", "插入"]);
+});
+
+// 发送组是一枚胶囊：左半（发送按钮）与右半（上拉菜单）同底、同色、同高，接缝处
+// 只应有一条 1px 描边。曾经的回归是两半各画各的——左半保留 button:disabled 的整体
+// 不透明度、右半保留基底 button 的 7px 左侧圆角——于是胶囊在接缝上下露出背景色，
+// 并在中段断成深浅两块。
+function declarationsFor(css, selector) {
+  const stripped = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const bodies = [];
+  for (const block of stripped.split("}")) {
+    const [header, body = ""] = block.split("{");
+    if (header.split(",").map((part) => part.trim()).includes(selector)) bodies.push(body);
+  }
+  return bodies.join("\n");
+}
+
+test("keeps the running send group a single flush pill", () => {
+  const square = /0(px)?\b/;
+  for (const corner of ["border-top-right-radius", "border-bottom-right-radius"]) {
+    assert.match(declarationsFor(COMPOSER_DOCK_CSS, ".send-group-mode .send-button"), new RegExp(`${corner}:\\s*${square.source}`), `发送按钮 ${corner} 必须是直角`);
+  }
+  for (const corner of ["border-top-left-radius", "border-bottom-left-radius"]) {
+    assert.match(declarationsFor(COMPOSER_DOCK_CSS, ".mode-picker-trigger"), new RegExp(`${corner}:\\s*${square.source}`), `上拉触发键 ${corner} 必须是直角`);
+  }
+
+  // 禁用态不得只压暗左半：两半共用 --accent，任何整体不透明度都会让接缝断色。
+  const disabled = declarationsFor(COMPOSER_DOCK_CSS, ".send-group-mode .send-button:disabled");
+  assert.match(disabled, /opacity:\s*1\b/, "禁用态仍会整体压暗发送按钮的一半");
+  assert.doesNotMatch(disabled, /background\s*:/, "禁用态不应改底色，否则与上拉菜单不再同底");
 });

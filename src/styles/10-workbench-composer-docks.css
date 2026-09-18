@@ -7,9 +7,21 @@
   align-items: stretch;
 }
 
+/* 运行中的发送组是一枚胶囊：左半显示投递方式，右半是上拉菜单，两半共用同一块
+   --accent 底色，中间只留 mode-picker-trigger 的 1px 左描边作分隔。因此左半的
+   右角与右半的左角都必须是直角——任一侧保留圆角都会在接缝处露出背景色，胶囊
+   看起来像被切成两块。 */
 .send-group-mode .send-button {
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
+}
+
+/* 空草稿时发送按钮带禁用态，但它仍是投递方式的状态显示，且与上拉菜单同底。
+   只给这一半套上 button:disabled 的整体不透明度，会把同色的一枚胶囊分成深浅
+   两块；这里改为保留底色、只压低前景图标与文案，禁用提示仍在，接缝不再有断色。 */
+.send-group-mode .send-button:disabled {
+  opacity: 1;
+  color: color-mix(in srgb, var(--on-accent) 55%, var(--accent));
 }
 
 .mode-picker {
@@ -27,6 +39,10 @@
   padding: 0;
   border: 1px solid var(--accent);
   border-left-color: color-mix(in srgb, var(--on-accent) 34%, transparent);
+  /* 与左半的直角相接：保留左侧圆角会让基底 button 的 7px 圆角在接缝上下各挖掉
+     一小块，露出背景色。 */
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
   border-top-right-radius: var(--radius-control);
   border-bottom-right-radius: var(--radius-control);
   background: var(--accent);
