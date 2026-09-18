@@ -193,3 +193,12 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* 刻度轨靠 .transcript-inner 的左内边距让出位置：>1120px 时该内边距是 36px，
+   容得下 24px 的当前轮刻度；窄窗口下它收到 24px / 12px，刻度会压在正文上，
+   所以在这一档整体收起（与官方 web 版窄容器下隐藏刻度轨同理）。 */
+@media (max-width: 1120px) {
+  .turn-rail-slot {
+    display: none;
+  }
+}
