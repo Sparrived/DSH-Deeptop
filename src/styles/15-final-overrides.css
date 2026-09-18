@@ -1550,13 +1550,16 @@
   border: 0;
   /* 只在靠内的一侧收圆角：像从面板右边缘挖出来的一段，而不是浮在上面的按钮。 */
   border-radius: 6px 0 0 6px;
-  background: var(--rail-inset);
+  /* 静止时不留底色：只有一枚淡色箭头贴在面板边缘上。 */
+  background: transparent;
   color: var(--rail-muted);
   font-size: 13px;
 }
 
-.sidebar-toggle-handle:hover {
-  background: var(--rail-surface);
+.sidebar-toggle-handle:hover,
+.sidebar-toggle-handle:focus-visible {
+  /* 悬停才出现灰黑底色：与 rail 前景色混合，深浅主题下都是同一层灰。 */
+  background: color-mix(in srgb, var(--rail-text) 30%, transparent);
   color: var(--rail-text);
 }
 
