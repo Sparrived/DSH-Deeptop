@@ -3,7 +3,9 @@
   position: absolute;
   /* 面板入口常驻在右栏左缘那一条竖栏里：right = 右栏宽度 − 图标条宽度，与
      15-final-overrides 的网格模板同一表达式（拖拽预览宽度优先）。最左 8px 让给
-     右栏的宽度拖拽手柄，图标条本身再往右排。 */
+     右栏的宽度拖拽手柄，图标条本身再往右排。右侧留同样一条 8px 内边距：右栏自己
+     是贴平窗口右缘的方形卡片，入口按钮不能跟着贴边。条宽仍是
+     --dock-rail-strip-width，只收窄内容盒，不改上面那条 right 表达式。 */
   top: 28px;
   bottom: 24px;
   right: calc(min(var(--dock-rail-drag-width, var(--dock-rail-width, var(--dock-rail-strip-width, 64px))), 45%) - var(--dock-rail-strip-width, 64px));
@@ -11,6 +13,7 @@
   z-index: 23;
   width: var(--dock-rail-strip-width, 64px);
   padding-left: 8px;
+  padding-right: 8px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -284,6 +287,7 @@
     left: 8px;
     width: auto;
     padding-left: 0;
+    padding-right: 0;
     align-items: flex-start;
     gap: 8px;
   }
