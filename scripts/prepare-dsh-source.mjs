@@ -7,10 +7,10 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourceRoot = path.join(root, "vendor", "dsh");
 const publicBase = "183f08e9c6dde7e36cd2318eaee70b0da08fb35e";
 const publicTag = "dsh-v0.1.5-rc.1";
-const patchedCommit = "03113acb43e83f5e27ac0cce56a53090606c1fee";
+const patchedCommit = "77268a8a9bb26d7121d7c46a537da29147b6f754";
 const upstream = "https://github.com/deepseek-ai/deepseek-harness.git";
 
-// The vendored runtime ships seven local commits on top of 0.1.5-rc.1.
+// The vendored runtime ships nine local commits on top of 0.1.5-rc.1.
 // Each entry reproduces one of them deterministically from its patch file:
 // identical tree, parents, message, and author/committer identity reproduce
 // the exact commit id pinned by src-tauri/src/main.rs.
@@ -179,6 +179,36 @@ const patches = [
       "tool-terminal 的 spec 通过（216 项，含 peek 重复投影不消费、peek 后 job_output 仍能",
       "取回全部输出、以及 owner/session 围栏用例）；bash-local 与 terminal-bash 的 spec 在",
       "Windows 上不执行，本机未运行；tsc -b tsconfig.host.json 无错误。",
+      "",
+    ].join("\n"),
+  },
+  {
+    file: "dsh-session-delete.patch",
+    commit: "77268a8a9bb26d7121d7c46a537da29147b6f754",
+    authorName: "Sparrived",
+    authorEmail: "sparrived@outlook.com",
+    authorDate: "2026-09-13T15:40:00+08:00",
+    committerDate: "2026-09-13T15:40:00+08:00",
+    message: [
+      "feat(session): 新增已存储会话的永久移除",
+      "",
+      "改动：session-persistence seam 增加 delete(id) 契约与 SessionDeleteUnsupportedError；",
+      "该方法不是抽象的，默认实现响亮拒绝，因此只有拥有完整产物集合的后端才实现它。JSONL",
+      "provider 实现该操作：先按请求 id 读取最高 generation 的 header 校验归属，再递归移除整个",
+      "会话目录（全部保留 generation 与 POSIX 锁文件），并在过程中持有内核写锁；本实例的写句柄",
+      "持有时以 SessionAlreadyOwnedError 拒绝，会话不存在时返回 false。共享契约套件新增移除",
+      "用例，两个包的 README 对更新并重录 i18n 配对。",
+      "",
+      "原因：DSH 此前完全没有会话删除能力（seam 只有 create/open/flush/stat/list，两份 README",
+      "都把「无删除接口」列为已知限制），桌面端的会话永久删除只能是永远失败的死操作。移除是",
+      "破坏性且不可逆的，因此不进 append-only 日志契约，改为逐后端显式选择。",
+      "",
+      "验证：session-persistence 与 session-persistence-jsonl 全部 spec 通过（428 项，其中新增",
+      "移除用例覆盖多 generation 目录、兄弟会话不受影响、日志有活动写句柄时拒绝、另一持有者的",
+      "内核锁存在时拒绝、不可解析 header 仍可清理、header 归属不符时拒绝、重复移除与跨实例幂等、",
+      "压缩会话、以及移除后 id 立即可复用）；两包 src 覆盖率 100%；session-controller、",
+      "session-query、feedback、schedule、session-checkpoint-policy 共 1269 项通过；tsc -b 两个",
+      "包通过；verify-translation-pairing 789 对全部一致。",
       "",
     ].join("\n"),
   },

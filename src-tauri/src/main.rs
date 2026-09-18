@@ -76,7 +76,7 @@ const MAX_AUTO_RESTARTS: u32 = 3;
 /// Base delay for the first auto-restart; each consecutive crash doubles it.
 const AUTO_RESTART_BASE_DELAY: Duration = Duration::from_millis(1000);
 const BUNDLED_DSH_VERSION: &str = "0.1.5-rc.1";
-const BUNDLED_DSH_SOURCE_COMMIT: &str = "03113acb43e83f5e27ac0cce56a53090606c1fee";
+const BUNDLED_DSH_SOURCE_COMMIT: &str = "77268a8a9bb26d7121d7c46a537da29147b6f754";
 const BRIDGE_PACKAGE_JSON: &str = include_str!("../../cordis/package.json");
 const BRIDGE_PATCH: &str = include_str!("../../cordis/cordis.patch.yml");
 const BRIDGE_ENTRY: &str = include_str!("../../cordis/desktop-bridge/index.mjs");
@@ -7141,7 +7141,7 @@ mod tests {
             "packageName": "@deepseek-ai/dsh",
             "packageVersion": "0.1.5-rc.1",
             "entry": "node_modules/@deepseek-ai/dsh/lib/bin.js",
-            "sourceCommit": "03113acb43e83f5e27ac0cce56a53090606c1fee",
+            "sourceCommit": "77268a8a9bb26d7121d7c46a537da29147b6f754",
             "platform": runtime_platform(),
             "arch": runtime_arch(),
             "treeSha256": "0123456789012345678901234567890123456789012345678901234567890123",

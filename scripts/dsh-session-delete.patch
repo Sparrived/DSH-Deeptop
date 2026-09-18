@@ -1,0 +1,692 @@
+diff --git a/packages/session/session-persistence-jsonl/README.i18n.yaml b/packages/session/session-persistence-jsonl/README.i18n.yaml
+index 7b0ceb074f..2e72d54f56 100644
+--- a/packages/session/session-persistence-jsonl/README.i18n.yaml
++++ b/packages/session/session-persistence-jsonl/README.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write packages/session/session-persistence-jsonl/README.md
+-README.md: 194ea835f87e4c34e0821083246bcf89c0e0a684
+-README.zh.md: 4512d67e3439cbb4cf8642ca67be56bf0c7ac5b1
++README.md: 4984ca6736198d87e88a4064221dc8c2ef71c37e
++README.zh.md: d09c3139c89bbdc1d8918eeeabd45adf677c1856
+diff --git a/packages/session/session-persistence-jsonl/README.md b/packages/session/session-persistence-jsonl/README.md
+index 194ea835f8..4984ca6736 100644
+--- a/packages/session/session-persistence-jsonl/README.md
++++ b/packages/session/session-persistence-jsonl/README.md
+@@ -79,6 +79,10 @@ The current-generation scanner applies the current codec owner’s structural ad
+ 
+ `open(id, 'read'|'write')` selects the highest canonical generation. Current input follows the ordinary fast path. For historical input, a read open decodes and migrates the source once, validates the current logical result, and returns it without publishing a successor. A write open reuses that revision-keyed preparation when available, or performs the same preparation, then encodes a same-directory temporary file in bounded chunks, verifies it in a Worker Thread, rechecks the source revision, and publishes the current successor without overwrite before returning. The source remains byte-identical. Source drift after preparation rejects that write open without replacing the logical history already returned to readers; a later write open prepares the new revision. The backend marks decoded event graphs `shared-frozen` when it freezes them before memoization; handle reads and slices preserve that state, including empty slices. Only an unmaterialized pending log reports `detached`. `stat(id)` and `list()` select and translate only the highest generation header without reading event rows or starting migration; snapshots carry `sizeBytes` and a best-effort stat-derived revision for the selected file. With `compression: 'none'`, the log is newline-delimited text an external reader can consume directly; the compressed default must be read through the backend.
+ 
++### Permanent removal
++
++`delete(id)` removes the session's whole directory: every retained immutable generation plus the POSIX lock file, not only the currently selected generation. The requested id addresses the directory, and the highest generation's header is read first, so a header naming a different id or storage path refuses the removal rather than unlinking an artifact it cannot attribute; a header that cannot be parsed at all is still removable, because that directory is the requested id's own and cleaning up an unreadable session is the point. Removal refuses with `SessionAlreadyOwnedError` while this instance's write handle owns the session, and takes the kernel write lease for the duration, so a writer in another process cannot append into a log that is being unlinked. It reports `false` when no session by that id exists, and the id is reusable immediately afterwards.
++
+ -----
+ 
+ <a id="understand-the-implementation"></a>
+@@ -154,7 +158,7 @@ These limits define when this backend is a poor fit or needs special operational
+ - **Format migration preserves the configured encoding and supports only the catalogued chain** — this build migrates supported historical generations to the current format; changing compression requires a separate root, and retained predecessors do not provide automatic fallback or downgrade support.
+ - **The flat-file storage layout does not load** — use a separate root or move pre-release artifacts into the project/session directory layout before loading.
+ - **Compressed files are not directly line-readable** — use the backend to load them, or select `compression: 'none'` before writing a fresh root when external line readers are required.
+-- **Nothing deletes session files** — logs accumulate under `root` until removed externally; the seam has no deletion API.
++- **Removal is explicit and immediate** — `delete(id)` disposes one named session's directory; logs otherwise accumulate under `root` until removed, and nothing expires or prunes them.
+ - **One live writer per session** — the write-handle claim excludes a second writer inside the owning backend instance, and a kernel lock (non-blocking `flock(2)` on `session.lock`; on Windows a named kernel semaphore derived from that path, with no filesystem footprint) excludes every other instance and process; the lock is taken at write-open of an existing artifact and, for a created session, only right before its first materializing write, so an unmaterialized session leaves no filesystem footprint. A crashed holder's lock dies with its process, so its session is writable again immediately, while a live-but-wedged holder blocks writers until its process exits (on POSIX, removing the lock file forfeits that exclusion; release itself never removes it). Advisory `flock` is unreliable on some network filesystems (NFSv3), and the Windows semaphore name is per login session.
+ - **POSIX materialization requires hard-link support** — first append uses `link()` so same-id races fail instead of overwriting a committed log; Windows uses write-through rename without replacement.
+ - **POSIX writes require the matching prebuilt system addon** — [`node-addon-system`](../../../native/system/README.md) supplies asynchronous flock without consumer-side compilation. A missing addon rejects write ownership; Windows retains its semaphore implementation.
+diff --git a/packages/session/session-persistence-jsonl/README.zh.md b/packages/session/session-persistence-jsonl/README.zh.md
+index 4512d67e34..d09c3139c8 100644
+--- a/packages/session/session-persistence-jsonl/README.zh.md
++++ b/packages/session/session-persistence-jsonl/README.zh.md
+@@ -79,6 +79,10 @@ kind: "package-reference"
+ 
+ `open(id, 'read'|'write')` 选择最高规范 generation。当前格式输入走普通快速路径。对于历史输入，只读 open 会单遍解码并迁移源、校验当前逻辑结果，然后在不发布后继的情况下返回。写 open 会在可用时复用按 revision 为键的 preparation，否则执行同一套 preparation，再按有界分片编码同目录临时文件、在 Worker Thread 中校验、复查源修订，并在返回前以不覆盖方式发布当前后继。源保持逐字节不变。如果源在 preparation 后发生变化，该次写 open 会失败，已经返回给读方的逻辑历史不会被替换；后续写 open 会针对新的 revision 重新执行 preparation。Backend 在 memo 化前冻结已解码的 event graph，并在此时将其标记为 `shared-frozen`；句柄读取和 slice 即使为空也保留该状态。只有尚未实体化的 pending 空日志报告 `detached`。`stat(id)` 与 `list()` 只选择并转换最高 generation 的 header，不读取事件行，也不启动迁移；快照携带所选文件的 `sizeBytes` 与尽力而为的 stat 派生修订号。选择 `compression: 'none'` 后，日志是外部读取方可直接消费的换行分隔文本；压缩默认值必须经后端读取。
+ 
++### 永久移除
++
++`delete(id)` 移除会话的整个目录：全部保留的不可变 generation 以及 POSIX 锁文件，而不只是当前选中的 generation。请求的 id 寻址该目录，最高 generation 的 header 会先被读取，因此 header 指向别的 id 或存储路径时会拒绝移除，而不会删除无法归属的产物；完全无法解析的 header 仍可被移除，因为该目录本就属于请求的 id，清理不可读会话正是其目的。当本实例的写句柄持有该会话时，移除以 `SessionAlreadyOwnedError` 拒绝，并在整个过程中持有内核写锁，因此其他进程中的写入方无法向正被 unlink 的日志追加。该 id 不存在任何会话时返回 `false`，且此后该 id 立即可复用。
++
+ -----
+ 
+ <a id="understand-the-implementation"></a>
+@@ -154,7 +158,7 @@ JSONL 存储不修改实时请求前缀。只有重建历史、当前 envelope 
+ - **格式迁移保留已配置编码，且只支持 catalog 中的链**——本 build 把受支持的历史代迁移到当前格式；更改压缩需要独立根，保留的前任不提供自动 fallback 或 downgrade 支持。
+ - **平铺文件存储布局不加载**——加载前使用独立根，或将预发布产物移入项目/会话目录布局。
+ - **压缩文件不能直接按行读取**——使用后端加载；或在写入新根前选择 `compression: 'none'`，供外部行读取方使用。
+-- **不删除会话文件**——日志在 `root` 下累积，直到外部移除；seam 无删除接口。
++- **移除是显式且即时的**——`delete(id)` 销毁一个指名会话的目录；除此之外日志在 `root` 下累积直到被移除，没有任何机制会使其过期或剪枝。
+ - **每会话一个活动写入方**——写句柄认领在所属后端实例内排除第二个写入方，内核锁（`session.lock` 上的非阻塞 `flock(2)`；Windows 上为由该路径派生的命名内核信号量，零文件系统足迹）排除其他所有实例与进程；锁在写打开既有工件时立即获取，新建会话则仅在首次物化写入之前获取，因此未物化的会话不留任何文件系统足迹。崩溃持有者的锁随其进程消亡，会话立即可再写入，而活着但卡死的持有者会阻塞写入方直到其进程退出（POSIX 上删除锁文件即放弃该排他；释放本身从不删除它）。咨询式 `flock` 在部分网络文件系统（NFSv3）上不可靠，Windows 信号量名按登录会话隔离。
+ - **POSIX 实体化需要硬链接支持**——第一次 append 使用 `link()`，使同 id 竞态失败而不覆盖已提交日志；Windows 使用无替换 write-through rename。
+ - **POSIX 写入需要匹配的预编译系统 addon**——[`node-addon-system`](../../../native/system/README.zh.md) 提供异步 flock，无须在用户侧编译。addon 缺失时拒绝写入所有权；Windows 保留其信号量实现。
+diff --git a/packages/session/session-persistence-jsonl/src/index.ts b/packages/session/session-persistence-jsonl/src/index.ts
+index ba4f8996f0..add13e1b64 100644
+--- a/packages/session/session-persistence-jsonl/src/index.ts
++++ b/packages/session/session-persistence-jsonl/src/index.ts
+@@ -21,11 +21,12 @@ import { randomBytes } from 'node:crypto'
+ import {
+   SessionPersistence, SessionPersistenceRevision, SessionFormatUnsupportedError,
+   SessionPersistenceCorruptionError,
+-  SessionAlreadyExistsError, SessionPersistenceNotFoundError,
++  SessionAlreadyExistsError, SessionAlreadyOwnedError, SessionPersistenceNotFoundError,
+   assertStoredId, materializeCreateHeader, sessionFormatVersionRefusal, validateStoredEvents,
+   type SessionAccess, type SessionHandle,
+   type SessionHandleReadResult,
+   type SessionLocation, type SessionPersistenceCreateOptions,
++  type SessionPersistenceDeleteOptions,
+   type SessionPersistenceListOptions, type SessionPersistenceOpenOptions,
+   type SessionPersistenceSnapshot, type SessionPersistenceStatOptions,
+   type SessionPersistenceRevision as PersistenceRevision,
+@@ -489,8 +490,64 @@ class JsonlSessionPersistence extends SessionPersistence {
+     return snapshots
+   }
+ 
+-  // --- handle-facing storage internals (package-private via the handle class below) ---
++  /**
++   * Permanently remove one stored session: its complete artifact directory
++   * (every immutable format generation plus the POSIX lock file) and this
++   * instance's caches for it.
++   *
++   * The directory is addressed by the requested id, and the stored header is
++   * read first to confirm that the artifacts about to be unlinked really are
++   * that session's: a header naming another id, cwd, or generation path makes
++   * removal refuse rather than destroy a misattributed artifact. A log whose
++   * header is unreadable is still removed — the directory is the requested
++   * id's own, so removing it is how a corrupt session is cleaned up.
++   *
++   * Exclusions: an in-process write claim is refused outright, and the
++   * cross-process kernel lease is taken for the duration, so no live writer
++   * in any process can be appending into the log being removed.
++   * @param id - the stored session to remove permanently.
++   * @param options - optional cancellation.
++   * @returns whether a stored session was actually removed (`false` when absent).
++   * @throws {SessionAlreadyOwnedError} while this instance owns the id.
++   * @throws when the stored identity disagrees with the requested session.
++   */
++  override async delete(id: SessionId, options?: SessionPersistenceDeleteOptions): Promise<boolean> {
++    options?.signal?.throwIfAborted()
++    await this.ensureRootEncoding()
++    options?.signal?.throwIfAborted()
++    // A live writer would otherwise append into a log that no longer exists.
++    if (this.tracker.hasWriter(id)) throw new SessionAlreadyOwnedError(id)
++    // Exclude an in-process create/open for this id while the artifacts go away.
++    this.tracker.claimWrite(id)
++    try {
++      const selected = await this.findLog(id, options?.signal)
++      if (selected === undefined) return false
++      // Verifies the stored header against this id and its own storage path.
++      const header = await this.readGenerationHeader(selected, id, options?.signal)
++      const dir = dirname(selected.sourcePath)
++      // The kernel lease is the cross-process exclusion: it fails while any
++      // other process holds write ownership of this session.
++      const lease = await this.acquireLease(id, header?.cwd, dir)
++      try {
++        // The directory belongs to exactly this session, so removing it
++        // recursively disposes every generation. `force` keeps a repeated
++        // removal a no-op; retries absorb Windows' transient handle-release
++        // EBUSY/EPERM while the just-released lock settles.
++        await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 })
++        return true
++      } finally {
++        await lease.release()
++      }
++    } finally {
++      // Drop this instance's cached reads of the removed log; an in-flight
++      // migration preparation clears itself through its own waiter release.
++      this.coldLogMemo.delete(id)
++      this.migrationPreparations.delete(id)
++      this.tracker.releaseClaim(id)
++    }
++  }
+ 
++  // --- handle-facing storage internals (package-private via the handle class below) ---
+   /** Resolve and read one stored log, refusing loudly when the artifact is absent. */
+   private async requireStoredLog(id: SessionId, signal?: AbortSignal): Promise<StoredLog> {
+     const selected = await this.findLog(id, signal)
+diff --git a/packages/session/session-persistence-jsonl/src/storage.ts b/packages/session/session-persistence-jsonl/src/storage.ts
+index 029bb4839d..9e89e3b4bf 100644
+--- a/packages/session/session-persistence-jsonl/src/storage.ts
++++ b/packages/session/session-persistence-jsonl/src/storage.ts
+@@ -439,6 +439,17 @@ export class JsonlBackendTracker {
+     this.writers.delete(id)
+   }
+ 
++  /**
++   * Whether this instance holds, or is mid-construction of, a session's write
++   * ownership. Removal refuses on this fact: a live writer would otherwise
++   * append into a log that no longer exists.
++   * @param id - the session to test.
++   * @returns true while a claim names the id.
++   */
++  hasWriter(id: SessionId): boolean {
++    return this.writers.has(id)
++  }
++
+   /**
+    * The pending entry for a created-but-unmaterialized session, if any.
+    * @param id - the session to look up.
+diff --git a/packages/session/session-persistence-jsonl/tests/jsonl.spec.ts b/packages/session/session-persistence-jsonl/tests/jsonl.spec.ts
+index 61224de226..b37e94bcdf 100644
+--- a/packages/session/session-persistence-jsonl/tests/jsonl.spec.ts
++++ b/packages/session/session-persistence-jsonl/tests/jsonl.spec.ts
+@@ -7,6 +7,7 @@ import { dirname, join, relative, resolve } from 'node:path'
+ import { scheduler } from 'node:timers/promises'
+ import { SESSION_FORMAT_VERSION, SessionLogOffset, SessionSeq, SessionId } from '@deepseek-ai/dsh-session'
+ import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
++import { SessionAlreadyOwnedError } from '@deepseek-ai/dsh-session-persistence'
+ import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+ import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+ import {
+@@ -19,6 +20,7 @@ import {
+ } from '../../session-persistence/tests/contract.ts'
+ import { runLiveWritePathContract } from '../../session-persistence/tests/live-write-contract.ts'
+ import { LIVE_WRITE_BATCH_MAX_DELAY_MS, type JsonlSessionHandle } from '../src/storage.ts'
++import { SessionWriteLease } from '../src/lease.ts'
+ import { JsonlGenerationSourceChangedError } from '../src/generation.ts'
+ import SessionStore from '@deepseek-ai/dsh-session'
+ 
+@@ -2386,6 +2388,167 @@ describe('JsonlSessionPersistence: nested v3 Assistant streams', () => {
+   })
+ })
+ 
++describe('JsonlSessionPersistence: permanent removal', () => {
++  let ctx: Context
++
++  beforeEach(async () => {
++    root = await freshRoot()
++    ctx = new Context()
++    await ctx.plugin(JsonlSessionPersistence, { root, compression: 'none' })
++  })
++
++  afterEach(async () => { await ctx.fiber.dispose() })
++
++  it('removes the session directory and every generation, leaving other sessions and projects intact', async () => {
++    const target = meta('remove-target', '/work/a')
++    const neighbor = meta('remove-neighbor', '/work/a')
++    const otherProject = meta('remove-other-project', '/work/b')
++    for (const m of [target, neighbor, otherProject]) {
++      const handle = await ctx.sessionPersistence.create(m)
++      await handle.append(oneTurnLog())
++      await handle.close()
++    }
++    // A historical generation beside the current one: the whole directory is
++    // this session's artifact set, so removal must not stop at the newest log.
++    const historical = historicalLogPath(root, target.cwd, target.id)
++    await writeFile(historical, `${JSON.stringify(toHeaderLine(target))}\n`)
++    expect((await readdir(dirname(historical))).length).toBeGreaterThan(1)
++
++    expect(await ctx.sessionPersistence.delete(target.id)).toBe(true)
++
++    await expect(stat(dirname(historical))).rejects.toMatchObject({ code: 'ENOENT' })
++    expect(await ctx.sessionPersistence.stat(target.id)).toBeUndefined()
++    // Siblings are untouched: same project directory, different session.
++    expect(await ctx.sessionPersistence.stat(neighbor.id)).toBeDefined()
++    expect(await ctx.sessionPersistence.stat(otherProject.id)).toBeDefined()
++    await expect(stat(sessionDir(root, neighbor.cwd, neighbor.id))).resolves.toBeDefined()
++    // The empty project directory stays; only the session's own artifacts go.
++    const remaining = await ctx.sessionPersistence.list()
++    expect(remaining.map(entry => entry.header.id).sort()).toEqual([neighbor.id, otherProject.id].sort())
++  })
++
++  it('refuses to remove a session that a live write handle owns, then allows it once closed', async () => {
++    const m = meta('remove-live', '/work')
++    const writer = await ctx.sessionPersistence.create(m)
++    await writer.append(oneTurnLog())
++
++    await expect(ctx.sessionPersistence.delete(m.id)).rejects.toBeInstanceOf(SessionAlreadyOwnedError)
++    expect(await ctx.sessionPersistence.stat(m.id)).toBeDefined()
++
++    await writer.close()
++    expect(await ctx.sessionPersistence.delete(m.id)).toBe(true)
++    expect(await ctx.sessionPersistence.stat(m.id)).toBeUndefined()
++  })
++
++  it('releases the id for an immediately following create', async () => {
++    const m = meta('remove-reuse', '/work')
++    const handle = await ctx.sessionPersistence.create(m)
++    await handle.append(oneTurnLog())
++    await handle.close()
++    expect(await ctx.sessionPersistence.delete(m.id)).toBe(true)
++
++    const recreated = await ctx.sessionPersistence.create(m)
++    expect((await recreated.read()).events).toEqual([])
++    await recreated.append(oneTurnLog())
++    expect((await recreated.read()).events).toEqual(oneTurnLog())
++    await recreated.close()
++  })
++
++  it('refuses to remove a log whose stored header does not match the requested session identity', async () => {
++    const real = meta('mismatch-real', '/work')
++    const impostorId = SessionId('mismatch-impostor')
++    const impostorPath = rawLogPath(root, real.cwd, impostorId)
++    // A well-formed current-format log placed at another session's path: the
++    // header identity disagrees with the requested session, so removal must
++    // refuse rather than unlink artifacts it cannot attribute.
++    await mkdir(dirname(impostorPath), { recursive: true })
++    await writeFile(
++      impostorPath,
++      `${JSON.stringify(toHeaderLine(real))}\n${eventLines(oneTurnLog())}\n`,
++    )
++
++    await expect(ctx.sessionPersistence.delete(impostorId))
++      .rejects.toThrow(/requested id "mismatch-impostor" does not match header id "mismatch-real"/)
++    expect((await stat(impostorPath)).isFile()).toBe(true)
++  })
++
++  it('removes a session whose header is unreadable, since the directory is that id own', async () => {
++    const m = meta('remove-malformed', '/work')
++    const path = rawLogPath(root, m.cwd, m.id)
++    await mkdir(dirname(path), { recursive: true })
++    await writeFile(path, '{"type":"session","id":\n')
++
++    // A corrupt log is exactly what removal has to clean up: the id addresses
++    // its own directory, so an unparseable header is not a reason to refuse.
++    expect(await ctx.sessionPersistence.delete(m.id)).toBe(true)
++    await expect(stat(dirname(path))).rejects.toMatchObject({ code: 'ENOENT' })
++  })
++
++  it('reports absent sessions as not removed and is idempotent across instances', async () => {
++    const m = meta('remove-absent', '/work')
++    expect(await ctx.sessionPersistence.delete(m.id)).toBe(false)
++
++    const handle = await ctx.sessionPersistence.create(m)
++    await handle.append(oneTurnLog())
++    await handle.close()
++    expect(await ctx.sessionPersistence.delete(m.id)).toBe(true)
++    // A second removal in this instance, and a fresh instance over the same
++    // root, both observe the session as already gone.
++    expect(await ctx.sessionPersistence.delete(m.id)).toBe(false)
++
++    const next = new Context()
++    try {
++      await next.plugin(JsonlSessionPersistence, { root, compression: 'none' })
++      expect(await next.sessionPersistence.stat(m.id)).toBeUndefined()
++      expect(await next.sessionPersistence.delete(m.id)).toBe(false)
++    } finally {
++      await next.fiber.dispose()
++    }
++  })
++
++  it('removes a compressed session without leaving its lock or generation behind', async () => {
++    const zstdRoot = await freshRoot()
++    const zstdCtx = new Context()
++    try {
++      await zstdCtx.plugin(JsonlSessionPersistence, { root: zstdRoot, compression: 'zstd' })
++      const m = meta('remove-zstd', '/work')
++      const handle = await zstdCtx.sessionPersistence.create(m)
++      await handle.append(oneTurnLog())
++      await handle.close()
++
++      const current = logPath(zstdRoot, m.cwd, m.id, 'zstd')
++      expect((await stat(current)).isFile()).toBe(true)
++      expect(await zstdCtx.sessionPersistence.delete(m.id)).toBe(true)
++      await expect(stat(dirname(current))).rejects.toMatchObject({ code: 'ENOENT' })
++      expect(await zstdCtx.sessionPersistence.delete(m.id)).toBe(false)
++    } finally {
++      await zstdCtx.fiber.dispose()
++    }
++  })
++
++  it('refuses removal while another process holds the session write lease', async () => {
++    const m = meta('remove-lease', '/work')
++    const handle = await ctx.sessionPersistence.create(m)
++    await handle.append(oneTurnLog())
++    await handle.close()
++
++    const dir = sessionDir(root, m.cwd, m.id)
++    // A second holder's kernel write lease: the in-process tracker knows
++    // nothing about it, so only the kernel lock can refuse the removal.
++    const holder = await SessionWriteLease.acquire(dir, m.id)
++    try {
++      await expect(ctx.sessionPersistence.delete(m.id)).rejects.toBeInstanceOf(SessionAlreadyOwnedError)
++      expect((await stat(dir)).isDirectory()).toBe(true)
++      expect(await ctx.sessionPersistence.stat(m.id)).toBeDefined()
++    } finally {
++      await holder.release()
++    }
++
++    expect(await ctx.sessionPersistence.delete(m.id)).toBe(true)
++    await expect(stat(dir)).rejects.toMatchObject({ code: 'ENOENT' })
++  })
++})
++
+ describe('JsonlSessionPersistence: edge cases', () => {
+   let ctx: Context
+   beforeEach(async () => {
+diff --git a/packages/session/session-persistence/README.i18n.yaml b/packages/session/session-persistence/README.i18n.yaml
+index 79eb53380c..9770ca8cc0 100644
+--- a/packages/session/session-persistence/README.i18n.yaml
++++ b/packages/session/session-persistence/README.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write packages/session/session-persistence/README.md
+-README.md: f0243b7a38dda8d9296a0a1416c9c8a9a990df88
+-README.zh.md: 47c6f4e9a4fede80b2869ba6d1c986c9b144632a
++README.md: 2d2e8b41ae0f3e64d6d3e9a679a36c9894cda1f7
++README.zh.md: 4e3b93dda501bdadbdaa81202ba7a12dc5ea2233
+diff --git a/packages/session/session-persistence/README.md b/packages/session/session-persistence/README.md
+index f0243b7a38..2d2e8b41ae 100644
+--- a/packages/session/session-persistence/README.md
++++ b/packages/session/session-persistence/README.md
+@@ -33,7 +33,7 @@ The seam ships the [JSONL](../session-persistence-jsonl/README.md) backend: one
+ 
+ ### What the service provides
+ 
+-With a backend mounted, five service methods address stored sessions:
++With a backend mounted, six service methods address stored sessions:
+ 
+ ```text
+ const handle = await ctx.sessionPersistence.create(header)     // store a new session, take write ownership
+@@ -42,10 +42,13 @@ const reader = await ctx.sessionPersistence.open(id, 'read')   // observe withou
+ const snap = await ctx.sessionPersistence.stat(id)             // header + revision (+ eventCount / sizeBytes) without a log read
+ const all = await ctx.sessionPersistence.list()                // one snapshot per visible stored session
+ await ctx.sessionPersistence.flush()                           // backend-wide durability barrier over every active write handle
++const removed = await ctx.sessionPersistence.delete(id)        // permanently dispose the session and its artifacts (opt-in per backend)
+ ```
+ 
+ Service-level `flush()` drains every active write handle's routed events and materializes its session, exactly as each handle's own `flush` would; failures aggregate per session as an `AggregateError` without abandoning the sweep, and a handle closed mid-sweep counts as flushed because close itself drains durably.
+ 
++`delete(id)` is the one destructive operation and is deliberately outside the append-only log contract. Only a backend that owns its complete artifact set can promise disposal, so the inherited default refuses with `SessionDeleteUnsupportedError` instead of reporting a deletion it did not perform. An implementing backend removes the session's own artifacts completely, reports `false` for a session that is already absent, and refuses while a write handle owns the session — removal of a session the caller has not closed is a caller error, not a race the backend resolves silently.
++
+ Every log read and write flows through the returned `SessionHandle`; there are no id-addressed append or load methods. `handle.read(offset?, length?)` returns `{ eventState, events }`: the outer slice belongs to the caller, while `eventState` distinguishes an exclusively `detached` event graph from a `shared-frozen` graph that may also reside in a backend cache. The producer establishes this state and slices preserve it even when empty. Both states are safe to adopt without copying; a consumer that needs mutable events clones them first. Reads never include a torn tail, repeated reads on one handle never observe an older state than a prior read, and a write handle reads its own successful appends. `handle.append(events)` appends a contiguous batch whose first `seq` equals the stored next-seq; persistence is best-effort on resolution — the batch is accepted, ordered, and visible to reads on this backend instance, and only a resolved `flush` promises it survives a crash (the shipped JSONL backend happens to persist each batch immediately). `handle.flush()` is the durability barrier and also materializes an empty created session so it becomes durably listable. `handle.close()` is idempotent and uncancellable: a read handle frees local resources; a write handle completes pending durability and releases write ownership. Once an `append` or `flush` resolves, reads started afterwards on the same backend instance — on any handle, or through `stat`/`list` — observe at least that prefix.
+ 
+ ### Ownership and visibility
+@@ -149,7 +152,7 @@ These limits define where the seam's guarantees stop. They are current package c
+ - **Write ownership is in-process only** — the provider's writer table excludes a second writer inside one backend instance; the durable cross-process lease is the planned next layer on the same handle shape, and until it lands another process must not write the same session.
+ - **A backend plugin reload under live sessions fails their writers loudly** — a reloaded backend cannot serve handles the old instance issued; writes fail until the sessions restart, and nothing silently re-adopts the logs.
+ - **Only handle-acquired sessions persist** — `ctx.sessions.create` + `session/flush` alone stores nothing; agent-loop is the production acquisition point, and tests seed storage through `create`/`append`/`close`.
+-- **No deletion or retention API** — pruning stored sessions is out-of-band backend maintenance.
++- **No retention policy** — `delete` removes exactly the session it names; nothing expires, prunes, or garbage-collects stored sessions.
+ - **`list()` is unpaginated and unfiltered** — it returns every stored session's snapshot; fine for local stores, unindexed at scale.
+ - **Synthetic closers are the only crash story** — resume appends `interruptedTurnClosers` through the write handle; there is no partial-turn resume that continues an interrupted turn instead of closing it.
+ 
+diff --git a/packages/session/session-persistence/README.zh.md b/packages/session/session-persistence/README.zh.md
+index 47c6f4e9a4..4e3b93dda5 100644
+--- a/packages/session/session-persistence/README.zh.md
++++ b/packages/session/session-persistence/README.zh.md
+@@ -33,7 +33,7 @@ seam 随产品交付 [JSONL](../session-persistence-jsonl/README.zh.md) 后端
+ 
+ ### 服务提供什么
+ 
+-挂载后端后，五个服务方法寻址已存储会话：
++挂载后端后，六个服务方法寻址已存储会话：
+ 
+ ```text
+ const handle = await ctx.sessionPersistence.create(header)     // store a new session, take write ownership
+@@ -42,10 +42,13 @@ const reader = await ctx.sessionPersistence.open(id, 'read')   // observe withou
+ const snap = await ctx.sessionPersistence.stat(id)             // header + revision (+ eventCount / sizeBytes) without a log read
+ const all = await ctx.sessionPersistence.list()                // one snapshot per visible stored session
+ await ctx.sessionPersistence.flush()                           // backend-wide durability barrier over every active write handle
++const removed = await ctx.sessionPersistence.delete(id)        // permanently dispose the session and its artifacts (opt-in per backend)
+ ```
+ 
+ 服务级 `flush()` 排空每个活跃写句柄已路由的事件并把其会话实体化，效果与各句柄自己的 `flush` 完全相同；失败按会话聚合为一个 `AggregateError` 而不中途放弃清扫，清扫途中被关闭的句柄视同已 flush，因为 close 本身会持久排空。
+ 
++`delete(id)` 是唯一的破坏性操作，且有意置于 append-only 日志契约之外。只有拥有完整产物集合的后端才能承诺销毁，因此继承的默认实现以 `SessionDeleteUnsupportedError` 拒绝，而不会报告一次并未发生的删除。实现该操作的后端会完整移除会话自身的产物，对已不存在的会话返回 `false`，并在写句柄持有该会话时拒绝——删除调用方尚未关闭的会话是调用方错误，而不是由后端静默化解的竞态。
++
+ 每一次日志读写都流经返回的 `SessionHandle`；不存在按 id 寻址的 append 或 load 方法。`handle.read(offset?, length?)` 返回 `{ eventState, events }`：外层 slice 属于调用方，`eventState` 则区分独占的 `detached` event graph 与可能同时保存在 backend cache 中的 `shared-frozen` graph。该状态由生产者建立，slice 即使为空也会保留原状态。两种状态都能直接接管而无需复制；需要修改 event 的 consumer 必须先 clone。Read 绝不包含撕裂尾部，同一句柄上的重复读取绝不会观察到比先前读取更旧的状态，写句柄也能读到自己成功的 append。`handle.append(events)` 追加一个连续批次，其第一个 `seq` 等于已存储 next-seq；完成时的持久化是尽力而为的——批次被接受、有序，并对同一后端实例上的读取可见，只有完成的 `flush` 才承诺它在崩溃后依然存在（交付的 JSONL 后端恰好会立即持久化每个批次）。`handle.flush()` 是持久性屏障，同时把空的已创建会话实体化，使其可被持久列出。`handle.close()` 幂等且不可取消：读句柄释放本地资源；写句柄完成待处理的持久化并释放写所有权。一旦某次 `append` 或 `flush` 完成，其后在同一后端实例上开始的读取——无论经由任何句柄，还是经由 `stat`/`list`——至少能观察到该前缀。
+ 
+ ### 所有权与可见性
+@@ -149,7 +152,7 @@ seam 不添加提示词或 schema。恢复会将已存储的表层事件还原
+ - **写所有权仅限进程内**——provider 的写入器表只在单个后端实例内排除第二个写入方；持久的跨进程租约是计划在同一句柄形态上叠加的下一层，在它落地之前另一进程不得写入同一会话。
+ - **在有活跃会话时重载后端插件会使其写入器响亮地失败**——重载后的后端无法服务旧实例签发的句柄；写入会持续失败直到会话重启，没有任何机制静默重新接管日志。
+ - **只有通过句柄获取的会话才会持久化**——仅靠 `ctx.sessions.create` + `session/flush` 不存储任何内容；agent-loop 是生产环境的获取点，测试通过 `create`/`append`/`close` 播种存储。
+-- **无删除或保留接口**——剪枝已存储会话属于带外后端维护。
++- **无保留策略**——`delete` 只移除它指名的那个会话；没有任何机制会使已存储会话过期、剪枝或被垃圾回收。
+ - **`list()` 无分页且无过滤**——它返回每个已存储会话的快照；适合本地存储，大规模时无索引。
+ - **合成 closer 是唯一崩溃方案**——恢复通过写句柄追加 `interruptedTurnClosers`；没有继续中断轮次而不先关闭它的部分轮次恢复。
+ 
+diff --git a/packages/session/session-persistence/src/errors.ts b/packages/session/session-persistence/src/errors.ts
+index 62e232741e..f1e79ef19e 100644
+--- a/packages/session/session-persistence/src/errors.ts
++++ b/packages/session/session-persistence/src/errors.ts
+@@ -64,6 +64,19 @@ export class SessionOwnershipLostError extends Error {
+   }
+ }
+ 
++/**
++ * A permanent removal was requested from a backend that owns no safe removal
++ * semantics. Removal is opt-in per backend: a storage layer that cannot
++ * promise complete artifact disposal refuses instead of partially deleting.
++ */
++export class SessionDeleteUnsupportedError extends Error {
++  /** @param sessionId - the session whose removal this backend cannot serve. */
++  constructor(readonly sessionId: SessionId) {
++    super(`session "${sessionId}": this persistence backend does not support permanent removal`)
++    this.name = 'SessionDeleteUnsupportedError'
++  }
++}
++
+ /** An operation was called on a handle after `close()` was called. */
+ export class SessionHandleClosedError extends Error {
+   /**
+diff --git a/packages/session/session-persistence/src/index.ts b/packages/session/session-persistence/src/index.ts
+index f17ec2e777..f1ee751252 100644
+--- a/packages/session/session-persistence/src/index.ts
++++ b/packages/session/session-persistence/src/index.ts
+@@ -10,6 +10,7 @@ import { Context, Service } from '@deepseek-ai/cordis'
+ import type { SessionEvent, SessionHeader, SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
+ import type { SessionHandle, SessionAccess } from './handle.ts'
+ import type { SessionPersistenceRevision } from './revision.ts'
++import { SessionDeleteUnsupportedError } from './errors.ts'
+ 
+ // Re-export the metadata vocabulary so Consumers import it from the Service Definition.
+ export type { SessionHeader } from '@deepseek-ai/dsh-session'
+@@ -25,6 +26,7 @@ export type {
+ export {
+   SessionAlreadyExistsError,
+   SessionAlreadyOwnedError,
++  SessionDeleteUnsupportedError,
+   SessionFormatUnsupportedError,
+   SessionHandleClosedError,
+   SessionOwnershipLostError,
+@@ -106,6 +108,12 @@ export interface SessionPersistenceListOptions {
+   readonly signal?: AbortSignal
+ }
+ 
++/** Options for {@link SessionPersistence.delete}. */
++export interface SessionPersistenceDeleteOptions {
++  /** Optional cancellation observed before destructive backend work starts. */
++  readonly signal?: AbortSignal
++}
++
+ declare module '@deepseek-ai/cordis' {
+   interface Context {
+     sessionPersistence: SessionPersistence
+@@ -196,6 +204,29 @@ export abstract class SessionPersistence extends Service {
+    * @returns one snapshot per stored session.
+    */
+   abstract list(options?: SessionPersistenceListOptions): Promise<readonly SessionPersistenceSnapshot[]>
++
++  /**
++   * Permanently remove one stored session and every physical artifact it owns.
++   * Irreversible, and deliberately not part of the append-only log contract:
++   * only a backend that owns its complete artifact set can promise disposal,
++   * so this default refuses instead of partially deleting.
++   *
++   * A backend that implements removal MUST delete all of the session's own
++   * artifacts and stay idempotent — removing an absent session reports
++   * `false` and must not throw — and it MUST refuse while a write handle
++   * owns the session, so a live writer can never append into a removed log.
++   * Removal of a session the caller has not already closed is a caller
++   * error, not a race the backend resolves silently.
++   * @param id - the stored session to remove permanently.
++   * @param options - optional cancellation.
++   * @returns whether a stored session was actually removed.
++   * @throws {SessionDeleteUnsupportedError} when this backend has no removal
++   *   semantics, so callers never mistake a no-op for a deletion.
++   */
++  async delete(id: SessionId, options?: SessionPersistenceDeleteOptions): Promise<boolean> {
++    void options
++    throw new SessionDeleteUnsupportedError(id)
++  }
+ }
+ 
+ export default SessionPersistence
+diff --git a/packages/session/session-persistence/tests/contract.ts b/packages/session/session-persistence/tests/contract.ts
+index 222d70be55..3d842a2c2b 100644
+--- a/packages/session/session-persistence/tests/contract.ts
++++ b/packages/session/session-persistence/tests/contract.ts
+@@ -18,6 +18,7 @@ import { MessageId, freezeMessage } from '@deepseek-ai/dsh-llm'
+ import {
+   SessionAlreadyExistsError,
+   SessionAlreadyOwnedError,
++  SessionDeleteUnsupportedError,
+   SessionFormatUnsupportedError,
+   SessionHandleClosedError,
+   SessionPersistenceNotFoundError,
+@@ -610,5 +611,84 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
+         await dispose()
+       }
+     })
++
++    it('permanent removal is all-or-nothing: a backend either disposes the session or refuses', async () => {
++      const backend = await make()
++      try {
++        const m = meta('removed', '/work')
++        const writer = await backend.persistence.create(m)
++        await writer.append(oneTurnLog())
++        await writer.close()
++        expect(await backend.persistence.stat(m.id)).toBeDefined()
++
++        let removed: boolean | undefined
++        try {
++          removed = await backend.persistence.delete(m.id)
++        } catch (error: unknown) {
++          // Removal is opt-in: a backend without disposal semantics must refuse
++          // loudly rather than report a deletion it did not perform.
++          expect(error).toBeInstanceOf(SessionDeleteUnsupportedError)
++          expect(await backend.persistence.stat(m.id)).toBeDefined()
++          return
++        }
++        expect(removed).toBe(true)
++
++        // The session is gone from every read path, and re-removal or removal of
++        // an id that never existed reports `false` instead of resurrecting or throwing.
++        expect(await backend.persistence.stat(m.id)).toBeUndefined()
++        expect((await backend.persistence.list()).some(s => s.header.id === m.id)).toBe(false)
++        await expect(backend.persistence.open(m.id, 'read')).rejects.toBeInstanceOf(SessionPersistenceNotFoundError)
++        expect(await backend.persistence.delete(m.id)).toBe(false)
++        expect(await backend.persistence.delete(SessionId('never-existed'))).toBe(false)
++
++        // The id is reusable afterwards: removal left no ownership claim behind.
++        const recreated = await backend.persistence.create(meta('removed', '/work'))
++        expect((await recreated.read()).events).toEqual([])
++        await recreated.close()
++      } finally {
++        await backend.dispose()
++      }
++    })
++
++    it('permanent removal refuses while a live write handle owns the session', async () => {
++      const backend = await make()
++      try {
++        const m = meta('removal-race', '/work')
++        const writer = await backend.persistence.create(m)
++        let refusal: unknown
++        try {
++          await backend.persistence.delete(m.id)
++        } catch (error: unknown) {
++          refusal = error
++        }
++        if (refusal instanceof SessionDeleteUnsupportedError) return
++        // Refused for ownership, not absence: the live writer's session is
++        // untouched and still appendable.
++        expect(refusal).toBeInstanceOf(SessionAlreadyOwnedError)
++        await writer.append(oneTurnLog())
++        expect((await writer.read()).events).toEqual(oneTurnLog())
++        await writer.close()
++        expect(await backend.persistence.stat(m.id)).toBeDefined()
++      } finally {
++        await backend.dispose()
++      }
++    })
++
++    it('permanent removal reports cancellation before touching stored artifacts', async () => {
++      const backend = await make()
++      try {
++        const m = meta('removal-abort', '/work')
++        const writer = await backend.persistence.create(m)
++        await writer.append(oneTurnLog())
++        await writer.close()
++
++        const aborted = new AbortController()
++        aborted.abort(new Error('cancelled'))
++        await expect(backend.persistence.delete(m.id, { signal: aborted.signal })).rejects.toThrow()
++        expect(await backend.persistence.stat(m.id)).toBeDefined()
++      } finally {
++        await backend.dispose()
++      }
++    })
+   })
+ }
+diff --git a/packages/session/session-persistence/tests/storage-contract.spec.ts b/packages/session/session-persistence/tests/storage-contract.spec.ts
+index 2f34cd384f..c8850bc714 100644
+--- a/packages/session/session-persistence/tests/storage-contract.spec.ts
++++ b/packages/session/session-persistence/tests/storage-contract.spec.ts
+@@ -4,11 +4,13 @@
+  */
+ 
+ import { describe, expect, it } from 'vitest'
++import { Context } from '@deepseek-ai/cordis'
+ import { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
+ import type { SessionEvent } from '@deepseek-ai/dsh-session'
+-import {
++import SessionPersistence, {
+   SessionAlreadyExistsError,
+   SessionAlreadyOwnedError,
++  SessionDeleteUnsupportedError,
+   SessionFormatUnsupportedError,
+   SessionHandleClosedError,
+   SessionOwnershipLostError,
+@@ -23,6 +25,7 @@ import {
+   sessionFormatVersionRefusal,
+   validateStoredEvents,
+ } from '../src/index.ts'
++import type { SessionHandle, SessionPersistenceSnapshot } from '../src/index.ts'
+ import type { SessionLocation } from '../src/index.ts'
+ import { meta } from './contract.ts'
+ 
+@@ -312,6 +315,42 @@ describe('error vocabulary', () => {
+     const corruption = new SessionPersistenceCorruptionError('bad log', { cause })
+     expect(corruption.name).toBe('SessionPersistenceCorruptionError')
+     expect(corruption.cause).toBe(cause)
++
++    const unsupported = new SessionDeleteUnsupportedError(id)
++    expect(unsupported.name).toBe('SessionDeleteUnsupportedError')
++    expect(unsupported.sessionId).toBe(id)
++    expect(unsupported.message).toBe(
++      'session "errored": this persistence backend does not support permanent removal',
++    )
++  })
++})
++
++/**
++ * A backend implementing only the required storage operations. Permanent
++ * removal is opt-in, so this double exercises the inherited refusal.
++ */
++class MinimalPersistence extends SessionPersistence {
++  create(): Promise<SessionHandle> { return Promise.reject(new Error('not used')) }
++  open(): Promise<SessionHandle> { return Promise.reject(new Error('not used')) }
++  flush(): Promise<void> { return Promise.resolve() }
++  stat(): Promise<SessionPersistenceSnapshot | undefined> { return Promise.resolve(undefined) }
++  list(): Promise<readonly SessionPersistenceSnapshot[]> { return Promise.resolve([]) }
++}
++
++describe('SessionPersistence.delete default', () => {
++  it('refuses loudly instead of reporting a no-op deletion', async () => {
++    const ctx = new Context()
++    try {
++      await ctx.plugin(MinimalPersistence)
++      const id = SessionId('unsupported')
++      // Both the plain call and the cancellable form refuse: a backend with no
++      // removal semantics must never let a caller mistake absence for success.
++      await expect(ctx.sessionPersistence.delete(id)).rejects.toBeInstanceOf(SessionDeleteUnsupportedError)
++      await expect(ctx.sessionPersistence.delete(id, { signal: new AbortController().signal }))
++        .rejects.toMatchObject({ name: 'SessionDeleteUnsupportedError', sessionId: id })
++    } finally {
++      await ctx.fiber.dispose()
++    }
+   })
+ })
+ 
