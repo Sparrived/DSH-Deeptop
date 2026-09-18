@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronDown, ChevronUp, Paperclip, Send, Square, X } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, FileText, Paperclip, Send, Square, X } from "lucide-react";
 import { imageDataUrl } from "../app/image-preview-model";
 import { shortcutMatches, type SendShortcut } from "../app/keyboard-shortcut";
 import { resolveSubmitMode } from "../app/submit-mode";
@@ -8,7 +8,7 @@ import { useFloatingMenuPosition } from "../app/useFloatingMenuPosition";
 import { ComposerCandidates } from "./ComposerCandidates";
 import { ModelPicker } from "./ModelPicker";
 import { PermissionPicker } from "./PermissionPicker";
-import type { ComposerAttachment, ComposerCandidate, ComposerTrigger, ModelMenuPane, PromptMode, SessionStats } from "../app/model";
+import type { ComposerAttachment, ComposerCandidate, ComposerImageAttachment, ComposerTrigger, ModelMenuPane, PromptMode, SessionStats } from "../app/model";
 import { planEffectiveTarget } from "../app/ui-model";
 import { t, type UiLocale } from "../app/i18n";
 import type { DshModel, DshPermissionSelect, DshPlanProjection, DshSessionModels } from "../lib/desktop";
@@ -135,7 +135,7 @@ export function ComposerShell({
   const [previewAnchor, setPreviewAnchor] = useState<{ x: number; y: number } | null>(null);
   const attachmentsRef = useRef<HTMLDivElement | null>(null);
   const { menuRef: previewRef, menuAt: previewAt } = useFloatingMenuPosition(previewAnchor);
-  const previewAttachment = attachments.find((attachment) => attachment.id === previewId) ?? null;
+  const previewAttachment = attachments.find((attachment): attachment is ComposerImageAttachment => attachment.id === previewId && attachment.kind === "image") ?? null;
 
   // The upward picker records the preference; this is what the gesture actually
   // delivers, resolved by the same rule the submission itself uses. While a turn
@@ -233,7 +233,16 @@ export function ComposerShell({
     <div className="composer-workbench">
       {attachments.length > 0 && <div className="composer-attachments" role="group" aria-label={t("composer.attachmentsAria", locale)} ref={attachmentsRef} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
         {attachments.map((attachment) => {
-          const active = previewId === attachment.id;
+          const active = attachment.kind === "image" && previewId === attachment.id;
+          const removeButton = <button className="composer-attachment-remove" type="button" onClick={() => onRemoveAttachment(attachment.id)} title={t("composer.removeAttachment", locale)} aria-label={t("composer.removeAttachmentAria", locale, { name: attachment.name })}><X aria-hidden="true" /></button>;
+          // 文件附件没有本地字节可预览：胶囊只显示文件名，交由 DSH 读取。
+          if (attachment.kind === "file") {
+            return <div className="composer-attachment composer-attachment-file" key={attachment.id}>
+              <span className="composer-attachment-file-icon" aria-hidden="true"><FileText /></span>
+              <span className="composer-attachment-file-name" title={attachment.path}>{attachment.name}</span>
+              {removeButton}
+            </div>;
+          }
           return <div className={"composer-attachment" + (active ? " composer-attachment-previewing" : "")} key={attachment.id}>
             <button
               className="composer-attachment-open"
@@ -251,7 +260,7 @@ export function ComposerShell({
               <img src={imageDataUrl(attachment.mediaType, attachment.data)} alt={attachment.name} />
               <span title={attachment.name}>{attachment.name}</span>
             </button>
-            <button className="composer-attachment-remove" type="button" onClick={() => onRemoveAttachment(attachment.id)} title={t("composer.removeAttachment", locale)} aria-label={t("composer.removeAttachmentAria", locale, { name: attachment.name })}><X aria-hidden="true" /></button>
+            {removeButton}
           </div>;
         })}
       </div>}

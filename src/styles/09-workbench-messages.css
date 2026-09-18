@@ -298,6 +298,49 @@
   margin-bottom: 14px;
 }
 
+/* 历史消息里的文件附件：只声明「这是随消息发出的文件」，
+   不暗示内容已经进入模型上下文——DSH 只给模型一条指向只读副本的路径。 */
+.message-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.message-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: min(360px, 100%);
+  padding: 4px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.message-file svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.message-file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.message-file-size {
+  flex: none;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
 .message-image-link {
   display: block;
   max-width: min(360px, 100%);
@@ -1788,6 +1831,30 @@ span.queue-dock-item-mode.steering {
 .composer-attachment .composer-attachment-remove:hover {
   background: var(--surface-soft);
   color: var(--danger);
+}
+
+/* 文件附件胶囊：没有可预览的字节，因此没有缩略图，
+   文件名直接拉开宽度，左侧用一个文件字形标记类型。 */
+.composer-attachment-file {
+  gap: 7px;
+  padding: 3px 3px 3px 10px;
+}
+
+.composer-attachment-file-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--ink-faint);
+}
+
+.composer-attachment-file-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* 比 `.composer-attachment span`（0,1,1）更具体：文件名用正文色，
+   省略号行为继续沿用那条共享规则。 */
+.composer-attachment .composer-attachment-file-name {
+  color: var(--ink);
 }
 
 /* 快速预览：与统计胶囊同款浮动座位（锚在胶囊上、钳在视口内）。 */

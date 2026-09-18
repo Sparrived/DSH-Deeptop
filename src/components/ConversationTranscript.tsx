@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject, type UIEvent } from "react";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, FileText, X, ZoomIn, ZoomOut } from "lucide-react";
 import { createPortal } from "react-dom";
 import { isFilePath, type DshHistoryEntry, type DshPreset, type DshSessionSummary } from "../lib/desktop";
 import type { DesktopUiRuntime } from "../lib/desktop-ui-runtime/client-runtime";
@@ -31,6 +31,7 @@ import { useFloatingMenuPosition } from "../app/useFloatingMenuPosition";
 import { useImagePanZoom } from "../app/useImagePanZoom";
 import { IMAGE_ZOOM_BUTTON_FACTOR, IMAGE_ZOOM_MAX, IMAGE_ZOOM_MIN } from "../app/image-preview-model";
 import { applyStepToggle, groupTranscriptTurns, stepKindCounts, type TranscriptTurnGroup } from "../app/turn-group-model";
+import { formatAttachmentBytes } from "../app/ui-model";
 import {
   formatClock,
   formatTokens,
@@ -41,7 +42,7 @@ import {
   type DiffSummary,
   type TranscriptItem,
 } from "../app/model";
-import type { DeliverableFileDiff, MessageStats, TranscriptImage, WorkingIndicatorSettings } from "../app/model";
+import type { DeliverableFileDiff, MessageStats, TranscriptFile, TranscriptImage, WorkingIndicatorSettings } from "../app/model";
 import { normalizeWorkingIndicator, workingIndicatorEffectClass, workingIndicatorTextAt } from "../app/working-indicator";
 import { t, type UiLocale } from "../app/i18n";
 
@@ -381,6 +382,18 @@ function sameImages(left: TranscriptImage[] | undefined, right: TranscriptImage[
   return true;
 }
 
+function sameFileAttachments(left: TranscriptFile[] | undefined, right: TranscriptFile[] | undefined) {
+  if (left === right) return true;
+  if (!left || !right || left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    const a = left[index];
+    const b = right[index];
+    if (a === b) continue;
+    if (a.attachmentId !== b.attachmentId || a.name !== b.name || a.bytes !== b.bytes) return false;
+  }
+  return true;
+}
+
 function sameStats(left: MessageStats | undefined, right: MessageStats | undefined) {
   if (left === right) return true;
   if (!left || !right) return false;
@@ -474,6 +487,7 @@ function sameItemFields(left: TranscriptItem, right: TranscriptItem) {
     && left.streaming === right.streaming
     && left.workflow === right.workflow
     && sameImages(left.images, right.images)
+    && sameFileAttachments(left.fileAttachments, right.fileAttachments)
     && sameStats(left.stats, right.stats)
     && sameProgram(left.program, right.program)
     // 生成文件卡片是增量长出来的：present 与后续写入会往同一条目追文件。
@@ -892,6 +906,22 @@ const MessageImages = memo(function MessageImages({
   </div>;
 }, (prev, next) => sameImages(prev.images, next.images) && prev.locale === next.locale);
 
+/**
+ * 用户消息携带的持久化文件附件。
+ *
+ * DSH 只给模型一条指向只读副本的路径句柄，用户侧同样不提供内容预览：
+ * 只显示文件名与大小，避免暗示这些字节已经进入上下文。
+ */
+const MessageFiles = memo(function MessageFiles({ files, locale }: { files: TranscriptFile[]; locale: UiLocale }) {
+  return <div className="message-files" role="group" aria-label={t("conversation.files.aria", locale)}>
+    {files.map((file, index) => <span className="message-file" key={`${file.attachmentId}-${index}`} title={file.attachmentId}>
+      <FileText aria-hidden="true" />
+      <span className="message-file-name">{file.name}</span>
+      {file.bytes > 0 && <span className="message-file-size">{formatAttachmentBytes(file.bytes)}</span>}
+    </span>)}
+  </div>;
+});
+
 /** Attachment gallery: current image with lazy load, prev/next, keyboard, zoom and pan. */
 export function MessageLightbox({
   gallery,
@@ -1155,6 +1185,7 @@ function TranscriptArticleView({
       />}</div>}
       <div className="message-content">
         {item.images && item.images.length > 0 && item.kind !== "tool" && <MessageImages images={item.images} locale={locale} onLoadAttachment={onLoadImageAttachment} onOpen={onPreviewImage} />}
+        {item.fileAttachments && item.fileAttachments.length > 0 && item.kind !== "tool" && <MessageFiles files={item.fileAttachments} locale={locale} />}
         {item.kind === "tool" ? (
           <ToolEntryView
             item={item}
