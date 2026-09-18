@@ -51,6 +51,19 @@ test("一次爆发写下的长段落按分组递延，像被扫过一样写出�
   ]);
 });
 
+test("高速爆发里延迟压到上限的片段并成一段，节点数不再随吞吐膨胀", () => {
+  // 400 个字：前 26 组递延互不相同（0..350ms），之后每组都压在上限 360ms 上。
+  const runs = streamInkRuns("x".repeat(400), 0, ink([{ from: 0, to: 400, at: 0 }], 0));
+  // 26 段独立延迟 + 尾部 244 个字并成 1 段；不合并会是 67 段。
+  assert.equal(runs.length, 27);
+  assert.deepEqual(runs.slice(0, 3).map((run) => run.delay), [0, 14, 28]);
+  assert.equal(runs.at(-1).delay, 360);
+  assert.equal(runs.at(-1).text, "x".repeat(244));
+  // 合并只是少建节点：正文一字不少，延迟仍按分组递增到上限。
+  assert.equal(runs.map((run) => run.text).join(""), "x".repeat(400));
+  assert.equal(new Set(runs.map((run) => run.delay)).size, 27);
+});
+
 test("区间只覆盖一部分时按交叉部分切，不重复也不漏字", () => {
   const pieces = streamInkPieces("hello", 10, ink([{ from: 12, to: 14, at: 0 }], 0));
   assert.deepEqual(pieces.map((piece) => piece.type), ["text", "element", "text"]);

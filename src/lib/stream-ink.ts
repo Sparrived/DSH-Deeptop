@@ -80,22 +80,30 @@ export function streamInkRuns(value: string, start: number, ink: StreamInk): Ink
   const runs: InkRun[] = [];
   let cursor = 0;
   let painted = false;
+  // 延迟相同的相邻片段并成一段：递延很快会压到 STREAM_INK_STAGGER_MAX_MS，一次高速
+  // 爆发后半段成千上万个分组的延迟完全一样。延迟与动画曲线相同，合并后肉眼没有差别，
+  // 但每帧新建的 <span> 从上千个降到几十个，思考和正文都不再因节点 churn 卡顿。
+  const emit = (text: string, delay: number | null) => {
+    const previous = runs[runs.length - 1];
+    if (previous === undefined || previous.delay !== delay) runs.push({ text, delay });
+    else previous.text += text;
+  };
   for (const chunk of ink.chunks) {
     // 取区间与这段文本的交集，同时保证与已发出的部分不重叠。
     const to = Math.min(chunk.to, end) - start;
     const from = Math.max(chunk.from, start + cursor) - start;
     if (to <= from) continue;
-    if (from > cursor) runs.push({ text: value.slice(cursor, from), delay: null });
+    if (from > cursor) emit(value.slice(cursor, from), null);
     const age = Math.max(0, ink.now - chunk.at);
     for (let index = from; index < to; index += STREAM_INK_GROUP) {
       const spread = Math.min(((index - from) / STREAM_INK_GROUP) * STREAM_INK_STAGGER_MS, STREAM_INK_STAGGER_MAX_MS);
-      runs.push({ text: value.slice(index, Math.min(index + STREAM_INK_GROUP, to)), delay: age + spread });
+      emit(value.slice(index, Math.min(index + STREAM_INK_GROUP, to)), age + spread);
     }
     cursor = to;
     painted = true;
   }
   if (!painted) return null;
-  if (cursor < value.length) runs.push({ text: value.slice(cursor), delay: null });
+  if (cursor < value.length) emit(value.slice(cursor), null);
   return runs;
 }
 
