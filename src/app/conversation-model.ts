@@ -148,7 +148,7 @@ export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLoca
       const segments = contentSegments(event.data.content);
       const text = segments.text;
       const messageId = typeof event.data.id === "string" ? event.data.id : undefined;
-      if (text || segments.images.length > 0) {
+      if (text || segments.images.length > 0 || segments.files.length > 0) {
         const injected = isInjectedMessage(event);
         const source = injected ? messageSource(event) : undefined;
         const provenance = injected ? contextProvenance(source, locale) : undefined;
@@ -167,6 +167,7 @@ export function transcriptFromHistory(entries: DshHistoryEntry[], locale: UiLoca
           label,
           text,
           images: segments.images,
+          fileAttachments: segments.files,
           content: event.data.content,
           seq: event.seq,
           seqFrom: entryStartOf(entry),

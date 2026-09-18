@@ -123,6 +123,8 @@ export type TranscriptItem = {
   /** True while this reasoning block is still receiving streaming deltas. */
   streaming?: boolean;
   images?: TranscriptImage[];
+  /** 用户消息携带的持久化文件附件；DSH 只把它们投影成模型可读的路径句柄。 */
+  fileAttachments?: TranscriptFile[];
   stats?: MessageStats;
   workflow?: WorkflowView;
   files?: string[];
@@ -380,11 +382,33 @@ export type SessionSearchResult = {
   snippet: string;
 };
 
-export type ComposerAttachment = {
+/** 输入框待发送的图片附件：字节已在内存中，发送时作为 prompt 的 image 部分。 */
+export type ComposerImageAttachment = {
+  kind: "image";
   id: string;
   name: string;
   mediaType: "image/png" | "image/jpeg" | "image/webp" | "image/gif";
   data: string;
+};
+
+/**
+ * 输入框待发送的文件附件：只保留源路径，发送时才送入 DSH 的官方暂存服务。
+ * 拖入后可能不发送（切换会话会清空草稿），提前暂存会在会话里留下永不引用的回执。
+ */
+export type ComposerFileAttachment = {
+  kind: "file";
+  id: string;
+  name: string;
+  path: string;
+};
+
+export type ComposerAttachment = ComposerImageAttachment | ComposerFileAttachment;
+
+/** 会话日志里的文件附件引用，用于历史渲染与重试重新入队。 */
+export type TranscriptFile = {
+  attachmentId: string;
+  name: string;
+  bytes: number;
 };
 
 export type SessionStats = {

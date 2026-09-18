@@ -1,5 +1,5 @@
 import type { DshImageAttachmentLimits, DshFileReferenceCandidate, DshModel, DshModelGroup, DshPlanProjection, DshPluginInventoryEntry, DshPreset, DshPromptContentPart, DshQuestion, DshRuntimeLog, DshSessionModels, DshSessionReferenceCandidate, DshSessionSummary, DshStatus } from "../lib/desktop";
-import type { ChildSubagentEntry, ComposerAttachment, ComposerCandidate, ComposerTrigger } from "./model-types";
+import type { ChildSubagentEntry, ComposerAttachment, ComposerCandidate, ComposerFileAttachment, ComposerImageAttachment, ComposerTrigger } from "./model-types";
 import { t, type UiLocale } from "./i18n.ts";
 
 /**
@@ -286,9 +286,11 @@ export function imageDimensionLimitError(width: number, height: number, limits?:
 
 /** Return a local image-batch limit message before DSH admission. */
 export function imageBatchLimitError(current: ComposerAttachment[], next: ComposerAttachment[], limits?: Pick<DshImageAttachmentLimits, "maxImagesPerMessage" | "maxMessageImageBytes">, locale: UiLocale = "zh"): string | undefined {
-  if (limits?.maxImagesPerMessage !== undefined && current.length + next.length > limits.maxImagesPerMessage) return t("image.countLimit", locale, { limit: limits.maxImagesPerMessage });
+  // 两项限额都只统计图片：文件附件由 Host 读取字节，既不占图片张数也不占图片字节预算。
+  const images = [...imageAttachments(current), ...imageAttachments(next)];
+  if (limits?.maxImagesPerMessage !== undefined && images.length > limits.maxImagesPerMessage) return t("image.countLimit", locale, { limit: limits.maxImagesPerMessage });
   if (limits?.maxMessageImageBytes !== undefined) {
-    const bytes = [...current, ...next].reduce((total, item) => {
+    const bytes = images.reduce((total, item) => {
       const padding = item.data.endsWith("==") ? 2 : item.data.endsWith("=") ? 1 : 0;
       return total + Math.max(0, Math.floor(item.data.length * 3 / 4) - padding);
     }, 0);
@@ -304,7 +306,12 @@ export function modelSupportsImages(model: DshModel | undefined) {
   return model?.inputModalities === undefined || model.inputModalities.includes("image");
 }
 
-export function promptContentParts(text: string, attachments: ComposerAttachment[]): DshPromptContentPart[] {
+/**
+ * Build the prompt content for the given image attachments.
+ *
+ * 只接受图片附件：文件附件必须先经 `session.stageFile` 换成官方回执，无法在纯函数里完成。
+ */
+export function promptContentParts(text: string, attachments: ComposerImageAttachment[]): DshPromptContentPart[] {
   return [
     ...(text ? [{ type: "text" as const, text }] : []),
     ...attachments.map((attachment) => ({
@@ -316,13 +323,60 @@ export function promptContentParts(text: string, attachments: ComposerAttachment
   ];
 }
 
-export function imageMediaType(file: File): ComposerAttachment["mediaType"] | null {
+/** 附件里可本地预览/校验的图片部分；文件附件由 Host 负责读取。 */
+export function imageAttachments(attachments: ComposerAttachment[]): ComposerImageAttachment[] {
+  return attachments.filter((attachment): attachment is ComposerImageAttachment => attachment.kind === "image");
+}
+
+/** 需要先暂存成官方回执的文件附件。 */
+export function fileAttachments(attachments: ComposerAttachment[]): ComposerFileAttachment[] {
+  return attachments.filter((attachment): attachment is ComposerFileAttachment => attachment.kind === "file");
+}
+
+/**
+ * 把拖入的系统路径分流成图片附件与非图片文件附件。
+ *
+ * 图片仍走 `read_image_attachment`（原生按魔数确认格式），非图片交给
+ * `session.stageFile` 由 Host 读取；路径引用改由文件附件承担，
+ * 因此这里不再产生 `@路径` 文本。
+ */
+export function partitionDroppedPaths(paths: string[]): { images: string[]; files: ComposerFileAttachment[] } {
+  const images: string[] = [];
+  const files: ComposerFileAttachment[] = [];
+  for (const path of paths) {
+    // 先 trim 再剥结尾分隔符：原生拖放可能给出只有空白的条目，它既不是图片也
+    // 不是可读文件，静默丢弃比生成一个空路径附件更好。
+    const clean = path.trim().replace(/[\\/]+$/u, "");
+    if (!clean) continue;
+    if (droppedImageMediaType(clean)) {
+      images.push(clean);
+      continue;
+    }
+    files.push({
+      kind: "file",
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      name: pathBasename(clean),
+      path: clean,
+    });
+  }
+  return { images, files };
+}
+
+/** 文件附件胶囊的尺寸文案；字节单位跨语言通用，无需语言资源。 */
+export function formatAttachmentBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+export function imageMediaType(file: File): ComposerImageAttachment["mediaType"] | null {
   return file.type === "image/png" || file.type === "image/jpeg" || file.type === "image/webp" || file.type === "image/gif"
     ? file.type
     : null;
 }
 
-const droppedImageExtensionTypes: Record<string, ComposerAttachment["mediaType"]> = {
+const droppedImageExtensionTypes: Record<string, ComposerImageAttachment["mediaType"]> = {
   png: "image/png",
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
@@ -336,7 +390,7 @@ const droppedImageExtensionTypes: Record<string, ComposerAttachment["mediaType"]
  * 只按扩展名分类，实际格式由原生侧按魔数确认：这组格式必须与
  * `read_image_attachment` 的白名单一致，否则前端会分流到一条读不出来的路径。
  */
-export function droppedImageMediaType(path: string): ComposerAttachment["mediaType"] | null {
+export function droppedImageMediaType(path: string): ComposerImageAttachment["mediaType"] | null {
   const name = path.replace(/[\\/]+$/u, "");
   const dot = name.lastIndexOf(".");
   if (dot < 0) return null;
@@ -383,6 +437,7 @@ export function readImageFile(file: File, limits?: DshImageAttachmentLimits, loc
           return;
         }
         resolve({
+          kind: "image",
           id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
           name: file.name,
           mediaType,

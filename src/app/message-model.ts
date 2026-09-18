@@ -1,20 +1,29 @@
 import type { DshHistoryEntry, DshJob, DshSessionEvent } from "../lib/desktop";
-import type { DiffHunk, DiffSummary, MessageStats, SessionStats, TranscriptImage, TranscriptItem } from "./model-types";
+import type { DiffHunk, DiffSummary, MessageStats, SessionStats, TranscriptFile, TranscriptImage, TranscriptItem } from "./model-types";
 import { t, type UiLocale } from "./i18n.ts";
 
-export type ContentSegments = { text: string; reasoning: string; images: TranscriptImage[] };
+export type ContentSegments = { text: string; reasoning: string; images: TranscriptImage[]; files: TranscriptFile[] };
 
 export function contentSegments(content: unknown): ContentSegments {
-  if (typeof content === "string") return { text: content, reasoning: "", images: [] };
-  if (!Array.isArray(content)) return { text: "", reasoning: "", images: [] };
+  if (typeof content === "string") return { text: content, reasoning: "", images: [], files: [] };
+  if (!Array.isArray(content)) return { text: "", reasoning: "", images: [], files: [] };
   const text: string[] = [];
   const reasoning: string[] = [];
   const images: TranscriptImage[] = [];
+  const files: TranscriptFile[] = [];
   for (const block of content) {
     if (typeof block !== "object" || block === null) continue;
     const value = block as Record<string, unknown>;
     if (value.type === "text" && typeof value.text === "string") text.push(value.text);
     else if (value.type === "reasoning" && typeof value.text === "string") reasoning.push(value.text);
+    else if (value.type === "file") {
+      // 持久化块只保留耐久引用；暂存回执不落盘，所以渲染与重试都按这三个字段走。
+      const attachment = recordValue(value.attachment);
+      const attachmentId = typeof attachment?.attachmentId === "string" ? attachment.attachmentId : undefined;
+      const name = typeof attachment?.name === "string" ? attachment.name : undefined;
+      const bytes = typeof attachment?.bytes === "number" ? attachment.bytes : undefined;
+      if (attachmentId && name && bytes !== undefined) files.push({ attachmentId, name, bytes });
+    }
     else if (value.type === "image") {
       const attachment = recordValue(value.attachment);
       const data = typeof value.data === "string" ? value.data : undefined;
@@ -39,9 +48,10 @@ export function contentSegments(content: unknown): ContentSegments {
       if (nested.text) text.push(nested.text);
       if (nested.reasoning) reasoning.push(nested.reasoning);
       images.push(...nested.images);
+      files.push(...nested.files);
     }
   }
-  return { text: text.filter(Boolean).join("\n"), reasoning: reasoning.filter(Boolean).join("\n"), images };
+  return { text: text.filter(Boolean).join("\n"), reasoning: reasoning.filter(Boolean).join("\n"), images, files };
 }
 
 export function jobStatusLabel(status: DshJob["status"], locale: UiLocale = "zh") {
@@ -64,7 +74,9 @@ export function jobDuration(job: DshJob, now: number) {
 
 export function textFromContent(content: unknown, locale: UiLocale = "zh"): string {
   const segments = contentSegments(content);
-  return segments.text || (segments.images.length > 0 ? t("message.imagePlaceholder", locale) : "");
+  if (segments.text) return segments.text;
+  if (segments.images.length > 0) return t("message.imagePlaceholder", locale);
+  return segments.files.length > 0 ? t("message.filePlaceholder", locale, { count: segments.files.length }) : "";
 }
 
 export function assistantContent(event: DshSessionEvent): unknown {

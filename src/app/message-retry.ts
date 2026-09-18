@@ -11,6 +11,12 @@ export type RetryPromptSourcePart =
       name?: string;
       data?: string;
       attachmentId?: string;
+    }
+  | {
+      type: "file";
+      attachmentId: string;
+      name: string;
+      bytes: number;
     };
 
 function recordValue(value: unknown): Record<string, unknown> | undefined {
@@ -41,6 +47,17 @@ export function retryPromptSourceParts(content: unknown, locale: UiLocale = "zh"
     if (!block) continue;
     if (block.type === "text" && typeof block.text === "string") {
       parts.push({ type: "text", text: block.text });
+      continue;
+    }
+    // 持久化后的文件块只带 `{ type: 'file', attachment: { attachmentId, name, bytes } }`：
+    // 暂存回执不落盘，重试必须按这三个字段重新取回字节。
+    if (block.type === "file") {
+      const attachment = recordValue(block.attachment);
+      const attachmentId = typeof attachment?.attachmentId === "string" ? attachment.attachmentId : undefined;
+      const name = typeof attachment?.name === "string" ? attachment.name : undefined;
+      const bytes = typeof attachment?.bytes === "number" ? attachment.bytes : undefined;
+      if (!attachmentId || !name || bytes === undefined) throw new Error(t("message.retryInvalidFile", locale));
+      parts.push({ type: "file", attachmentId, name, bytes });
       continue;
     }
     if (block.type !== "image") {

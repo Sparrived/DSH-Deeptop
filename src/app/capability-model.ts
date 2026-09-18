@@ -22,6 +22,7 @@ export const DEGRADABLE_CAPABILITIES: readonly DshCapabilityKey[] = [
   "plugins",
   "tools",
   "workspace",
+  "fileAttachments",
 ] as const;
 
 export interface CapabilityFeatures {
@@ -37,6 +38,11 @@ export interface CapabilityFeatures {
   plugins: boolean;
   tools: boolean;
   workspace: boolean;
+  /**
+   * 非图片文件附件。缺失时拖入的非图片文件退回 `@路径` 引用：这样用户仍能
+   * 把文件交给模型，而不是在发送那一刻才被 Host 拒绝。
+   */
+  fileAttachments: boolean;
 }
 
 export interface CapabilityStatus {
@@ -82,6 +88,7 @@ export const CAPABILITY_LABELS: Record<DshCapabilityKey, string> = {
   tools: "capability.tools",
   sessionExport: "capability.sessionExport",
   commands: "capability.commands",
+  fileAttachments: "capability.fileAttachments",
   uiPlugins: "capability.uiPlugins",
 };
 
