@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { composerReferenceText, detectComposerTrigger, droppedImageMediaType, fileAttachments, fileTabDetail, formatAttachmentBytes, imageAttachments, imageBatchLimitError, imageDimensionLimitError, imageLimitsFromProjection, insertComposerCandidate, modelPickerGroups, modelSupportsImages, partitionDroppedPaths, promptContentParts, referenceComposerCandidates, relativeWorkspacePath, insertComposerText, formatRuntimeLog, formatRuntimeLogs, runtimeLogMatches, questionAnswerItems, firstUnansweredQuestionIndex, sessionPath, planEffectiveTarget, planReviewOf, sessionIsVisible, subagentTreeKey, subagentTreeChildId, subagentTreeParentId } from "./ui-model.ts";
+import { composerReferenceText, detectComposerTrigger, droppedImageMediaType, fileAttachments, fileTabDetail, formatAttachmentBytes, formatClock, formatDate, imageAttachments, imageBatchLimitError, imageDimensionLimitError, imageLimitsFromProjection, insertComposerCandidate, modelPickerGroups, modelSupportsImages, partitionDroppedPaths, promptContentParts, referenceComposerCandidates, relativeWorkspacePath, insertComposerText, formatRuntimeLog, formatRuntimeLogs, runtimeLogMatches, questionAnswerItems, firstUnansweredQuestionIndex, sessionPath, planEffectiveTarget, planReviewOf, sessionIsVisible, subagentTreeKey, subagentTreeChildId, subagentTreeParentId } from "./ui-model.ts";
 
 test("keeps ordinary fork sessions visible while hiding subagents", () => {
   const base = { sessionId: "session-1", updatedAt: 1, running: false, blank: false, cwd: "C:\\temp" };
@@ -288,4 +288,50 @@ test("builds composer mention text for dropped files inside and outside the work
   assert.equal(composerReferenceText("D:\\repo\\my notes\\草稿 v2.md", "D:\\repo"), "@\"my notes/草稿 v2.md\"");
   assert.equal(composerReferenceText("C:\\Users\\sparr\\Downloads\\图 纸.png", "D:\\repo"), "@\"C:/Users/sparr/Downloads/图 纸.png\"");
   assert.equal(composerReferenceText("D:\\repo\\plain.txt", ""), "@D:/repo/plain.txt");
+});
+
+// 缓存 Intl.DateTimeFormat 后必须与 toLocale* 逐字节一致；这里对照参考实现而非固定
+// 字符串，避免把断言绑死在跑测试的时区上。
+test("formats clocks and dates exactly like the uncached toLocale reference", () => {
+  const clockReference = (time) => new Date(time).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  const dateReference = (time) => new Date(time).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
+
+  const samples = [
+    1, 999, 86_400_000, -86_400_000,
+    1_700_000_000_000, Date.UTC(2024, 0, 1), Date.UTC(2024, 11, 31, 23, 59),
+    Date.UTC(2025, 5, 15, 12, 34), Date.UTC(2024, 1, 29), Date.now(),
+  ];
+  for (const time of samples) {
+    assert.equal(formatClock(time), clockReference(time), `formatClock(${time})`);
+    assert.equal(formatDate(time), dateReference(time), `formatDate(${time})`);
+  }
+
+  // 每个日期跨一整天，覆盖跨天与 24 小时制边界。
+  for (let minute = 0; minute < 24 * 60; minute += 13) {
+    const time = Date.UTC(2026, 8, 19) + minute * 60_000;
+    assert.equal(formatClock(time), clockReference(time), `formatClock minute ${minute}`);
+  }
+  // 闰年逐日，覆盖 02/29 与跨月、跨年。
+  for (let day = 0; day < 366; day += 1) {
+    const time = Date.UTC(2024, 0, 1) + day * 86_400_000;
+    assert.equal(formatDate(time), dateReference(time), `formatDate day ${day}`);
+  }
+});
+
+test("keeps the previous invalid and empty clock/date results", () => {
+  // 参照旧实现：formatClock 先做 `if (!time) return ""`，所以 NaN/0/null/undefined 都是空串；
+  // 越界与 ±Infinity 走到 toLocale* 才是 "Invalid Date"。
+  const oldClock = (time) => (time ? new Date(time).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) : "");
+  const oldDate = (time) => new Date(time).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
+
+  const edges = [undefined, null, 0, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 8.64e15, 8.64e15 + 1, -8.64e15 - 1];
+  for (const time of edges) {
+    // 关键回归：改用 Intl.format 后这些值绝不能抛 RangeError。
+    assert.equal(formatClock(time), oldClock(time), `formatClock(${String(time)})`);
+    assert.equal(formatDate(time), oldDate(time), `formatDate(${String(time)})`);
+  }
+  // 空串与 "Invalid Date" 都仍要能出现，避免测试整体退化成恒等比较。
+  assert.equal(formatClock(undefined), "");
+  assert.equal(formatClock(Number.POSITIVE_INFINITY), "Invalid Date");
+  assert.equal(formatDate(Number.NaN), "Invalid Date");
 });

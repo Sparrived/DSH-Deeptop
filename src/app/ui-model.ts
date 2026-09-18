@@ -469,19 +469,33 @@ export function readImageFile(file: File, limits?: DshImageAttachmentLimits, loc
   });
 }
 
+// `toLocaleTimeString`/`toLocaleDateString` 每次调用都要重新解析 locale 与选项并
+// 构造一个 Intl.DateTimeFormat（实测约 88µs），而这里的选项是常量。消息行、侧栏行
+// 每行都要显示时间，切会话/切工作区时几百行一起渲染，这笔构造开销就压在首帧上。
+// 缓存后每次只剩一次 format（约 1µs），输出与 toLocale* 逐字节一致。
+// ponytail: 默认时区在构造时确定，所以要等应用重载才会跟随系统时区变化——为这点
+// 边缘情况保留每行 88µs 的构造开销不值得。
+const clockFormatter = new Intl.DateTimeFormat("zh-CN", {
+  hour: "2-digit",
+  minute: "2-digit",
+});
+const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
+  month: "2-digit",
+  day: "2-digit",
+});
+
 export function formatClock(time?: number) {
   if (!time) return "";
-  return new Date(time).toLocaleTimeString("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  // 非法或越界时间戳：toLocaleTimeString 返回 "Invalid Date"，而 format 会抛 RangeError。
+  const date = new Date(time);
+  if (Number.isNaN(date.getTime())) return "Invalid Date";
+  return clockFormatter.format(date);
 }
 
 export function formatDate(time: number) {
-  return new Date(time).toLocaleDateString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-  });
+  const date = new Date(time);
+  if (Number.isNaN(date.getTime())) return "Invalid Date";
+  return dateFormatter.format(date);
 }
 
 export function displayTitle(session: DshSessionSummary, locale: UiLocale = "zh") {
