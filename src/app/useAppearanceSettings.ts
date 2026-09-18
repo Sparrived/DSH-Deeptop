@@ -8,6 +8,7 @@ import type {
   BackgroundZone,
 } from "./model-types";
 import { defaultWorkingIndicator, normalizeWorkingIndicator } from "./working-indicator";
+import { defaultToolEffect, normalizeToolEffect, toolEffectClass, toolEffectInk } from "./tool-effect";
 import {
   ensureThemeFiles,
   openThemesDirectory as openThemesDirectoryCommand,
@@ -94,6 +95,7 @@ export const defaultAppearance: AppearanceSettings = {
   streamingFadeDuration: 520,
   streamingFadeInk: 0.3,
   workingIndicator: defaultWorkingIndicator,
+  toolEffect: defaultToolEffect,
   backgrounds: defaultBackgrounds(),
   customCss: "",
   customCssName: "",
@@ -196,6 +198,7 @@ function readAppearanceSettings(): AppearanceSettings {
       streamingFadeDuration: boundedNumber(value.streamingFadeDuration, defaultAppearance.streamingFadeDuration, 150, 1500),
       streamingFadeInk: boundedNumber(value.streamingFadeInk, defaultAppearance.streamingFadeInk, 0.05, 1),
       workingIndicator: normalizeWorkingIndicator(value.workingIndicator),
+      toolEffect: normalizeToolEffect(value.toolEffect),
       backgrounds: migrateBackgrounds(value),
       customCss,
       customCssName: customCss && typeof value.customCssName === "string" ? value.customCssName : "",
@@ -466,6 +469,7 @@ export function useAppearanceSettings({ locale, onNotice, onError }: UseAppearan
     setAppearance((current) => ({
       ...defaultAppearance,
       workingIndicator: { ...defaultWorkingIndicator, texts: [...defaultWorkingIndicator.texts] },
+      toolEffect: { ...defaultToolEffect },
       themeCssPath: themeFilesInfo ? themeCssPathFor(themeFilesInfo.themesDir, DEFAULT_THEME_ID) : current.themeCssPath,
     }));
     setAppThemeState(DEFAULT_THEME_ID);
@@ -480,6 +484,9 @@ export function useAppearanceSettings({ locale, onNotice, onError }: UseAppearan
     () => appearanceCodeFontPresets.some((item) => item.value === appearance.codeFontFamily) ? appearance.codeFontFamily : "custom",
     [appearance.codeFontFamily],
   );
+
+  /** 工具特效的 class 只随设置变化，跟外观对象一起记忆，避免流式期间反复重算。 */
+  const appearanceToolEffectClass = useMemo(() => toolEffectClass(appearance.toolEffect), [appearance.toolEffect]);
 
   /** 生成全局 + 各分区的 CSS 变量，驱动 styles.css 中的背景图层。 */
   const appearanceStyle = useMemo(() => {
@@ -496,6 +503,7 @@ export function useAppearanceSettings({ locale, onNotice, onError }: UseAppearan
       "--stream-fade-ink": String(appearance.streamingFadeInk),
       "--working-indicator-color": appearance.workingIndicator.color,
       "--working-indicator-gradient-color": appearance.workingIndicator.gradientColor,
+      "--tool-effect-ink": toolEffectInk(appearance.toolEffect),
       "--app-background-image": backgroundUrl("global"),
       "--app-background-opacity": String(appearance.backgrounds.global.opacity),
       "--app-background-blur": `${appearance.backgrounds.global.blur}px`,
@@ -518,6 +526,7 @@ export function useAppearanceSettings({ locale, onNotice, onError }: UseAppearan
   return {
     appearance,
     appearanceStyle,
+    appearanceToolEffectClass,
     appearanceFontPreset,
     appearanceCodeFontPreset,
     appearanceFontPresets,

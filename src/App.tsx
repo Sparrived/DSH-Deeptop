@@ -290,6 +290,7 @@ import { useLocaleHostSync } from "./app/useLocaleHostSync";
 import { readStoredLocale, t, writeStoredLocale, type UiLocale } from "./app/i18n";
 import { SEND_SHORTCUT_STORAGE_KEY, readSendShortcut, type SendShortcut } from "./app/keyboard-shortcut";
 import { defaultWorkingIndicator, normalizeWorkingIndicator } from "./app/working-indicator";
+import { defaultToolEffect, normalizeToolEffect } from "./app/tool-effect";
 import { externalLaunchKey } from "./lib/external-launch";
 import { DEFAULT_PERMISSION_OPTIONS, isDefaultPermission, readStoredDefaultModel, readStoredDefaultPermission, writeStoredDefaultModel, writeStoredDefaultPermission, type DefaultPermission } from "./app/session-defaults";
 import { isSchemaEnvelope, schemaEnumChoices, schemaNodeAtPath } from "./app/schema-model";
@@ -917,6 +918,7 @@ function AppContent() {
   const {
     appearance,
     appearanceStyle,
+    appearanceToolEffectClass,
     appearanceFontPreset,
     appearanceCodeFontPreset,
     appearanceFontPresets,
@@ -1009,7 +1011,7 @@ function AppContent() {
 
   function exportAppearanceConfig() {
     const section = appearanceSection;
-    const data = section === "theme" ? { themeMode, appTheme, themeCssPath: appearance.themeCssPath } : section === "background" ? { backgrounds: appearance.backgrounds } : section === "typography" ? { fontFamily: appearance.fontFamily, codeFontFamily: appearance.codeFontFamily, messageFontSize: appearance.messageFontSize, messageLineHeight: appearance.messageLineHeight, streamingFadeDuration: appearance.streamingFadeDuration, streamingFadeInk: appearance.streamingFadeInk, workingIndicator: appearance.workingIndicator } : { customCss: appearance.customCss, customCssName: appearance.customCssName, customCssEnabled: appearance.customCssEnabled };
+    const data = section === "theme" ? { themeMode, appTheme, themeCssPath: appearance.themeCssPath } : section === "background" ? { backgrounds: appearance.backgrounds } : section === "typography" ? { fontFamily: appearance.fontFamily, codeFontFamily: appearance.codeFontFamily, messageFontSize: appearance.messageFontSize, messageLineHeight: appearance.messageLineHeight, streamingFadeDuration: appearance.streamingFadeDuration, streamingFadeInk: appearance.streamingFadeInk, workingIndicator: appearance.workingIndicator, toolEffect: appearance.toolEffect } : { customCss: appearance.customCss, customCssName: appearance.customCssName, customCssEnabled: appearance.customCssEnabled };
     downloadAppearanceConfig(section, data);
   }
 
@@ -1054,7 +1056,7 @@ function AppContent() {
         const messageLineHeight = Number(data.messageLineHeight);
         const streamingFadeDuration = Number(data.streamingFadeDuration);
         const streamingFadeInk = Number(data.streamingFadeInk);
-        updateAppearance({ fontFamily, codeFontFamily, messageFontSize: Number.isFinite(messageFontSize) ? Math.min(18, Math.max(14, messageFontSize)) : defaultAppearance.messageFontSize, messageLineHeight: Number.isFinite(messageLineHeight) ? Math.min(2.2, Math.max(1.35, messageLineHeight)) : defaultAppearance.messageLineHeight, streamingFadeDuration: Number.isFinite(streamingFadeDuration) ? Math.min(1500, Math.max(150, streamingFadeDuration)) : defaultAppearance.streamingFadeDuration, streamingFadeInk: Number.isFinite(streamingFadeInk) ? Math.min(1, Math.max(0.05, streamingFadeInk)) : defaultAppearance.streamingFadeInk, workingIndicator: normalizeWorkingIndicator(data.workingIndicator) });
+        updateAppearance({ fontFamily, codeFontFamily, messageFontSize: Number.isFinite(messageFontSize) ? Math.min(18, Math.max(14, messageFontSize)) : defaultAppearance.messageFontSize, messageLineHeight: Number.isFinite(messageLineHeight) ? Math.min(2.2, Math.max(1.35, messageLineHeight)) : defaultAppearance.messageLineHeight, streamingFadeDuration: Number.isFinite(streamingFadeDuration) ? Math.min(1500, Math.max(150, streamingFadeDuration)) : defaultAppearance.streamingFadeDuration, streamingFadeInk: Number.isFinite(streamingFadeInk) ? Math.min(1, Math.max(0.05, streamingFadeInk)) : defaultAppearance.streamingFadeInk, workingIndicator: normalizeWorkingIndicator(data.workingIndicator), toolEffect: normalizeToolEffect(data.toolEffect) });
       } else {
         const customCss = typeof data.customCss === "string" && data.customCss.length <= 500_000 ? data.customCss : "";
         updateAppearance({ customCss, customCssName: typeof data.customCssName === "string" ? data.customCssName.slice(0, 200) : "", customCssEnabled: data.customCssEnabled === true && Boolean(customCss) });
@@ -1074,7 +1076,7 @@ function AppContent() {
     } else if (appearanceSection === "background") {
       updateAppearance({ backgrounds: defaultBackgrounds() });
     } else if (appearanceSection === "typography") {
-      updateAppearance({ fontFamily: defaultAppearance.fontFamily, codeFontFamily: defaultAppearance.codeFontFamily, messageFontSize: defaultAppearance.messageFontSize, messageLineHeight: defaultAppearance.messageLineHeight, streamingFadeDuration: defaultAppearance.streamingFadeDuration, streamingFadeInk: defaultAppearance.streamingFadeInk, workingIndicator: { ...defaultWorkingIndicator, texts: [...defaultWorkingIndicator.texts] } });
+      updateAppearance({ fontFamily: defaultAppearance.fontFamily, codeFontFamily: defaultAppearance.codeFontFamily, messageFontSize: defaultAppearance.messageFontSize, messageLineHeight: defaultAppearance.messageLineHeight, streamingFadeDuration: defaultAppearance.streamingFadeDuration, streamingFadeInk: defaultAppearance.streamingFadeInk, workingIndicator: { ...defaultWorkingIndicator, texts: [...defaultWorkingIndicator.texts] }, toolEffect: { ...defaultToolEffect } });
     } else {
       updateAppearance({ customCss: "", customCssName: "", customCssEnabled: false });
     }
@@ -5545,7 +5547,7 @@ function AppContent() {
   /> : null;
 
   return (
-    <main className={`app-shell${hasAnyBackground(appearance.backgrounds) ? " has-custom-background" : ""}`} style={appearanceStyle}>
+    <main className={`app-shell${hasAnyBackground(appearance.backgrounds) ? " has-custom-background" : ""} ${appearanceToolEffectClass}`} style={appearanceStyle}>
       <WindowChrome
         locale={locale}
         windowMaximized={windowMaximized}

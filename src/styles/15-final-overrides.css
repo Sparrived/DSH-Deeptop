@@ -1423,6 +1423,16 @@
 @keyframes dsh-custom-indicator-pulse { 0%, 100% { opacity: .48; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .agent-working.effect-shimmer > span, .working-indicator-preview > .effect-shimmer, .agent-working.effect-pulse > span, .working-indicator-preview > .effect-pulse { animation: none; } }
 
+/* Tool effect preview: shows the chosen edge effect on a real, inert tool row so the
+   setting can be checked without waiting for a live tool call. The row keeps its own
+   status color and inherits the real .tool-entry-summary grid; only the edge decoration
+   comes from the --tool-effect-ink variable. */
+.tool-effect-preview { display: grid; gap: 8px; margin-top: 14px; padding: 13px 14px; border: 1px solid var(--line); background: var(--surface-soft); }
+.tool-effect-preview-note { color: var(--ink-faint); font-size: 11px; }
+.tool-effect-preview-stage { display: grid; }
+.tool-effect-preview-row { pointer-events: none; }
+.tool-effect-preview-row > .tool-entry-summary { padding: 8px 10px; cursor: default; }
+
 /* About surface: use the project's quiet workbench language, with one strong D-mark. */
 .settings-about-page { gap: 20px; }
 .about-identity { min-width: 0; display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 18px; padding: 18px; border: 1px solid var(--line-strong); background: color-mix(in srgb, var(--accent) 6%, var(--surface-raised)); }

@@ -53,6 +53,24 @@ export type WorkingIndicatorSettings = {
   rotationInterval: number;
 };
 
+/**
+ * 工具行的运行特效。只影响运行中的工具行边缘，不改变字形、状态色或结果内容：
+ * - `none` 静态（默认，保持原有外观）
+ * - `glow` 边缘发光呼吸
+ * - `marquee` 边缘跑马灯（沿边缘循环的光带，颜色与透明度可调）
+ * - `ants` 虚线蚂蚁线巡边
+ * - `sheen` 斜向扫光掠过整行
+ */
+export type ToolEffect = "none" | "glow" | "marquee" | "ants" | "sheen";
+
+export type ToolEffectSettings = {
+  effect: ToolEffect;
+  /** 特效颜色（#rrggbb）：光带、发光与扫光都用它。 */
+  color: string;
+  /** 特效不透明度（0–1）。 */
+  opacity: number;
+};
+
 export type AppearanceSettings = {
   fontFamily: string;
   codeFontFamily: string;
@@ -63,6 +81,7 @@ export type AppearanceSettings = {
   /** 落笔墨量（0–1）：刚落笔时的起始浓度，1 等于关闭渐显。 */
   streamingFadeInk: number;
   workingIndicator: WorkingIndicatorSettings;
+  toolEffect: ToolEffectSettings;
   backgrounds: BackgroundSettings;
   customCss: string;
   customCssName: string;

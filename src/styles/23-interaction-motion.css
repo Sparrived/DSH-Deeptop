@@ -186,3 +186,102 @@ body.deeptop-window-blurred .turn-group[data-turn-state="live"] .turn-steps-stat
     transition-duration: .01ms !important;
   }
 }
+
+/* 工具特效（设置 › 外观 › 文字排版 › 工具特效）
+ *
+ * 特效永远描在**运行中**工具行的边缘，不碰字形、状态色和结果内容，所以
+ * 「运行中」绝不会被读成成功；结果返回或出错后动画自动停止，行回到普通样式。
+ * 选择器挂在带 `tool-effect-<name>` class 的祖先上：应用外壳（<main>）用它，
+ * 设置页的预览块也用它，因此预览与真实工具行共用同一份规则。
+ * 特效颜色与不透明度由 JS 合成为 `--tool-effect-ink`，样式表不必自己算透明度。
+ */
+@media (prefers-reduced-motion: no-preference) {
+  /* 特效色由 JS 合成为 --tool-effect-ink（含不透明度）；这里再兜一层默认值，
+     万一变量没传到（例如节点被 portal 到 <main> 之外）也不会画出透明边框。 */
+  :is(.tool-effect-glow, .tool-effect-marquee, .tool-effect-ants, .tool-effect-sheen) {
+    --tool-effect-paint: var(--tool-effect-ink, color-mix(in srgb, var(--accent) 60%, transparent));
+  }
+
+  /* 装饰层要绝对定位，而普通 .tool-entry 没有定位上下文（只有 .tool-paired 有）。 */
+  :is(.tool-effect-glow, .tool-effect-marquee, .tool-effect-ants, .tool-effect-sheen)
+    :is(.tool-entry, .subagent-tool-entry)[data-tool-status="running"] {
+    position: relative;
+  }
+
+  /* 1. 边缘发光呼吸：只让边框外的光晕起伏，行本身的边框和背景不动。 */
+  .tool-effect-glow :is(.tool-entry, .subagent-tool-entry)[data-tool-status="running"] {
+    animation: tool-effect-glow-breathe var(--motion-loop) ease-in-out infinite;
+  }
+
+  @keyframes tool-effect-glow-breathe {
+    0%, 100% { box-shadow: 0 0 0 1px var(--tool-effect-paint), 0 0 5px var(--tool-effect-paint); }
+    50% { box-shadow: 0 0 0 1px var(--tool-effect-paint), 0 0 16px var(--tool-effect-paint); }
+  }
+
+  /* ::after 在工具行上是空白的（::before 已被连接点占用），所以装饰层走它。 */
+  :is(.tool-effect-marquee, .tool-effect-ants, .tool-effect-sheen)
+    :is(.tool-entry, .subagent-tool-entry)[data-tool-status="running"]::after {
+    content: "";
+    position: absolute;
+    display: block;
+    pointer-events: none;
+    border-radius: inherit;
+  }
+
+  /* 2. 边缘跑马灯：一条光带沿行的上边缘循环跑过。 */
+  .tool-effect-marquee :is(.tool-entry, .subagent-tool-entry)[data-tool-status="running"]::after {
+    inset: 0 0 auto 0;
+    height: 2px;
+    background-image: linear-gradient(90deg, transparent, var(--tool-effect-paint), transparent);
+    background-size: 34% 100%;
+    background-repeat: no-repeat;
+    animation: tool-effect-marquee-run 1.8s linear infinite;
+  }
+
+  @keyframes tool-effect-marquee-run {
+    from { background-position: -34% 0; }
+    to { background-position: 134% 0; }
+  }
+
+  /* 3. 虚线蚂蚁线巡边：四条虚线沿边缘爬行，提示「还在跑」。 */
+  .tool-effect-ants :is(.tool-entry, .subagent-tool-entry)[data-tool-status="running"]::after {
+    inset: 0;
+    background-image:
+      repeating-linear-gradient(90deg, var(--tool-effect-paint) 0 6px, transparent 6px 12px),
+      repeating-linear-gradient(90deg, var(--tool-effect-paint) 0 6px, transparent 6px 12px),
+      repeating-linear-gradient(0deg, var(--tool-effect-paint) 0 6px, transparent 6px 12px),
+      repeating-linear-gradient(0deg, var(--tool-effect-paint) 0 6px, transparent 6px 12px);
+    background-size: 100% 1px, 100% 1px, 1px 100%, 1px 100%;
+    background-position: 0 0, 0 100%, 0 0, 100% 0;
+    background-repeat: no-repeat;
+    animation: tool-effect-ants-march .6s linear infinite;
+  }
+
+  @keyframes tool-effect-ants-march {
+    from { background-position: 0 0, 12px 100%, 0 0, 100% 12px; }
+    to { background-position: 12px 0, 0 100%, 0 12px, 100% 0; }
+  }
+
+  /* 4. 斜向扫光：一道半透明高光反复掠过整行，像在读取内容。 */
+  .tool-effect-sheen :is(.tool-entry, .subagent-tool-entry)[data-tool-status="running"]::after {
+    inset: 0;
+    background-image: linear-gradient(100deg, transparent 42%, var(--tool-effect-paint) 50%, transparent 58%);
+    background-size: 240% 100%;
+    background-repeat: no-repeat;
+    animation: tool-effect-sheen-sweep 2s ease-in-out infinite;
+  }
+
+  @keyframes tool-effect-sheen-sweep {
+    from { background-position: 130% 0; }
+    to { background-position: -130% 0; }
+  }
+
+  /* 应用空闲或窗口失焦时停摆这些无限动画：用户看不到，也不该占合成线程。
+     设置页的预览行（.tool-effect-preview-row）是例外——它正要在空闲时看效果。 */
+  body:not(.deeptop-activity-live) :is(.tool-effect-glow, .tool-effect-marquee, .tool-effect-ants, .tool-effect-sheen) :is(.tool-entry, .subagent-tool-entry)[data-tool-status="running"]:not(.tool-effect-preview-row),
+  body:not(.deeptop-activity-live) :is(.tool-effect-marquee, .tool-effect-ants, .tool-effect-sheen) :is(.tool-entry, .subagent-tool-entry)[data-tool-status="running"]:not(.tool-effect-preview-row)::after,
+  body.deeptop-window-blurred :is(.tool-effect-glow, .tool-effect-marquee, .tool-effect-ants, .tool-effect-sheen) :is(.tool-entry, .subagent-tool-entry)[data-tool-status="running"]:not(.tool-effect-preview-row),
+  body.deeptop-window-blurred :is(.tool-effect-marquee, .tool-effect-ants, .tool-effect-sheen) :is(.tool-entry, .subagent-tool-entry)[data-tool-status="running"]:not(.tool-effect-preview-row)::after {
+    animation: none;
+  }
+}

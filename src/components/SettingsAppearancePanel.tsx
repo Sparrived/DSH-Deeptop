@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type ComponentProps, type CSSProperties } from "react";
-import type { AppearanceSettings, AppearanceSection, WorkingIndicatorEffect, WorkingIndicatorShimmerStyle } from "../app/model";
+import type { AppearanceSettings, AppearanceSection, ToolEffect, WorkingIndicatorEffect, WorkingIndicatorShimmerStyle } from "../app/model";
 import type { AppTheme, ThemeMode } from "../app/model";
 import { SettingsBackgroundPanel } from "./SettingsBackgroundPanel";
 import { normalizeWorkingIndicator, workingIndicatorEffectClass, workingIndicatorTextAt } from "../app/working-indicator";
+import { normalizeToolEffect, toolEffectClass, toolEffectInk, TOOL_EFFECTS } from "../app/tool-effect";
+import { ToolGlyph } from "./ToolGlyph";
 import { t, type UiLocale } from "../app/i18n";
 
 type FontPreset = { value: string; labelKey: string };
@@ -40,6 +42,15 @@ type SettingsAppearancePanelProps = {
 };
 
 type SettingsBackgroundPanelProps = ComponentProps<typeof SettingsBackgroundPanel>;
+
+/** 特效名的 i18n key：写成字面量，i18n 检查才能校验 zh/en 是否成对存在。 */
+const toolEffectLabelKeys: Record<ToolEffect, string> = {
+  none: "appearance.toolEffectNone",
+  glow: "appearance.toolEffectGlow",
+  marquee: "appearance.toolEffectMarquee",
+  ants: "appearance.toolEffectAnts",
+  sheen: "appearance.toolEffectSheen",
+};
 
 const subpages: Array<{ id: AppearanceSection; labelKey: string; hintKey: string }> = [
   { id: "theme", labelKey: "settings.theme", hintKey: "appearance.tabHint.theme" },
@@ -110,6 +121,7 @@ export function SettingsAppearancePanel({
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const backgroundCount = Object.values(appearance.backgrounds).filter((bg) => Boolean(bg.image)).length;
   const workingIndicator = normalizeWorkingIndicator(appearance.workingIndicator);
+  const toolEffect = normalizeToolEffect(appearance.toolEffect);
   const workingTextCount = workingIndicator.texts.length;
   // 预览与运行中的指示器保持同一轮换节奏，便于在设置里直接核对效果。
   const [previewIndex, setPreviewIndex] = useState(0);
@@ -225,6 +237,25 @@ export function SettingsAppearancePanel({
               ? <span className="working-indicator-hidden-note">{t("appearance.workingHiddenPreview", locale)}</span>
               : <span className={workingIndicatorEffectClass(workingIndicator)}>{workingIndicatorTextAt(workingIndicator, previewIndex)}</span>}
             {workingIndicator.effect !== "hidden" && <small>{t("appearance.previewRotation", locale, { count: workingTextCount })}</small>}
+          </div>
+        </div>
+      )}
+
+      {section === "typography" && (
+        <div className="settings-block tool-effect-settings">
+          <div className="settings-block-heading"><div><h3>{t("appearance.toolEffectTitle", locale)}</h3><p>{t("appearance.toolEffectHint", locale)}</p></div></div>
+          <div className="settings-preference-list">
+            <label className="settings-preference-row"><span><strong>{t("appearance.toolEffectEffect", locale)}</strong><small>{t("appearance.toolEffectEffectHint", locale)}</small></span><select value={toolEffect.effect} onChange={(event) => onUpdate({ toolEffect: { ...appearance.toolEffect, effect: event.target.value as ToolEffect } })}>{TOOL_EFFECTS.map((effect) => <option value={effect} key={effect}>{t(toolEffectLabelKeys[effect], locale)}</option>)}</select></label>
+            {toolEffect.effect !== "none" && <label className="settings-preference-row"><span><strong>{t("appearance.toolEffectColor", locale)}</strong><small>{toolEffect.color}</small></span><span className="appearance-color-control"><input type="color" value={toolEffect.color} onChange={(event) => onUpdate({ toolEffect: { ...appearance.toolEffect, color: event.target.value } })} /><code>{toolEffect.color}</code></span></label>}
+            {toolEffect.effect !== "none" && <label className="settings-preference-row"><span><strong>{t("appearance.toolEffectOpacity", locale)}</strong><small>{t("appearance.toolEffectOpacityHint", locale)}</small></span><span className="appearance-range-control"><input type="range" min="5" max="100" step="5" value={Math.round(toolEffect.opacity * 100)} onChange={(event) => onUpdate({ toolEffect: { ...appearance.toolEffect, opacity: Number(event.target.value) / 100 } })} /><output>{Math.round(toolEffect.opacity * 100)}%</output></span></label>}
+          </div>
+          <div className="tool-effect-preview" style={{ "--tool-effect-ink": toolEffectInk(toolEffect) } as CSSProperties}>
+            <span className="tool-effect-preview-note">{t("appearance.toolEffectPreview", locale)}</span>
+            <div className={`tool-effect-preview-stage ${toolEffectClass(toolEffect)}`}>
+              <div className="tool-entry tool-effect-preview-row" data-tool-status="running">
+                <span className="tool-entry-summary"><span className="tool-summary-main"><span className="tool-state" aria-hidden="true"><ToolGlyph toolName="read_file" /></span><span className="tool-name">read_file</span></span><span className="tool-status running">{t("conversation.tool.running", locale)}</span></span>
+              </div>
+            </div>
           </div>
         </div>
       )}

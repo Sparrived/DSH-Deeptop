@@ -43,6 +43,8 @@ export type {
   ThemeMode,
   TodoItem,
   TodoStatus,
+  ToolEffect,
+  ToolEffectSettings,
   TranscriptFile,
   TranscriptImage,
   TranscriptItem,
