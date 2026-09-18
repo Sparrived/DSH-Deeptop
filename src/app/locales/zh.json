@@ -1814,7 +1814,7 @@
   "sidebar.active": "活跃",
   "sidebar.active.pinned": "置顶",
   "sidebar.active.working": "工作中",
-  "sidebar.activeEmpty": "没有置顶或正在工作的会话",
+  "sidebar.activeEmpty": "没有置顶、运行中、待处理或出错的会话",
   "sidebar.activeList": "活跃会话列表",
   "sidebar.addWorkspace": "添加工作目录",
   "sidebar.archive": "归档",

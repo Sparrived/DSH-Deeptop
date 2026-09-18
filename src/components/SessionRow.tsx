@@ -70,8 +70,6 @@ interface SessionRowProps {
   canDrag: boolean;
   dragDisabled: boolean;
   dragOver: boolean;
-  /** 活跃侧栏快照中的保留行：切走后才结束，已不在当前快照成员里。 */
-  snapshotStale?: boolean;
   /** 批量操作模式下显示可访问的行选择框。 */
   selectable?: boolean;
   selected?: boolean;
@@ -97,7 +95,6 @@ export function SessionRow({
   canDrag,
   dragDisabled,
   dragOver,
-  snapshotStale = false,
   selectable = false,
   selected = false,
   onToggleSelected,
@@ -258,7 +255,7 @@ export function SessionRow({
 
   return <>
     <div
-      className={`session-row session-status-${status}${active ? " active" : ""}${dragOver ? " drag-over" : ""}${canPin ? " has-pin" : ""}${canDrag ? " is-draggable" : ""}${selectable ? " has-selection" : ""}${selected ? " is-selected" : ""}${dragDisabled ? " drag-disabled" : ""}${pressed ? " pressed" : ""}${dragging ? " dragging" : ""}${snapshotStale && status === "idle" ? " active-snapshot-stale" : ""}`}
+      className={`session-row session-status-${status}${active ? " active" : ""}${dragOver ? " drag-over" : ""}${canPin ? " has-pin" : ""}${canDrag ? " is-draggable" : ""}${selectable ? " has-selection" : ""}${selected ? " is-selected" : ""}${dragDisabled ? " drag-disabled" : ""}${pressed ? " pressed" : ""}${dragging ? " dragging" : ""}`}
       data-session-id={session.sessionId}
       data-session-pinned={pinned ? "true" : "false"}
       data-session-status={status}

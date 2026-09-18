@@ -1682,6 +1682,7 @@ function AppContent() {
   }, [archivedSessionIds, remoteSearchResults, search, sessions]);
   const searchResultById = useMemo(() => new Map((remoteSearchResults ?? []).map((item) => [item.sessionId, item.snippet])), [remoteSearchResults]);
   const sessionById = useMemo(() => new Map(sessions.map((session) => [session.sessionId, session])), [sessions]);
+  const sessionIds = useMemo(() => new Set(sessions.map((session) => session.sessionId)), [sessions]);
   const archivedSessions = useMemo(
     () => [...archivedSessionIds].map((sessionId) => sessionById.get(sessionId)).filter((session): session is DshSessionSummary => session !== undefined),
     [archivedSessionIds, sessionById],
@@ -1690,7 +1691,8 @@ function AppContent() {
   const activeSessionView = useMemo(() => buildActiveSessionView(sessions, workspaces, {
     archivedSessionIds,
     indicators: sessionIndicators,
-  }), [archivedSessionIds, sessionIndicators, sessions, workspaces]);
+    pendingSessionIds,
+  }), [archivedSessionIds, pendingSessionIds, sessionIndicators, sessions, workspaces]);
   const trayWorkspaceTitles = useMemo(() => new Map(
     [...workspaceBySessionId].map(([sessionId, workspaceItem]) => [sessionId, workspaceItem.title]),
   ), [workspaceBySessionId]);
@@ -5538,6 +5540,7 @@ function AppContent() {
           visibleSessions={visibleSessions}
           archivedSessions={archivedSessions}
           activeSessionView={activeSessionView}
+          knownSessionIds={sessionIds}
           onRestoreSession={restoreSession}
           onArchiveSessions={setArchiveTargets}
           onDeleteArchivedSessions={setDeleteArchivedTargets}

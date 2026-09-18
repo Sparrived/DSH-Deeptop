@@ -1814,7 +1814,7 @@
   "sidebar.active": "Active",
   "sidebar.active.pinned": "Pinned",
   "sidebar.active.working": "Working",
-  "sidebar.activeEmpty": "No pinned or working sessions",
+  "sidebar.activeEmpty": "No pinned, running, pending or errored sessions",
   "sidebar.activeList": "Active sessions list",
   "sidebar.addWorkspace": "Add working directory",
   "sidebar.archive": "Archive",

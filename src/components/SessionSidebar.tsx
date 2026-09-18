@@ -19,7 +19,8 @@ import {
 } from "../app/model";
 import { toSessionUiContext } from "../app/ui-plugin-model";
 import type { DshSessionSummary, DshWorkspace } from "../lib/desktop";
-import type { ActiveSessionView, ActiveSessionWorkspaceGroup } from "../app/active-session-view";
+import type { ActiveSessionSnapshot, ActiveSessionView, ActiveSessionWorkspaceGroup } from "../app/active-session-view";
+import { freezeActiveSessionView, snapshotActiveSessionView } from "../app/active-session-view";
 import type { SessionIndicator } from "../app/session-runtime-state";
 import { t, type UiLocale } from "../app/i18n";
 
@@ -77,6 +78,8 @@ type SessionSidebarProps = {
   visibleSessions: DshSessionSummary[];
   archivedSessions: DshSessionSummary[];
   activeSessionView: ActiveSessionView;
+  /** 已登记的会话 id：活跃列表只在快照之后补入新建会话。 */
+  knownSessionIds: ReadonlySet<string>;
   onRestoreSession: (session: DshSessionSummary) => void | Promise<unknown>;
   onArchiveSessions: (sessions: DshSessionSummary[]) => void;
   onDeleteArchivedSessions: (sessions: DshSessionSummary[]) => void;
@@ -129,6 +132,7 @@ export function SessionSidebar({
   visibleSessions,
   archivedSessions,
   activeSessionView,
+  knownSessionIds,
   onRestoreSession,
   onArchiveSessions,
   onDeleteArchivedSessions,
@@ -166,15 +170,16 @@ export function SessionSidebar({
   onDismissSessionContextMenu,
 }: SessionSidebarProps) {
   const [view, setView] = useState<SidebarView>("sessions");
-  const [activeViewIds, setActiveViewIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [activeSnapshot, setActiveSnapshot] = useState<ActiveSessionSnapshot | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedSessionIds, setSelectedSessionIds] = useState<ReadonlySet<string>>(() => new Set());
   const archiveOpen = view === "archive";
   const activeOpen = view === "active";
-  const isActiveEligible = useMemo(() => (session: DshSessionSummary) => {
-    if (activeViewIds.size === 0) return false;
-    return activeViewIds.has(session.sessionId) || session.running;
-  }, [activeViewIds]);
+  // 活跃列表在切入时冻结：成员不再随运行状态变化增删，只有快照之后新建的会话会补入。
+  const activeView = useMemo(
+    () => activeSnapshot ? freezeActiveSessionView(activeSnapshot, activeSessionView) : activeSessionView,
+    [activeSessionView, activeSnapshot],
+  );
   const selectionCandidates = useMemo(() => {
     if (archiveOpen) return archivedSessions;
     if (activeOpen) return [];
@@ -192,17 +197,13 @@ export function SessionSidebar({
     setSelectedSessionIds(new Set());
   }, [onDismissSessionContextMenu]);
   const handleViewChange = useCallback((next: SidebarView) => {
+    // 已在当前视图时不重新冻结：重复点击活跃按钮不应该刷新列表。
+    if (next === view) return;
     finishSelection();
-    setView((current) => {
-      if (current === next) return current;
-      if (next === "active") {
-        setActiveViewIds(new Set(activeSessionView.pinned.flatMap((group) => group.sessions.map((session) => session.sessionId))
-          .concat(activeSessionView.working.flatMap((group) => group.sessions.map((session) => session.sessionId)))));
-      }
-      if (next === "sessions") setActiveViewIds(new Set());
-      return next;
-    });
-  }, [activeSessionView, finishSelection]);
+    setView(next);
+    // 每次进入活跃视图都重新冻结成员；离开时清空，避免下次切入前渲染陈旧列表。
+    setActiveSnapshot(next === "active" ? snapshotActiveSessionView(activeSessionView, knownSessionIds) : null);
+  }, [activeSessionView, finishSelection, knownSessionIds, view]);
   const toggleSelectedSession = useCallback((session: DshSessionSummary) => {
     setSelectedSessionIds((current) => toggleSessionSelection(current, session.sessionId));
   }, []);
@@ -253,6 +254,7 @@ export function SessionSidebar({
   function handleChooseWorkspace(path: string) {
     finishSelection();
     setView("sessions");
+    setActiveSnapshot(null);
     onChooseWorkspace(path);
   }
 
@@ -273,7 +275,6 @@ export function SessionSidebar({
     active={session.sessionId === activeSessionId}
     indicator={sessionIndicators[session.sessionId] ?? "idle"}
     pending={pendingSessionIds.has(session.sessionId)}
-    snapshotStale={crossWorkspace && !session.running && !activeViewIds.has(session.sessionId)}
     snippet={crossWorkspace ? undefined : searchResultById.get(session.sessionId)}
     pinned={Boolean(workspaceBySessionId.get(session.sessionId)?.pinnedSessionIds?.includes(session.sessionId))}
     canPin={!selectionMode && Boolean(workspaceBySessionId.get(session.sessionId)) && (crossWorkspace || !search.trim())}
@@ -308,10 +309,7 @@ export function SessionSidebar({
       {groups.map(renderActiveWorkspaceGroup)}
     </section>;
   };
-  const liveActiveCount = activeOpen
-    ? activeSessionView.pinned.reduce((total, group) => total + group.sessions.length, 0)
-      + activeSessionView.working.reduce((total, group) => total + group.sessions.filter(isActiveEligible).length, 0)
-    : 0;
+  const liveActiveCount = activeOpen ? activeView.total : 0;
   const renderArchivedSession = (session: DshSessionSummary) => (
     <div
       className={`archived-session-row session-status-${session.running ? "running" : "archived"}${selectionMode && selectedSessionIds.has(session.sessionId) ? " is-selected" : ""}`}
@@ -388,9 +386,9 @@ export function SessionSidebar({
         {archiveOpen ? (
           archivedSessions.length === 0 ? <div className="sidebar-empty">{t("sidebar.archiveEmpty", locale)}</div> : archivedSessions.map(renderArchivedSession)
         ) : activeOpen ? (
-          activeViewIds.size === 0 ? <div className="sidebar-empty">{t("sidebar.activeEmpty", locale)}</div> : <>
-            {renderActiveSection("pinned", activeSessionView.pinned)}
-            {renderActiveSection("working", activeSessionView.working.filter((group) => group.sessions.filter(isActiveEligible).length > 0).map((group) => ({ ...group, sessions: group.sessions.filter(isActiveEligible) })))}
+          activeView.total === 0 ? <div className="sidebar-empty">{t("sidebar.activeEmpty", locale)}</div> : <>
+            {renderActiveSection("pinned", activeView.pinned)}
+            {renderActiveSection("working", activeView.working)}
           </>
         ) : search.trim() ? (
           visibleSessions.length === 0 ? <div className="sidebar-empty">{t("sidebar.searchEmpty", locale)}</div> : visibleSessions.map((session) => renderSessionRow(session))
