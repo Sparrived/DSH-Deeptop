@@ -1826,6 +1826,7 @@
   "sidebar.openActive": "Toggle pinned and working sessions from all workspaces",
   "sidebar.openArchive": "Open archive",
   "sidebar.openSettings": "Open settings",
+  "sidebar.pendingCount": "{count} session(s) awaiting input",
   "sidebar.search": "Search sessions",
   "sidebar.searchEmpty": "No matching sessions",
   "sidebar.select": "Select",

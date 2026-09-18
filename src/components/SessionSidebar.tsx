@@ -354,7 +354,11 @@ export function SessionSidebar({
       <div className="sidebar-heading">
         {archiveOpen ? (
           <div className="sidebar-heading-title"><button className="sidebar-back-button" type="button" onClick={() => handleViewChange("sessions")} title={t("sidebar.backToSessions", locale)} aria-label={t("sidebar.backToSessions", locale)}><ChevronLeft aria-hidden="true" /></button><span>{t("sidebar.archive", locale)}</span></div>
-        ) : <span>{t(activeOpen ? "sidebar.active" : "sidebar.sessions", locale)}</span>}
+        ) : <span className="sidebar-heading-label">{t(activeOpen ? "sidebar.active" : "sidebar.sessions", locale)}{pendingSessionIds.size > 0 && <span
+          className="sidebar-pending-flag"
+          title={t("sidebar.pendingCount", locale, { count: pendingSessionIds.size })}
+          aria-label={t("sidebar.pendingCount", locale, { count: pendingSessionIds.size })}
+        >{pendingSessionIds.size}</span>}</span>}
         <div className="sidebar-heading-actions">
           <span>{archiveOpen ? archivedSessions.length : activeOpen ? liveActiveCount : (search.trim() ? visibleSessions.length : (selectedWorkspaceGroup.sessions.length > 0 ? selectedWorkspaceGroup.sessions.length : ""))}</span>
           {!activeOpen && selectionCandidates.length > 0 && <button className={`sidebar-selection-mode${selectionMode ? " selected" : ""}`} type="button" onClick={() => selectionMode ? finishSelection() : (onDismissSessionContextMenu(), setSelectionMode(true))} aria-pressed={selectionMode}>{t(selectionMode ? "sidebar.selectionDone" : "sidebar.select", locale)}</button>}

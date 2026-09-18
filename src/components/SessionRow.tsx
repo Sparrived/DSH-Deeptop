@@ -287,7 +287,7 @@ export function SessionRow({
       >⋮⋮</button>}
       <button
         type="button"
-        className="session-row-main"
+        className={`session-row-main${status === "pending" ? " has-flag" : ""}`}
         onClick={() => {
           if (selectable) {
             onToggleSelected?.(session);
@@ -297,6 +297,7 @@ export function SessionRow({
         }}
       >
         <span className="session-row-copy"><strong>{displayTitle(session, locale)}</strong><small className={snippet ? "session-search-snippet" : undefined}>{detail}</small></span>
+        {status === "pending" && <span className="session-row-flag">{t("session.status.pending", locale)}</span>}
       </button>
       {canPin && <button
         type="button"

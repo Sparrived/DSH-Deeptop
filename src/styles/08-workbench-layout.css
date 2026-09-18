@@ -728,6 +728,27 @@ textarea:focus-visible {
   gap: 8px;
 }
 
+/* 标题上的待处理计数：会话列表可能被滚动或折叠掉，侧栏标题始终可见，
+   所以在标题旁再挂一个不依赖滚动位置的计数，颜色与会话行标记一致。 */
+.sidebar-heading-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sidebar-pending-flag {
+  min-width: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--info) 18%, transparent);
+  color: var(--info);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.55;
+  text-align: center;
+}
+
 .sidebar-heading-actions button {
   width: 42px;
   min-width: 42px;
@@ -1102,9 +1123,14 @@ textarea:focus-visible {
 }
 
 .session-row.session-status-running,
-.session-row.session-status-pending,
 .archived-session-row.session-status-running {
   --session-status-color: var(--warning);
+}
+
+/* 待处理（审批/提问）与运行中必须一眼可分：运行中是琥珀色「在干活」，
+   待处理换成青蓝并额外挂静态文字标记，见 .session-row-flag。 */
+.session-row.session-status-pending {
+  --session-status-color: var(--info);
 }
 
 .session-row.session-status-completed {
@@ -1310,6 +1336,28 @@ body.deeptop-window-blurred .agent-working {
 
 .session-row-copy small.session-search-snippet {
   color: var(--accent-deep);
+}
+
+/* 待处理的静态标记：运行态靠光带表达「在干活」，而审批/提问恰恰是在等用户，
+   窗口空闲或失焦时光带会被停掉，所以待处理必须有一个不依赖动画的可见标记。
+   它常驻在行内、不占交互命中（pointer-events: none），点击仍落到整行按钮上。 */
+.session-row-main.has-flag {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.session-row-flag {
+  align-self: center;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--session-status-color) 55%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--session-status-color) 14%, transparent);
+  color: var(--session-status-color);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.5;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 .sidebar-heading-title {

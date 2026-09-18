@@ -109,3 +109,48 @@ test("keeps only the shared action glyphs while collapsed", async () => {
   assert.match(html, /class="session-list"/);
   assert.match(html, /<button class="sidebar-toggle-handle"[^>]*aria-label="展开侧栏"[^>]*>[\s\S]*<\/button><\/aside>$/);
 });
+
+/** 待处理会话（审批或提问挂起）的行内标记与标题计数，见 08-workbench-layout.css。 */
+const pendingSession = {
+  sessionId: "session-pending",
+  cwd: "D:\\Code\\DSH-Desktop",
+  updatedAt: 1_700_000_000_000,
+  running: false,
+  blank: false,
+  projections: { values: { title: "等待审批的会话" } },
+};
+
+test("marks a session awaiting approval or a question", async () => {
+  const html = await renderSidebar({
+    selectedWorkspaceGroup: {
+      workspace: null,
+      workspaceId: "",
+      sessions: [pendingSession],
+    },
+    pendingSessionIds: new Set([pendingSession.sessionId]),
+  });
+
+  // 待处理独立成状态类，且行内多出一个静态文字标记（不依赖动画）。
+  assert.match(html, /class="session-row session-status-pending[^"]*"/);
+  assert.match(html, /data-session-status="pending"/);
+  assert.match(html, /class="session-row-main has-flag"/);
+  assert.match(html, /class="session-row-flag">待处理</);
+  assert.match(html, /aria-label="会话状态：待处理"/);
+  // 标题旁的计数在列表被滚动或折叠时仍然可见。
+  assert.match(html, /class="sidebar-pending-flag"[^>]*>1</);
+  assert.match(html, /aria-label="1 个会话待处理"/);
+});
+
+test("leaves a plain session unmarked", async () => {
+  const html = await renderSidebar({
+    selectedWorkspaceGroup: {
+      workspace: null,
+      workspaceId: "",
+      sessions: [pendingSession],
+    },
+  });
+
+  assert.match(html, /class="session-row session-status-idle"/);
+  assert.doesNotMatch(html, /session-row-flag/);
+  assert.doesNotMatch(html, /sidebar-pending-flag/);
+});

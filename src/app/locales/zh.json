@@ -1826,6 +1826,7 @@
   "sidebar.openActive": "切换所有工作区的置顶与工作中会话",
   "sidebar.openArchive": "打开归档页",
   "sidebar.openSettings": "打开设置",
+  "sidebar.pendingCount": "{count} 个会话待处理",
   "sidebar.search": "搜索会话",
   "sidebar.searchEmpty": "没有匹配的会话",
   "sidebar.select": "选择",
