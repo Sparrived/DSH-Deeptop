@@ -54,8 +54,10 @@
       name: '@deepseek-ai/dsh-host-plugin-inventory'
 
     # Alpha.2 file receipt storage registers a route through the official Host
-    # connection service. Bind an unadvertised loopback socket; Deeptop does
-    # not expose this transport or the fileUploads Remote to the renderer.
+    # connection service. Bind an unadvertised loopback socket; the renderer
+    # never reaches this transport or the fileUploads Remote. Deeptop stages
+    # dropped files through its own `session.stageFile` bridge route instead,
+    # which calls `fileUploads.uploadStream` in process.
     - id: webserver
       name: '@deepseek-ai/dsh-host-webserver'
       config:
@@ -65,8 +67,9 @@
     - id: connection
       name: '@deepseek-ai/dsh-client-connection'
 
-    # SessionController owns prompt receipt binding and requires fileUploads,
-    # even though Deeptop currently exposes text and images only.
+    # SessionController owns prompt receipt binding and requires fileUploads.
+    # Deeptop uses it for the file attachments dropped into the composer, so the
+    # renderer can cite a receipt without ever handling the file bytes itself.
     - id: file-upload
       name: '@deepseek-ai/dsh-client-file-upload'
 

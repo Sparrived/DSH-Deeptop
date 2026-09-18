@@ -45,6 +45,7 @@ import {
   hostListDirectory,
   hostModels,
   hostOpenPath,
+  hostPathKinds,
   hostPickDirectory,
   jobOutput,
   llmDiscoverModels,
@@ -61,6 +62,8 @@ import {
   sessionRename,
   sessionSearch,
   sessionSelectModel,
+  sessionStageFile,
+  sessionRestageAttachment,
   sessionTurnOutline,
   sessionUpdateQueue,
   settingsDescribe,
@@ -415,6 +418,8 @@ function probeDesktopCapabilities(ctx) {
     sessionExport: false,
     commands: has(get('typertGateway'), 'invoke'),
     uiPlugins: has(get('deeptopUiRegistry'), 'list'),
+    // 文件附件走官方暂存回执；缺少 fileUploads 时前端只保留图片与路径引用。
+    fileAttachments: has(get('fileUploads'), 'uploadStream') && has(get('attachments'), 'readFileStream'),
   }
   return { probedAt: Date.now(), services }
 }
@@ -439,6 +444,8 @@ export async function routeDesktopRequest(ctx, method, payload, signal) {
     case 'session.fork': return sessionFork(ctx, payloadOf())
     case 'session.prompt': return sessionPrompt(ctx, payloadOf(), signal)
     case 'session.attachment': return sessionAttachment(ctx, payloadOf())
+    case 'session.stageFile': return sessionStageFile(ctx, payloadOf(), signal)
+    case 'session.restageAttachment': return sessionRestageAttachment(ctx, payloadOf(), signal)
     case 'session.exportZip': return exportSessionZip(ctx, payload, signal)
     case 'session.updateQueue': return sessionUpdateQueue(ctx, payloadOf())
     case 'session.cancel': return sessionCancel(ctx, payloadOf())
@@ -455,6 +462,7 @@ export async function routeDesktopRequest(ctx, method, payload, signal) {
     case 'host.listDirectory': return hostListDirectory(ctx, payloadOf(), signal)
     case 'host.createDirectory': return hostCreateDirectory(ctx, payloadOf())
     case 'host.openPath': return hostOpenPath(ctx, payloadOf(), signal)
+    case 'host.pathKinds': return hostPathKinds(ctx, payloadOf())
     case 'workspace.list': return decorateWorkspaceListResponse(ctx, await workspaceList(ctx, signal))
     case 'workspace.create': return decorateWorkspaceMutationResponse(ctx, await workspaceCreate(ctx, payloadOf()))
     case 'workspace.attachSession': return attachWorkspaceSession(ctx, payload)

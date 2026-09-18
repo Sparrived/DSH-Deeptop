@@ -938,6 +938,8 @@ test('probes official Host capabilities without failing when services are missin
       : key === 'credentialsController' ? { describe: async () => ({}) }
       : key === 'llm' ? { resolveModelInfo: async () => ({}) }
       : key === 'typertGateway' ? { invoke: async () => ({}) }
+      : key === 'fileUploads' ? { uploadStream: async () => ({}) }
+      : key === 'attachments' ? { readFileStream: () => (async function * () {})() }
       : key === 'dshHome' ? '/tmp/deeptop-capabilities-test'
       : undefined,
     pluginInventory: { list: async () => ({ entries: [] }) },
@@ -964,7 +966,133 @@ test('probes official Host capabilities without failing when services are missin
     sessionExport: false,
     commands: true,
     uiPlugins: false,
+    fileAttachments: true,
   })
+})
+
+test('stages a dropped file path through the official fileUploads service', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-stage-file-'))
+  const path = join(root, 'report.txt')
+  await writeFile(path, 'hello file attachment')
+  const received = []
+  const ctx = {
+    get: key => key === 'fileUploads' ? {
+      uploadStream: async (request) => {
+        const chunks = []
+        for await (const chunk of request.data) chunks.push(chunk)
+        const body = Buffer.concat(chunks)
+        received.push({ sessionId: request.sessionId, name: request.name, body: body.toString('utf8') })
+        return { receiptId: 'receipt-1', file: { attachmentId: 'sha256:abc', name: request.name, bytes: body.length } }
+      },
+    } : undefined,
+  }
+
+  const result = await routeDesktopRequest(ctx, 'session.stageFile', { sessionId: 'session-1', path }, signal)
+  assert.deepEqual(result, { receiptId: 'receipt-1', file: { attachmentId: 'sha256:abc', name: 'report.txt', bytes: 21 } })
+  assert.deepEqual(received, [{ sessionId: 'session-1', name: 'report.txt', body: 'hello file attachment' }])
+  await removePath(root, { recursive: true, force: true })
+})
+
+test('refuses to stage a path that is not a readable regular file', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-stage-missing-'))
+  const ctx = { get: () => ({ uploadStream: async () => ({}) }) }
+  for (const path of [join(root, 'nope.txt'), root]) {
+    await assert.rejects(
+      routeDesktopRequest(ctx, 'session.stageFile', { sessionId: 'session-1', path }, signal),
+      error => {
+        assert.equal(error?.code, 'attachment-unreadable')
+        return true
+      },
+    )
+  }
+  await assert.rejects(
+    routeDesktopRequest(ctx, 'session.stageFile', { sessionId: 'session-1' }, signal),
+    /requires path/,
+  )
+  await assert.rejects(
+    routeDesktopRequest(ctx, 'session.stageFile', { path: '/tmp/x' }, signal),
+    /requires sessionId/,
+  )
+  await removePath(root, { recursive: true, force: true })
+})
+
+test('reports the missing fileUploads service instead of failing opaquely', async () => {
+  const path = await mkdtemp(join(tmpdir(), 'deeptop-stage-capability-'))
+  await writeFile(join(path, 'a.txt'), 'x')
+  await assert.rejects(
+    routeDesktopRequest({ get: () => undefined }, 'session.stageFile', { sessionId: 's', path: join(path, 'a.txt') }, signal),
+    error => {
+      assert.equal(error?.code, 'attachment-unavailable')
+      return true
+    },
+  )
+  await removePath(path, { recursive: true, force: true })
+})
+
+test('restages a durable file reference by streaming the stored bytes back', async () => {
+  const uploaded = []
+  const ref = { attachmentId: 'sha256:deadbeef', name: 'notes.md', bytes: 7 }
+  const ctx = {
+    get: key => key === 'attachments' ? {
+      readFileStream: (received) => {
+        assert.deepEqual(received, ref)
+        return (async function * () { yield new TextEncoder().encode('content') })()
+      },
+    } : key === 'fileUploads' ? {
+      uploadStream: async (request) => {
+        const chunks = []
+        for await (const chunk of request.data) chunks.push(chunk)
+        uploaded.push({ sessionId: request.sessionId, name: request.name, body: Buffer.concat(chunks).toString('utf8') })
+        return { receiptId: 'receipt-2', file: { attachmentId: 'sha256:deadbeef', name: request.name, bytes: 7 } }
+      },
+    } : undefined,
+  }
+
+  const result = await routeDesktopRequest(ctx, 'session.restageAttachment', { sessionId: 'session-1', ...ref }, signal)
+  assert.deepEqual(result, { receiptId: 'receipt-2', file: { attachmentId: 'sha256:deadbeef', name: 'notes.md', bytes: 7 } })
+  assert.deepEqual(uploaded, [{ sessionId: 'session-1', name: 'notes.md', body: 'content' }])
+  await assert.rejects(
+    routeDesktopRequest(ctx, 'session.restageAttachment', { sessionId: 'session-1', attachmentId: 'sha256:x', name: 'a' }, signal),
+    /requires attachmentId, name and bytes/,
+  )
+})
+
+test('maps Host upload rejections onto desktop error codes', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-stage-reject-'))
+  const path = join(root, 'big.bin')
+  await writeFile(path, 'bytes')
+  const reject = code => ({ get: key => key === 'fileUploads' ? {
+    uploadStream: async () => { throw Object.assign(new Error('refused'), { code }) },
+  } : undefined })
+  for (const [code, expected] of [
+    ['session/attachment-invalid', 'attachment-unreadable'],
+    ['subagent/attachment-invalid', 'attachment-unreadable'],
+    ['session/not-found', 'session-not-found'],
+  ]) {
+    await assert.rejects(
+      routeDesktopRequest(reject(code), 'session.stageFile', { sessionId: 'session-1', path }, signal),
+      error => {
+        assert.equal(error?.code, expected)
+        return true
+      },
+    )
+  }
+  await removePath(root, { recursive: true, force: true })
+})
+
+test('classifies dropped host paths so folders keep reference behaviour', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'deeptop-path-kinds-'))
+  await writeFile(join(root, 'file.txt'), 'x')
+  await mkdir(join(root, 'nested'))
+  const result = await routeDesktopRequest({ get: () => undefined }, 'host.pathKinds', {
+    paths: [join(root, 'file.txt'), join(root, 'nested'), join(root, 'gone.txt'), '  '],
+  }, signal)
+  assert.deepEqual(result, { kinds: ['file', 'directory', 'missing', 'missing'] })
+  await assert.rejects(
+    routeDesktopRequest({ get: () => undefined }, 'host.pathKinds', { paths: [1] }, signal),
+    /requires a paths array/,
+  )
+  await removePath(root, { recursive: true, force: true })
 })
 
 test('reports Tools unavailable when home or native directory opening is missing', async () => {

@@ -11,6 +11,9 @@
 // publishes a public persistence contract.
 
 import { randomUUID } from 'node:crypto'
+import { createReadStream } from 'node:fs'
+import { stat } from 'node:fs/promises'
+import { basename } from 'node:path'
 import { codedError, remoteError, requireService, resolveAgent } from './api.mjs'
 import { unfoldRecords } from './session-records.mjs'
 
@@ -221,6 +224,139 @@ export async function sessionPrompt(ctx, payload, signal) {
 
 export async function sessionAttachment(ctx, payload) {
   return controller(ctx, 'sessionController').attachment(isRecord(payload) ? payload : {})
+}
+
+/**
+ * Send ordered bytes into the official Agent-scoped staged-receipt service and
+ * return the plain receipt the renderer cites in a prompt file part.
+ * @param ctx - bridge context carrying the fileUploads service.
+ * @param sessionId - receiving ordinary Session; subagents are refused upstream.
+ * @param data - exact file bytes in order; never aggregated by the bridge.
+ * @param name - optional display name; DSH sanitizes it into a stored leaf name.
+ * @param signal - caller cancellation for storage and source reads.
+ * @returns the staged receipt id and its durable file reference.
+ */
+async function stageFileStream(ctx, sessionId, data, name, signal) {
+  const uploads = requireService(ctx, 'fileUploads', 'attachment-unavailable', '文件附件需要 DSH fileUploads 服务')
+  if (typeof uploads.uploadStream !== 'function') {
+    throw codedError('attachment-unavailable', '当前 DSH 运行时不支持文件附件', { capability: 'fileUploads' })
+  }
+  try {
+    const value = await uploads.uploadStream({
+      sessionId,
+      data,
+      ...(signal === undefined ? {} : { signal }),
+      ...(name === undefined ? {} : { name }),
+    })
+    return {
+      receiptId: value.receiptId,
+      file: {
+        attachmentId: value.file.attachmentId,
+        name: value.file.name,
+        bytes: value.file.bytes,
+      },
+    }
+  } catch (error) {
+    throw remoteError(error, {
+      'session/attachment-invalid': 'attachment-unreadable',
+      'subagent/attachment-invalid': 'attachment-unreadable',
+      'session/not-found': 'session-not-found',
+    })
+  }
+}
+
+/**
+ * Classify dropped host paths so the renderer can route each one.
+ *
+ * A dropped folder must keep producing an `@path` reference instead of an
+ * attachment, and the renderer cannot tell a folder from an extensionless file
+ * by name, so the Host answers the kind question at drop time — before the
+ * composer commits to an attachment the Host would refuse at send time.
+ * @param ctx - unused; kept for the uniform route signature.
+ * @param payload - `{ paths }` from the renderer.
+ * @returns one kind per input path, in the same order.
+ */
+export async function hostPathKinds(ctx, payload) {
+  const paths = isRecord(payload) && Array.isArray(payload.paths) ? payload.paths : undefined
+  if (paths === undefined || paths.some((path) => typeof path !== 'string')) {
+    throw codedError('bad-request', 'host.pathKinds requires a paths array', {})
+  }
+  const kinds = await Promise.all(paths.map(async (path) => {
+    const clean = path.trim()
+    if (clean === '') return 'missing'
+    try {
+      const info = await stat(clean)
+      if (info.isDirectory()) return 'directory'
+      return info.isFile() ? 'file' : 'other'
+    } catch {
+      return 'missing'
+    }
+  }))
+  return { kinds }
+}
+
+/**
+ * Stage one host path as a Session file attachment for a drag-drop or picker
+ * selection. The bridge reads the file itself so the renderer never handles
+ * arbitrary bytes, and streams it so no size limit is imposed in memory.
+ * @param ctx - bridge context carrying the fileUploads service.
+ * @param payload - `{ sessionId, path }` from the renderer.
+ * @param signal - caller cancellation.
+ * @returns the staged receipt id and its durable file reference.
+ */
+export async function sessionStageFile(ctx, payload, signal) {
+  const request = isRecord(payload) ? payload : {}
+  if (typeof request.sessionId !== 'string' || request.sessionId.trim() === '') {
+    throw codedError('bad-request', 'session.stageFile requires sessionId', {})
+  }
+  if (typeof request.path !== 'string' || request.path.trim() === '') {
+    throw codedError('bad-request', 'session.stageFile requires path', {})
+  }
+  const path = request.path.trim()
+  let info
+  try {
+    info = await stat(path)
+  } catch (error) {
+    throw codedError('attachment-unreadable', `无法读取 ${path}`, { path, reason: String(error) })
+  }
+  if (!info.isFile()) throw codedError('attachment-unreadable', `${path} 不是普通文件`, { path })
+  // 上传中途失败时 Host 可能提前停止消费，此时必须显式关闭读取流，
+  // 否则拖入一个读不动的大文件会把文件描述符一直留在进程里。
+  const data = createReadStream(path)
+  try {
+    return await stageFileStream(ctx, request.sessionId, data, basename(path), signal)
+  } catch (error) {
+    data.destroy()
+    throw error
+  }
+}
+
+/**
+ * Re-stage one durable file attachment the Session log already references.
+ * Retry rebuilds a prompt from recorded content, which carries the durable
+ * reference rather than an upload receipt, so the stored bytes are streamed
+ * back into a fresh receipt for the rebuilt Session.
+ * @param ctx - bridge context carrying the attachment and fileUploads services.
+ * @param payload - `{ sessionId, attachmentId, name, bytes }` from a file part.
+ * @param signal - caller cancellation.
+ * @returns the staged receipt id and its durable file reference.
+ */
+export async function sessionRestageAttachment(ctx, payload, signal) {
+  const request = isRecord(payload) ? payload : {}
+  if (typeof request.sessionId !== 'string' || request.sessionId.trim() === '') {
+    throw codedError('bad-request', 'session.restageAttachment requires sessionId', {})
+  }
+  if (typeof request.attachmentId !== 'string' || request.attachmentId.trim() === ''
+    || typeof request.name !== 'string' || request.name.trim() === ''
+    || typeof request.bytes !== 'number' || !Number.isSafeInteger(request.bytes) || request.bytes < 0) {
+    throw codedError('bad-request', 'session.restageAttachment requires attachmentId, name and bytes', {})
+  }
+  const attachments = requireService(ctx, 'attachments', 'attachment-unavailable', '文件附件需要 DSH attachment 服务')
+  if (typeof attachments.readFileStream !== 'function') {
+    throw codedError('attachment-unavailable', '当前 DSH 运行时不支持读取文件附件', { capability: 'attachments.readFileStream' })
+  }
+  const ref = { attachmentId: request.attachmentId, name: request.name, bytes: request.bytes }
+  return stageFileStream(ctx, request.sessionId, attachments.readFileStream(ref, signal), ref.name, signal)
 }
 
 export async function sessionUpdateQueue(ctx, payload) {
