@@ -258,6 +258,31 @@
   backdrop-filter: blur(14px);
 }
 
+/* 窄框收起：窗口变窄时四个工具页签让出横向空间，收成 44px 图标条
+   （沿用仓库既有的收起宽度约定），标签与计数隐藏；按钮的 title 与
+   role="tab" 语义不变，可访问名称仍然完整。下限取 761px，只作用于
+   桌面竖排工具栏，760px 以下的横排布局保持原有样式不变。 */
+@media (max-width: 1120px) and (min-width: 761px) {
+  .composer-workbench {
+    grid-template-columns: minmax(0, 1fr) var(--todo-collapsed-width, 44px);
+  }
+
+  .composer-workbench > .utility-panel-shelf {
+    width: var(--todo-collapsed-width, 44px);
+  }
+
+  .utility-panel-tab {
+    grid-template-columns: auto;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .utility-panel-tab-label,
+  .utility-panel-tab-count {
+    display: none;
+  }
+}
+
 @media (max-width: 760px) {
   .composer-workbench {
     display: flex;
