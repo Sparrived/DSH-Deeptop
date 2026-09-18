@@ -23,6 +23,7 @@ function capabilities(services) {
       tools: true,
       sessionExport: true,
       commands: true,
+      fileAttachments: true,
       ...services,
     },
   };
@@ -57,4 +58,19 @@ test("missing capabilities degrade only the affected features", () => {
   assert.equal(status.features.workspace, true);
   assert.equal(status.features.annotations, true);
   assert.match(capabilityNotice(capabilities({ references: false, sessionExport: false })), /引用候选、会话 ZIP 导出/);
+});
+
+test("a runtime without file staging degrades only non-image attachments", () => {
+  const status = capabilityStatus(capabilities({ fileAttachments: false }));
+  assert.deepEqual(status.missing, ["fileAttachments"]);
+  assert.equal(status.features.fileAttachments, false);
+  // 图片附件走的是既有的原生图片管线，不受文件附件能力影响。
+  assert.equal(status.features.references, true);
+  assert.match(capabilityNotice(capabilities({ fileAttachments: false })), /文件附件/);
+});
+
+test("unprobed capabilities never disable file attachments", () => {
+  // 探测失败（null）与「探测到能力缺失」不同：前者保持旧行为，不误判为退化。
+  assert.equal(capabilityStatus(null).features.fileAttachments, true);
+  assert.equal(capabilityStatus(capabilities({})).features.fileAttachments, true);
 });

@@ -148,7 +148,8 @@ const composerProps = {
   onChangeReasoningEffort() {},
 };
 
-const attachment = (id) => ({ id, name: `图 ${id}.png`, mediaType: "image/png", data: `payload-${id}` });
+const attachment = (id) => ({ kind: "image", id, name: `图 ${id}.png`, mediaType: "image/png", data: `payload-${id}` });
+const fileAttachment = (id) => ({ kind: "file", id, name: `报告 ${id}.txt`, path: `C:/tmp/报告 ${id}.txt` });
 const byClass = (tree, className) => collectElements(tree, (node) => node.props?.className === className)[0];
 const hasClass = (node, name) => String(node.props?.className ?? "").split(" ").includes(name);
 const pillsOf = (tree) => collectElements(tree, (node) => hasClass(node, "composer-attachment"));
@@ -169,7 +170,7 @@ test("keeps the pending images above the input box, not inside it", async () => 
   assert.equal(collectElements(shell, (node) => hasClass(node, "composer-attachment")).length, 0);
   // 横跨输入框与右侧工具列，不受工具列宽度挤压。
   assert.equal(row.props.role, "group");
-  assert.equal(row.props["aria-label"], "待发送图片");
+  assert.equal(row.props["aria-label"], "待发送附件");
 });
 
 test("shows no attachment row without pending images", async () => {
@@ -193,6 +194,38 @@ test("renders each pending image as a capsule with its thumbnail and name", asyn
   const images = collectElements(tree, (node) => node.type === "img");
   assert.deepEqual(images.map((image) => image.props.src), ["data:image/png;base64,payload-a", "data:image/png;base64,payload-b"]);
   assert.deepEqual(images.map((image) => image.props.alt), ["图 a.png", "图 b.png"]);
+});
+
+test("renders a dropped file as a name-only capsule without a preview opener", async () => {
+  const renderer = createHookRenderer();
+  const { ComposerShell } = await loadModule(renderer.react, "./ComposerShell.tsx");
+
+  const tree = renderer.render(ComposerShell, { ...composerProps, attachments: [fileAttachment("a")] });
+  const pills = pillsOf(tree);
+
+  assert.equal(pills.length, 1);
+  assert.equal(pills[0].props.className, "composer-attachment composer-attachment-file");
+  assert.equal(textOf(pills[0]), "报告 a.txt");
+  // 文件没有内存字节可预览，也没有缩略图；胶囊只暴露文件名与完整路径。
+  assert.equal(collectElements(pills[0], (node) => node.type === "button" && hasClass(node, "composer-attachment-open")).length, 0);
+  assert.equal(collectElements(pills[0], (node) => node.type === "img").length, 0);
+  assert.equal(byClass(pills[0], "composer-attachment-file-name").props.title, "C:/tmp/报告 a.txt");
+  assert.equal(collectElements(pills[0], (node) => node.type === "button" && hasClass(node, "composer-attachment-remove")).length, 1);
+  assert.equal(previewOf(tree), null);
+});
+
+test("removes a file capsule through the same close button contract", async () => {
+  const renderer = createHookRenderer();
+  const { ComposerShell } = await loadModule(renderer.react, "./ComposerShell.tsx");
+
+  const removed = [];
+  const props = { ...composerProps, attachments: [attachment("a"), fileAttachment("b")], onRemoveAttachment: (id) => removed.push(id) };
+  const tree = renderer.render(ComposerShell, props);
+
+  const buttons = collectElements(tree, (node) => node.type === "button" && hasClass(node, "composer-attachment-remove"));
+  assert.equal(buttons.length, 2);
+  buttons[1].props.onClick();
+  assert.deepEqual(removed, ["b"]);
 });
 
 test("removes exactly the capsule whose close button was pressed", async () => {

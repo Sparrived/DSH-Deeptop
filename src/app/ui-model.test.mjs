@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { composerReferenceText, detectComposerTrigger, droppedImageMediaType, fileTabDetail, imageBatchLimitError, imageDimensionLimitError, imageLimitsFromProjection, insertComposerCandidate, modelPickerGroups, modelSupportsImages, promptContentParts, referenceComposerCandidates, relativeWorkspacePath, insertComposerText, formatRuntimeLog, formatRuntimeLogs, runtimeLogMatches, questionAnswerItems, firstUnansweredQuestionIndex, sessionPath, planEffectiveTarget, planReviewOf, sessionIsVisible, subagentTreeKey, subagentTreeChildId, subagentTreeParentId } from "./ui-model.ts";
+import { composerReferenceText, detectComposerTrigger, droppedImageMediaType, fileAttachments, fileTabDetail, formatAttachmentBytes, imageAttachments, imageBatchLimitError, imageDimensionLimitError, imageLimitsFromProjection, insertComposerCandidate, modelPickerGroups, modelSupportsImages, partitionDroppedPaths, promptContentParts, referenceComposerCandidates, relativeWorkspacePath, insertComposerText, formatRuntimeLog, formatRuntimeLogs, runtimeLogMatches, questionAnswerItems, firstUnansweredQuestionIndex, sessionPath, planEffectiveTarget, planReviewOf, sessionIsVisible, subagentTreeKey, subagentTreeChildId, subagentTreeParentId } from "./ui-model.ts";
 
 test("keeps ordinary fork sessions visible while hiding subagents", () => {
   const base = { sessionId: "session-1", updatedAt: 1, running: false, blank: false, cwd: "C:\\temp" };
@@ -80,7 +80,7 @@ test("reads official imageLimits projection and checks local limits", () => {
   assert.deepEqual(imageLimitsFromProjection(limits), limits);
   assert.equal(imageDimensionLimitError(41, 10, limits), "图片边长不能超过 40px");
   assert.equal(imageDimensionLimitError(32, 32, limits), "图片像素数不能超过 1000");
-  assert.equal(imageBatchLimitError([], [{ id: "1", name: "a", mediaType: "image/png", data: "1234" }, { id: "2", name: "b", mediaType: "image/png", data: "1234" }, { id: "3", name: "c", mediaType: "image/png", data: "1234" }], limits), "图片数量不能超过 2 张");
+  assert.equal(imageBatchLimitError([], [{ kind: "image", id: "1", name: "a", mediaType: "image/png", data: "1234" }, { kind: "image", id: "2", name: "b", mediaType: "image/png", data: "1234" }, { kind: "image", id: "3", name: "c", mediaType: "image/png", data: "1234" }], limits), "图片数量不能超过 2 张");
 });
 
 test("encodes official DSH custom answers for optioned and optionless questions", () => {
@@ -120,7 +120,7 @@ test("respects an explicit text-only model declaration", () => {
 });
 
 test("builds the DSH prompt shape for image-only and mixed messages", () => {
-  const image = { id: "attachment-1", name: "画面.png", mediaType: "image/png", data: "QUJD" };
+  const image = { kind: "image", id: "attachment-1", name: "画面.png", mediaType: "image/png", data: "QUJD" };
   assert.deepEqual(promptContentParts("", [image]), [
     { type: "image", mediaType: "image/png", data: "QUJD", name: "画面.png" },
   ]);
@@ -128,6 +128,35 @@ test("builds the DSH prompt shape for image-only and mixed messages", () => {
     { type: "text", text: "描述这张图" },
     { type: "image", mediaType: "image/png", data: "QUJD", name: "画面.png" },
   ]);
+});
+
+test("partitions attachments so only images reach the local byte pipeline", () => {
+  const image = { kind: "image", id: "i", name: "画面.png", mediaType: "image/png", data: "QUJD" };
+  const file = { kind: "file", id: "f", name: "报告.txt", path: "C:/tmp/报告.txt" };
+  assert.deepEqual(imageAttachments([image, file]), [image]);
+  assert.deepEqual(fileAttachments([image, file]), [file]);
+  // 图片上限只统计图片：文件附件的字节由 Host 读取，不占用消息图片预算。
+  const limits = { maxImagesPerMessage: 1, maxMessageImageBytes: 10 };
+  const packed = { kind: "image", id: "packed", name: "满.png", mediaType: "image/png", data: "QUJDREVGR0g=" };
+  assert.equal(imageBatchLimitError([packed], [file], limits), undefined);
+  assert.match(imageBatchLimitError([packed], [packed], limits), /图片数量/);
+});
+
+test("splits dropped paths into image and file attachments by extension", () => {
+  const { images, files } = partitionDroppedPaths(["C:\\tmp\\图.PNG", "/tmp/报告.txt"]);
+  assert.deepEqual(images, ["C:\\tmp\\图.PNG"]);
+  assert.deepEqual(files.map((item) => ({ kind: item.kind, name: item.name, path: item.path })), [
+    { kind: "file", name: "报告.txt", path: "/tmp/报告.txt" },
+  ]);
+  assert.deepEqual(partitionDroppedPaths(["", "   "]), { images: [], files: [] });
+});
+
+test("describes attachment sizes without guessing unknown bytes", () => {
+  assert.equal(formatAttachmentBytes(512), "512 B");
+  assert.equal(formatAttachmentBytes(2048), "2.0 KB");
+  assert.equal(formatAttachmentBytes(3 * 1024 * 1024), "3.0 MB");
+  assert.equal(formatAttachmentBytes(-1), "");
+  assert.equal(formatAttachmentBytes(Number.NaN), "");
 });
 
 test("inserts a file path at the caret with readable separators", () => {

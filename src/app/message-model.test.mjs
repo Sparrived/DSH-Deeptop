@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { contextProvenance, diffSummaryFromHistoryEntry, contentSegments, eventToolText, formatTokens } from "./message-model.ts";
+import { contextProvenance, diffSummaryFromHistoryEntry, contentSegments, eventToolText, formatTokens, textFromContent } from "./message-model.ts";
 
 test("keeps durable image references for conversation rendering", () => {
   assert.deepEqual(contentSegments([
@@ -10,7 +10,23 @@ test("keeps durable image references for conversation rendering", () => {
     text: "看看这张图",
     reasoning: "",
     images: [{ mediaType: "image/jpeg", attachmentId: "attachment-1", name: "画面.jpg" }],
+    files: [],
   });
+});
+
+test("keeps durable file references for conversation rendering", () => {
+  assert.deepEqual(contentSegments([
+    { type: "text", text: "看下附件" },
+    { type: "file", attachment: { attachmentId: "sha256:abc", name: "报告.txt", bytes: 21 } },
+  ]), {
+    text: "看下附件",
+    reasoning: "",
+    images: [],
+    files: [{ attachmentId: "sha256:abc", name: "报告.txt", bytes: 21 }],
+  });
+  // 引用不完整时不能渲染成半截胶囊，也不能让重试拿到假数据。
+  assert.deepEqual(contentSegments([{ type: "file", attachment: { attachmentId: "sha256:abc" } }]).files, []);
+  assert.equal(textFromContent([{ type: "file", attachment: { attachmentId: "sha256:abc", name: "a.txt", bytes: 1 } }]), "[1 个文件]");
 });
 
 test("keeps inline image data for live conversation rendering", () => {

@@ -29,6 +29,21 @@ test("preserves text and durable image references for retry", () => {
   ]);
 });
 
+test("preserves durable file references for retry", () => {
+  assert.deepEqual(retryPromptSourceParts([
+    { type: "text", text: "看下附件" },
+    { type: "file", attachment: { attachmentId: "sha256:abc", name: "报告.txt", bytes: 21 } },
+  ]), [
+    { type: "text", text: "看下附件" },
+    { type: "file", attachmentId: "sha256:abc", name: "报告.txt", bytes: 21 },
+  ]);
+  // 缺少 bytes 就无法重新取回字节，必须报错而不是发出一个读不到内容的附件。
+  assert.throws(
+    () => retryPromptSourceParts([{ type: "file", attachment: { attachmentId: "sha256:abc", name: "a.txt" } }]),
+    /文件引用无效/,
+  );
+});
+
 test("normalizes inline data URLs and rejects unusable images", () => {
   assert.deepEqual(retryPromptSourceParts([
     { type: "image", mediaType: "image/jpeg", data: "data:image/jpeg;base64,QUJD" },
