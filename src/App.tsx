@@ -201,6 +201,9 @@ import {
   promptContentParts,
   imageMediaType,
   readImageFile,
+  imageAttachments,
+  fileAttachments,
+  partitionDroppedPaths,
   formatDate,
   displayTitle,
   textFromContent,
@@ -254,6 +257,8 @@ import {
   type ComposerTrigger,
   type SessionSearchResult,
   type ComposerAttachment,
+  type ComposerFileAttachment,
+  type ComposerImageAttachment,
   type SessionStats,
   type ChildSubagentEntry,
   type SubagentSession,
@@ -714,6 +719,10 @@ function AppContent() {
   workspaceRef.current = workspace;
   const modelsRef = useRef(models);
   modelsRef.current = models;
+  // 拖放监听只注册一次（依赖 [desktop]），回调里读 state 会拿到首帧快照；
+  // 文件附件能力在探测完成后才知道，因此用 ref 传递，避免退化路径永久失效。
+  const fileAttachmentsAvailableRef = useRef(true);
+  fileAttachmentsAvailableRef.current = capabilityFeatures.fileAttachments;
   const attachmentsRef = useRef<ComposerAttachment[]>(attachments);
   attachmentsRef.current = attachments;
   const [composerDropActive, setComposerDropActive] = useState(false);
@@ -2665,9 +2674,13 @@ function AppContent() {
     // Existing sessions follow the Host workspace account. cwd only chooses the
     // working directory when creating a session; it does not imply membership.
     setWorkspace(workspacePathForSession(session.sessionId, workspacesRef.current));
-    historyRef.current = [];
-    setHistory([]);
-    setHistoryHasMore(false);
+    // 复访会话时先用分页缓存把窗口同步放回：否则切换先清空历史，再分次提交最新页
+    // 与补齐的旧页，每一帧都重新把视口钉到底部，用户看到内容连跳几次。
+    // 命中缓存时后续 `setHistory` 收到的是同一个数组引用，React 直接跳过重渲染。
+    const cachedHistory = historyPageCache.get(session.sessionId);
+    historyRef.current = cachedHistory?.entries ?? [];
+    setHistory(historyRef.current);
+    setHistoryHasMore(cachedHistory?.hasMore ?? false);
     clearDashboardHistory();
     setSessionStats(emptySessionStats());
     historyLoadingOlderRef.current = false;
@@ -2702,10 +2715,10 @@ function AppContent() {
     setDraftModelSelection(null);
     setDraftPermission(null);
     setPermissionSelect(null);
-    setLoading(true);
+    // 缓存命中时窗口已经可用，加载态只覆盖「历史还没到位」这一段。
+    setLoading(cachedHistory === undefined);
     let historyVersion: HistoryLatestLoad | undefined;
     try {
-      const cachedHistory = historyPageCache.get(session.sessionId);
       historyVersion = cachedHistory ? undefined : historyPageCache.beginLatestLoad(session.sessionId);
       const historyRequest = cachedHistory
         ? Promise.resolve({
@@ -2951,19 +2964,24 @@ function AppContent() {
     const loadRequest = sessionLoadRequestRef.current;
     const stillOwnsView = () => sessionLoadRequestRef.current === loadRequest && activeSessionRef.current === sessionId;
     let hasMore = hasMoreFromLatestPage;
+    // 逐页 setHistory 会让「钉住最新输出」的 effect 每页都把视口重排一次；这里先只
+    // 累积拉到的页，循环结束后一次性并入窗口，补齐过程对用户是一帧。
+    let filled = historyRef.current;
+    let filledHasMore = hasMore;
+    const loadedPages: DshHistoryEntry[][] = [];
     for (let page = 0; page < HISTORY_ROUND_FILL_PAGE_LIMIT && hasMore; page += 1) {
       // 手动翻页（读取更早消息 / 轮次跳转）一旦开始就让它接管，避免两边同时改写窗口。
-      if (!stillOwnsView() || historyLoadingOlderRef.current) return;
-      if (!needsNewestRoundFill(historyRef.current, hasMore)) return;
-      const beforeSeq = displayHistoryStartSeq(historyRef.current);
-      if (beforeSeq === undefined) return;
+      if (!stillOwnsView() || historyLoadingOlderRef.current) break;
+      if (!needsNewestRoundFill(filled, hasMore)) break;
+      const beforeSeq = displayHistoryStartSeq(filled);
+      if (beforeSeq === undefined) break;
       const cached = historyPageCache.get(sessionId, beforeSeq);
       let pageEntries: DshHistoryEntry[];
       if (cached) {
         pageEntries = cached.entries;
         hasMore = cached.hasMore;
       } else {
-        if (!historyPageCache.markLoading(sessionId, beforeSeq)) return;
+        if (!historyPageCache.markLoading(sessionId, beforeSeq)) break;
         try {
           const result = await desktopRequest("session.history", {
             sessionId,
@@ -2977,13 +2995,21 @@ function AppContent() {
           historyPageCache.unmarkLoading(sessionId, beforeSeq);
         }
       }
-      if (!stillOwnsView() || historyLoadingOlderRef.current) return;
-      const merged = mergeDisplayHistory(historyRef.current, pageEntries);
-      historyRef.current = merged;
-      setHistory(merged);
-      setHistoryHasMore(hasMore);
+      if (!stillOwnsView() || historyLoadingOlderRef.current) break;
+      loadedPages.push(pageEntries);
+      filled = mergeDisplayHistory(filled, pageEntries);
+      filledHasMore = hasMore;
       // 不占用 historyLoadingOlderRef：跟随滚动的 effect 据此保持钉在最新输出上。
     }
+    if (loadedPages.length === 0) return;
+    // 会话已切走时 `historyRef` 属于新会话，手动翻页也已接管窗口：两种情况下都不能提交。
+    if (!stillOwnsView() || historyLoadingOlderRef.current) return;
+    // 并入提交时刻的窗口而不是本地快照：期间到达的实时事件和手动翻页结果都不能被覆盖。
+    const committed = mergeDisplayHistory(historyRef.current, loadedPages.flat());
+    if (committed === historyRef.current) return;
+    historyRef.current = committed;
+    setHistory(committed);
+    setHistoryHasMore(filledHasMore);
   }
 
   /**
@@ -3961,11 +3987,17 @@ function AppContent() {
       setErrorNotice(t("notice.modelUnavailable", locale));
       return;
     }
-    if (attachments.length > 0) {
+    if (imageAttachments(attachments).length > 0) {
       if (!selectedModelSupportsImages) {
         setErrorNotice(t("notice.imagesNotSupported", locale));
         return;
       }
+    }
+    // 探测到运行时缺少文件附件能力时，草稿里的文件附件不可能暂存成功，
+    // 与其让 Host 在发送中途拒绝，不如在发送前给出同一条降级提示。
+    if (!capabilityFeatures.fileAttachments && fileAttachments(attachments).length > 0) {
+      setErrorNotice(t("notice.fileAttachmentsUnsupported", locale));
+      return;
     }
     setLoading(true);
     // An idle session has no turn to steer, so the preferred mode applies only
@@ -3993,10 +4025,15 @@ function AppContent() {
         }
         return;
       }
+      // 文件附件在发送这一刻才暂存：只持有源路径的草稿可能被丢弃，提前暂存会在会话里留下无人引用的回执。
+      const stagedFiles = await Promise.all(fileAttachments(attachments).map(async (attachment) => {
+        const staged = await desktopRequest("session.stageFile", { sessionId, path: attachment.path });
+        return { type: "file" as const, receiptId: staged.receiptId };
+      }));
       const promptPayload: DshSessionPromptPayload = {
         sessionId,
         mode: submitMode,
-        content: promptContentParts(text, attachments),
+        content: [...promptContentParts(text, imageAttachments(attachments)), ...stagedFiles],
         clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       };
       await desktopRequest("session.prompt", { ...promptPayload });
@@ -4141,12 +4178,22 @@ function AppContent() {
       if (sourceParts.length === 0) throw new Error(t("err.retryNoPrompt", locale));
 
       const hydratedContent: DshPromptContentPart[] = await Promise.all(sourceParts.map(async (part) => {
-        if (part.type === "text" || part.data) return part.type === "image" ? {
+        if (part.type === "text" || (part.type === "image" && part.data)) return part.type === "image" ? {
           type: "image" as const,
           mediaType: part.mediaType,
           data: part.data!,
           ...(part.name ? { name: part.name } : {}),
         } : part;
+        // 文件块重试：把会话日志里的持久化引用重新暂存成新回执。
+        if (part.type === "file") {
+          const staged = await desktopRequest("session.restageAttachment", {
+            sessionId,
+            attachmentId: part.attachmentId,
+            name: part.name,
+            bytes: part.bytes,
+          });
+          return { type: "file" as const, receiptId: staged.receiptId };
+        }
         const attachment = await desktopRequest("session.attachment", {
           sessionId,
           attachmentId: part.attachmentId!,
@@ -4824,7 +4871,7 @@ function AppContent() {
       const limits = models?.imageLimits;
       const next = await Promise.all(candidates.map((file) => readImageFile(file, limits, locale)));
       setAttachments((current) => {
-        const limitError = imageBatchLimitError(current, next, limits, locale);
+        const limitError = imageBatchLimitError(imageAttachments(current), next, limits, locale);
         if (limitError) throw new Error(limitError);
         return [...current, ...next];
       });
@@ -4841,7 +4888,7 @@ function AppContent() {
     void addComposerFiles(files);
   }
 
-  /** 在输入框光标处插入拖入文件的 @路径引用，与文件候选的插入行为一致。 */
+  /** 在输入框光标处插入拖入路径的 @引用；目录无法作为附件，仍沿用旧行为。 */
   function insertDroppedReferences(paths: string[]) {
     const insertion = paths.map((path) => composerReferenceText(path, workspaceRef.current)).filter(Boolean).join(" ");
     if (!insertion) return;
@@ -4860,24 +4907,36 @@ function AppContent() {
     });
   }
 
-  /** 处理原生拖放到输入框的系统路径：图片走附件管线，其余文件插入路径引用。 */
+  /** 处理原生拖放到输入框的系统路径：图片与非图片文件都成为待发送附件，目录仍插入 @引用。 */
   async function acceptDroppedPaths(paths: string[]) {
     if (paths.length === 0) return;
     const limits = modelsRef.current?.imageLimits;
-    const imagePaths = paths.filter((path) => Boolean(droppedImageMediaType(path)));
-    const referencePaths = paths.filter((path) => !droppedImageMediaType(path));
+    // 目录没有字节可暂存，只有普通文件才可能是附件；分类由 Host 按 stat 决定，前端不猜。
+    const kinds = await desktopRequest("host.pathKinds", { paths }).then((result) => result.kinds).catch(() => null);
+    const attachable: string[] = [];
+    const referencePaths: string[] = [];
+    for (const [index, path] of paths.entries()) {
+      const image = Boolean(droppedImageMediaType(path));
+      const stageable = kinds === null ? image : kinds[index] === "file";
+      // 图片始终走图片附件；非图片文件只有在 Host 确认它是普通文件、且本运行时
+      // 支持文件附件时才成为附件，否则退回 @路径引用，而不是等到发送才被拒绝。
+      if (stageable && (image || fileAttachmentsAvailableRef.current)) attachable.push(path);
+      else referencePaths.push(path);
+    }
+    const { images: imagePaths, files: fileItems } = partitionDroppedPaths(attachable);
     const errors: string[] = [];
     let addedImages = 0;
-    let referencedPaths = 0;
+    let addedFiles = 0;
 
     if (imagePaths.length > 0) {
       // 与 readImageFile 的本地默认上限保持一致；Rust 侧另有 64 MB 硬上限。
       const maxBytes = limits?.maxImageBytes ?? 12 * 1024 * 1024;
       const results = await Promise.allSettled(imagePaths.map((path) => readDroppedImage(path, maxBytes)));
-      const loaded: ComposerAttachment[] = [];
+      const loaded: ComposerImageAttachment[] = [];
       for (const result of results) {
         if (result.status === "fulfilled") {
           loaded.push({
+            kind: "image",
             id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
             name: result.value.name,
             mediaType: result.value.mediaType,
@@ -4888,7 +4947,7 @@ function AppContent() {
         }
       }
       if (loaded.length > 0) {
-        const limitError = imageBatchLimitError(attachmentsRef.current, loaded, limits, locale);
+        const limitError = imageBatchLimitError(imageAttachments(attachmentsRef.current), loaded, limits, locale);
         if (limitError) {
           errors.push(limitError);
         } else {
@@ -4898,14 +4957,17 @@ function AppContent() {
       }
     }
 
-    if (referencePaths.length > 0) {
-      insertDroppedReferences(referencePaths);
-      referencedPaths = referencePaths.length;
+    if (fileItems.length > 0) {
+      setAttachments((current) => [...current, ...fileItems]);
+      addedFiles = fileItems.length;
     }
+
+    if (referencePaths.length > 0) insertDroppedReferences(referencePaths);
 
     const notices: string[] = [];
     if (addedImages > 0) notices.push(t("notice.imagesAddedCount", locale, { count: addedImages }));
-    if (referencedPaths > 0) notices.push(t("notice.referencedPathsCount", locale, { count: referencedPaths }));
+    if (addedFiles > 0) notices.push(t("notice.filesAddedCount", locale, { count: addedFiles }));
+    if (referencePaths.length > 0) notices.push(t("notice.referencedPathsCount", locale, { count: referencePaths.length }));
     if (errors.length > 0) setErrorNotice([...new Set(errors)].join("；"));
     else if (notices.length > 0) setNotice(notices.join("，"));
   }

@@ -44,6 +44,7 @@
 - [x] 消息操作：复制、按 `atSeq` 分叉、assistant Like/Dislike/反馈备注，以及用户消息“重试”（从最近已完成回合分支后重发当前提示词）已完成。
 - [~] 工具视图：通用 call/result、Workflow、Produced Files、Diff 统计、路径/连接卡片和文件看板已完成；搜索/Web/Skill 领域卡片已按官方 presentResult 投影补上（来源列表、抓取目标、Skill 加载记录），终端以原生 PTY Dock 提供，Todo 有 Inspector 面板。
 - [~] Markdown/媒体：GFM、图片展示、粘贴/拖放上传、图片点击放大、附件画廊 Lightbox（前后导航/缩略图/键盘）与数学公式（remark-math + KaTeX）已完成；缺少更完整的音频/视频附件画廊（按需扩展）。
+- [x] 非图片文件附件：拖入发送框的文件与图片一样成为待发送附件，发送时经 `session.stageFile` 由 Host 读取字节并调用官方 `fileUploads.uploadStream` 换取暂存回执，prompt 只引用回执；会话日志里的耐久引用在历史消息中显示为文件名胶囊，重试经 `session.restageAttachment` 重新入队。目录仍沿用 `@路径` 引用（`host.pathKinds` 按 stat 分类）。
 
 ### P1：输入和运行交互
 
