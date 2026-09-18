@@ -115,6 +115,26 @@ test("opening a session keeps paging while the newest round has no input row", (
   assert.equal(needsNewestRoundFill(midRound, false), false);
 });
 
+test("batches round-fill pages into one window equal to sequential merges", () => {
+  // openSession 切换会话时把补齐的旧页攒齐后只提交一次，避免每页重排一次视口。
+  // 前提：一次并入多页与逐页并入结果一致，且重复并入已在窗口里的缓存页是空操作。
+  const newest = [entry(300, "user/message", { content: [{ type: "text", text: "prompt" }] }), entry(301, "tool/result", { turn: 3, step: 9 })];
+  const older = [entry(200, "turn/start", { turn: 3 }), entry(201, "tool/call", { turn: 3, step: 1, name: "read" })];
+  const oldest = [entry(100, "user/message", { content: [{ type: "text", text: "first" }] })];
+
+  const sequential = mergeHistoryEntries(mergeHistoryEntries(newest, older), oldest);
+  const batched = mergeHistoryEntries(newest, [...older, ...oldest]);
+  // 逐页合并会给中间结果打上分页起点标记，一次并入不会留下这些中间标记；
+  // 标记只参与「最早顺序号」的取最小，所以真正要守住的是派生结果一致。
+  assert.deepEqual(batched.map((item) => item.event.seq), sequential.map((item) => item.event.seq));
+  assert.equal(displayHistoryStartSequence(batched), displayHistoryStartSequence(sequential));
+  assert.equal(displayHistoryEventCount(batched), displayHistoryEventCount(sequential));
+
+  // 缓存命中时窗口已由同一批缓存数组拼成，重新并入必须原样返回同一引用。
+  assert.equal(mergeHistoryEntries(batched, [...older, ...oldest]), batched);
+  assert.equal(mergeHistoryEntries(batched, batched), batched);
+});
+
 test("folds a large active stream into one lossless display delta", () => {
   const chunks = Array.from({ length: 25_000 }, (_, index) => chunk(index + 2, String(index % 10)));
   const compacted = compactHistoryEntries([
