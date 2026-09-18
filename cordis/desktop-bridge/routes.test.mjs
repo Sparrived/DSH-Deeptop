@@ -964,6 +964,7 @@ test('probes official Host capabilities without failing when services are missin
     plugins: true,
     tools: true,
     sessionExport: false,
+    sessionDelete: false,
     commands: true,
     uiPlugins: false,
     fileAttachments: true,
@@ -1524,9 +1525,9 @@ test('restores an archived session through the workspace registry state', async 
   assert.deepEqual(registry.state.archivedSessionIds, ['session-2'])
 })
 
-test('keeps archived deletion unavailable without inspecting private persistence state', async () => {
-  let state = { initialized: true, workspaceIds: [], archivedSessionIds: ['session-locationless'] }
-  let sessionReads = 0
+test('permanently removes an archived session through the persistence seam', async () => {
+  let state = { initialized: true, workspaceIds: [], archivedSessionIds: ['session-gone', 'session-kept'] }
+  const removed = []
   const registry = {
     state,
     global: {
@@ -1536,19 +1537,86 @@ test('keeps archived deletion unavailable without inspecting private persistence
     enqueueOperation: operation => operation(),
     list: () => [],
   }
+  const ctx = {
+    get: key => ({
+      workspaceRegistry: registry,
+      sessionPersistence: { delete: async (id, options) => { removed.push({ id, options }); return true } },
+    })[key],
+  }
+
+  assert.deepEqual(
+    await routeDesktopRequest(ctx, 'workspace.deleteArchivedSession', { sessionId: 'session-gone' }, signal),
+    { deleted: true, archivedSessionIds: ['session-kept'] },
+  )
+  assert.deepEqual(removed, [{ id: 'session-gone', options: { signal } }])
+  assert.deepEqual(state.archivedSessionIds, ['session-kept'])
+})
+
+test('never destroys an active session and only drops archive state after durable removal', async () => {
+  let state = { initialized: true, workspaceIds: [], archivedSessionIds: ['session-archived'] }
+  const removed = []
+  const registry = {
+    state,
+    global: {
+      get: () => state,
+      set: async next => { state = next },
+    },
+    enqueueOperation: operation => operation(),
+  }
+  const persistence = {
+    delete: async id => {
+      removed.push(id)
+      if (id === 'session-archived') throw Object.assign(new Error('write handle owns the session'), { code: 'session-already-owned' })
+      return false
+    },
+  }
+  const ctx = { get: key => ({ workspaceRegistry: registry, sessionPersistence: persistence })[key] }
+
+  // An unarchived session is refused outright; persistence is never asked.
+  assert.deepEqual(
+    await routeDesktopRequest(ctx, 'workspace.deleteArchivedSession', { sessionId: 'session-active' }, signal),
+    { deleted: false, archivedSessionIds: ['session-archived'] },
+  )
+  assert.deepEqual(removed, [])
+
+  // A refused removal leaves the session archived and retryable.
+  await assert.rejects(
+    routeDesktopRequest(ctx, 'workspace.deleteArchivedSession', { sessionId: 'session-archived' }, signal),
+    error => error?.code === 'session-already-owned',
+  )
+  assert.deepEqual(removed, ['session-archived'])
+  assert.deepEqual(state.archivedSessionIds, ['session-archived'])
+
+  // An already-absent log reconciles the stale archive entry instead of reporting success.
+  state = { ...state, archivedSessionIds: ['session-missing'] }
+  registry.state = state
+  assert.deepEqual(
+    await routeDesktopRequest(ctx, 'workspace.deleteArchivedSession', { sessionId: 'session-missing' }, signal),
+    { deleted: false, archivedSessionIds: [] },
+  )
+  assert.deepEqual(removed, ['session-archived', 'session-missing'])
+  assert.deepEqual(state.archivedSessionIds, [])
+})
+
+test('refuses archived deletion when the mounted persistence backend implements no removal', async () => {
+  const state = { initialized: true, workspaceIds: [], archivedSessionIds: ['session-1'] }
+  const registry = {
+    state,
+    global: { get: () => state, set: async next => { state = next } },
+    enqueueOperation: operation => operation(),
+  }
+  const ctx = {
+    get: key => key === 'workspaceRegistry' ? registry
+      : key === 'sessionPersistence' ? { list: async () => [] }
+      : undefined,
+  }
 
   await assert.rejects(
-    routeDesktopRequest({
-      get: key => ({
-        workspaceRegistry: registry,
-        sessions: { get: () => { sessionReads += 1; return {} } },
-      })[key],
-    }, 'workspace.deleteArchivedSession', { sessionId: 'session-locationless' }, signal),
+    routeDesktopRequest(ctx, 'workspace.deleteArchivedSession', { sessionId: 'session-1' }, signal),
     error => error?.code === 'session-delete-unavailable'
-      && /不公开安全的会话永久删除接口/.test(error.message),
+      && /未挂载支持永久删除的会话存储/.test(error.message),
   )
-  assert.equal(sessionReads, 0)
-  assert.deepEqual(state.archivedSessionIds, ['session-locationless'])
+  assert.deepEqual(state.archivedSessionIds, ['session-1'])
 })
 
 test('adds model context windows and input modalities without changing the API response shape', async () => {
@@ -2013,7 +2081,7 @@ test('keeps session export unavailable without a public alpha persistence archiv
   await assert.rejects(routeDesktopRequest(ctx, 'session.exportZip', { sessionId: 'session-123', includeDescendants: 'yes' }, signal), /requires sessionId/)
 })
 
-test('keeps repair and permanent deletion unavailable without private persistence access', async () => {
+test('keeps session repair unavailable without private persistence access', async () => {
   const state = { initialized: true, workspaceIds: [], archivedSessionIds: ['session-123'] }
   const registry = {
     state,
@@ -2031,10 +2099,6 @@ test('keeps repair and permanent deletion unavailable without private persistenc
   await assert.rejects(
     routeDesktopRequest(ctx, 'session.repairCorrupt', { sessionId: 'session-123' }, signal),
     error => error?.code === 'session-repair-unavailable' && error.details?.sessionId === 'session-123',
-  )
-  await assert.rejects(
-    routeDesktopRequest(ctx, 'workspace.deleteArchivedSession', { sessionId: 'session-123' }, signal),
-    error => error?.code === 'session-delete-unavailable' && error.details?.sessionId === 'session-123',
   )
   assert.equal(queriedPersistence, false)
   assert.deepEqual(state.archivedSessionIds, ['session-123'])

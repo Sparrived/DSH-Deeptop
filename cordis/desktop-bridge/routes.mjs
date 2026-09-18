@@ -87,9 +87,10 @@ function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-// Alpha keeps the registry's durable archive set but publishes no restore or
-// permanent-delete verbs. Route-owned mutations must use the registry queue so
-// they cannot overwrite archiveSession or ordinary workspace writes.
+// The official workspace surface owns archive mutations, but the desktop adds
+// restore and permanent deletion on top of the registry's durable archive set.
+// Route-owned mutations must use the registry queue so they cannot overwrite
+// archiveSession or ordinary workspace writes.
 function serializeArchiveMutation(registry, operation) {
   return registry.enqueueOperation(operation)
 }
@@ -347,23 +348,50 @@ async function restoreWorkspaceSession(ctx, payload) {
   })
 }
 
+/**
+ * Resolve the session-persistence service backing permanent removal, refusing
+ * loudly when the mounted backend implements no disposal semantics.
+ */
+function sessionRemoval(ctx) {
+  const persistence = ctx.get?.('sessionPersistence')
+  if (!persistence || typeof persistence.delete !== 'function') {
+    throw codedError('session-delete-unavailable', '当前 DSH 运行时未挂载支持永久删除的会话存储', {
+      capability: 'sessionPersistence.delete',
+    })
+  }
+  return persistence
+}
+
 async function deleteArchivedSession(ctx, payload, signal) {
   const sessionId = sessionIdFromPayload(payload, 'workspace.deleteArchivedSession')
   const registry = archiveRegistry(ctx)
   return serializeArchiveMutation(registry, async () => {
     signal?.throwIfAborted()
     const state = archiveState(registry)
-    if (!state.archivedSessionIds.includes(sessionId)) {
-      return { deleted: false, archivedSessionIds: [...state.archivedSessionIds] }
+    const archivedSessionIds = [...state.archivedSessionIds]
+    // Only an archived session may be destroyed: the archive step is the
+    // confirmation gate, so an active session keeps its log until archived.
+    if (!archivedSessionIds.includes(sessionId)) {
+      return { deleted: false, archivedSessionIds }
+    }
+    const persistence = sessionRemoval(ctx)
+
+    // The durable log goes first. Archive state is only dropped once the
+    // backend confirms disposal, so a failed removal leaves the session
+    // archived and retryable instead of orphaning an unreachable log.
+    const deleted = await persistence.delete(sessionId, signal === undefined ? undefined : { signal })
+    if (!deleted) {
+      // The log was already gone (removed out-of-band). Drop the stale archive
+      // entry so the desktop stops listing a session that no longer exists.
+      const reconciled = archivedSessionIds.filter((id) => id !== sessionId)
+      await persistArchivedSessionIds(registry, state, reconciled)
+      return { deleted: false, archivedSessionIds: reconciled }
     }
 
-    // DSH 0.1.5 keeps session artifact locations private. Never infer an
-    // on-disk path from a snapshot or reach into a private persistence method.
-    throw codedError(
-      'session-delete-unavailable',
-      '当前 DSH 运行时不公开安全的会话永久删除接口',
-      { sessionId },
-    )
+    const nextArchivedSessionIds = archivedSessionIds.filter((id) => id !== sessionId)
+    await persistArchivedSessionIds(registry, state, nextArchivedSessionIds)
+    await optionalSessionPins(ctx)?.clearSession(sessionId)
+    return { deleted: true, archivedSessionIds: nextArchivedSessionIds }
   })
 }
 
@@ -416,6 +444,9 @@ function probeDesktopCapabilities(ctx) {
     tools: home !== undefined && has(sessionController, 'canOpenWorkspacePath'),
     // Alpha.2 does not publish a safe raw-artifact export contract yet.
     sessionExport: false,
+    // Permanent removal is opt-in per backend; only a mounting persistence
+    // service that implements `delete` may offer it in the desktop.
+    sessionDelete: has(get('sessionPersistence'), 'delete'),
     commands: has(get('typertGateway'), 'invoke'),
     uiPlugins: has(get('deeptopUiRegistry'), 'list'),
     // 文件附件走官方暂存回执；缺少 fileUploads 时前端只保留图片与路径引用。
