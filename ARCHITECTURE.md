@@ -87,18 +87,38 @@ instead of growing the plugin lifecycle code.
 
 ### Crash recovery for session logs
 
-When Deeptop is force-killed, DSH may leave a session artifact whose last
-structurally complete zstd frame ends in a torn JSONL record. Upstream DSH
-(`dsh-session-persistence-jsonl`) rejects such logs with `corrupt Zstandard
-session log: complete frame contains a torn JSONL record` and never
-auto-recovers them, so the session becomes unopenable. Deeptop fixes this on
-the desktop side: the `session.repairCorrupt` bridge route (implemented in
-`cordis/desktop-bridge/session-repair.mjs`, surfaced through the desktop Bridge routes) scans the artifact,
-preserves the committed prefix, drops the torn tail, verifies the result is
-readable, and rewrites it atomically (temp file + rename). It refuses to touch
-a session that is still running or an artifact that cannot be repaired. The
-frontend calls it automatically once when `session.history` reports the
-corruption error, and offers a manual "修复并重新打开" button as a fallback.
+Session artifacts are per-session directories holding one or more immutable
+generations plus a POSIX `session.lock`; DSH owns their layout and keeps the
+paths private, so the desktop never reads or rewrites them directly.
+
+Torn-tail recovery lives in the write path. When a force-killed process leaves
+a torn final frame, the next writer recovers the committed records it contains,
+truncates the torn bytes, and durably rewrites the recovered events; readers
+never repair and never write back, so an unopenable log stays unopenable until
+a writer touches it. Two states need that writer:
+
+- The last structurally complete zstd frame ends in a torn JSONL record. DSH
+  rejects the log with `corrupt Zstandard session log: complete frame contains
+  a torn JSONL record`, and does not recover it on read.
+- A crash-restart leaves a stale daemon appending to the same `DSH_HOME`, so
+  two writers interleave overlapping seq branches. Contiguity is enforced per
+  write handle and a cross-process kernel lock admits one writer per session, so
+  this class cannot arise through the persistence seam.
+
+The desktop UI only ever performs cold reads (`projectionMode: 'none'`) and
+never resumes or activates a session, so nothing on the desktop side reaches a
+write path that could repair these logs. Physical repair for the second class
+would also require machinery DSH does not expose: every existing seq-gap check
+refuses rather than reconstructs, and the committed region cannot be rewritten
+through the persistence seam.
+
+The `session.repairCorrupt` bridge route therefore refuses with
+`session-repair-unavailable` instead of pretending to repair, and the repair
+banner reports that refusal. A genuine fix has to either resume the session
+through DSH's agent layer (which writes to disk, publishes an agent, and refuses
+while another writer owns the session) or come from upstream. Run exactly one
+DSH instance per `DSH_HOME`: the kernel lock makes a second writer fail rather
+than corrupt a log.
 
 This is a loopback adapter, not a second WebUI module loader. Official `dsh.client`
 bundles still require `window.__ModuleLoader__`, Cordis client contexts and the
@@ -106,20 +126,6 @@ WebUI slot assembly. They are intentionally not loaded by the desktop shell;
 their Host/Remote contracts may still be reused through a native adapter. A
 future full WebUI compatibility mode, if ever required, must be designed as a
 separate runtime rather than mixed into this desktop boundary.
-
-A second corruption class comes from two DSH instances sharing one
-`DSH_HOME` and appending to the same session concurrently (for example a
-crash-restart that leaves a stale daemon alive). Each writer carries its own
-seq counter, so their frames interleave overlapping seq branches in the
-committed region; DSH rejects the result with `corrupt session log: seq gap in
-committed region at line N (expected X, got Y)`. The same repair path handles
-it: `reconstructContiguous` in `cordis/desktop-bridge/session-repair.mjs` decodes every committed
-record (expanding packed `*-chunks` rows exactly like `decodeStorageRecord`)
-and keeps only the records that continue the running seq counter — the longest
-contiguous stream, which preserves every later turn. `verifyReadable` now also
-checks seq continuity, so a rebuilt log is validated by the same rule DSH
-enforces, and the repair reports `droppedSeqGap` alongside `droppedTorn`. To
-prevent recurrence, exactly one DSH instance should run per `DSH_HOME`.
 
 The disposer aborts event streams and closes stdin. This follows the Harness
 plugin lifecycle: resources registered by a plugin must stop when the plugin is
