@@ -1,6 +1,6 @@
-/* Turn rail (轮次导航刻度轨): floats over the transcript's right edge as a
+/* Turn rail (轮次导航刻度轨): floats over the transcript's left edge as a
    fixed-pitch ladder of every known turn. The slot sticks to the vertical
-   center of the visible transcript so the ladder reads as a right-side
+   center of the visible transcript so the ladder reads as a left-side
    navigation column instead of hugging the top. Marks advance one step per
    turn, the frame scrolls when the ladder outgrows the viewport band, and the
    band ends fade when scrollable. */
@@ -15,7 +15,7 @@
   z-index: 6; /* above message code banners, below floating menus */
   height: 0;
   width: 0;
-  margin-left: auto;
+  margin-right: auto;
   pointer-events: none;
 }
 
@@ -25,7 +25,7 @@
 .turn-rail-frame,
 .turn-rail-preview-seat {
   position: absolute;
-  right: 0;
+  left: 0;
   top: calc(var(--turn-rail-band) / -2);
 }
 
@@ -93,9 +93,10 @@
    destination that paints one tick, not a mouse target of its own. */
 .turn-rail-mark {
   position: absolute;
-  inset: 0;
+  top: 0;
+  bottom: 0;
+  left: 0;
   width: 28px;
-  margin-left: auto;
   padding: 0;
   border: 0;
   border-radius: 2px;
@@ -104,14 +105,14 @@
   outline: none;
 }
 
-/* One tick: a short vertical dash at the frame's right edge. 加宽加粗一档并把默认色
-   提到 --faint（悬停再深一档、当前轮保持强调色），让刻度轨在密集对话流的右缘清楚
+/* One tick: a short vertical dash at the frame's left edge. 加宽加粗一档并把默认色
+   提到 --faint（悬停再深一档、当前轮保持强调色），让刻度轨在密集对话流的左缘清楚
    可辨；未加载的轮次仍留最轻的一条，读作次要刻度。 */
 .turn-rail-mark::before {
   content: "";
   position: absolute;
   top: 50%;
-  right: 0;
+  left: 0;
   width: 14px;
   height: 3px;
   border-radius: 2px;
@@ -162,7 +163,7 @@
    projection budgets (50 / 120 chars) on the data side. */
 .turn-rail-preview {
   position: absolute;
-  right: 32px;
+  left: 32px;
   width: 300px;
   max-height: 120px;
   overflow: hidden;

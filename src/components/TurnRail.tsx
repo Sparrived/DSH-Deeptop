@@ -1,5 +1,5 @@
 // Turn rail: a fixed-pitch ladder of every known turn of the session, drawn
-// over the transcript's right gutter. A loaded turn scrolls to its row; an
+// over the transcript's left gutter. A loaded turn scrolls to its row; an
 // unloaded one first pages history through its `turn/start` seq. Mirrors the
 // official web chat rail interaction (hover/focus preview, busy pulse,
 // active mark), sized for the desktop transcript.
