@@ -3,6 +3,7 @@ import type {
   DshCommandDescriptor,
   DshCommandExecution,
   DshCredential,
+  DshFileAttachmentRef,
   DshFileReferenceCandidate,
   DshHistoryEntry,
   DshMessageAnnotationItem,
@@ -17,11 +18,13 @@ import type {
   DshSessionReferenceCandidate,
   DshSessionRepairResult,
   DshSessionSummary,
+  DshStagedFileResult,
   DshSettingsDescription,
   DshSettingsNamespace,
   DshNetworkProxy,
   DshNetworkProxyResult,
   DshNetworkProxySnapshot,
+  DshPathKind,
   DshSkill,
   DshSkillInstallResult,
   DshManagedSkillMutation,
@@ -141,6 +144,16 @@ const session = {
     requires: "sessions",
     payload: {} as { sessionId: string; attachmentId: string },
     value: {} as DshAttachmentResult,
+  },
+  "session.stageFile": {
+    requires: "fileAttachments",
+    payload: {} as { sessionId: string; path: string },
+    value: {} as DshStagedFileResult,
+  },
+  "session.restageAttachment": {
+    requires: "fileAttachments",
+    payload: {} as DshFileAttachmentRef & { sessionId: string },
+    value: {} as DshStagedFileResult,
   },
   "session.cancel": {
     requires: "sessions",
@@ -479,6 +492,11 @@ const host = {
     requires: "sessions",
     payload: {} as { path: string },
     value: {} as unknown,
+  },
+  "host.pathKinds": {
+    requires: "sessions",
+    payload: {} as { paths: string[] },
+    value: {} as { kinds: DshPathKind[] },
   },
 } as const satisfies Record<string, BridgeMethodContract>;
 

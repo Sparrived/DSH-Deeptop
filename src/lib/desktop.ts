@@ -332,7 +332,24 @@ export type DshImageMediaType = "image/png" | "image/jpeg" | "image/webp" | "ima
 /** The prompt content shape accepted by the DSH session.prompt API. */
 export type DshPromptContentPart =
   | { type: "text"; text: string }
-  | { type: "image"; mediaType: DshImageMediaType; data: string; name?: string };
+  | { type: "image"; mediaType: DshImageMediaType; data: string; name?: string }
+  | { type: "file"; receiptId: string };
+
+/**
+ * 持久化文件附件引用。`attachmentId` 是内容哈希，`name` 是 DSH 清洗后的
+ * 叶子名，`bytes` 是原始字节数；重试时按这三个字段从 Host 重新取回字节。
+ */
+export interface DshFileAttachmentRef {
+  attachmentId: string;
+  name: string;
+  bytes: number;
+}
+
+/** 官方 fileUploads 暂存回执：prompt 只引用 receiptId，不再传输字节。 */
+export interface DshStagedFileResult {
+  receiptId: string;
+  file: DshFileAttachmentRef;
+}
 
 export interface DshSessionPromptPayload {
   sessionId: string;
@@ -354,6 +371,9 @@ export interface DshFileReferenceCandidate {
   path: string;
   kind: "file" | "directory";
 }
+
+/** `host.pathKinds` 对单个宿主路径的分类结果（`missing` 表示读取失败或路径已不存在）。 */
+export type DshPathKind = "file" | "directory" | "other" | "missing";
 
 export interface DshSessionReferenceCandidate {
   sessionId: string;
@@ -686,6 +706,7 @@ export type DshCapabilityKey =
   | "tools"
   | "sessionExport"
   | "commands"
+  | "fileAttachments"
   | "uiPlugins";
 
 /** `desktop.capabilities` 的探测结果：每个官方能力键是否已在 Host 中就绪。 */
